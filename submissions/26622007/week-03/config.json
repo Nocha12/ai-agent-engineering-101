@@ -2,12 +2,16 @@
   "model": "deepseek/deepseek-v4.1-flash",
   "temperature": 0,
   "max_tokens": 512,
-  "reasoning": {"enabled": false},
+  "reasoning": {
+    "enabled": false
+  },
   "provider": {
-    "only": ["novita/fp8"],
-    "allow_fallbacks": false,
+    "allow_fallbacks": true,
     "require_parameters": true,
-    "max_price": {"prompt": 0.3, "completion": 1.2}
+    "max_price": {
+      "prompt": 0.3,
+      "completion": 1.2
+    }
   },
   "timeout_seconds": 30,
   "max_attempts": 2,

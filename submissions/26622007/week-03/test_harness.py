@@ -124,7 +124,9 @@ class TransportTests(unittest.TestCase):
         self.assertIn("http_error", [event for event, _ in self.events])
         payload = json.loads(requests[0])
         self.assertEqual(payload["reasoning"], {"enabled": False})
-        self.assertEqual(payload["provider"]["only"], ["novita/fp8"])
+        self.assertNotIn("only", payload["provider"])
+        self.assertIs(payload["provider"]["allow_fallbacks"], True)
+        self.assertIs(payload["provider"]["require_parameters"], True)
         self.assertEqual(len(payload["messages"]), 2)
 
     def test_401_does_not_retry_and_secret_is_redacted(self):

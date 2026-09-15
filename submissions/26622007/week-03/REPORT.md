@@ -5,7 +5,8 @@ Codex가 실행 하네스와 합성 작업을 작성했다. 아래 결과는 실
 
 ## 1. 설정
 
-- provider: OpenRouter, backend는 Novita FP8 (`novita/fp8`)로 고정, fallback=false.
+- provider: OpenRouter 자동 라우팅. `only`·`order`·`sort` 없음, allow_fallbacks=true, require_parameters=true. 계정 정책과 입력 $0.30/M·출력 $1.20/M 상한을 적용한다.
+- 실제 backend는 호출마다 로그의 provider 필드로 확인한다. 라우팅 정책은 세 조건에서 같고 다른 모델로 fallback하지 않는다. 공급자 구현·양자화 차이는 통제하지 못하는 변동 요인이다.
 - model: deepseek/deepseek-v4.1-flash.
 - temperature=0, max_tokens=512, reasoning.enabled=false 요청.
 - A 제품·기술 / B 사업·분석 / C 운영·커뮤니케이션. 정확한 프롬프트는 contract_net.py와 각 실행의 start 로그에 보관.
@@ -30,7 +31,7 @@ HTTP 18회, 입력 7593 토큰, 출력 1315 토큰, 추론 0 토큰, API 응답 
 
 [정상 실행 로그](logs/20260915T121417-95790cf5-baseline.log)의 낙찰은 17·33·49·65·81·97행, 정답 대조는 98–103행, 집계는 104–105행이다.
 순서대로 A, C, B, B, A, C에게 배정됐다. 조건별 추세를 판단할 반복 실험은 아직 없다.
-제출 전 같은 설정으로 baseline 2회, homogeneous 3회, overconfident 3회를 더 실행한다.
+이 완료 결과는 이전 Novita 고정 설정이다. 사용자 요청으로 현재 설정은 자동 라우팅으로 변경했으며 새 설정의 반복 실험과 분리한다.
 
 ## 3. Smith (1980) 비교 — 사용자가 작성
 

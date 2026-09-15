@@ -19,7 +19,7 @@
 - API 응답 비용 합계 **$0.003780636**. 위 18개 응답 기준이며 사전 연결 점검은 별도다.
 - [원본 로그](logs/20260915T121417-95790cf5-baseline.log), [모든 성공·실패 행](results.csv).
 - 앞선 DeepInfra·Fireworks의 HTTP 429 실패 3회는 CSV와 로그에 보존했다. 공급자 설정이 달라 현재 조건 비교의 반복 횟수에 포함하지 않는다.
-- 제출 전 동일 Novita 설정으로 baseline 2회, homogeneous 3회, overconfident 3회가 더 필요하다. REPORT의 Smith 비교·해석도 작성해야 한다.
+- 위 결과는 공급자 고정 설정의 과거 검증이다. 사용자 요청에 따라 현재 설정을 자동 라우팅으로 바꾸었으며, 현재 설정으로는 별도 반복 비교 실험이 필요하다. REPORT의 Smith 비교·해석도 작성해야 한다.
 
 ## 구조
 
@@ -40,7 +40,7 @@ flowchart TD
 | 파일 | 책임 |
 |---|---|
 | `contract_net.py` | 역할·공고, JSON 입찰 검증, 낙찰과 집계. API·인증 정보를 모른다. |
-| `openrouter_client.py` | OpenRouter 호출, 공급자 고정, 시간·재시도·총 호출 제한 |
+| `openrouter_client.py` | OpenRouter 호출, 공급자 자동 라우팅 설정, 시간·재시도·총 호출 제한 |
 | `run.py` | 실행 초기화, 로그, CSV, 설정·소스 해시, 실제 실행 요약 |
 | `config.json` | 모델·온도·토큰·추론·공급자·오류 정책 |
 | `tasks.json`, `TASK_DESIGN.md` | 사전에 커밋하는 작업과 정답 근거 |
@@ -89,7 +89,9 @@ python3 scripts/check_week03.py submissions/26622007/week-03
 ## 고정 조건
 
 - 모델 `deepseek/deepseek-v4.1-flash`, OpenRouter 주소는 코드에 고정.
-- provider `novita/fp8`만 허용, 공급자 fallback 금지, 요청 파라미터 지원 필수.
+- 공급자 자동 라우팅: `only`·`order`·`sort`를 지정하지 않고 `allow_fallbacks=true`, `require_parameters=true`로 요청한다. OpenRouter가 계정 정책·단가 상한·파라미터 지원을 충족하는 공급자들에서 선택하고 장애 시 다른 공급자를 시도한다.
+- 모델 목록 fallback은 사용하지 않는다. 어떤 공급자가 선택돼도 요청 모델 ID는 동일하며 실제 응답의 provider/model/usage를 기록한다.
+- 조건 간 고정 대상은 라우팅 정책이다. 공급자별 구현·양자화 차이가 영향을 줄 수 있으므로 결과 해석 때 실제 공급자 분포도 확인한다.
 - temperature=0, max_tokens=512, reasoning.enabled=false 요청. 짧은 입찰용 설정이며 최대 추론 벤치마크와 같지 않다.
 - JSON 강제 API 옵션이나 응답 자동 수리는 사용하지 않는다. 프롬프트로 JSON을 요구하고 실패를 측정한다.
 - 요청 제한: 30초, 통신·일부 HTTP 오류에만 최대 2회 시도, 재시도 전 2초 대기. 한 명령 최대 324회 HTTP 요청.
@@ -124,5 +126,5 @@ reported_cost_usd는 API가 제공한 비용 합계다. 누락 응답·통신 �
 참조: [과제 명세](https://github.com/Q00/ai-agent-engineering-101/blob/main/weeks/week-03/README.md),
 [강의](https://wpti.dev/ai-agent-engineering-101/week-03.html),
 [OpenRouter 모델](https://openrouter.ai/deepseek/deepseek-v4.1-flash),
-[공급자 고정](https://openrouter.ai/docs/guides/routing/provider-selection),
+[공급자 라우팅](https://openrouter.ai/docs/guides/routing/provider-selection),
 [추론 설정](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens).

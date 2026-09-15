@@ -41,9 +41,9 @@ def load_config(path):
     if data.get("reasoning") != {"enabled": False}:
         raise ConfigurationError("this experiment fixes reasoning.enabled=false")
     provider = data.get("provider", {})
-    if (provider.get("only") != ["novita/fp8"] or provider.get("allow_fallbacks") is not False
+    if (not isinstance(provider, dict) or provider.get("allow_fallbacks") is not True
             or provider.get("require_parameters") is not True):
-        raise ConfigurationError("pin the novita/fp8 provider, disable fallbacks, require parameters")
+        raise ConfigurationError("enable provider fallbacks and require parameter support")
     prices = provider.get("max_price", {})
     for field in ("prompt", "completion"):
         value = prices.get(field)
