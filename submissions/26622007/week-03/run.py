@@ -194,7 +194,10 @@ def main():
     expected = len(tasks) * 3 * len(conditions) * args.repeats
     env_file = args.env_file
     if env_file is None:
-        env_file = next((p for p in (ROOT / ".env", ROOT.parent / ".env") if p.exists()), None)
+        # The course checker scans every file under week-03, including ignored files.
+        # Keep credentials one directory above the checked submission.
+        candidate = ROOT.parent / ".env"
+        env_file = candidate if candidate.exists() else None
     if args.command == "plan":
         try:
             read_key(env_file)

@@ -40,11 +40,13 @@ API 호출용 객체는 재사용하지만 대화 기록은 보관하지 않는�
 Python 3.10 이상, macOS/Linux. 외부 Python 패키지가 필요 없다.
 아래 명령은 저장소 루트에서 실행한다. 이미 있는 `.venv/bin/python`으로 `python3`를 대체해도 된다.
 
-키는 로컬 `week-03/.env`의 `OPENROUTER_API_KEY`에 설정한다. `.env.example`은 빈 형식 참고용이다.
-우선순위는 `--env-file` → `week-03/.env` → 상위 학번 폴더 `.env` → 환경변수 `OPENROUTER_API_KEY`다.
+키는 상위 학번 폴더의 로컬 `.env`에 `OPENROUTER_API_KEY` 항목으로 설정한다. `.env.example`은 빈 형식 참고용이다.
+기존 다른 키 항목을 유지하고 OpenRouter 항목만 추가하면 된다.
+우선순위는 `--env-file` → 상위 학번 폴더 `.env` → 환경변수 `OPENROUTER_API_KEY`다.
 파일이 있으면 그 파일의 설정만 사용하고, 값이 비었거나 잘못됐어도 다른 키로 자동 대체하지 않는다.
 기존 파일의 `OPENAI_API_KEY`도 OpenRouter 키 형식일 때만 호환된다. 셸의 일반 OpenAI 키는 읽지 않는다.
 키는 로그·명령 인자·Git에 넣지 않는다. 기존 다른 서비스의 키를 수정할 필요는 없다.
+공식 검사기는 Git에서 무시하는 파일도 검사하므로 **실제 키 파일은 week-03 안에 두지 않는다.**
 
 ```bash
 # 네트워크 호출 없이 설정·예상 호출 수·키 형식만 확인
