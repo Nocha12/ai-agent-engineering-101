@@ -57,7 +57,7 @@ def load_tasks(text):
         task_id, desc, gold = item["id"], item["desc"], item["gold"]
         if not isinstance(task_id, str) or not task_id.strip() or task_id in golds:
             raise ValueError("task ids must be unique nonempty strings")
-        if not isinstance(desc, str) or not desc.strip() or gold not in SKILLS:
+        if not isinstance(desc, str) or not desc.strip() or not isinstance(gold, str) or gold not in SKILLS:
             raise ValueError("task description or gold is invalid")
         tasks.append(Task(task_id, desc))
         golds[task_id] = gold
@@ -108,7 +108,7 @@ def parse_bid(raw):
     confidence = data["confidence"]
     if type(data["bid"]) is not bool:
         raise ValueError("bid must be a boolean")
-    if type(confidence) not in (int, float) or not math.isfinite(confidence) or not 0 <= confidence <= 100:
+    if type(confidence) not in (int, float) or not 0 <= confidence <= 100 or not math.isfinite(confidence):
         raise ValueError("confidence must be a finite number in [0,100]")
     if not isinstance(data["reason"], str) or not data["reason"].strip():
         raise ValueError("reason must be a nonempty string")

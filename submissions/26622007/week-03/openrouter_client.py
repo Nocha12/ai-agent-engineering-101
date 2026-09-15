@@ -76,7 +76,8 @@ class OpenRouterClient:
                     raw = response.read().decode("utf-8")
             except HTTPError as exc:
                 status = exc.code
-                body = redact(exc.read().decode("utf-8", errors="replace"), self.key)
+                with exc:
+                    body = redact(exc.read().decode("utf-8", errors="replace"), self.key)
                 error, retryable = f"HTTP {status}", status in (408, 429, 500, 502, 503, 504)
                 emit("http_error", **tags, attempt=attempt, status=status, response=body)
             except (URLError, TimeoutError, OSError):
