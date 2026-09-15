@@ -1,7 +1,7 @@
-# Week 03 보고서 — 작성 전 템플릿
+# Week 03 보고서 — 실행 기록과 해석 템플릿
 
-**실제 OpenRouter 실험 전이며 제출용 완성 보고서가 아니다.**
-Codex가 실행 하네스와 합성 작업을 작성했다. 아래 결과·비교·해석은 사용자가 실제 로그를 검토한 뒤 작성한다.
+**실제 baseline 1회 완료. 조건 비교와 사용자 해석이 남아 있어 제출용 완성 보고서가 아니다.**
+Codex가 실행 하네스와 합성 작업을 작성했다. 아래 결과는 실제 로그에서 옮겼으며 Smith 비교·해석은 사용자가 검토한 뒤 작성한다.
 
 ## 1. 설정
 
@@ -15,11 +15,22 @@ Codex가 실행 하네스와 합성 작업을 작성했다. 아래 결과·비�
 
 ## 2. 실제 결과
 
-아직 실행하지 않았다. 모의 테스트를 실험 결과로 사용하지 않는다.
-실행 후 `run.py summary`의 표를 넣고 crashed 행도 보존한다.
+[results.csv](results.csv)의 모든 행을 아래에 표시한다. `—`는 crashed 행의 빈 수치이며 0점이 아니다.
+앞선 실패 3회는 다른 공급자 설정이므로 정상 baseline 반복 실험으로 세지 않는다.
 
-| run | condition | correct/tasks | messages | unassigned | misawards | parse_fails |
-|---|---|---|---|---|---|---|
+| run | condition | tasks | correct | messages | unassigned | misawards | note |
+|---|---|---:|---:|---:|---:|---:|---|
+| 20260915T121020-423c5498 | baseline | — | — | — | — | — | crashed; CallError: HTTP 429 |
+| 20260915T121106-1358bb2f | baseline | — | — | — | — | — | crashed; CallError: HTTP 429 |
+| 20260915T121151-75d78906 | baseline | — | — | — | — | — | crashed; CallError: HTTP 429 |
+| 20260915T121417-95790cf5 | baseline | 6 | 6 | 36 | 0 | 0 | completed; parse_fails=0 |
+
+정상 완료 설정 ID는 `2e2176856b2de858`이며 모든 실제 응답의 모델은 `deepseek/deepseek-v4.1-flash`, 공급자는 Novita였다.
+HTTP 18회, 입력 7593 토큰, 출력 1315 토큰, 추론 0 토큰, API 응답 비용 합계 $0.003780636이다. 비용 필드 누락은 0개다.
+
+[정상 실행 로그](logs/20260915T121417-95790cf5-baseline.log)의 낙찰은 17·33·49·65·81·97행, 정답 대조는 98–103행, 집계는 104–105행이다.
+순서대로 A, C, B, B, A, C에게 배정됐다. 조건별 추세를 판단할 반복 실험은 아직 없다.
+제출 전 같은 설정으로 baseline 2회, homogeneous 3회, overconfident 3회를 더 실행한다.
 
 ## 3. Smith (1980) 비교 — 사용자가 작성
 
