@@ -63,3 +63,13 @@
 - 공식 Provider Routing 문서에서 기본 로드밸런싱과 allow_fallbacks 동작을 확인했다. config의 단일 공급자 only를 제거하고 allow_fallbacks=true로 변경했다. order와 sort도 지정하지 않아 기본 라우팅 정책을 사용한다.
 - 모델·온도·출력 한도·추론·프롬프트·작업은 그대로다. 단가 상한·계정 정책·모든 요청 파라미터 지원 조건도 유지한다. API 응답의 실제 provider를 계속 기록한다.
 - 과거 Novita 고정 결과는 보존하며 자동 라우팅 결과는 새 experiment_id로 구분한다. 공급자가 달라질 수 있으므로 조건 해석 시 공급자 분포도 확인한다.
+
+## 자동 라우팅 검증 완료
+
+- 실행 `20260915T121722-fb1a7bb5`에서 독립 모델 호출 18개가 정상 완료됐다. 실제 공급자는 Novita 4회, Relace 2회, Wafer 3회, Alibaba 2회, Modal 1회, Morph 3회, Parasail 1회, GMICloud 1회, Reka 1회였다. 모델은 모든 응답에서 DeepSeek V4.1 Flash로 확인했다.
+- 작업 6개 정답 배정, 메시지 35, 미배정·오배정·JSON 실패 각 0, 거절 7이다. 응답 비용 합계 $0.003295322이다.
+- CSV의 성공·실패 5개 행을 각 원본 run_record와 대조하고, 낙찰·메시지·비용을 로그에서 독립 재계산해 일치함을 확인했다. diagnostics/24-live-result-verification.json에 증거를 저장했다.
+- 현재 코드의 모의 테스트 16개와 문법 검사가 통과했다. 원래 요청한 간단한 구현과 1회 실제 테스트는 완료했으며, 제출 전 추가 반복 실험과 사용자 해석은 남아 있다.
+- 결과 문서 갱신용 임시 Python 명령의 첫 실행은 f-string 구문 오류로 파일 수정 전에 종료됐다. 괄호를 바로잡은 후 실제 측정값으로 README·REPORT·PROCESS 갱신을 완료했다.
+
+- 최종 공식 검사에서 코드·작업·보고서는 통과했다. homogeneous/overconfident 각 0회와 전체 로그 5개로 3개 항목이 실패했다. baseline 행 5개에는 실패와 과거 설정이 포함돼 있으며 현재 자동 라우팅 성공은 1회다. 검사 출력을 diagnostics/25-course-check-after-live.log에 그대로 보존했다.
