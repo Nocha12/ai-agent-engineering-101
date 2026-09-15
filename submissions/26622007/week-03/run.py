@@ -41,9 +41,9 @@ def load_config(path):
     if data.get("reasoning") != {"enabled": False}:
         raise ConfigurationError("this experiment fixes reasoning.enabled=false")
     provider = data.get("provider", {})
-    if (provider.get("only") != ["deepseek"] or provider.get("allow_fallbacks") is not False
+    if (provider.get("only") != ["deepinfra/fp8"] or provider.get("allow_fallbacks") is not False
             or provider.get("require_parameters") is not True):
-        raise ConfigurationError("pin the deepseek provider, disable fallbacks, require parameters")
+        raise ConfigurationError("pin the deepinfra/fp8 provider, disable fallbacks, require parameters")
     prices = provider.get("max_price", {})
     for field in ("prompt", "completion"):
         value = prices.get(field)

@@ -74,7 +74,7 @@ python3 scripts/check_week03.py submissions/26622007/week-03
 ## 고정 조건
 
 - 모델 `deepseek/deepseek-v4.1-flash`, OpenRouter 주소는 코드에 고정.
-- provider `deepseek`만 허용, 공급자 fallback 금지, 요청 파라미터 지원 필수.
+- provider `deepinfra/fp8`만 허용, 공급자 fallback 금지, 요청 파라미터 지원 필수.
 - temperature=0, max_tokens=512, reasoning.enabled=false 요청. 짧은 입찰용 설정이며 최대 추론 벤치마크와 같지 않다.
 - JSON 강제 API 옵션이나 응답 자동 수리는 사용하지 않는다. 프롬프트로 JSON을 요구하고 실패를 측정한다.
 - 요청 제한: 30초, 통신·일부 HTTP 오류에만 최대 2회 시도, 재시도 전 2초 대기. 한 명령 최대 324회 HTTP 요청.
