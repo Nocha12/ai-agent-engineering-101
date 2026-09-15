@@ -103,7 +103,7 @@ class TransportTests(unittest.TestCase):
 
     def response(self, content):
         body = {"choices": [{"message": {"content": content}, "finish_reason": "stop"}],
-                "model": self.config["model"], "provider": "DeepInfra",
+                "model": self.config["model"], "provider": "Fireworks",
                 "usage": {"prompt_tokens": 30, "completion_tokens": 20, "cost": 0.00002}}
         return io.BytesIO(json.dumps(body).encode())
 
@@ -124,7 +124,7 @@ class TransportTests(unittest.TestCase):
         self.assertIn("http_error", [event for event, _ in self.events])
         payload = json.loads(requests[0])
         self.assertEqual(payload["reasoning"], {"enabled": False})
-        self.assertEqual(payload["provider"]["only"], ["deepinfra/fp8"])
+        self.assertEqual(payload["provider"]["only"], ["fireworks"])
         self.assertEqual(len(payload["messages"]), 2)
 
     def test_401_does_not_retry_and_secret_is_redacted(self):

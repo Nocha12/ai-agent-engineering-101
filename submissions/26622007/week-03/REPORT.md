@@ -5,7 +5,7 @@ Codex가 실행 하네스와 합성 작업을 작성했다. 아래 결과·비�
 
 ## 1. 설정
 
-- provider: OpenRouter, backend는 DeepInfra FP8 (`deepinfra/fp8`)로 고정, fallback=false.
+- provider: OpenRouter, backend는 Fireworks (`fireworks`)로 고정, fallback=false.
 - model: deepseek/deepseek-v4.1-flash.
 - temperature=0, max_tokens=512, reasoning.enabled=false 요청.
 - A 제품·기술 / B 사업·분석 / C 운영·커뮤니케이션. 정확한 프롬프트는 contract_net.py와 각 실행의 start 로그에 보관.

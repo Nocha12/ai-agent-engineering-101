@@ -35,3 +35,9 @@
 - 이후 사용자가 OPENROUTER_API_KEY를 다시 입력했다. 새 키의 인증 성공과 일반 추론 키 여부를 확인했다. 이 키는 위의 $1 제한 키와 별개이며 메타데이터상 키별 한도가 없다. 키 값은 출력하거나 기록하지 않았다.
 - 아직 성공한 본 실험은 없으므로 모델은 그대로 두고 공급자를 DeepInfra FP8로 고정해 연결을 재검증한다. 조건 간에는 공급자도 동일하게 유지한다.
 - 모든 인증 실패·정책 실패는 smoke 진단이며 results.csv의 실험 결과에 섞지 않는다.
+
+## 공급자 혼잡과 두 번째 고정 공급자
+
+- 새 사용자 키 + DeepInfra FP8로 smoke의 독립 호출 3개가 모두 성공했다. A가 입찰하고 B·C는 거절해 첫 작업을 A에게 배정했다. diagnostics/smoke-20260915T120934-a2ea9500-baseline.log에 원문을 보존했다.
+- 이어진 baseline 두 번은 각각 첫 호출과 재시도에서 HTTP 429로 중단됐다. 응답은 DeepInfra upstream_provider_shared_pool의 engine_overloaded를 명시했다. 두 crashed 행의 수치는 비워 두고 CSV와 logs/에 남겼다.
+- DeepInfra 혼잡이 반복되어 동일 모델을 제공하는 Fireworks로 공급자를 고정했다. 모델·작업·온도·역할·토큰·추론·선정 규칙은 그대로다. 공급자 변경으로 experiment_id가 달라지므로 앞선 실패와 조건 비교 결과를 합산하지 않는다.
