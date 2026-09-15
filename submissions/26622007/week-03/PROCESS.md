@@ -41,3 +41,10 @@
 - 새 사용자 키 + DeepInfra FP8로 smoke의 독립 호출 3개가 모두 성공했다. A가 입찰하고 B·C는 거절해 첫 작업을 A에게 배정했다. diagnostics/smoke-20260915T120934-a2ea9500-baseline.log에 원문을 보존했다.
 - 이어진 baseline 두 번은 각각 첫 호출과 재시도에서 HTTP 429로 중단됐다. 응답은 DeepInfra upstream_provider_shared_pool의 engine_overloaded를 명시했다. 두 crashed 행의 수치는 비워 두고 CSV와 logs/에 남겼다.
 - DeepInfra 혼잡이 반복되어 동일 모델을 제공하는 Fireworks로 공급자를 고정했다. 모델·작업·온도·역할·토큰·추론·선정 규칙은 그대로다. 공급자 변경으로 experiment_id가 달라지므로 앞선 실패와 조건 비교 결과를 합산하지 않는다.
+
+## 연결 가능한 공급자 확인
+
+- Fireworks의 baseline 호출도 HTTP 429로 실패했다. Relace FP4를 별도 smoke로 확인했지만 같은 upstream 공용 풀 오류가 발생했다. 실패 원문과 crashed 기록을 보존했다.
+- 본 실험과 분리한 1회 진단에서 동일 모델·파라미터·단가 상한을 유지하고 공급자 자동 라우팅을 허용했다. Novita에서 정상 JSON 입찰이 반환됐다. 이 응답은 results.csv에 포함하지 않는다.
+- 공개 모델 endpoint API에서 Novita의 정확한 태그 novita/fp8과 파라미터 지원을 확인했다. 입력 $0.30/M, 출력 $1.20/M로 기존 단가 상한 이내다.
+- 본 실험은 Novita FP8 단일 공급자로 다시 고정하며 fallback=false로 유지한다. 새로운 experiment_id를 사용한다. 계정 데이터 정책은 변경하지 않았다.
