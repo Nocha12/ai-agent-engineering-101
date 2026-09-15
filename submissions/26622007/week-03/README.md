@@ -24,6 +24,8 @@
 
 ## 구조
 
+[Excalidraw에서 상세 아키텍처 보기](https://excalidraw.com/#json=IWE-iBAx8SMugidp2dBSb,UsFiO02XiwYWsBrvuEU9qA) · [편집 가능한 원본](diagrams/week-03-architecture.excalidraw) · [다이어그램 설명](diagrams/README.md)
+
 ```mermaid
 flowchart TD
     R[run.py: 조건과 실행 초기화] --> M[관리자: 작업 공고]
