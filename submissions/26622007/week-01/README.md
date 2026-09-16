@@ -60,3 +60,10 @@ python scripts/check_week01.py submissions/26622007/week-01
 오프라인 정답은 200 cm + 35 cm + 25.4 cm = **260.4 cm**다.
 오프라인 테스트와 구조 검사는 실제 모델이 도구를 적절히 선택했다는 증거를 대신하지 않는다.
 실제 실행과 관찰은 `logs/`, 시도와 변경 이유는 `PROCESS.md`를 확인한다.
+
+## 실제 관찰 요약
+
+2026-09-16에 각 조건을 1회씩 실제 실행했다. 두 조건 모두 260.4 cm를 반환했다.
+baseline은 `read_file → calculator`, 세 도구 조건은 `read_file → convert_units → convert_units → calculator` 순서였다.
+새 도구를 제공하자 모델이 환산을 Python에 맡겼고, 이미 cm인 항목은 다시 변환하지 않았다.
+모델 호출은 3회/5회, 총 입력+출력 토큰은 1944/4603이었다. 1회 관찰이므로 일반적인 성능 우열로 해석하지 않는다.
