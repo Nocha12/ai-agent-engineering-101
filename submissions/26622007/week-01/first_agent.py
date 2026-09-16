@@ -1,12 +1,8 @@
-"""Week 01 starter — OpenAI-compatible API version (works with OpenRouter).
+"""Week 01: read mixed-unit lengths and calculate their total.
 
-Two tools: calculator, read_file. Your assignment: add a third.
-Requires: pip install openai, and in the environment:
-  OPENAI_API_KEY   your key (an OpenRouter key works)
-  OPENAI_BASE_URL  optional; set to https://openrouter.ai/api/v1 for OpenRouter
-  AGENT_MODEL      optional; defaults to gpt-4o-mini. For OpenRouter free
-                   models use e.g. AGENT_MODEL=meta-llama/llama-3.3-70b-instruct:free
+Based on the official OpenAI-compatible starter. See README.md for settings.
 """
+import argparse
 import os
 import sys
 import ast
@@ -66,26 +62,44 @@ TOOLS = [
                         "required": ["path"]}}},
 ]
 
-MODEL = os.environ.get("AGENT_MODEL", "gpt-4o-mini")
+MODEL = os.environ.get("AGENT_MODEL", "nvidia/nemotron-3.5-lightning:free")
+TASK = ("Read notes.txt and find the total length of the three parts in centimeters. "
+        "Show the converted length of each part and the total with units.")
 
 
-def run(goal: str, max_steps: int = 8):
-    client = OpenAI()  # uses OPENAI_API_KEY and OPENAI_BASE_URL
+def run(goal: str, max_steps: int = 8, baseline: bool = False):
+    client = OpenAI(timeout=45.0, max_retries=0)
+    tools = [t for t in TOOLS
+             if not baseline or t["function"]["name"] != "convert_units"]
+    allowed = {t["function"]["name"] for t in tools}
+    print(f"[config] model={MODEL} temperature=0 max_steps={max_steps} "
+          f"tools={sorted(allowed)}", flush=True)
+    print(f"[task] {goal}", flush=True)
     messages = [{"role": "user", "content": goal}]
 
     for step in range(max_steps):   # <- this loop is what makes it an agent
         resp = client.chat.completions.create(
-            model=MODEL, tools=TOOLS, messages=messages)
+            model=MODEL, tools=tools, messages=messages, temperature=0)
         msg = resp.choices[0].message
         messages.append(msg)
+        print(f"[step {step + 1}] {msg.content or ''}", flush=True)
+        if resp.usage:
+            print(f"[usage] input={resp.usage.prompt_tokens} "
+                  f"output={resp.usage.completion_tokens}", flush=True)
 
         if not msg.tool_calls:               # final answer -> stop
             return msg.content or ""
 
         for call in msg.tool_calls:          # execute tool calls -> observe
-            args = json.loads(call.function.arguments)
-            out = TOOLS_IMPL[call.function.name](**args)
-            print(f"  [tool] {call.function.name}({args}) -> {out}")
+            args = call.function.arguments
+            try:
+                if call.function.name not in allowed:
+                    raise ValueError("tool is not available in this run")
+                args = json.loads(args)
+                out = TOOLS_IMPL[call.function.name](**args)
+            except Exception as exc:
+                out = f"error: {exc}"
+            print(f"  [tool] {call.function.name}({args}) -> {out}", flush=True)
             messages.append({"role": "tool", "tool_call_id": call.id,
                              "content": str(out)})
 
@@ -93,6 +107,15 @@ def run(goal: str, max_steps: int = 8):
 
 
 if __name__ == "__main__":
-    goal = sys.argv[1] if len(sys.argv) > 1 else \
-        "Read notes.txt and sum the numbers in it."
-    print(run(goal))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("goal", nargs="?", default=TASK)
+    parser.add_argument("--baseline", action="store_true",
+                        help="Offer only the original calculator and read_file tools.")
+    args = parser.parse_args()
+    try:
+        print(f"[final] {run(args.goal, baseline=args.baseline)}", flush=True)
+    except Exception as exc:
+        # Record the failure without dumping authentication/request contents.
+        print(f"[failed] {type(exc).__name__} "
+              f"status={getattr(exc, 'status_code', None)}", flush=True)
+        sys.exit(1)

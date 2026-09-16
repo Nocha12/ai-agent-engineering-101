@@ -1,8 +1,4 @@
-Meeting memo, 2026-09-01
-
-Attendees: 4
-Pizza budget: 48000
-Drinks: 9500
-Reimbursed so far: 12000
-
-Sum the numbers above to get the total the agent should report.
+Parts to join end to end:
+Part A: 2 m
+Part B: 35 cm
+Part C: 10 inch
