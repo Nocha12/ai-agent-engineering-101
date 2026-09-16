@@ -40,6 +40,13 @@ class ConversionTests(unittest.TestCase):
         expression = " + ".join(x.split()[0] for x in converted)
         self.assertEqual(calculator(expression), "260.4")
 
+    def test_mixed_unit_subtraction(self):
+        kilometers = convert_units(1, "km", "m").split()[0]
+        feet = convert_units(10, "ft", "m").split()[0]
+        self.assertEqual(kilometers, "1000")
+        self.assertEqual(feet, "3.048")
+        self.assertEqual(calculator(f"1 - {kilometers} + {feet}"), "-995.952")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
