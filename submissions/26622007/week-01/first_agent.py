@@ -8,6 +8,7 @@ import sys
 import ast
 import json
 import operator
+from decimal import Decimal
 
 from openai import OpenAI
 
@@ -42,7 +43,36 @@ def read_file(path: str) -> str:
         return f.read()[:4000]
 
 
-TOOLS_IMPL = {"calculator": calculator, "read_file": read_file}
+# ---- tool 3: convert_units (length only; ratios are relative to one meter) ----
+METERS_PER_UNIT = {
+    "mm": Decimal("0.001"),
+    "cm": Decimal("0.01"),
+    "m": Decimal("1"),
+    "km": Decimal("1000"),
+    "inch": Decimal("0.0254"),
+    "ft": Decimal("0.3048"),
+}
+
+
+def convert_units(value: float, from_unit: str, to_unit: str) -> str:
+    """Convert a finite numeric length via meters, retaining the output unit."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("value must be a finite JSON number")
+    amount = Decimal(str(value))
+    if not amount.is_finite():
+        raise ValueError("value must be finite")
+    for unit in (from_unit, to_unit):
+        if not isinstance(unit, str) or unit not in METERS_PER_UNIT:
+            raise ValueError("supported length units: mm, cm, m, km, inch, ft")
+    # Example: 10 inch * 0.0254 meters/inch / 0.01 meters/cm = 25.4 cm.
+    result = amount * METERS_PER_UNIT[from_unit] / METERS_PER_UNIT[to_unit]
+    if result == 0:
+        result = Decimal(0)
+    return f"{format(result.normalize(), 'f')} {to_unit}"
+
+
+TOOLS_IMPL = {"calculator": calculator, "read_file": read_file,
+              "convert_units": convert_units}
 
 # ---- tool schemas handed to the model (the description IS the interface) ----
 TOOLS = [
@@ -60,6 +90,28 @@ TOOLS = [
          "parameters": {"type": "object",
                         "properties": {"path": {"type": "string"}},
                         "required": ["path"]}}},
+    {"type": "function",
+     "function": {
+         "name": "convert_units",
+         "description": (
+             "Convert one length value between mm, cm, m, km, inch, and ft. "
+             "Use this to put lengths in the same unit before arithmetic. "
+             "Returns the converted number followed by the target unit. "
+             "Only length conversions are supported; use calculator for sums "
+             "and other arithmetic."
+         ),
+         "parameters": {
+             "type": "object",
+             "properties": {
+                 "value": {"type": "number", "description": "The numeric length."},
+                 "from_unit": {"type": "string",
+                               "enum": ["mm", "cm", "m", "km", "inch", "ft"]},
+                 "to_unit": {"type": "string",
+                             "enum": ["mm", "cm", "m", "km", "inch", "ft"]}
+             },
+             "required": ["value", "from_unit", "to_unit"],
+             "additionalProperties": False
+         }}},
 ]
 
 MODEL = os.environ.get("AGENT_MODEL", "nvidia/nemotron-3.5-lightning:free")
