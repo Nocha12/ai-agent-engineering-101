@@ -14,6 +14,7 @@
     "reasoning": {"enabled": false},
     "provider": {"allow_fallbacks": true, "require_parameters": true, "max_price": {"prompt": 0.3, "completion": 1.2}},
     "timeout_seconds": 45,
+    "retry_delay_seconds": 1,
     "max_attempts": 2
   },
   "search": {
