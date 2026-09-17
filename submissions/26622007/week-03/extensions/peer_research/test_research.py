@@ -135,6 +135,7 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(len(citations), 1)
         self.assertFalse(self.records[-1]["reported_above_requested_limit"])
         self.assertEqual(bodies[0]["tools"][0]["type"], "openrouter:web_search")
+        self.assertEqual(bodies[0]["response_format"], {"type": "json_object"})
         self.assertNotIn("test-key", json.dumps(self.records))
         self.assertNotIn("Authorization", json.dumps(self.records))
 

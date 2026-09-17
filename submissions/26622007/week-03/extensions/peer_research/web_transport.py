@@ -37,7 +37,7 @@ class WebTransport:
         self.cost = 0.0
 
     def request(self, messages, use_web, collect):
-        body = {k: self.config[k] for k in ("model", "temperature", "max_tokens", "reasoning", "provider")}
+        body = {k: self.config[k] for k in ("model", "temperature", "max_tokens", "reasoning", "provider", "response_format")}
         body.update(messages=messages, stream=False)
         if use_web:
             body["tools"] = [{"type": "openrouter:web_search", "parameters": self.search}]
