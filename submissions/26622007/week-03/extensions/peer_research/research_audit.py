@@ -1,4 +1,4 @@
-"""Offline acceptance checks; answer keys never enter worker or tool requests."""
+"""Research acceptance checks; answer keys never enter worker or tool requests."""
 import re
 
 from memory import URL

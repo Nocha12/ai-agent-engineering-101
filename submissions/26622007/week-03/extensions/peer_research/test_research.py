@@ -11,7 +11,7 @@ import unittest
 from urllib.error import URLError
 
 from common import ROOT, Outcome, Task
-from audit import evaluate
+from research_audit import evaluate
 from memory import MemoryContext, MemoryStore
 from web_transport import WebTransport, canonical_url, public_url
 

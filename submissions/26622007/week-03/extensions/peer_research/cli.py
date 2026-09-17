@@ -11,7 +11,7 @@ import time
 import uuid
 
 from common import BASE, PEER, ROOT, ConfigurationError, Limits, Outcome, Runtime, Task, fingerprint, read_key, redact
-from audit import evaluate
+from research_audit import evaluate
 from memory import MemoryContext, MemoryStore
 from research_model import ResearchModel
 from web_transport import WebTransport
