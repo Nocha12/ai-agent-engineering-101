@@ -99,10 +99,19 @@ class LiveModel:
 
 
 class ReplayModel:
-    def __init__(self, path, delay=0):
+    def __init__(self, path, delay=0, transport=None):
         self.responses, self.used, self.delay = {}, set(), delay
+        self.requests = {}
+        self.live_source = False
         for line in path.read_text(encoding="utf-8").splitlines():
             record = json.loads(line)
+            if record.get("event") == "run_start":
+                self.live_source = record["settings"]["mode"] == "live"
+                if transport is not None and record["settings"]["transport"] != transport:
+                    raise ValueError("replay transport settings differ from recorded settings")
+            elif record.get("event") == "http_request":
+                key = (record["task_id"], record["contractor"], record["phase"])
+                self.requests[key] = record["payload"]["messages"]
             if record.get("event") == "model_reply":
                 key = (record["task_id"], record["worker"], record["phase"])
                 if key in self.responses:
@@ -118,6 +127,9 @@ class ReplayModel:
             raise ValueError("missing or reused replay response")
         if record["request_sha"] != fingerprint({"worker": worker, "phase": phase, "payload": payload}):
             raise ValueError("replay input differs from recorded input")
+        # A payload hash alone cannot detect changes to system prompts.
+        if self.live_source and self.requests.get(key) != messages(worker, phase, payload):
+            raise ValueError("replay system/user messages differ from the live request")
         self.used.add(key)
         await asyncio.sleep(self.delay)
         return record["raw"]

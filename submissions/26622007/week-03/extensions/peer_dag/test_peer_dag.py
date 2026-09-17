@@ -6,11 +6,12 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from core import (Limits, Outcome, Proposal, Resources, Runtime, Task, decode, evaluate,
-                  parse_artifact, select, validate_graph)
+                  fingerprint, parse_artifact, select, validate_graph)
 from fixtures import DemoModel, artifact, proposal, step
-from models import ReplayModel, messages
+from models import PHASES, ReplayModel, messages
 
 ROOT = Path(__file__).resolve().parent
 
@@ -203,6 +204,25 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
             changed = Task(**dict(asdict(changed), goal="Different source input"))
             mismatched = await Runtime(ReplayModel(tape), Limits()).run(changed)
             self.assertEqual(mismatched.status, "failed")
+
+    async def test_live_replay_rejects_changed_system_prompt_and_transport(self):
+        payload = {"fixture": "public input"}
+        records = [
+            {"event": "run_start", "settings": {"mode": "live", "transport": {"model": "fixture"}}},
+            {"event": "http_request", "task_id": "root", "contractor": "A", "phase": "execute",
+             "payload": {"messages": messages("A", "execute", payload)}},
+            {"event": "model_reply", "task_id": "root", "worker": "A", "phase": "execute",
+             "request_sha": fingerprint({"worker": "A", "phase": "execute", "payload": payload}),
+             "raw": json.dumps(artifact())}]
+        with tempfile.TemporaryDirectory(dir=ROOT) as folder:
+            tape = Path(folder) / "live-like.jsonl"
+            tape.write_text("".join(json.dumps(r) + "\n" for r in records))
+            self.assertEqual(await ReplayModel(tape)("A", "execute", payload, "root"), json.dumps(artifact()))
+            with patch.dict(PHASES, {"execute": "A changed system instruction"}):
+                with self.assertRaisesRegex(ValueError, "messages differ"):
+                    await ReplayModel(tape)("A", "execute", payload, "root")
+            with self.assertRaisesRegex(ValueError, "transport settings differ"):
+                ReplayModel(tape, transport={"model": "another model"})
 
     async def test_readers_overlap_writer_waits_and_cancellation_releases_lease(self):
         resources = Resources()

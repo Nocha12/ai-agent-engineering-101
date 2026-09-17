@@ -90,7 +90,8 @@ async def run(args):
     with log_path.open("x", encoding="utf-8") as stream:
         recorder = Recorder(stream, key)
         model = (LiveModel(key, config["transport"], recorder.emit) if args.mode == "live" else
-                 ReplayModel(args.replay, args.replay_delay_ms / 1000) if args.mode == "replay" else DemoModel())
+                 ReplayModel(args.replay, args.replay_delay_ms / 1000, config["transport"])
+                 if args.mode == "replay" else DemoModel())
         runtime = Runtime(model, limits, recorder.emit)
         recorder.emit("run_start", run_id=run_id, experiment_id=experiment_id, settings=state,
                       replay_source=str(args.replay) if args.replay else None,
