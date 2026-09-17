@@ -14,6 +14,7 @@ def audit(path):
     state = next((r["settings"] for r in records if r["event"] == "run_start"), None)
     if state is None:
         return {"passed": False, "errors": ["missing run_start"]}
+    limits = state.get("limits", state.get("config", {}))
     for expected_seq, record in enumerate(records, 1):
         if record["seq"] != expected_seq:
             errors.append("non-contiguous sequence")
@@ -43,7 +44,7 @@ def audit(path):
             starts[(task_id, worker, record["phase"])] = record["at"]
             peak = max(peak, len(active))
             peak_execution = max(peak_execution, sum(p in ("execute", "synthesize") for _, p in active.values()))
-            if len(active) > state["limits"]["max_parallel"]:
+            if len(active) > limits["max_parallel"]:
                 errors.append("parallel call limit exceeded")
         elif event == "call_end":
             worker = record["worker"]
@@ -57,7 +58,7 @@ def audit(path):
         elif event == "execution_end":
             if leases.pop(task_id, None) is None:
                 errors.append(f"unmatched execution_end: {task_id}")
-        elif event == "http_usage":
+        elif event in ("http_usage", "web_usage"):
             providers[record.get("provider") or "unknown"] += 1
             models[record.get("model") or "unknown"] += 1
     if active or leases:
@@ -65,13 +66,13 @@ def audit(path):
     endings = [r for r in records if r["event"] == "run_end"]
     if len(endings) != 1:
         errors.append("missing or repeated run_end")
-    if sum(phases.values()) > state["limits"]["max_calls"]:
+    if sum(phases.values()) > limits["max_calls"]:
         errors.append("call budget exceeded")
-    if len(finished) > state["limits"]["max_tasks"]:
+    if len(finished) > limits["max_tasks"]:
         errors.append("task budget exceeded")
     if any(task_id not in finished for task_id in task_ids):
         errors.append("task without terminal state")
-    return {"passed": not errors, "errors": errors, "mode": state["mode"],
+    return {"passed": not errors, "errors": errors, "mode": state.get("mode", "research-live"),
             "peak_calls": peak, "peak_execution_calls": peak_execution,
             "calls_by_phase": dict(phases), "task_statuses": finished,
             "awards": awards, "providers": dict(providers), "models": dict(models),
