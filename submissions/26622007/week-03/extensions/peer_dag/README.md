@@ -36,4 +36,74 @@ HTTP 재시도는 별도 고정 제한을 사용한다. Worker마다 한 번에 
 
 `expected.json`의 평가 답안은 어떤 Worker의 요청에도 넣지 않는다. 과제 해석과 계획 타당성 검토는 사용자의 학습 부분이다.
 
-상태: 구현 및 검증 진행 중. 실행 명령과 실제 증거는 검증 후 추가한다.
+## 실행
+
+Python 3.10 이상과 표준 라이브러리만 사용한다. 저장소 루트에서 실행한다.
+
+```bash
+# API 호출 없이 구조와 재위임을 확인하는 모의 실행
+python3 submissions/26622007/week-03/extensions/peer_dag/cli.py demo
+
+# 깊이·작업 수·호출 예산 확인. API를 호출하거나 키를 출력하지 않는다.
+python3 submissions/26622007/week-03/extensions/peer_dag/cli.py plan
+
+# 실제 모델로 계획, 동료 선정, 분석 수행, 통합을 실행한다.
+python3 submissions/26622007/week-03/extensions/peer_dag/cli.py live
+
+# 다른 Worker를 최초 요청자로 사용한다. 고정 manager 프로세스는 없다.
+python3 submissions/26622007/week-03/extensions/peer_dag/cli.py demo --requester C
+
+# 기존 실행의 응답을 고정하고 스케줄러만 순차/병렬로 바꾼다.
+# <원본.jsonl>에는 이 확장 실행으로 생성된 로그 경로를 넣는다.
+python3 submissions/26622007/week-03/extensions/peer_dag/cli.py replay --replay <원본.jsonl> --parallel 1
+python3 submissions/26622007/week-03/extensions/peer_dag/cli.py replay --replay <원본.jsonl> --parallel 3
+
+# 기록된 선행 관계와 실제 호출 겹침을 독립 검사한다.
+python3 submissions/26622007/week-03/extensions/peer_dag/audit.py <원본.jsonl>
+
+# 확장만 검증한다. 기존 하네스 테스트는 별도 명령이다.
+python3 -m unittest discover -s submissions/26622007/week-03/extensions/peer_dag -p 'test_*.py' -v
+python3 -m unittest discover -s submissions/26622007/week-03 -p 'test_*.py' -v
+```
+
+키는 기존 상위 학번 폴더의 로컬 `.env` 또는 `OPENROUTER_API_KEY` 환경변수를 사용한다.
+명시한 파일이 있으면 그 파일의 키를 사용하며, 유효한 키 형식이 없으면 API를 호출하지 않는다.
+입력·설정·사후 평가 계약을 바꾸었다면 live 실행 전에 각각 커밋해야 한다.
+
+모드별 결과는 `runs/<run-id>/result.json`, 각 작업 산출물은 `runs/<run-id>/artifacts/`에 저장된다.
+모델 원문·입찰·평가·선정·작업 상태·HTTP 응답과 usage는 `logs/<run-id>.jsonl`에 남는다.
+초기 두 실행은 경로 분리 수정 전이므로 산출물이 해당 run 폴더 바로 아래에 있다. 기존 파일은 이동하지 않았다.
+
+## 파일 책임
+
+| 파일 | 역할 |
+|---|---|
+| `core.py` | Task/Proposal 계약, 계획 검증, 동료 선정, 재귀 DAG 실행, 자원 lease, 사후 평가 |
+| `models.py` | 단계별 프롬프트, 기존 OpenRouter 전송기 어댑터, 입력 해시를 확인하는 응답 재생 |
+| `cli.py` | 설정·입력 고정, 실행 기록, 산출물 저장, 모델에 전달하지 않는 사후 평가 |
+| `fixtures.py` | Python으로 만든 명시적 모의 응답과 중첩 재위임 예제 |
+| `audit.py` | 원본 로그에서 의존성·Worker 동시 사용·자원 충돌·종료 상태 독립 검사 |
+| `test_peer_dag.py` | 실패 전파, 교착 방지, 실제 execute 동시성, 동일 응답의 순차/병렬 결과 일치 등 |
+
+## 보장 범위와 남은 학습 질문
+
+- `succeeded`는 계획된 모델 단계와 결과 JSON 생성이 완료됐다는 뜻이다. 하위 작업 내용 전체가 정답이라는 의미는 아니다. 최종 `evaluation.passed`는 사후 12개 항목의 일치를 별도로 표시한다.
+- 원자료와 의존 산출물만 컨텍스트로 전달하며 Worker의 대화 이력은 호출 사이에 공유하지 않는다. 역할 정체성은 같아도 서로 다른 작업의 대화는 분리된다.
+- 독립 작업도 같은 Worker가 선정되거나 자원 충돌이 있으면 순차 실행된다. 병렬화는 가능한 일을 동시에 처리하는 것이며 항상 모든 Worker를 쓰도록 품질 기준을 낮추지 않는다.
+- graph 검사는 선언된 의존성의 구조를 검사한다. 중요한 의존성을 LLM이 빠뜨린 경우나 사실 검증 기준 자체의 부족함은 별도 검토가 필요하다.
+- 요청 Worker가 자신의 제안도 평가할 수 있다. 자기 제안 선호와 계획 점수의 변동은 아직 통제하지 못한 요인이다. 확신도도 능력의 교정된 확률이 아니다.
+- 순환 동점 처리는 해당 작업의 계획 순서에 고정된다. 작업 나열 순서를 바꾸면 동점 배정도 달라지므로 같은 계획으로 비교해야 한다.
+- replay는 같은 입력에 기록된 응답을 주입하는 스케줄러 검증이다. 실제 LLM 호출의 결정성이나 품질 향상을 입증하지 않는다. `--replay-delay-ms`는 인공 지연이므로 그 실행 시간을 API 속도 개선으로 해석하지 않는다.
+- 단일 실제 사례는 동작 확인이다. 성능 비교에는 같은 사례 집합·모델·평가 기준으로 반복 실행하고 결과 품질, 완료 시간, 비용과 실패를 함께 집계해야 한다.
+- 필수 세 조건의 기존 실험은 그대로 남는다. 확장 결과로 기본 `homogeneous`/`overconfident` 반복 횟수나 보고서의 사용자 해석을 대체하지 않는다.
+
+## 관찰된 개선 과정
+
+첫 실제 실행(`20260917T015243-live-1a4baa3f`)은 모델 20회 호출로 12개 사후 항목을 통과했다.
+응답 비용 합계는 $0.01916959, 소요 시간은 153.031초였다. 하지만 모든 후보가 같은 점수와 확신도를 받았고 ID 동점 규칙 때문에 모든 작업이 A로 몰렸다.
+입찰은 최대 3개가 겹쳤으나 실제 결과 생성 호출은 최대 1개였다. [초기 감사](logs/07-live-initial-audit.json)에 차이를 보존한다.
+
+이후 승인된 하위 계획 순서에 따른 순환 동점 처리를 추가했다. 부하나 도착 시간에 의존하지 않는 선택이므로 같은 응답의 순차·병렬 재생이 가능하다.
+[모의 실행 감사](logs/11-demo-rotation-audit.json)에서 실제 결과 생성 호출 2개가 겹쳤고, 6개 작업과 재위임 A→B→A가 완료됐다. 이는 모의 실행 증거다.
+
+구체적인 실제 최종 검증은 `VERIFICATION.md`에 기록한다.
