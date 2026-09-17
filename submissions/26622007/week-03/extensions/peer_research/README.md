@@ -3,6 +3,8 @@
 peer_dag 실행기를 사용하는 별도 확장 실험이다. 기본 세 조건과 제공 자료만 쓰는 이전 사례는 보존한다.
 모든 Worker가 계획·위임·실행을 수행하며, 웹 검색은 실제 수행 단계에만 제공한다.
 
+실제 실행 결과: [검증 보고서](VERIFICATION.md), [웹 조사 검토본](RESEARCH_REPORT.md), [메모리 대조 검사](verification/comparison.json).
+
 ## 검증할 계약
 
 - A/B/C는 각각 별도 JSONL 메모리 저장소를 가진다. 각자 자신의 기록만 작성한다.
