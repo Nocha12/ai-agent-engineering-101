@@ -59,6 +59,7 @@ class ProtocolTests(unittest.TestCase):
         raw = {"scores": {w: {d: 1 if w == "C" else 2 for d in
                               ("coverage", "feasibility", "verification")} for w in offered}}
         self.assertEqual(select(json.dumps(raw), offered)[0], "A")
+        self.assertEqual(select(json.dumps(raw), offered, ("B", "C", "A"))[0], "B")
         raw["scores"]["A"]["coverage"] = True
         with self.assertRaises(ValueError):
             select(json.dumps(raw), offered)
@@ -106,7 +107,7 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         slow_release = asyncio.Event()
         observed = []
         runtime = Runtime(None, Limits())
-        async def solve(item, requester, depth, path, inputs):
+        async def solve(item, requester, depth, path, inputs, tie_order):
             observed.append(item.id)
             if item.id == "slow":
                 await slow_release.wait()
@@ -122,6 +123,26 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
             {"inherited": "fixture"}), 2)
         self.assertEqual(len(result), 3)
         self.assertIn("after_fast", observed)
+
+    async def test_tied_peer_plans_execute_on_distinct_workers_at_the_same_time(self):
+        both_executing = asyncio.Event()
+        executing = set()
+        async def model(worker, phase, payload, path):
+            if phase == "propose":
+                return json.dumps(proposal([step("left"), step("right")] if payload["depth"] == 0 else None))
+            if phase == "review":
+                return json.dumps({"scores": {w: {d: 2 for d in ("coverage", "feasibility", "verification")}
+                                               for w in payload["candidates"]}})
+            if phase == "execute":
+                executing.add(worker)
+                if len(executing) == 2:
+                    both_executing.set()
+                await both_executing.wait()
+            return json.dumps(artifact())
+        runtime = Runtime(model, Limits())
+        result = await asyncio.wait_for(runtime.run(root()), 2)
+        self.assertEqual(result.status, "succeeded")
+        self.assertEqual(executing, {"B", "C"})
 
     async def test_failed_dependency_blocks_descendants_and_preserves_independent_result(self):
         observed = []

@@ -145,7 +145,12 @@ def validate_graph(tasks):
         raise ValueError("cyclic task dependency") from None
 
 
-def select(raw, proposals):
+def rotation(requester, offset=0):
+    start = (WORKERS.index(requester) + offset) % len(WORKERS)
+    return WORKERS[start:] + WORKERS[:start]
+
+
+def select(raw, proposals, tie_order=WORKERS):
     scores = decode(raw)
     exact(scores, {"scores"})
     exact(scores["scores"], proposals)
@@ -160,7 +165,7 @@ def select(raw, proposals):
     if not eligible:
         raise ValueError("no proposal passed all review criteria")
     winner = min(eligible, key=lambda w: (-sum(scores["scores"][w].values()),
-                                         -proposals[w].confidence, w))
+                                         -proposals[w].confidence, tie_order.index(w)))
     return winner, scores["scores"]
 
 
@@ -254,7 +259,8 @@ class Runtime:
         self.source = {"goal": task.goal, "acceptance": task.acceptance}
         return await self.solve(task, requester, 0, task.id, {})
 
-    async def solve(self, task, requester, depth, path, inputs):
+    async def solve(self, task, requester, depth, path, inputs, tie_order=None):
+        tie_order = tie_order or rotation(requester)
         self.emit("task_start", task_id=path, requester=requester, depth=depth,
                   task=asdict(task), input_tasks=sorted(inputs))
         try:
@@ -278,10 +284,10 @@ class Runtime:
                 raise ValueError("no valid bids")
             review_input = dict(payload, candidates={
                 w: {"reason": p.reason, "plan": p.plan} for w, p in proposals.items()})
-            winner, scores = select(await self.ask(requester, "review", review_input, path), proposals)
+            winner, scores = select(await self.ask(requester, "review", review_input, path), proposals, tie_order)
             proposal = proposals[winner]
             self.emit("award", task_id=path, requester=requester, worker=winner,
-                      scores=scores, confidence=proposal.confidence, plan=proposal.plan)
+                      scores=scores, confidence=proposal.confidence, tie_order=tie_order, plan=proposal.plan)
             execution = dict(payload, plan=proposal.plan)
             if proposal.plan["mode"] == "delegate":
                 children = [Task.parse(step) for step in proposal.plan["steps"]]
@@ -315,6 +321,8 @@ class Runtime:
     async def run_graph(self, tasks, requester, depth, parent, inherited):
         validate_graph(tasks)
         pending = {task.id: task for task in tasks}
+        # Fixed by the accepted plan order, never by timing or current load; replay remains comparable.
+        preferences = {task.id: rotation(requester, i + 1) for i, task in enumerate(tasks)}
         running, results = {}, {}
         try:
             while pending or running:
@@ -331,7 +339,7 @@ class Runtime:
                         inputs = {"parent_inputs": inherited,
                                   "predecessors": {dep: results[dep].artifact for dep in sorted(task.depends_on)}}
                         running[task_id] = asyncio.create_task(
-                            self.solve(task, requester, depth, f"{parent}/{task_id}", inputs))
+                            self.solve(task, requester, depth, f"{parent}/{task_id}", inputs, preferences[task_id]))
                         del pending[task_id]
                 if running:
                     done, _ = await asyncio.wait(running.values(), return_when=asyncio.FIRST_COMPLETED)

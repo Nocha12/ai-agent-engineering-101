@@ -26,7 +26,8 @@ class DemoModel:
         self.delay = delay
 
     async def __call__(self, worker, phase, payload, task_id):
-        await asyncio.sleep(self.delay)
+        # Longer fixture execution makes actual artifact-generation overlap observable.
+        await asyncio.sleep(self.delay * (4 if phase in ("execute", "synthesize") else 1))
         local = payload["task"]["id"]
         if phase == "propose":
             children = None

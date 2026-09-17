@@ -17,12 +17,12 @@
 1. 작업 요청 → 각 Worker가 `bid`, `confidence`, `reason`, `plan` 제출.
 2. plan은 직접 실행(`execute`) 또는 하위 계획(`delegate`). actions에는 실행·검증 절차를 적는다.
 3. 요청 Worker는 confidence를 가린 계획을 coverage / feasibility / verification 각 0~2점으로 평가한다.
-4. 모든 항목이 1점 이상인 후보 중 합계, confidence, Worker ID 순서로 선정한다.
+4. 모든 항목이 1점 이상인 후보 중 합계, confidence, 작업별 순환 우선순위 순서로 선정한다. 최초 작업의 동점 우선순위는 요청자부터 시작하고, 하위 작업은 승인된 steps 순서에 따라 요청자의 다음 Worker부터 순환한다. 실행 속도나 당시 부하에 따라 선정이 바뀌지 않는다.
 5. 실행 계획은 별도 모델 호출로 수행한다. 위임 계획은 하위 작업의 DAG를 실행하고 선정 Worker가 결과를 통합한다.
 6. 후속 작업에는 성공한 선행 작업의 결과만 전달한다. 실패는 해당 후속 작업을 blocked로 만들고 독립 작업은 계속한다.
 
 각 하위 작업은 `id`, `goal`, `depends_on`, `acceptance`, `reads`, `writes`를 선언한다.
-depends_on은 같은 계획 안의 작업 ID만 참조한다. 자기 참조·누락 참조·순환·고립된 미사용 결과를 거절한다.
+depends_on은 같은 계획 안의 작업 ID만 참조한다. 자기 참조·누락 참조·순환을 거절한다.
 최종 통합에는 모든 하위 결과를 전달한다. 선언된 선행 작업이 모두 성공하면 바로 시작하며 전체 단계의 완료를 기다리지 않는다.
 산출물은 작업 ID별로 분리한다. reads/writes는 논리적 자원 이름이며 실행·통합 중 read/write와 write/write 충돌을 막는다.
 LLM이 누락한 의존성·자원은 코드만으로 알아낼 수 없으므로 계획 내용 검토는 여전히 필요하다.
