@@ -90,6 +90,15 @@ class MemoryTests(unittest.TestCase):
         ctx.commit()
         self.assertEqual((Path(self.tmp.name) / "A.jsonl").read_bytes(), before)
 
+    def test_fresh_source_timestamp_wins_over_recalled_source(self):
+        self.store.append([note()])
+        ctx = self.context()
+        ctx.personal("A", {"task": asdict(self.task), "source": {"goal": "RAG"}}, "a", "execute")
+        fresh = dict(SOURCE, retrieved_at=(NOW + timedelta(hours=1)).isoformat())
+        ctx.catalog[SOURCE["url"]] = fresh
+        ctx.remember("A", self.task, "a", {"summary": "RAG", "facts": {}, "evidence": [SOURCE["url"]]})
+        self.assertEqual(ctx.pending[0]["sources"], [fresh])
+
     def test_invalid_owner_cannot_write_a_file(self):
         with self.assertRaises(ValueError):
             self.store.append([note(owner="../escape")])

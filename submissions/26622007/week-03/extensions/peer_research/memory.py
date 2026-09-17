@@ -92,6 +92,7 @@ class MemoryContext:
         result = []
         for row in selected:
             item = {key: row[key] for key in ("id", "owner", "scope", "created_at", "expires_at", "status", "run_id", "task_id")}
+            item["goal"] = row["goal"][:500]
             item["summary"] = row["summary"][:700]
             item["facts"] = {k: v[:250] if isinstance(v, str) else v for k,v in list(row["facts"].items())[:16]}
             item["sources"] = [{k: s[k] for k in ("url", "title", "retrieved_at")} for s in row["sources"][:3]]
@@ -124,7 +125,9 @@ class MemoryContext:
             for row in rows:
                 # Only team sources or the owner's own private sources may enter this worker's record.
                 if row["id"] in self.delivered[worker] and datetime.fromisoformat(row["expires_at"]) > self.now:
-                    available.update({canonical_url(s["url"]): s for s in row["sources"]})
+                    for source in row["sources"]:
+                        # A fresh read in this run takes precedence over the same URL in an older note.
+                        available.setdefault(canonical_url(source["url"]), source)
         record = {"id": "mem-" + fingerprint([self.run_id, task_id, worker])[:16],
                   "owner": worker, "scope": self.scope, "visibility": "team", "status": "model_note_unverified",
                   "run_id": self.run_id, "task_id": task_id, "created_at": self.now.isoformat(),
