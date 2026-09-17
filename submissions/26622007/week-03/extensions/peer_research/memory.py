@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 
 from common import fingerprint, redact
+from web_transport import canonical_url
 
 WORKERS = ("A", "B", "C")
 URL = re.compile(r"https://[^\s<>\]\)\"']+")
@@ -85,10 +86,17 @@ class MemoryContext:
             if team_only and row["visibility"] != "team":
                 continue
             score = len(query_terms & terms(row["goal"] + " " + row["summary"] + " " + json.dumps(row["facts"], ensure_ascii=False)))
-            candidates.append((score, row["created_at"], row["id"], row))
+            if score:
+                candidates.append((score, row["created_at"], row["id"], row))
         selected = [item[-1] for item in sorted(candidates, key=lambda x: x[:3], reverse=True)[:self.top_k]]
-        return [{key: row[key] for key in ("id", "owner", "scope", "created_at", "expires_at", "status",
-                                          "summary", "facts", "sources", "run_id", "task_id")} for row in selected]
+        result = []
+        for row in selected:
+            item = {key: row[key] for key in ("id", "owner", "scope", "created_at", "expires_at", "status", "run_id", "task_id")}
+            item["summary"] = row["summary"][:700]
+            item["facts"] = {k: v[:250] if isinstance(v, str) else v for k,v in list(row["facts"].items())[:16]}
+            item["sources"] = [{k: s[k] for k in ("url", "title", "retrieved_at")} for s in row["sources"][:3]]
+            result.append(item)
+        return result
 
     def personal(self, worker, payload, task_id, phase):
         found = self.retrieve(worker, payload["task"]["goal"] + " " + payload["source"]["goal"])
@@ -110,13 +118,13 @@ class MemoryContext:
     def remember(self, worker, task, task_id, artifact):
         if not self.enabled:
             return
-        urls = set(URL.findall(json.dumps(artifact, ensure_ascii=False)))
+        urls = {canonical_url(url) for url in URL.findall(json.dumps(artifact, ensure_ascii=False))}
         available = dict(self.catalog)
         for rows in self.snapshot.values():
             for row in rows:
                 # Only team sources or the owner's own private sources may enter this worker's record.
-                if row["scope"] == self.scope and (row["visibility"] == "team" or row["owner"] == worker):
-                    available.update({s["url"]: s for s in row["sources"]})
+                if row["id"] in self.delivered[worker] and datetime.fromisoformat(row["expires_at"]) > self.now:
+                    available.update({canonical_url(s["url"]): s for s in row["sources"]})
         record = {"id": "mem-" + fingerprint([self.run_id, task_id, worker])[:16],
                   "owner": worker, "scope": self.scope, "visibility": "team", "status": "model_note_unverified",
                   "run_id": self.run_id, "task_id": task_id, "created_at": self.now.isoformat(),

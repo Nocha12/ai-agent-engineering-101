@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import json
 import time
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from urllib.request import Request, urlopen
 
 from common import CallError, ENDPOINT, redact
@@ -21,11 +21,19 @@ def public_url(url, domains):
         return False
 
 
+def canonical_url(url):
+    parsed = urlparse(url.rstrip(".,;"))
+    query = [(k, v) for k, v in parse_qsl(parsed.query) if not k.startswith("utm_") and k != "tab"]
+    return urlunparse((parsed.scheme.lower(), parsed.netloc.lower(), parsed.path.rstrip("/"),
+                       "", urlencode(query), ""))
+
+
 class WebTransport:
     def __init__(self, key, config, search, emit, opener=urlopen, sleeper=time.sleep):
         self.key, self.config, self.search, self.emit = key, config, search, emit
         self.opener, self.sleeper = opener, sleeper
         self.http_requests = self.search_requests = self.cost_missing = 0
+        self.search_usage_missing = 0
         self.cost = 0.0
 
     def request(self, messages, use_web, collect):
@@ -90,9 +98,12 @@ class WebTransport:
             self.cost += cost
         else:
             self.cost_missing += 1
-        count = (usage.get("server_tool_use") or {}).get("web_search_requests")
+        details = usage.get("server_tool_use_details") or usage.get("server_tool_use") or {}
+        count = details.get("web_search_requests")
         if type(count) is int:
             self.search_requests += count
+        elif use_web:
+            self.search_usage_missing += 1
         message = data["choices"][0]["message"]
         citations = []
         for annotation in message.get("annotations") or []:
@@ -103,5 +114,7 @@ class WebTransport:
                                   "retrieved_at": datetime.now(timezone.utc).isoformat()})
         self.emit("web_usage", task_id=task_id, worker=worker, phase=phase, requested=use_web,
                   reported_search_requests=count, citations=citations, usage=usage,
+                  requested_max_uses=self.search["max_uses"] if use_web else None,
+                  reported_above_requested_limit=bool(use_web and type(count) is int and count > self.search["max_uses"]),
                   model=data.get("model"), provider=data.get("provider"))
         return message["content"], citations
