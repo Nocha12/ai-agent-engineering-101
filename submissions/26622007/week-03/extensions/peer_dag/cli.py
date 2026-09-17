@@ -12,8 +12,8 @@ import uuid
 
 from core import Limits, Outcome, Runtime, Task, evaluate, fingerprint
 from fixtures import DemoModel
-from models import BASE, LiveModel, ReplayModel, messages, redact
-from openrouter_client import read_key
+from models import BASE, LiveModel, ReplayModel, redact
+from openrouter_client import ConfigurationError, read_key
 
 ROOT = Path(__file__).resolve().parent
 
@@ -30,6 +30,8 @@ def load_config():
         if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
             raise ValueError(f"invalid transport {key}")
     if (transport["timeout_seconds"] == 0 or transport["max_attempts"] > 2
+            or transport["timeout_seconds"] > 60 or transport["max_tokens"] > 4096
+            or transport["temperature"] > 2
             or transport["max_http_requests"] != transport["max_attempts"]):
         raise ValueError("transport must have a positive timeout and at most two attempts per call")
     return config, limits
@@ -63,6 +65,7 @@ async def run(args):
     if args.parallel is not None:
         limits = Limits(**dict(asdict(limits), max_parallel=args.parallel))
     task = Task.parse(json.loads((ROOT / "case.json").read_text()), root=True)
+    expected = json.loads((ROOT / "expected.json").read_text())
     key, sha = "", ""
     if args.mode == "live":
         sha = committed_inputs()
@@ -70,6 +73,8 @@ async def run(args):
         key = read_key(env_file if env_file.exists() or args.env_file else None)
     state = {"mode": args.mode, "requester": args.requester, "limits": asdict(limits),
              "transport": config["transport"], "case_sha": fingerprint(asdict(task)),
+             "expected_sha": fingerprint(expected),
+             "selection_policy": "score, confidence, fixed per-child rotation v2",
              "sources": {p.name: fingerprint(p.read_text()) for p in sorted(ROOT.glob("*.py"))},
              "base_sources": {name: fingerprint((BASE / name).read_text())
                               for name in ("contract_net.py", "openrouter_client.py")},
@@ -94,7 +99,6 @@ async def run(args):
             outcome = await runtime.run(task, args.requester)
         except asyncio.CancelledError:
             outcome = Outcome("cancelled", error="interrupted; partial outputs retained")
-        expected = json.loads((ROOT / "expected.json").read_text())
         evaluation = evaluate(outcome, expected)
         replay_complete = model.complete() if isinstance(model, ReplayModel) else None
         result = {"run_id": run_id, "experiment_id": experiment_id, "mode": args.mode,
@@ -106,7 +110,7 @@ async def run(args):
                   "cost_missing_responses": getattr(model, "cost_missing", 0),
                   "replay_complete": replay_complete, "log": str(log_path), "output": str(output)}
         for path, item in runtime.outcomes.items():
-            target = output.joinpath(*path.split("/")).with_suffix(".json")
+            target = (output / "artifacts").joinpath(*path.split("/")).with_suffix(".json")
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(redact(json.dumps(asdict(item), ensure_ascii=False, indent=2), key) + "\n")
         (output / "result.json").write_text(redact(json.dumps(result, ensure_ascii=False, indent=2), key) + "\n")
@@ -130,6 +134,8 @@ def main():
         parser.error("replay delay must be between 0 and 1000 ms")
     if args.mode == "plan":
         config, limits = load_config()
+        if args.parallel is not None:
+            limits = Limits(**dict(asdict(limits), max_parallel=args.parallel))
         print(json.dumps({"limits": asdict(limits), "transport": config["transport"],
                           "max_http_requests": limits.max_calls * config["transport"]["max_attempts"],
                           "live_execution": "provided-data analysis artifacts only"}, ensure_ascii=False, indent=2))
@@ -140,6 +146,6 @@ def main():
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (ValueError, OSError) as exc:
+    except (ConfigurationError, ValueError, OSError) as exc:
         print(f"Configuration error: {exc}")
         raise SystemExit(2)
