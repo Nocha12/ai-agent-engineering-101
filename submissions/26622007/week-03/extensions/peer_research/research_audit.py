@@ -37,6 +37,7 @@ def evaluate(outcome, expected, context, catalog, events, task, followup):
         "two_independent_then_join": len(steps) == 3 and len(joined) == 1,
         "verified_url_count": len(verified) >= expected["minimum_verified_urls"],
         "fresh_search_cited": bool(cited & current),
+        "search_tool_used": any(e["event"] == "web_usage" and e.get("requested") and e.get("citations") for e in events),
         "no_unretrieved_evidence_urls": cited <= set(known),
         "both_products_sourced": (any("github.com/pgvector/pgvector" in u for u in verified)
                                   and any("qdrant.tech/" in u for u in verified)),

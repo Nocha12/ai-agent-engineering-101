@@ -17,6 +17,7 @@
     "retry_delay_seconds": 1,
     "max_attempts": 2
   },
+  "source_fetch": {"max_parallel": 3, "max_requests": 20, "timeout_seconds": 12, "max_bytes": 2000000},
   "search": {
     "engine": "exa",
     "max_results": 3,

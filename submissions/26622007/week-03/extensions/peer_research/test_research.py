@@ -8,11 +8,13 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from urllib.error import URLError
 
 from common import ROOT, Outcome, Task
 from research_audit import evaluate
 from memory import MemoryContext, MemoryStore
+from source_reader import OfficialRedirect, SourceReader, official
 from web_transport import WebTransport, canonical_url, public_url
 
 NOW = datetime(2026, 9, 17, tzinfo=timezone.utc)
@@ -144,6 +146,43 @@ class TransportTests(unittest.TestCase):
         self.assertFalse(public_url("https://user:secret@qdrant.tech/a", self.search["allowed_domains"]))
         self.assertFalse(public_url("http://qdrant.tech/a", self.search["allowed_domains"]))
         self.assertEqual(canonical_url(SOURCE["url"] + "/?tab=readme-ov-file#filtering"), SOURCE["url"])
+
+    def test_heartbeat_does_not_bypass_response_deadline(self):
+        t = self.transport(lambda req, timeout: io.BytesIO(b" "))
+        with patch("web_transport.time.monotonic", side_effect=[0, 46, 47, 94]):
+            with self.assertRaisesRegex(Exception, "timeout"):
+                t.request([], False, lambda *a, **kw: None)
+
+
+class SourceTests(unittest.TestCase):
+    def test_official_boundary_and_redirect(self):
+        self.assertTrue(official(SOURCE["url"]))
+        self.assertFalse(official("https://github.com/attacker/docs"))
+        self.assertFalse(official("https://qdrant.tech.evil.example/documentation/"))
+        with self.assertRaises(ValueError):
+            OfficialRedirect().redirect_request(None, None, 302, "", {}, "https://evil.example")
+
+    def test_fetch_is_real_evidence_and_cached(self):
+        class Response(io.BytesIO):
+            headers = {"Content-Type": "text/html"}
+            status = 200
+            def geturl(self):
+                return SOURCE["url"]
+        calls, catalog, events = [], {}, []
+        def opener(req, timeout):
+            calls.append(req.full_url)
+            return Response(("<title>pgvector</title><script>ignore</script><p>" + "Vector filtering docs " * 20 + "</p>").encode())
+        reader = SourceReader(catalog, lambda event, **kw: events.append(dict(event=event, **kw)),
+                              {"max_parallel": 1, "max_requests": 2, "timeout_seconds": 12, "max_bytes": 2000}, opener)
+        async def run():
+            artifact = {"evidence": [SOURCE["url"], SOURCE["url"] + "#filtering", "https://evil.example"]}
+            await reader.verify(artifact, "task", "A")
+            await reader.verify(artifact, "task", "B")
+        asyncio.run(run())
+        self.assertEqual(calls, [SOURCE["url"]])
+        self.assertEqual(catalog[SOURCE["url"]]["retrieval_method"], "official_http_get")
+        self.assertNotIn("ignore", catalog[SOURCE["url"]]["excerpt"])
+        self.assertTrue(any(e["event"] == "source_rejected" for e in events))
 
 
 class AuditTests(unittest.TestCase):

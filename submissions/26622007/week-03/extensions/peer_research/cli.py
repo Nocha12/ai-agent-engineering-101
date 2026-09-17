@@ -14,6 +14,7 @@ from common import BASE, PEER, ROOT, ConfigurationError, Limits, Outcome, Runtim
 from research_audit import evaluate
 from memory import MemoryContext, MemoryStore
 from research_model import ResearchModel
+from source_reader import SourceReader
 from web_transport import WebTransport
 
 
@@ -83,7 +84,8 @@ async def run(args):
         memory = MemoryContext(MemoryStore(memory_dir), config["scope"], run_id, catalog, emit,
                                top_k=config["memory_top_k"], ttl_days=config["memory_ttl_days"], enabled=not args.no_memory)
         transport = WebTransport(key, config["transport"], config["search"], emit)
-        runtime = Runtime(ResearchModel(transport, catalog), limits, emit, context=memory)
+        reader = SourceReader(catalog, emit, config["source_fetch"])
+        runtime = Runtime(ResearchModel(transport, catalog, reader), limits, emit, context=memory)
         settings = {"git_commit": sha, "case": args.case, "case_sha": fingerprint(asdict(task)),
                     "config": config, "requester": args.requester, "memory_enabled": memory.enabled,
                     "memory_snapshot_sha": fingerprint(memory.snapshot), "process_id": os.getpid(),
@@ -103,7 +105,8 @@ async def run(args):
         result = {"run_id": run_id, "status": outcome.status, "error": outcome.error,
                   "evaluation": evaluation, "calls": runtime.calls, "tasks": runtime.tasks,
                   "peak_calls": runtime.peak_calls, "elapsed_seconds": round(time.monotonic() - started, 3),
-                  "http_requests": transport.http_requests, "reported_search_requests": transport.search_requests,
+                  "http_requests": transport.http_requests, "source_http_requests": reader.requests,
+                  "reported_search_requests": transport.search_requests,
                   "search_usage_missing_responses": transport.search_usage_missing,
                   "reported_cost_usd": transport.cost, "cost_missing_responses": transport.cost_missing,
                   "memory_enabled": memory.enabled, "memory_before": memory.counts(),

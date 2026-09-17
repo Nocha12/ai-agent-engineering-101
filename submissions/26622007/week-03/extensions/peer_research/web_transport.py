@@ -42,6 +42,7 @@ class WebTransport:
         if use_web:
             body["tools"] = [{"type": "openrouter:web_search", "parameters": self.search}]
         for attempt in range(1, self.config["max_attempts"] + 1):
+            deadline = time.monotonic() + self.config["timeout_seconds"]
             collect("http_request", attempt=attempt, payload=body)
             request = Request(ENDPOINT, data=json.dumps(body, ensure_ascii=False).encode(),
                               headers={"Authorization": "Bearer " + self.key,
@@ -49,9 +50,19 @@ class WebTransport:
                                        "X-OpenRouter-Title": "AX Peer Research"})
             try:
                 with self.opener(request, timeout=self.config["timeout_seconds"]) as response:
-                    raw = response.read(2_000_001).decode("utf-8")
-                if len(raw.encode()) > 2_000_000:
-                    raise CallError("response size limit exceeded")
+                    chunks, size = [], 0
+                    while True:
+                        # read1 returns an available chunk, so heartbeat bytes cannot keep read-all alive forever.
+                        chunk = response.read1(min(65536, 2_000_001 - size))
+                        if time.monotonic() > deadline:
+                            raise TimeoutError("response deadline exceeded")
+                        if not chunk:
+                            break
+                        chunks.append(chunk)
+                        size += len(chunk)
+                        if size > 2_000_000:
+                            raise CallError("response size limit exceeded")
+                    raw = b"".join(chunks).decode("utf-8")
                 collect("http_response", attempt=attempt, raw_response=redact(raw, self.key))
                 data = json.loads(raw)
                 if "error" in data:

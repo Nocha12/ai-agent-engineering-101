@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 import json
 
-from common import PHASES, PROTOCOL, SKILLS
+from common import PHASES, PROTOCOL, SKILLS, parse_artifact
 from memory import URL
 from web_transport import canonical_url
 
@@ -26,8 +26,8 @@ propose/review/synthesize에는 새 웹 검색 도구가 없다. propose에서 �
 
 
 class ResearchModel:
-    def __init__(self, transport, catalog):
-        self.transport, self.catalog = transport, catalog
+    def __init__(self, transport, catalog, reader):
+        self.transport, self.catalog, self.reader = transport, catalog, reader
 
     async def __call__(self, worker, phase, payload, task_id):
         referenced = {canonical_url(u) for u in URL.findall(json.dumps(payload, ensure_ascii=False))}
@@ -42,4 +42,7 @@ class ResearchModel:
             task_id, use_web=phase == "execute")
         for citation in citations:
             self.catalog[canonical_url(citation["url"])] = citation
+        if phase in ("execute", "synthesize"):
+            # Keep raw model text unchanged; verify extra URLs with a real, logged HTTP read.
+            await self.reader.verify(parse_artifact(result), task_id, worker)
         return result
