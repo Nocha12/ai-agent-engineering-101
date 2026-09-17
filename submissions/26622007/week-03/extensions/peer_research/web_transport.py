@@ -42,7 +42,7 @@ class WebTransport:
         if use_web:
             body["tools"] = [{"type": "openrouter:web_search", "parameters": self.search}]
         for attempt in range(1, self.config["max_attempts"] + 1):
-            deadline = time.monotonic() + self.config["timeout_seconds"]
+            deadline = time.monotonic() + self.config["response_deadline_seconds"]
             collect("http_request", attempt=attempt, payload=body)
             request = Request(ENDPOINT, data=json.dumps(body, ensure_ascii=False).encode(),
                               headers={"Authorization": "Bearer " + self.key,

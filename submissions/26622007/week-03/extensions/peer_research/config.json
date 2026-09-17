@@ -14,6 +14,7 @@
     "reasoning": {"enabled": false},
     "provider": {"allow_fallbacks": true, "require_parameters": true, "max_price": {"prompt": 0.3, "completion": 1.2}},
     "timeout_seconds": 45,
+    "response_deadline_seconds": 90,
     "retry_delay_seconds": 1,
     "max_attempts": 2
   },
@@ -21,8 +22,8 @@
   "search": {
     "engine": "exa",
     "max_results": 3,
-    "max_total_results": 3,
-    "max_uses": 1,
+    "max_total_results": 6,
+    "max_uses": 2,
     "max_characters": 2200,
     "allowed_domains": ["github.com", "postgresql.org", "qdrant.tech"]
   }

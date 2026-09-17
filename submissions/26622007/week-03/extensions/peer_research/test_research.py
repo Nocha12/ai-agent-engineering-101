@@ -14,7 +14,7 @@ from urllib.error import URLError
 from common import ROOT, Outcome, Task
 from research_audit import evaluate
 from memory import MemoryContext, MemoryStore
-from source_reader import OfficialRedirect, SourceReader, official
+from source_reader import OfficialRedirect, PageText, SourceReader, official
 from web_transport import WebTransport, canonical_url, public_url
 
 NOW = datetime(2026, 9, 17, tzinfo=timezone.utc)
@@ -133,7 +133,7 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(t.search_requests, 2)
         self.assertEqual(t.cost, 0.008)
         self.assertEqual(len(citations), 1)
-        self.assertTrue(self.records[-1]["reported_above_requested_limit"])
+        self.assertFalse(self.records[-1]["reported_above_requested_limit"])
         self.assertEqual(bodies[0]["tools"][0]["type"], "openrouter:web_search")
         self.assertNotIn("test-key", json.dumps(self.records))
         self.assertNotIn("Authorization", json.dumps(self.records))
@@ -158,12 +158,23 @@ class TransportTests(unittest.TestCase):
 
     def test_heartbeat_does_not_bypass_response_deadline(self):
         t = self.transport(lambda req, timeout: io.BytesIO(b" "))
-        with patch("web_transport.time.monotonic", side_effect=[0, 46, 47, 94]):
+        with patch("web_transport.time.monotonic", side_effect=[0, 91, 92, 184]):
             with self.assertRaisesRegex(Exception, "timeout"):
                 t.request([], False, lambda *a, **kw: None)
 
 
 class SourceTests(unittest.TestCase):
+    def test_html_refresh_page_is_recognized(self):
+        page = PageText()
+        page.feed('<meta http-equiv=refresh content="0; url=https://qdrant.tech/documentation/search/search/">')
+        self.assertEqual(page.refresh, "https://qdrant.tech/documentation/search/search/")
+
+    def test_html_refresh_cycle_is_rejected(self):
+        reader = SourceReader({}, lambda *a, **kw: None, {"max_parallel": 1, "timeout_seconds": 12})
+        with patch.object(reader, "read_page", return_value={"refresh": SOURCE["url"]}):
+            with self.assertRaisesRegex(ValueError, "cycle"):
+                reader.read(SOURCE["url"])
+
     def test_official_boundary_and_redirect(self):
         self.assertTrue(official(SOURCE["url"]))
         self.assertFalse(official("https://github.com/attacker/docs"))

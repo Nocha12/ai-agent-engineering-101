@@ -5,7 +5,7 @@ import hashlib
 from html.parser import HTMLParser
 import re
 import time
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from memory import URL
@@ -22,6 +22,7 @@ def official(url):
 
 
 class OfficialRedirect(HTTPRedirectHandler):
+    max_redirections = 3
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         if not official(newurl):
             raise ValueError("redirect outside official documentation")
@@ -32,8 +33,14 @@ class PageText(HTMLParser):
     def __init__(self):
         super().__init__()
         self.hidden, self.in_title, self.title, self.parts = 0, False, [], []
+        self.refresh = None
 
     def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "meta" and attrs.get("http-equiv", "").lower() == "refresh":
+            match = re.fullmatch(r"\s*0\s*;\s*url\s*=\s*(.+)", attrs.get("content", ""), re.I)
+            if match:
+                self.refresh = match[1].strip("\"'")
         if tag in ("script", "style", "noscript"):
             self.hidden += 1
         if tag == "title":
@@ -59,8 +66,7 @@ class SourceReader:
         self.slots, self.jobs = asyncio.Semaphore(config["max_parallel"]), {}
         self.requests = 0
 
-    def read(self, url):
-        deadline = time.monotonic() + self.config["timeout_seconds"]
+    def read_page(self, url, deadline):
         req = Request(url, headers={"User-Agent": "AX-Course-Source-Verification/1.0", "Accept": "text/html,text/plain"})
         with self.opener(req, timeout=self.config["timeout_seconds"]) as response:
             if not official(response.geturl()):
@@ -82,6 +88,11 @@ class SourceReader:
             raw = b"".join(chunks)
             page = PageText()
             page.feed(raw.decode("utf-8", errors="replace"))
+            if page.refresh:
+                target = urljoin(response.geturl(), page.refresh)
+                if not official(target):
+                    raise ValueError("HTML refresh outside official documentation")
+                return {"refresh": target}
             text = re.sub(r"\s+", " ", " ".join(page.parts))
             if len(text) < 80:
                 raise ValueError("document text is empty or too short")
@@ -89,6 +100,19 @@ class SourceReader:
                     "excerpt": text[:700], "retrieved_at": datetime.now(timezone.utc).isoformat(),
                     "retrieval_method": "official_http_get", "sha256": hashlib.sha256(raw).hexdigest(),
                     "bytes": size, "status": response.status}
+
+    def read(self, url):
+        deadline = time.monotonic() + self.config["timeout_seconds"]
+        current, redirects = url, []
+        for _ in range(3):
+            result = self.read_page(current, deadline)
+            if "refresh" not in result:
+                return dict(result, url=url, html_redirects=redirects)
+            current = result["refresh"]
+            if current in redirects or current == url:
+                raise ValueError("HTML refresh cycle")
+            redirects.append(current)
+        raise ValueError("HTML refresh limit exceeded")
 
     async def fetch(self, url, task_id, worker):
         async with self.slots:
