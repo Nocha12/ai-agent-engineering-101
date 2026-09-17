@@ -220,8 +220,9 @@ class Outcome:
 
 
 class Runtime:
-    def __init__(self, model, limits, emit=lambda *args, **kwargs: None):
+    def __init__(self, model, limits, emit=lambda *args, **kwargs: None, context=None):
         self.model, self.limits, self.emit = model, limits, emit
+        self.context = context
         self.slots = asyncio.Semaphore(limits.max_parallel)
         self.workers = {w: asyncio.Lock() for w in WORKERS}
         self.resources = Resources()
@@ -230,6 +231,8 @@ class Runtime:
         self.source = {}
 
     async def ask(self, worker, phase, payload, task_id):
+        if self.context is not None:
+            payload = dict(payload, personal_memory=self.context.personal(worker, payload, task_id, phase))
         # Reserve the call before awaiting. All counters and recorder writes stay on the event loop.
         if self.calls >= self.limits.max_calls:
             raise ValueError("model call budget exhausted")
@@ -268,6 +271,8 @@ class Runtime:
             payload = {"task": asdict(task), "depth": depth, "source": self.source,
                        "inputs": inputs, "max_depth": self.limits.max_depth,
                        "max_steps": self.limits.max_steps}
+            if self.context is not None:
+                payload["handoff_memory"] = self.context.handoff(requester, task, path)
 
             async def propose(worker):
                 try:
@@ -310,6 +315,8 @@ class Runtime:
                 finally:
                     self.emit("execution_end", task_id=path, worker=winner, phase=phase)
             outcome = Outcome("succeeded", winner, artifact)
+            if self.context is not None:
+                self.context.remember(winner, task, path, artifact)
         except asyncio.CancelledError:
             self.emit("task_cancelled", task_id=path)
             raise
