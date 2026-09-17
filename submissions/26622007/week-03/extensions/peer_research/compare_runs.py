@@ -15,8 +15,10 @@ def compare(seed_dir, warm_dir, disabled_dir):
     dirs = {"seed": seed_dir, "warm": warm_dir, "disabled": disabled_dir}
     results = {name: read(path / "result.json") for name,path in dirs.items()}
     settings = {name: read(path / "settings.json") for name,path in dirs.items()}
-    events = {name: [json.loads(line) for line in Path(r["log"]).read_text().splitlines()] for name,r in results.items()}
-    traces = {name: trace_audit(Path(r["log"])) for name,r in results.items()}
+    # Recorded absolute paths describe the original host; resolve evidence from this checkout for replay.
+    logs = {name: ROOT / "logs" / (r["run_id"] + ".jsonl") for name,r in results.items()}
+    events = {name: [json.loads(line) for line in path.read_text().splitlines()] for name,path in logs.items()}
+    traces = {name: trace_audit(path) for name,path in logs.items()}
     before = read(warm_dir / "memory-before.json")
     owners = {row["id"]: row["owner"] for rows in before.values() for row in rows}
     seed_ids = {row["id"] for row in read(seed_dir / "memory-written.json")}
