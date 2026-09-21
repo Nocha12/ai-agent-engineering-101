@@ -19,6 +19,12 @@
     "response_deadline_seconds": 90,
     "max_attempts": 2,
     "retry_delay_seconds": 2,
-    "max_http_requests": 2
+    "rate_limit_retry": {
+      "max_attempts": 6,
+      "initial_delay_seconds": 15,
+      "max_delay_seconds": 60,
+      "max_wait_seconds": 300
+    },
+    "max_http_requests": 6
   }
 }

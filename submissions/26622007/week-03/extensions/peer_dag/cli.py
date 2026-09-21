@@ -14,7 +14,7 @@ import uuid
 from core import Limits, Outcome, Runtime, Task, evaluate, fingerprint
 from fixtures import DemoModel
 from models import BASE, CONDITIONS, LiveModel, ReplayModel, redact, team_roster
-from openrouter_client import ConfigurationError, read_key
+from openrouter_client import ConfigurationError, rate_limit_policy, read_key
 
 ROOT = Path(__file__).resolve().parent
 
@@ -35,11 +35,12 @@ def load_config():
         value = transport.get(key)
         if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
             raise ValueError(f"invalid transport {key}")
+    rate_policy = rate_limit_policy(transport)
     if (transport["timeout_seconds"] == 0 or transport["max_attempts"] > 2
             or transport["timeout_seconds"] > 60 or transport["max_tokens"] > 4096
             or transport["temperature"] > 2
-            or transport["max_http_requests"] != transport["max_attempts"]):
-        raise ValueError("transport must have a positive timeout and at most two attempts per call")
+            or transport["max_http_requests"] != rate_policy["max_attempts"]):
+        raise ValueError("transport needs a positive timeout, <=2 ordinary attempts and a matching 429 request budget")
     return config, limits
 
 
@@ -152,7 +153,7 @@ def main():
         if args.parallel is not None:
             limits = Limits(**dict(asdict(limits), max_parallel=args.parallel))
         print(json.dumps({"limits": asdict(limits), "transport": config["transport"],
-                          "max_http_requests": limits.max_calls * config["transport"]["max_attempts"],
+                          "max_http_requests": limits.max_calls * rate_limit_policy(config["transport"])["max_attempts"],
                           "live_execution": "provided-data analysis artifacts only"}, ensure_ascii=False, indent=2))
         return 0
     return asyncio.run(run(args))
