@@ -8,7 +8,7 @@ from core import fingerprint
 
 BASE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BASE))
-from contract_net import SKILLS
+from contract_net import CONDITIONS, GENERALIST, OVERCONFIDENT, SKILLS
 from openrouter_client import OpenRouterClient, redact
 
 PROTOCOL = """너는 동료와 협업하는 Worker {worker}다. 전문성: {skill}.
@@ -55,16 +55,25 @@ facts 값은 문자열, 숫자, boolean만 허용한다. 객체나 배열은 넣
 }
 
 
-def messages(worker, phase, payload):
+def messages(worker, phase, payload, condition="baseline"):
+    if condition not in CONDITIONS:
+        raise ValueError("unknown condition")
     user = json.dumps(payload, ensure_ascii=False, sort_keys=True, allow_nan=False)
     if len(user.encode()) > 120_000:
         raise ValueError("model input byte limit exceeded")
-    return [{"role": "system", "content": PROTOCOL.format(worker=worker, skill=SKILLS[worker]) + PHASES[phase]},
+    skill = GENERALIST if condition == "homogeneous" else SKILLS[worker]
+    system = PROTOCOL.format(worker=worker, skill=skill) + PHASES[phase]
+    if condition == "overconfident" and worker == "C" and phase == "propose":
+        system += OVERCONFIDENT
+    return [{"role": "system", "content": system},
             {"role": "user", "content": user}]
 
 
 class LiveModel:
-    def __init__(self, key, config, emit):
+    def __init__(self, key, config, emit, condition="baseline"):
+        if condition not in CONDITIONS:
+            raise ValueError("unknown condition")
+        self.condition = condition
         self.key, self.config, self.emit = key, config, emit
         self.http_requests = 0
         self.cost = 0.0
@@ -75,7 +84,7 @@ class LiveModel:
         client = OpenRouterClient(self.key, self.config)
         def collect(event, **fields):
             records.append((event, fields))
-        request_messages = messages(worker, phase, payload)
+        request_messages = messages(worker, phase, payload, self.condition)
         job = asyncio.create_task(asyncio.to_thread(client.complete, request_messages, collect, task_id, worker))
         try:
             return await asyncio.shield(job)
@@ -99,13 +108,18 @@ class LiveModel:
 
 
 class ReplayModel:
-    def __init__(self, path, delay=0, transport=None):
+    def __init__(self, path, delay=0, transport=None, condition=None):
         self.responses, self.used, self.delay = {}, set(), delay
         self.requests = {}
         self.live_source = False
+        self.condition = condition or "baseline"
         for line in path.read_text(encoding="utf-8").splitlines():
             record = json.loads(line)
             if record.get("event") == "run_start":
+                recorded_condition = record["settings"].get("condition", "baseline")
+                if condition is not None and condition != recorded_condition:
+                    raise ValueError("replay condition differs from recorded settings")
+                self.condition = recorded_condition
                 self.live_source = record["settings"]["mode"] == "live"
                 if transport is not None and record["settings"]["transport"] != transport:
                     raise ValueError("replay transport settings differ from recorded settings")
@@ -128,7 +142,7 @@ class ReplayModel:
         if record["request_sha"] != fingerprint({"worker": worker, "phase": phase, "payload": payload}):
             raise ValueError("replay input differs from recorded input")
         # A payload hash alone cannot detect changes to system prompts.
-        if self.live_source and self.requests.get(key) != messages(worker, phase, payload):
+        if self.live_source and self.requests.get(key) != messages(worker, phase, payload, self.condition):
             raise ValueError("replay system/user messages differ from the live request")
         self.used.add(key)
         await asyncio.sleep(self.delay)

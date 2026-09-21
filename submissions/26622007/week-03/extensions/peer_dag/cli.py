@@ -6,13 +6,14 @@ from datetime import datetime, timezone
 import json
 import math
 from pathlib import Path
+import re
 import subprocess
 import time
 import uuid
 
 from core import Limits, Outcome, Runtime, Task, evaluate, fingerprint
 from fixtures import DemoModel
-from models import BASE, LiveModel, ReplayModel, redact
+from models import BASE, CONDITIONS, LiveModel, ReplayModel, redact
 from openrouter_client import ConfigurationError, read_key
 
 ROOT = Path(__file__).resolve().parent
@@ -71,7 +72,7 @@ async def run(args):
         sha = committed_inputs()
         env_file = args.env_file or BASE.parent / ".env"
         key = read_key(env_file if env_file.exists() or args.env_file else None)
-    state = {"mode": args.mode, "requester": args.requester, "limits": asdict(limits),
+    state = {"mode": args.mode, "condition": args.condition, "requester": args.requester, "limits": asdict(limits),
              "transport": config["transport"], "case_sha": fingerprint(asdict(task)),
              "expected_sha": fingerprint(expected),
              "selection_policy": "score, confidence, fixed per-child rotation v2",
@@ -80,7 +81,7 @@ async def run(args):
                               for name in ("contract_net.py", "openrouter_client.py")},
              "git_commit": sha}
     experiment_id = fingerprint(state)[:16]
-    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + args.mode + "-" + uuid.uuid4().hex[:8]
+    run_id = args.run_id or (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + args.mode + "-" + uuid.uuid4().hex[:8])
     output = ROOT / "runs" / run_id
     output.mkdir(parents=True)
     logs = ROOT / "logs"
@@ -89,8 +90,8 @@ async def run(args):
     started = time.monotonic()
     with log_path.open("x", encoding="utf-8") as stream:
         recorder = Recorder(stream, key)
-        model = (LiveModel(key, config["transport"], recorder.emit) if args.mode == "live" else
-                 ReplayModel(args.replay, args.replay_delay_ms / 1000, config["transport"])
+        model = (LiveModel(key, config["transport"], recorder.emit, args.condition) if args.mode == "live" else
+                 ReplayModel(args.replay, args.replay_delay_ms / 1000, config["transport"], args.condition)
                  if args.mode == "replay" else DemoModel())
         runtime = Runtime(model, limits, recorder.emit)
         recorder.emit("run_start", run_id=run_id, experiment_id=experiment_id, settings=state,
@@ -102,7 +103,7 @@ async def run(args):
             outcome = Outcome("cancelled", error="interrupted; partial outputs retained")
         evaluation = evaluate(outcome, expected)
         replay_complete = model.complete() if isinstance(model, ReplayModel) else None
-        result = {"run_id": run_id, "experiment_id": experiment_id, "mode": args.mode,
+        result = {"run_id": run_id, "experiment_id": experiment_id, "mode": args.mode, "condition": args.condition,
                   "status": outcome.status, "error": outcome.error,
                   "evaluation": evaluation, "calls": runtime.calls, "tasks": runtime.tasks,
                   "peak_calls": runtime.peak_calls, "elapsed_seconds": round(time.monotonic() - started, 4),
@@ -124,11 +125,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("demo", "live", "replay", "plan"))
     parser.add_argument("--requester", choices=("A", "B", "C"), default="A")
+    parser.add_argument("--condition", choices=CONDITIONS, default="baseline")
+    parser.add_argument("--run-id", help="Optional unique run ID for a recorded experiment batch")
     parser.add_argument("--parallel", type=int, choices=(1, 2, 3))
     parser.add_argument("--env-file", type=Path)
     parser.add_argument("--replay", type=Path)
     parser.add_argument("--replay-delay-ms", type=int, default=0)
     args = parser.parse_args()
+    if args.run_id is not None and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,99}", args.run_id):
+        parser.error("run-id must be 1..100 alphanumeric, underscore or hyphen characters")
     if args.mode == "replay" and args.replay is None:
         parser.error("replay mode requires --replay")
     if not 0 <= args.replay_delay_ms <= 1000:

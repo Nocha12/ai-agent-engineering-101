@@ -55,6 +55,10 @@ python3 submissions/26622007/week-03/extensions/peer_dag/cli.py plan
 # 실제 모델로 계획, 동료 선정, 분석 수행, 통합을 실행한다.
 python3 submissions/26622007/week-03/extensions/peer_dag/cli.py live
 
+# 같은 재귀 구조에서 전문성 또는 C의 입찰 확신도 지시만 바꾼다.
+python3 submissions/26622007/week-03/extensions/peer_dag/cli.py live --condition homogeneous
+python3 submissions/26622007/week-03/extensions/peer_dag/cli.py live --condition overconfident
+
 # 다른 Worker를 최초 요청자로 사용한다. 고정 manager 프로세스는 없다.
 python3 submissions/26622007/week-03/extensions/peer_dag/cli.py demo --requester C
 
@@ -78,6 +82,11 @@ python3 -m unittest discover -s submissions/26622007/week-03 -p 'test_*.py' -v
 모드별 결과는 `runs/<run-id>/result.json`, 각 작업 산출물은 `runs/<run-id>/artifacts/`에 저장된다.
 모델 원문·입찰·평가·선정·작업 상태·HTTP 응답과 usage는 `logs/<run-id>.jsonl`에 남는다.
 초기 두 실행은 경로 분리 수정 전이므로 산출물이 해당 run 폴더 바로 아래에 있다. 기존 파일은 이동하지 않았다.
+
+`--condition` 기본값은 `baseline`이며 기존 시스템 프롬프트와 동일하다.
+`homogeneous`는 모든 단계의 전문성 설명만 같은 범용 역할로 바꾼다.
+`overconfident`는 C의 propose 단계 끝에 항상 입찰하고 confidence를 95 이상으로 반환하라는 지시만 추가한다.
+평가·실행·통합 지시와 선정 규칙은 동일하다. 조건별 실제 로그를 replay할 때도 같은 `--condition`을 지정한다.
 
 ## 파일 책임
 
