@@ -12,7 +12,7 @@ import subprocess
 import sys
 import uuid
 
-from contract_net import CONDITIONS, load_tasks, make_team, messages_for, run_round
+from contract_net import CONDITIONS, bid_response_format, load_tasks, make_team, messages_for, run_round
 from openrouter_client import ConfigurationError, OpenRouterClient, read_key, redact
 
 ROOT = Path(__file__).resolve().parent
@@ -134,7 +134,8 @@ def run_one(tasks, golds, condition, client, state, smoke=False):
         emit("start", mode="smoke" if smoke else "experiment", condition=condition, settings=state)
         try:
             def call(task, contractor):
-                return client.complete(messages_for(task, contractor), emit, task.id, contractor.name)
+                return client.complete(messages_for(task, contractor), emit, task.id, contractor.name,
+                                       response_format=bid_response_format())
             result = run_round(tasks, make_team(condition), call, emit)
             scores = result.evaluate(golds)
             for task in tasks:

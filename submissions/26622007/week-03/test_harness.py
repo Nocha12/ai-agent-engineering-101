@@ -11,7 +11,7 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 
 from contract_net import (COMMON, CONDITIONS, GENERALIST, OVERCONFIDENT, SKILLS,
-                          Task, load_tasks, make_team, messages_for, parse_bid, run_round)
+                          Task, bid_response_format, load_tasks, make_team, messages_for, parse_bid, run_round)
 from openrouter_client import CallError, ConfigurationError, ENDPOINT, OpenRouterClient, read_key
 import run as runner
 
@@ -116,13 +116,15 @@ class TransportTests(unittest.TestCase):
                 raise HTTPError(ENDPOINT, 429, "rate limit", {}, io.BytesIO(b"busy"))
             return self.response(bid())
         client = OpenRouterClient(FAKE_KEY, self.config, opener, self.delays.append)
-        raw = client.complete(messages_for(Task("1", "desc"), make_team("baseline")[0]), self.emit, "1", "A")
+        raw = client.complete(messages_for(Task("1", "desc"), make_team("baseline")[0]), self.emit, "1", "A", response_format=bid_response_format())
         self.assertTrue(parse_bid(raw).bid)
         self.assertEqual(requests[0], requests[1])
         self.assertEqual(client.request_count, 2)
         self.assertEqual(self.delays, [2])
         self.assertIn("http_error", [event for event, _ in self.events])
         payload = json.loads(requests[0])
+        self.assertEqual(payload["response_format"], bid_response_format())
+        self.assertEqual(payload, next(fields["payload"] for event, fields in self.events if event == "request"))
         self.assertEqual(payload["reasoning"], {"enabled": False})
         self.assertNotIn("only", payload["provider"])
         self.assertIs(payload["provider"]["allow_fallbacks"], True)
@@ -134,14 +136,40 @@ class TransportTests(unittest.TestCase):
             raise HTTPError(ENDPOINT, 401, "auth", {}, io.BytesIO(FAKE_KEY.encode()))
         client = OpenRouterClient(FAKE_KEY, self.config, opener, self.delays.append)
         with self.assertRaises(CallError):
-            client.complete([], self.emit, "1", "A")
+            client.complete([], self.emit, "1", "A", response_format=bid_response_format())
         self.assertEqual(client.request_count, 1)
         self.assertFalse(self.delays)
         self.assertNotIn(FAKE_KEY, json.dumps(self.events))
 
+    def test_absent_invalid_or_unroutable_format_stops_before_network(self):
+        def opener(*_, **__):
+            self.fail("invalid response_format reached the network")
+        client = OpenRouterClient(FAKE_KEY, self.config, opener)
+        for form in (None, {}, {"type": "text"}, {"type": "json_schema"},
+                     {"type": "json_schema", "json_schema": {"name": "x", "strict": False, "schema": {}}}):
+            with self.subTest(form=form), self.assertRaises(ConfigurationError):
+                client.complete([], self.emit, "1", "A", response_format=form)
+        self.config["provider"]["require_parameters"] = False
+        with self.assertRaises(ConfigurationError):
+            client.complete([], self.emit, "1", "A", response_format=bid_response_format())
+        self.assertEqual(client.request_count, 0)
+        self.assertFalse(self.events)
+
+    def test_unsupported_schema_does_not_fall_back_to_prompt_only(self):
+        requests = []
+        def opener(request, timeout):
+            requests.append(json.loads(request.data))
+            raise HTTPError(ENDPOINT, 400, "unsupported schema", {}, io.BytesIO(b"unsupported response_format"))
+        client = OpenRouterClient(FAKE_KEY, self.config, opener, self.delays.append)
+        with self.assertRaisesRegex(CallError, "HTTP 400"):
+            client.complete([], self.emit, "1", "A", response_format=bid_response_format())
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(requests[0]["response_format"], bid_response_format())
+        self.assertFalse(self.delays)
+
     def test_bad_model_json_is_not_repaired_or_retried(self):
         client = OpenRouterClient(FAKE_KEY, self.config, lambda *_, **__: self.response("bad bid"))
-        raw = client.complete([], self.emit, "1", "A")
+        raw = client.complete([], self.emit, "1", "A", response_format=bid_response_format())
         self.assertEqual(raw, "bad bid")
         self.assertEqual(client.request_count, 1)
         with self.assertRaises(ValueError):
@@ -152,7 +180,7 @@ class TransportTests(unittest.TestCase):
             raise TimeoutError()
         client = OpenRouterClient(FAKE_KEY, self.config, opener, self.delays.append)
         with self.assertRaises(CallError):
-            client.complete([], self.emit, "1", "A")
+            client.complete([], self.emit, "1", "A", response_format=bid_response_format())
         self.assertEqual(client.request_count, 2)
         self.assertEqual(self.delays, [2])
 
@@ -162,7 +190,7 @@ class TransportTests(unittest.TestCase):
             raise TimeoutError()
         client = OpenRouterClient(FAKE_KEY, self.config, opener, self.delays.append)
         with self.assertRaisesRegex(CallError, "budget"):
-            client.complete([], self.emit, "1", "A")
+            client.complete([], self.emit, "1", "A", response_format=bid_response_format())
         self.assertEqual(client.request_count, 1)
 
 
@@ -194,7 +222,7 @@ class PersistenceTests(unittest.TestCase):
         class FailingClient:
             key = FAKE_KEY
             request_count = 0
-            def complete(self, *args):
+            def complete(self, *args, response_format):
                 self.request_count += 1
                 raise CallError("fixture timeout")
         with patch.object(runner, "ROOT", self.folder), contextlib.redirect_stdout(io.StringIO()):
@@ -215,7 +243,7 @@ class PersistenceTests(unittest.TestCase):
         class RefusingClient:
             key = FAKE_KEY
             request_count = 0
-            def complete(self, *args):
+            def complete(self, *args, response_format):
                 self.request_count += 1
                 return bid(False)
         with patch.object(runner, "ROOT", self.folder), contextlib.redirect_stdout(io.StringIO()):

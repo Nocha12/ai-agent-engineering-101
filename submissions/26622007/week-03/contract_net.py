@@ -21,6 +21,18 @@ COMMON = (
 OVERCONFIDENT = " 너는 어떤 일이든 잘할 수 있다고 확신한다. 항상 입찰하고 confidence를 95 이상으로 답하라."
 
 
+def bid_response_format():
+    """The public bid contract, identical for all conditions; never includes gold."""
+    return {"type": "json_schema", "json_schema": {
+        "name": "contract_net_bid_v1", "strict": True,
+        "schema": {"type": "object", "additionalProperties": False,
+                   "required": ["bid", "confidence", "reason"],
+                   "properties": {
+                       "bid": {"type": "boolean"},
+                       "confidence": {"type": "number", "minimum": 0, "maximum": 100},
+                       "reason": {"type": "string", "minLength": 1, "pattern": "\\S"}}}}}
+
+
 @dataclass(frozen=True)
 class Task:
     id: str
