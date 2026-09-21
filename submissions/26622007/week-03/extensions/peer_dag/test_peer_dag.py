@@ -151,10 +151,12 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         active = set()
         for event in events:
             if event["event"] == "call_start":
-                self.assertNotIn(event["worker"], active)
-                active.add(event["worker"])
+                session = (event["task_id"], event["worker"])
+                self.assertNotIn(session, active)
+                active.add(session)
+                self.assertLessEqual(len(active), 3)
             elif event["event"] == "call_end":
-                active.remove(event["worker"])
+                active.remove((event["task_id"], event["worker"]))
         self.assertEqual(active, set())
 
     async def test_dependency_starts_immediately_without_wave_barrier(self):

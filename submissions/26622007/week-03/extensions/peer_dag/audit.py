@@ -10,11 +10,15 @@ def audit(path):
     errors, active, leases, finished = [], {}, {}, {}
     starts, awards, task_ids = {}, {}, set()
     peak, peak_execution = 0, 0
+    peak_by_worker, peak_execution_by_worker = Counter(), Counter()
     phases, providers, models = Counter(), Counter(), Counter()
     state = next((r["settings"] for r in records if r["event"] == "run_start"), None)
     if state is None:
         return {"passed": False, "errors": ["missing run_start"]}
     limits = state.get("limits", state.get("config", {}))
+    policy = state.get("concurrency_policy", "worker-serial-v1")
+    if policy not in ("worker-serial-v1", "task-worker-isolated-v1"):
+        errors.append("unknown concurrency policy")
     for expected_seq, record in enumerate(records, 1):
         if record["seq"] != expected_seq:
             errors.append("non-contiguous sequence")
@@ -37,18 +41,25 @@ def audit(path):
                                "dependencies": {s["id"]: s["depends_on"] for s in record["plan"]["steps"]}}
         elif event == "call_start":
             worker = record["worker"]
-            if worker in active:
+            key = (task_id, worker, record["phase"])
+            if policy == "worker-serial-v1" and any(w == worker for _, w, _ in active):
                 errors.append(f"overlapping calls on same worker: {worker}")
-            active[worker] = (task_id, record["phase"])
+            if any(t == task_id and w == worker for t, w, _ in active):
+                errors.append(f"overlapping calls on same task/worker session: {task_id}/{worker}")
+            active[key] = True
             phases[record["phase"]] += 1
-            starts[(task_id, worker, record["phase"])] = record["at"]
+            starts[key] = record["at"]
             peak = max(peak, len(active))
-            peak_execution = max(peak_execution, sum(p in ("execute", "synthesize") for _, p in active.values()))
+            peak_execution = max(peak_execution, sum(p in ("execute", "synthesize") for _, _, p in active))
+            for w in {w for _, w, _ in active}:
+                peak_by_worker[w] = max(peak_by_worker[w], sum(a == w for _, a, _ in active))
+                peak_execution_by_worker[w] = max(peak_execution_by_worker[w],
+                    sum(a == w and p in ("execute", "synthesize") for _, a, p in active))
             if len(active) > limits["max_parallel"]:
                 errors.append("parallel call limit exceeded")
         elif event == "call_end":
             worker = record["worker"]
-            if active.pop(worker, None) != (task_id, record["phase"]):
+            if active.pop((task_id, worker, record["phase"]), None) is None:
                 errors.append(f"unmatched call_end: {task_id}/{worker}")
         elif event == "execution_start":
             reads, writes = set(record["reads"]), set(record["writes"])
@@ -73,7 +84,10 @@ def audit(path):
     if any(task_id not in finished for task_id in task_ids):
         errors.append("task without terminal state")
     return {"passed": not errors, "errors": errors, "mode": state.get("mode", "research-live"),
+            "concurrency_policy": policy,
             "peak_calls": peak, "peak_execution_calls": peak_execution,
+            "peak_calls_by_worker": dict(peak_by_worker),
+            "peak_execution_calls_by_worker": dict(peak_execution_by_worker),
             "calls_by_phase": dict(phases), "task_statuses": finished,
             "awards": awards, "providers": dict(providers), "models": dict(models),
             "evaluation": endings[0]["result"]["evaluation"] if endings else None}

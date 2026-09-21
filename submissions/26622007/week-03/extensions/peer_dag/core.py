@@ -220,11 +220,13 @@ class Outcome:
 
 
 class Runtime:
-    def __init__(self, model, limits, emit=lambda *args, **kwargs: None, context=None):
+    def __init__(self, model, limits, emit=lambda *args, **kwargs: None, context=None, *, serialize_workers=False):
         self.model, self.limits, self.emit = model, limits, emit
         self.context = context
+        self.serialize_workers = serialize_workers
+        self.concurrency_policy = "worker-serial-v1" if serialize_workers else "task-worker-isolated-v1"
         self.slots = asyncio.Semaphore(limits.max_parallel)
-        self.workers = {w: asyncio.Lock() for w in WORKERS}
+        self.sessions = {}
         self.resources = Resources()
         self.calls = self.tasks = self.active_calls = self.peak_calls = 0
         self.outcomes = {}
@@ -238,7 +240,11 @@ class Runtime:
             raise ValueError("model call budget exhausted")
         self.calls += 1
         request_sha = fingerprint({"worker": worker, "phase": phase, "payload": payload})
-        async with self.workers[worker], self.slots:
+        # A worker is a role, not a shared conversation. Different task sessions may overlap.
+        # Keep one call per task/worker session; the global budget still caps all API calls.
+        session = worker if self.serialize_workers else (task_id, worker)
+        lock = self.sessions.setdefault(session, asyncio.Lock())
+        async with lock, self.slots:
             self.active_calls += 1
             self.peak_calls = max(self.peak_calls, self.active_calls)
             started = time.monotonic()

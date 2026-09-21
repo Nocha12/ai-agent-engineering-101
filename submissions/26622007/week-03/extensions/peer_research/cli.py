@@ -85,7 +85,9 @@ async def run(args):
                                top_k=config["memory_top_k"], ttl_days=config["memory_ttl_days"], enabled=not args.no_memory)
         transport = WebTransport(key, config["transport"], config["search"], emit)
         reader = SourceReader(catalog, emit, config["source_fetch"])
-        runtime = Runtime(ResearchModel(transport, catalog, reader), limits, emit, context=memory)
+        # Preserve this paused memory experiment's original per-worker execution policy.
+        runtime = Runtime(ResearchModel(transport, catalog, reader), limits, emit, context=memory,
+                          serialize_workers=True)
         settings = {"git_commit": sha, "case": args.case, "case_sha": fingerprint(asdict(task)),
                     "config": config, "requester": args.requester, "memory_enabled": memory.enabled,
                     "memory_snapshot_sha": fingerprint(memory.snapshot), "process_id": os.getpid(),

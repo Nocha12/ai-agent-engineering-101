@@ -80,6 +80,7 @@ async def run(args):
     from response_formats import POLICY
     state = {"mode": args.mode, "condition": args.condition, "requester": args.requester, "limits": asdict(limits),
              "response_format_policy": POLICY,
+             "concurrency_policy": "task-worker-isolated-v1",
              "transport": config["transport"], "case_sha": fingerprint(asdict(task)),
              "expected_sha": fingerprint(expected),
              "selection_policy": "score, confidence, fixed per-child rotation v2",
