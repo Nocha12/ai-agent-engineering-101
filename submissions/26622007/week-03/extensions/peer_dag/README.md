@@ -2,7 +2,12 @@
 
 [복합 작업 목록 5개](cases/README.md)를 추가했다. 게임 기획과 코드 구조 설계를 함께 다루는 작업 등은
 `cli.py list`로 확인하고 `cli.py live --case game-design-architecture`처럼 선택한다.
-새 목록은 아직 실제 API로 실행하지 않았으며, 아래 과거 실험은 기존 출시 검토 한 사례의 기록이다.
+새 목록의 최종 45회 실험을 완료했다. [최종 결과](conditions/20260921T113158-suite-ab4e67/FINAL_REPORT.md)와
+[산출물 및 품질 점검](conditions/20260921T113158-suite-ab4e67/QUALITY_REVIEW.md)을 참고한다.
+baseline 8/15, homogeneous 11/15, overconfident 9/15가 필수 facts 검사를 통과했다.
+실행 중첩 20회(동일 Worker 중첩 12회), 실제 최대 깊이 2를 관측했다. 실패 17회는 출력 2200토큰 잘림이며 원본을 보존했다.
+고정 응답 직렬/병렬 재생 10회는 상태와 모든 산출물이 같았다. 이 결과는 실제 LLM 응답의 결정성을 뜻하지 않는다.
+아래 과거 실험은 기존 출시 검토 한 사례의 기록이며 이번 5개 사례 결과와 합산하지 않는다.
 
 기존 Contract Net의 필수 세 조건과 별개인 확장이다. 사용자가 제안한 구조를 구현한다.
 모든 Worker는 입찰·계획·선정·실행·통합을 수행한다. 고정 manager 에이전트는 없다.
