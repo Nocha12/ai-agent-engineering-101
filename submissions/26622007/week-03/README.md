@@ -1,6 +1,10 @@
 # Week 03 — 출시 준비팀의 업무 배정 하네스
 
-**현재 작업 목록: 복합 과제 5개로 개편. 새 목록의 실제 반복 비교 실험은 아직 수행하지 않았다.**
+**현재 작업 목록: 복합 과제 5개. 실제 계획·수행의 45회 확장 실험을 완료했다.**
+
+[45회 결과](extensions/peer_dag/conditions/20260921T113158-suite-ab4e67/FINAL_REPORT.md)와
+[산출물 품질 점검](extensions/peer_dag/conditions/20260921T113158-suite-ab4e67/QUALITY_REVIEW.md)을 확인한다.
+기본 강의 배정 실험은 별도 [규약·실행기](task_sets/complex-final/PROTOCOL.md)와 [보고서](REPORT.md)에서 다룬다.
 
 관리자 1명과 DeepSeek V4.1 Flash 입찰자 3명으로 작업 5개를 배정한다.
 출시 검토, 게임 기획·코드 구조 설계, 결제 시스템 재설계, 서비스 확장, 출시 운영을 포함한다.
@@ -22,9 +26,9 @@
 - 실행 `20260915T121722-fb1a7bb5`, 설정 ID `0483e14314802b34`.
 - 18개 응답이 실제로 9개 공급자에 분산됐다. 모든 응답 모델은 `deepseek/deepseek-v4.1-flash`였다.
 - API 응답 비용 합계 **$0.003295322**. 위 18개 응답 기준이며 사전 연결 점검과 과거 실행은 별도다.
-- [원본 로그](logs/20260915T121722-fb1a7bb5-baseline.log), [모든 성공·실패 행](results.csv), [공급자별 호출 수와 과거 결과](REPORT.md).
+- [원본 로그](logs/20260915T121722-fb1a7bb5-baseline.log), [모든 성공·실패 행](results.csv). 공급자 분포와 과거 설정은 해당 원본 로그에 보존돼 있다.
 - 앞선 HTTP 429 실패 3회와 Novita 고정 성공 1회도 보존했다. 설정이 달라 현재 조건 비교의 반복 횟수에 포함하지 않는다.
-- 제출 전 현재 자동 라우팅 설정으로 baseline 2회, homogeneous 3회, overconfident 3회가 더 필요하다. REPORT의 Smith 비교·해석도 작성해야 한다.
+- 이 자동 라우팅 결과는 과거 기록이며 현재 Fireworks 고정 5개 작업 실험과 섞지 않는다. REPORT의 Smith 비교·해석은 사용자 검토가 필요하다.
 
 ## 구조
 
@@ -49,7 +53,7 @@ flowchart TD
 | 파일 | 책임 |
 |---|---|
 | `contract_net.py` | 역할·공고, JSON 입찰 검증, 낙찰과 집계. API·인증 정보를 모른다. |
-| `openrouter_client.py` | OpenRouter 호출, 공급자 자동 라우팅 설정, 시간·재시도·총 호출 제한 |
+| `openrouter_client.py` | OpenRouter 호출, 명시한 공급자·response_format 전달, 시간·재시도·총 호출 제한 |
 | `run.py` | 실행 초기화, 로그, CSV, 설정·소스 해시, 실제 실행 요약 |
 | `config.json` | 모델·온도·토큰·추론·공급자·오류 정책 |
 | `tasks.json`, `TASK_DESIGN.md` | 사전에 커밋하는 작업과 정답 근거 |
@@ -61,7 +65,7 @@ API 호출용 객체는 재사용하지만 대화 기록은 보관하지 않는�
 
 ## 실행 환경과 키
 
-Python 3.10 이상, macOS/Linux. 외부 Python 패키지가 필요 없다.
+Python 3.10 이상, macOS/Linux. 기본 실행은 표준 라이브러리를 사용하고 응답 스키마/실험 검증기는 `jsonschema` 패키지가 필요하다.
 아래 명령은 저장소 루트에서 실행한다. 이미 있는 `.venv/bin/python`으로 `python3`를 대체해도 된다.
 
 키는 상위 학번 폴더의 로컬 `.env`에 `OPENROUTER_API_KEY` 항목으로 설정한다. `.env.example`은 빈 형식 참고용이다.
@@ -85,25 +89,28 @@ python3 submissions/26622007/week-03/run.py smoke
 # 현재 목록 본 실험: 세 조건 × 3회 × 작업 5개 × 에이전트 3명 = 135회
 python3 submissions/26622007/week-03/run.py run
 
+# 최종 배정 실험과 같은 설정·회전 순서·429 재시도로 실행(새 결과 행 추가)
+python3 submissions/26622007/week-03/task_sets/complex-final/allocation_study.py run
+
 # 특정 조건만 추가 실행. 이전 실패 로그와 CSV 행은 그대로 유지한다
 python3 submissions/26622007/week-03/run.py run --condition baseline --repeats 1
 
 # 실제 기록을 Markdown 표로 보기
 python3 submissions/26622007/week-03/run.py summary
 
-# 공식 과제 형식 검사: 현재는 추가 조건·반복 실험이 남아 전체 통과 전
+# 공식 과제 형식 검사(내용 해석의 완성도를 심사하는 검사는 아님)
 python3 scripts/check_week03.py submissions/26622007/week-03
 ```
 
 ## 고정 조건
 
 - 모델 `deepseek/deepseek-v4.1-flash`, OpenRouter 주소는 코드에 고정.
-- 공급자 자동 라우팅: `only`·`order`·`sort`를 지정하지 않고 `allow_fallbacks=true`, `require_parameters=true`로 요청한다. OpenRouter가 계정 정책·단가 상한·파라미터 지원을 충족하는 공급자들에서 선택하고 장애 시 다른 공급자를 시도한다.
+- 공급자 `only=["fireworks"]`, `allow_fallbacks=true`, `require_parameters=true`. 허용 목록 밖 공급자로 전환하지 않는다. 과거 자동 라우팅 기록과 구분한다.
 - 모델 목록 fallback은 사용하지 않는다. 어떤 공급자가 선택돼도 요청 모델 ID는 동일하며 실제 응답의 provider/model/usage를 기록한다.
 - 조건 간 고정 대상은 라우팅 정책이다. 공급자별 구현·양자화 차이가 영향을 줄 수 있으므로 결과 해석 때 실제 공급자 분포도 확인한다.
 - temperature=0, max_tokens=512, reasoning.enabled=false 요청. 짧은 입찰용 설정이며 최대 추론 벤치마크와 같지 않다.
-- JSON 강제 API 옵션이나 응답 자동 수리는 사용하지 않는다. 프롬프트로 JSON을 요구하고 실패를 측정한다.
-- 요청 제한: 30초, 통신·일부 HTTP 오류에만 최대 2회 시도, 재시도 전 2초 대기. 한 명령 최대 324회 HTTP 요청.
+- 입찰에는 `response_format.type=json_schema`, `strict=true`의 bid/confidence/reason 스키마를 명시한다. 실제 요청 payload와 응답을 검증하며 로컬 파싱·의미 검사를 유지한다. 응답을 임의로 수리하지 않는다.
+- 기본 config: 요청 30초, 응답 수신 기한 90초, 통신·일부 HTTP 오류 최대 2회, 한 명령 최대 324회 HTTP 요청. 최종 실험의 별도 config는 429 최대 6회·누적 대기 300초와 총 HTTP 상한 810회를 사용한다. 실제 9회 설정은 각 start 로그에 기록한다.
 - 공급자 토큰 단가 상한: 입력 $0.30/M, 출력 $1.20/M. 실제 비용·추론 토큰은 응답 usage에 있으면 기록한다.
 - 설정·프롬프트·작업·소스 코드 해시로 experiment_id를 남긴다. 서로 다른 experiment_id를 하나의 조건 비교로 합치지 않는다.
 - `tasks.json`이 HEAD에 커밋된 내용과 같아야 실제 호출을 시작한다.
