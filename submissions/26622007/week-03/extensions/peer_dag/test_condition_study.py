@@ -1,9 +1,10 @@
 """Check that failed attempts and repeat consistency are reported honestly."""
+import asyncio
 import copy
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import condition_study as study
 
@@ -55,6 +56,41 @@ class StudyTests(unittest.TestCase):
             self.assertIsNone(metric["canonical_facts"])
             self.assertIsNone(metric["reported_cost_usd"])
             self.assertEqual(log.read_text(), original)
+
+
+class ScheduleTests(unittest.IsolatedAsyncioTestCase):
+    async def test_serial_study_preserves_all_attempts_order_and_eight_gaps(self):
+        schedule = [{"block": block, "condition": condition, "run_id": f"{block}-{condition}"}
+                    for block, conditions in enumerate(study.BLOCKS, 1) for condition in conditions]
+        active, peak, order = 0, 0, []
+        original_sleep = asyncio.sleep
+
+        async def fake_run(folder, condition, block, run_id):
+            nonlocal active, peak
+            active += 1
+            peak = max(peak, active)
+            order.append(run_id)
+            await original_sleep(0)
+            active -= 1
+            return {"run_id": run_id, "exit_code": 1 if condition == "homogeneous" else 0}
+
+        with patch.object(study, "attempt_run", side_effect=fake_run), \
+             patch.object(study.asyncio, "sleep", new_callable=AsyncMock) as gaps:
+            attempts = await study.run_schedule(None, schedule, serial=True, gap_seconds=15)
+        self.assertEqual(peak, 1)
+        self.assertEqual(order, [item["run_id"] for item in schedule])
+        self.assertEqual(len(attempts), 9)
+        self.assertEqual(sum(item["exit_code"] == 1 for item in attempts), 3)
+        self.assertEqual(gaps.await_count, 8)
+        self.assertTrue(all(call.args == (15,) for call in gaps.await_args_list))
+
+    async def test_changed_source_stops_before_more_api_calls(self):
+        schedule = [{"block": block, "condition": "baseline", "run_id": str(block)} for block in range(1, 4)]
+        with patch.object(study, "frozen_sources", side_effect=[{"a": "old"}, {"a": "new"}]), \
+             patch.object(study, "attempt_run", new_callable=AsyncMock) as run:
+            with self.assertRaisesRegex(ValueError, "source changed"):
+                await study.run_schedule(None, schedule, serial=True, source_hashes={"a": "old"})
+        self.assertEqual(run.await_count, 1)
 
 
 if __name__ == "__main__":

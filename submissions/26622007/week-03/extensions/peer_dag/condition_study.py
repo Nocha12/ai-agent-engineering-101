@@ -1,4 +1,5 @@
 """Run three matched blocks of peer-DAG conditions and preserve every attempt."""
+import argparse
 import asyncio
 from collections import Counter
 import csv
@@ -26,10 +27,10 @@ def save(path, value):
         stream.write("\n")
 
 
-def frozen_sources():
+def frozen_sources(protocol="PROTOCOL.md"):
     repo = Path(subprocess.check_output(["git", "rev-parse", "--show-toplevel"], cwd=ROOT, text=True).strip())
     files = [*ROOT.glob("*.py"), *(ROOT / name for name in ("case.json", "expected.json", "config.json")),
-             ROOT / "conditions/PROTOCOL.md", BASE / "contract_net.py", BASE / "openrouter_client.py"]
+             ROOT / "conditions" / protocol, BASE / "contract_net.py", BASE / "openrouter_client.py"]
     hashes = {}
     for path in sorted(files):
         relative = path.relative_to(repo).as_posix()
@@ -140,13 +141,14 @@ def summarize(folder, manifest, attempts):
     inspected = [inspect_run(attempt, expected) for attempt in attempts]
     metrics = [item[0] for item in inspected]
     settings = [item[1] for item in inspected]
-    fields = ("requester", "limits", "transport", "case_sha", "expected_sha", "selection_policy", "sources", "base_sources")
-    controls = [fingerprint({key: setting[key] for key in fields}) for setting in settings if setting]
+    fields = ("requester", "limits", "transport", "case_sha", "expected_sha", "selection_policy", "sources", "base_sources",
+              "concurrency_policy", "response_format_policy")
+    controls = [fingerprint({key: setting.get(key) for key in fields}) for setting in settings if setting]
     integrity = {
         "all_nine_attempts_present": len(metrics) == 9,
         "three_per_condition": all(sum(m["condition"] == c for m in metrics) == 3 for c in CONDITIONS),
         "same_controls": len(controls) == 9 and len(set(controls)) == 1,
-        "same_source_snapshot": frozen_sources() == manifest["source_hashes"],
+        "same_source_snapshot": frozen_sources(manifest.get("protocol", "PROTOCOL.md")) == manifest["source_hashes"],
         "recorded_conditions_match": all(setting and setting["condition"] == metric["condition"]
                                          for metric, setting in inspected),
         "all_recorded_prompts_match": all(metric["prompt_checks"]["passed"] for metric in metrics),
@@ -162,11 +164,13 @@ def summarize(folder, manifest, attempts):
         writer.writeheader()
         writer.writerows(metrics)
     lines = ["# 재귀 Worker 구조의 세 조건 비교", "", "## 설정과 실험 범위", "",
-             "[사전 고정한 실험 규약](../PROTOCOL.md)에 따라 동일 출시 검토 사례를 조건별 3회 실행했다.",
+             f"[사전 고정한 실험 규약](../{manifest.get('protocol', 'PROTOCOL.md')})에 따라 동일 출시 검토 사례를 조건별 3회 실행했다.",
              "모든 Worker가 계획·평가·실행·재위임·통합을 수행하며 max_depth=5, 장기 메모리 없음이다.",
              "기본 Contract Net의 배정 정확도 실험을 대체하지 않는 확장이다.", "",
              f"실행 소스 커밋: `{manifest['git_commit']}`. 모델: `{manifest['config']['transport']['model']}`, temperature=0.",
-             "조건별 실행을 블록마다 동시에 시작했다. 제공업체 자동 라우팅을 사용하므로 시간은 공급자 지연과 공유 부하의 영향을 받는다.", "",
+             f"실험 간 동시 실행 수: {manifest['parallel_runs_per_block']}. 실험 사이 대기: {manifest.get('inter_run_delay_seconds', 0)}초.",
+             f"제공업체 설정: `{json.dumps(manifest['config']['transport'].get('provider', {}), ensure_ascii=False, sort_keys=True)}`.",
+             "각 실험 내부 max_parallel=3은 유지한다. 시간은 공급자 지연과 부하의 영향을 받는다.", "",
              "## 결과", "", "|조건|전체 검사 통과|필드 검사|평균 호출|평균 초|보고 비용 합계|실제 최대 깊이|C 배정 비율|",
              "|---|---:|---:|---:|---:|---:|---|---:|"]
     for condition, group in summary["conditions"].items():
@@ -226,8 +230,25 @@ async def attempt_run(folder, condition, block, run_id):
     return result
 
 
-async def main():
-    hashes = frozen_sources()
+async def run_schedule(folder, schedule, *, serial=False, gap_seconds=0, source_hashes=None, protocol="PROTOCOL.md"):
+    attempts = []
+    for block in range(1, 4):
+        if source_hashes is not None and frozen_sources(protocol) != source_hashes:
+            raise ValueError("study source changed between blocks; previous attempts retained")
+        items = [item for item in schedule if item["block"] == block]
+        if serial:
+            for item in items:
+                if attempts and gap_seconds:
+                    await asyncio.sleep(gap_seconds)
+                attempts.append(await attempt_run(folder, item["condition"], block, item["run_id"]))
+        else:
+            attempts.extend(await asyncio.gather(*(attempt_run(folder, item["condition"], block, item["run_id"])
+                                                  for item in items)))
+    return attempts
+
+
+async def main(serial=False, gap_seconds=0, protocol="PROTOCOL.md"):
+    hashes = frozen_sources(protocol)
     config, _ = load_config()
     batch_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:6]
     folder = ROOT / "conditions" / batch_id
@@ -236,19 +257,25 @@ async def main():
                 for block, conditions in enumerate(BLOCKS, 1) for condition in conditions]
     manifest = {"batch_id": batch_id, "git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
                 "source_hashes": hashes, "config": config, "deadline_seconds": DEADLINE_SECONDS,
-                "parallel_runs_per_block": 3, "schedule": schedule}
+                "parallel_runs_per_block": 1 if serial else 3, "inter_run_delay_seconds": gap_seconds,
+                "protocol": protocol, "schedule": schedule}
     save(folder / "manifest.json", manifest)
     print(json.dumps({"event": "study_start", "folder": str(folder), "schedule": schedule}), flush=True)
-    attempts = []
-    for block in range(1, 4):
-        if frozen_sources() != hashes:
-            raise ValueError("study source changed between blocks; previous attempts retained")
-        attempts.extend(await asyncio.gather(*(attempt_run(folder, item["condition"], block, item["run_id"])
-                                              for item in schedule if item["block"] == block)))
+    attempts = await run_schedule(folder, schedule, serial=serial, gap_seconds=gap_seconds,
+                                  source_hashes=hashes, protocol=protocol)
     summary = summarize(folder, manifest, attempts)
     print(json.dumps({"event": "study_end", "folder": str(folder), "integrity": summary["integrity"],
                       "conditions": summary["conditions"]}, ensure_ascii=False), flush=True)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--serial", action="store_true", help="Run experiments sequentially; keep within-run parallelism")
+    parser.add_argument("--gap-seconds", type=int, default=0)
+    parser.add_argument("--protocol", choices=("PROTOCOL.md", "FINAL_PROTOCOL.md"), default="PROTOCOL.md")
+    args = parser.parse_args()
+    if not 0 <= args.gap_seconds <= 60 or (args.gap_seconds and not args.serial):
+        parser.error("gap-seconds requires serial mode and must be 0..60")
+    if args.protocol == "FINAL_PROTOCOL.md" and (not args.serial or args.gap_seconds != 15):
+        parser.error("FINAL_PROTOCOL.md requires --serial --gap-seconds 15")
+    asyncio.run(main(args.serial, args.gap_seconds, args.protocol))

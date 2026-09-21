@@ -142,6 +142,10 @@ python3 -m unittest discover -s submissions/26622007/week-03 -p 'test_*.py' -v
 [실험 규약](conditions/PROTOCOL.md)과 입력·코드를 먼저 커밋해야 한다.
 [2026-09-21 비교 보고서](conditions/20260921T051850-f6cc75/REPORT.md)에 실제 9회 실행과 실패 원본, 통제 검사, 해석을 정리했다.
 
+공통 역할표·strict JSON Schema·같은 Worker 병렬 정책을 적용한 최종 실험은
+[최종 규약](conditions/FINAL_PROTOCOL.md)에 따라 `condition_study.py --serial --gap-seconds 15 --protocol FINAL_PROTOCOL.md`로 실행한다.
+실험 9개를 차례로 진행하며 각 실험 내부의 `max_parallel=3`은 유지한다.
+
 ## 파일 책임
 
 | 파일 | 역할 |
