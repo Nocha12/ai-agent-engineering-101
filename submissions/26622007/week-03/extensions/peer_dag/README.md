@@ -153,6 +153,8 @@ python3 -m unittest discover -s submissions/26622007/week-03 -p 'test_*.py' -v
 HTTP 429로 인한 실패 1회, 핵심 결과 일치와 계획·문장 변동, 실제 C 병렬 실행 및 순차/병렬 재생을 기록했다.
 이후 사용자가 요청한 429 재시도 보강과 실패 실행 재시도는 [별도 규약](conditions/RETRY_PROTOCOL.md)을 따른다.
 현재 재시도 설정을 기존 9회의 고정 설정과 같다고 해석하지 않는다.
+[재실행 결과](conditions/20260921-rate-limit-retry/REPORT.md)는 수행 완료·정답 11/12다.
+실제 429는 없었고, 수익성 계산 오류가 후속 통합까지 전달된 원본을 보존했다.
 
 ## 파일 책임
 
