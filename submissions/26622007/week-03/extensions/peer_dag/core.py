@@ -82,7 +82,7 @@ class Task:
 
 @dataclass(frozen=True)
 class Limits:
-    max_depth: int = 2
+    max_depth: int = 5
     max_tasks: int = 12
     max_steps: int = 4
     max_calls: int = 64
@@ -92,7 +92,7 @@ class Limits:
         for key, value in asdict(self).items():
             if type(value) is not int or value < (0 if key == "max_depth" else 1):
                 raise ValueError(f"invalid {key}")
-        if (self.max_depth > 4 or self.max_tasks > 100 or self.max_steps > 12
+        if (self.max_depth > 5 or self.max_tasks > 100 or self.max_steps > 12
                 or self.max_parallel > 3 or self.max_calls > 256):
             raise ValueError("limits exceed supported experiment bounds")
 

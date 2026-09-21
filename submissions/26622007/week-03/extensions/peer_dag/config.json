@@ -1,5 +1,5 @@
 {
-  "max_depth": 2,
+  "max_depth": 5,
   "max_tasks": 12,
   "max_steps": 4,
   "max_calls": 64,

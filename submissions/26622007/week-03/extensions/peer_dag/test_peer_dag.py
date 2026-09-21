@@ -35,7 +35,7 @@ class ProtocolTests(unittest.TestCase):
     def test_plan_depth_count_and_schema(self):
         valid = proposal([step("a"), step("b", ("a",))])
         self.assertTrue(Proposal.parse(json.dumps(valid), root(), 0, Limits()).bid)
-        for candidate, depth, limits in [(valid, 2, Limits()), (valid, 0, Limits(max_steps=1)),
+        for candidate, depth, limits in [(valid, 2, Limits(max_depth=2)), (valid, 0, Limits(max_steps=1)),
                                          (proposal(), 0, Limits())]:
             with self.subTest(depth=depth, limits=limits), self.assertRaises(ValueError):
                 Proposal.parse(json.dumps(candidate), root(), depth, limits)
@@ -44,6 +44,21 @@ class ProtocolTests(unittest.TestCase):
             candidate["confidence"] = value
             with self.subTest(confidence=value), self.assertRaises(ValueError):
                 Proposal.parse(json.dumps(candidate), task("a"), 1, Limits())
+
+    def test_depth_five_boundary_and_supported_configuration(self):
+        limits = Limits()
+        self.assertEqual(limits.max_depth, 5)
+        for folder in (ROOT, ROOT.parent / "peer_research"):
+            config = json.loads((folder / "config.json").read_text())
+            configured = Limits(**{key: config[key] for key in asdict(limits)})
+            self.assertEqual(configured.max_depth, 5)
+        with self.assertRaises(ValueError):
+            Limits(max_depth=6)
+        delegated = json.dumps(proposal([step("child")]))
+        self.assertEqual(Proposal.parse(delegated, task("parent"), 4, limits).plan["mode"], "delegate")
+        with self.assertRaisesRegex(ValueError, "delegation depth"):
+            Proposal.parse(delegated, task("parent"), 5, limits)
+        self.assertEqual(Proposal.parse(json.dumps(proposal()), task("leaf"), 5, limits).plan["mode"], "execute")
 
     def test_parser_rejects_duplicate_keys_and_nonfinite_or_nested_facts(self):
         with self.assertRaises(ValueError):
@@ -73,6 +88,42 @@ class ProtocolTests(unittest.TestCase):
 
 
 class ExecutionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_depth_five_chain_completes_and_depth_six_is_blocked(self):
+        for target_depth in (5, 6):
+            with self.subTest(target_depth=target_depth):
+                events = []
+                async def model(worker, phase, payload, path):
+                    await asyncio.sleep(0)
+                    if phase == "propose":
+                        children = [step("child")] if payload["depth"] < target_depth else None
+                        return json.dumps(proposal(children))
+                    if phase == "review":
+                        return json.dumps({"scores": {w: {d: 2 for d in
+                            ("coverage", "feasibility", "verification")} for w in payload["candidates"]}})
+                    if phase == "execute":
+                        return json.dumps(artifact({"leaf_depth": payload["depth"]}))
+                    return json.dumps(payload["children"]["child"])
+
+                runtime = Runtime(model, Limits(), lambda event, **data: events.append({"event": event, **data}))
+                outcome = await asyncio.wait_for(runtime.run(root()), 2)
+                starts = [e for e in events if e["event"] == "task_start"]
+                self.assertEqual([e["depth"] for e in starts], list(range(6)))
+                self.assertEqual(runtime.tasks, 6)
+                self.assertEqual(runtime.resources.active, {})
+                if target_depth == 5:
+                    self.assertEqual(outcome.status, "succeeded")
+                    self.assertEqual(outcome.artifact["facts"], {"leaf_depth": 5})
+                    self.assertEqual(runtime.calls, 30)
+                    self.assertEqual({item.worker for item in runtime.outcomes.values()}, {"A", "B", "C"})
+                    self.assertEqual(sum(e["event"] == "execution_start" for e in events), 6)
+                else:
+                    self.assertEqual(outcome.status, "failed")
+                    self.assertTrue(all(item.status == "failed" for item in runtime.outcomes.values()))
+                    rejected = [e for e in events if e["event"] == "proposal_rejected"]
+                    self.assertEqual(len(rejected), 3)
+                    self.assertTrue(all("delegation depth" in e["error"] for e in rejected))
+                    self.assertFalse(any(e["event"] == "execution_start" for e in events))
+
     async def test_nested_delegation_worker_reentry_and_no_permanent_manager(self):
         events, payloads = [], []
         demo = DemoModel(0.001)
