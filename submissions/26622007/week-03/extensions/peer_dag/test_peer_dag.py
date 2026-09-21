@@ -13,6 +13,8 @@ from core import (Limits, Outcome, Proposal, Resources, Runtime, Task, decode, e
 from fixtures import DemoModel, artifact, proposal, step
 from models import PHASES, ReplayModel, messages
 
+from response_formats import response_format
+
 ROOT = Path(__file__).resolve().parent
 
 
@@ -261,7 +263,8 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         records = [
             {"event": "run_start", "settings": {"mode": "live", "transport": {"model": "fixture"}}},
             {"event": "http_request", "task_id": "root", "contractor": "A", "phase": "execute",
-             "payload": {"messages": messages("A", "execute", payload)}},
+             "payload": {"messages": messages("A", "execute", payload),
+                         "response_format": response_format("execute", payload)}},
             {"event": "model_reply", "task_id": "root", "worker": "A", "phase": "execute",
              "request_sha": fingerprint({"worker": "A", "phase": "execute", "payload": payload}),
              "raw": json.dumps(artifact())}]

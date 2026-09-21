@@ -14,6 +14,7 @@ from audit import audit
 from cli import ROOT, load_config
 from core import fingerprint
 from models import BASE, CONDITIONS, messages
+from response_formats import response_format
 
 BLOCKS = (CONDITIONS, CONDITIONS[1:] + CONDITIONS[:1], CONDITIONS[2:] + CONDITIONS[:2])
 DEADLINE_SECONDS = 600
@@ -70,13 +71,14 @@ def inspect_run(attempt, expected):
     outcome = json.loads(artifact_path.read_text()) if artifact_path.exists() else {}
     artifact = outcome.get("artifact")
     facts = artifact.get("facts") if artifact else None
-    prompt_checks = []
+    prompt_checks, format_checks = [], []
     for row in rows:
         if row["event"] == "http_request":
             actual = row["payload"]["messages"]
             payload = json.loads(actual[1]["content"])
             prompt_checks.append(actual == messages(row["contractor"], row["phase"], payload, attempt["condition"])
                                  and "personal_memory" not in payload and "handoff_memory" not in payload)
+            format_checks.append(row["payload"].get("response_format") == response_format(row["phase"], payload))
     root_award = next((row["worker"] for row in awards if row["task_id"] == "release-review"), "")
     metric = {
         **attempt, "status": result.get("status", "timeout" if attempt["timed_out"] else "crashed"),
@@ -98,6 +100,7 @@ def inspect_run(attempt, expected):
         "peak_execution_calls": trace.get("peak_execution_calls", 0),
         "canonical_facts": canonical_facts(facts, expected),
         "prompt_checks": {"checked": len(prompt_checks), "passed": bool(prompt_checks) and all(prompt_checks)},
+        "response_format_checks": {"checked": len(format_checks), "passed": bool(format_checks) and all(format_checks)},
         "error": result.get("error", "run did not produce result.json"),
         "providers": trace.get("providers", {}), "models": trace.get("models", {}),
         "trace_errors": trace.get("errors", []),
@@ -147,6 +150,7 @@ def summarize(folder, manifest, attempts):
         "recorded_conditions_match": all(setting and setting["condition"] == metric["condition"]
                                          for metric, setting in inspected),
         "all_recorded_prompts_match": all(metric["prompt_checks"]["passed"] for metric in metrics),
+        "all_recorded_response_formats_match": all(metric["response_format_checks"]["passed"] for metric in metrics),
     }
     summary = {"manifest": manifest, "integrity": integrity, "conditions": aggregate(metrics), "runs": metrics}
     save(folder / "summary.json", summary)

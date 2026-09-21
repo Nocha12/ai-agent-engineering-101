@@ -8,12 +8,14 @@ from core import fingerprint
 from models import (CONDITIONS, GENERALIST, OVERCONFIDENT, PHASES, PROTOCOL,
                     SKILLS, ReplayModel, messages)
 
+from response_formats import response_format
+
 ROOT = Path(__file__).resolve().parent
 
 
 class ConditionTests(unittest.IsolatedAsyncioTestCase):
     def test_only_declared_prompt_parts_change(self):
-        payload = {"task": {"goal": "public task"}, "depth": 0}
+        payload = {"task": {"goal": "public task"}, "depth": 0, "max_steps": 4}
         for worker in SKILLS:
             for phase in PHASES:
                 original = PROTOCOL.format(worker=worker, skill=SKILLS[worker]) + PHASES[phase]
@@ -31,13 +33,14 @@ class ConditionTests(unittest.IsolatedAsyncioTestCase):
             messages("A", "propose", payload, "unknown")
 
     async def test_replay_retains_the_recorded_condition(self):
-        payload = {"task": {"goal": "public task"}, "depth": 0}
+        payload = {"task": {"goal": "public task"}, "depth": 0, "max_steps": 4}
         for condition in CONDITIONS:
             with self.subTest(condition=condition), tempfile.TemporaryDirectory(dir=ROOT) as folder:
                 records = [
                     {"event": "run_start", "settings": {"mode": "live", "condition": condition}},
                     {"event": "http_request", "task_id": "root", "contractor": "C", "phase": "propose",
-                     "payload": {"messages": messages("C", "propose", payload, condition)}},
+                     "payload": {"messages": messages("C", "propose", payload, condition),
+                                 "response_format": response_format("propose", payload)}},
                     {"event": "model_reply", "task_id": "root", "worker": "C", "phase": "propose",
                      "request_sha": fingerprint({"worker": "C", "phase": "propose", "payload": payload}),
                      "raw": "fixture"}]

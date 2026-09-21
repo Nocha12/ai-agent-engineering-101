@@ -23,6 +23,8 @@ def load_config():
     config = json.loads((ROOT / "config.json").read_text())
     limits = Limits(**{k: v for k, v in config.items() if k != "transport"})
     transport = config["transport"]
+    if transport.get("provider", {}).get("require_parameters") is not True:
+        raise ValueError("structured output requires provider.require_parameters=true")
     for key in ("max_tokens", "max_attempts", "max_http_requests"):
         if type(transport.get(key)) is not int or transport[key] < 1:
             raise ValueError(f"invalid transport {key}")
@@ -72,7 +74,9 @@ async def run(args):
         sha = committed_inputs()
         env_file = args.env_file or BASE.parent / ".env"
         key = read_key(env_file if env_file.exists() or args.env_file else None)
+    from response_formats import POLICY
     state = {"mode": args.mode, "condition": args.condition, "requester": args.requester, "limits": asdict(limits),
+             "response_format_policy": POLICY,
              "transport": config["transport"], "case_sha": fingerprint(asdict(task)),
              "expected_sha": fingerprint(expected),
              "selection_policy": "score, confidence, fixed per-child rotation v2",

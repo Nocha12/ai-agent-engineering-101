@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 
 from core import fingerprint
+from response_formats import response_format
 
 BASE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BASE))
@@ -85,7 +86,9 @@ class LiveModel:
         def collect(event, **fields):
             records.append((event, fields))
         request_messages = messages(worker, phase, payload, self.condition)
-        job = asyncio.create_task(asyncio.to_thread(client.complete, request_messages, collect, task_id, worker))
+        job = asyncio.create_task(asyncio.to_thread(
+            client.complete, request_messages, collect, task_id, worker,
+            response_format=response_format(phase, payload)))
         try:
             return await asyncio.shield(job)
         except asyncio.CancelledError:
@@ -111,6 +114,7 @@ class ReplayModel:
     def __init__(self, path, delay=0, transport=None, condition=None):
         self.responses, self.used, self.delay = {}, set(), delay
         self.requests = {}
+        self.formats = {}
         self.live_source = False
         self.condition = condition or "baseline"
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -126,6 +130,7 @@ class ReplayModel:
             elif record.get("event") == "http_request":
                 key = (record["task_id"], record["contractor"], record["phase"])
                 self.requests[key] = record["payload"]["messages"]
+                self.formats[key] = record["payload"].get("response_format")
             if record.get("event") == "model_reply":
                 key = (record["task_id"], record["worker"], record["phase"])
                 if key in self.responses:
@@ -144,6 +149,8 @@ class ReplayModel:
         # A payload hash alone cannot detect changes to system prompts.
         if self.live_source and self.requests.get(key) != messages(worker, phase, payload, self.condition):
             raise ValueError("replay system/user messages differ from the live request")
+        if self.live_source and self.formats.get(key) != response_format(phase, payload):
+            raise ValueError("replay response_format differs or is absent; use the recorded source commit for legacy runs")
         self.used.add(key)
         await asyncio.sleep(self.delay)
         return record["raw"]

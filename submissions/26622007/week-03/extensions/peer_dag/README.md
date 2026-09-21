@@ -29,6 +29,25 @@ LLM이 누락한 의존성·자원은 코드만으로 알아낼 수 없으므로
 
 ## 제한과 재현
 
+### API 구조화 출력 필수
+
+모든 실제 peer 호출은 `response_formats.py`에서 만든 단계별
+`response_format={"type":"json_schema","json_schema":{"name":...,"strict":true,"schema":...}}`를 전달한다.
+propose는 입찰·계획·하위 작업 필드, review는 실제 후보 ID와 0~2 정수 점수,
+execute/synthesize는 summary·스칼라 facts·evidence를 제한한다. 평가 답안을 스키마에 넣지 않는다.
+기본 Contract Net 입찰에도 같은 방식으로 bid/confidence/reason 스키마를 전달한다.
+
+공통 전송기는 형식 누락과 `require_parameters` 비활성화를 요청 전에 차단한다.
+HTTP 400 등 미지원 응답에서 스키마를 제거하거나 JSON mode로 낮추지 않는다.
+실제 직렬화 요청과 로그를 검사하며 재생도 messages와 response_format을 모두 대조한다.
+이전의 스키마 없는 로그는 원본 소스 커밋에서 재생해야 한다.
+20260921T051850-f6cc75의 9회 비교는 **API response_format 미적용 상태**의 기록이다.
+새 설정으로 얻은 결과와 합쳐서 성능 향상을 주장하지 않는다.
+
+제공업체별 지원과 강제 수준이 다르므로 `strict=true` 자체가 내용의 정확성이나 결정성을 보장하지 않는다.
+로컬의 파싱·필드 타입·깊이·DAG·수치 검증을 유지한다. 동적 facts 키와 스칼라 값은
+JSON Schema의 typed additionalProperties로 표현하므로 선택한 엔드포인트의 지원을 확인해야 한다.
+
 깊이, 전체 작업 수, 계획별 하위 작업 수, 모델 호출 수, 동시 호출 수를 제한한다.
 현재 기본값과 두 확장의 `config.json`은 `max_depth=5`다. 루트가 깊이 0이므로
 깊이 0~4에서 재위임할 수 있고 깊이 5에서는 직접 실행해야 한다. 지원 설정 범위는 0~5다.
@@ -43,9 +62,15 @@ HTTP 재시도는 별도 고정 제한을 사용한다. Worker마다 한 번에 
 
 ## 실행
 
-Python 3.10 이상과 표준 라이브러리만 사용한다. 저장소 루트에서 실행한다.
+실행 코드는 Python 3.10 이상과 표준 라이브러리를 사용한다.
+스키마 회귀 테스트에는 개발 의존성 `jsonschema`가 필요하다. 저장소 루트에서 실행한다.
 
 ```bash
+# 개발 테스트 환경 (키를 담는 상위 학번 폴더에 설치, 과제 검사 경로 밖)
+python3 -m venv submissions/26622007/.venv
+source submissions/26622007/.venv/bin/activate
+python3 -m pip install -r submissions/26622007/week-03/extensions/peer_dag/requirements-dev.txt
+
 # API 호출 없이 구조와 재위임을 확인하는 모의 실행
 python3 submissions/26622007/week-03/extensions/peer_dag/cli.py demo
 
