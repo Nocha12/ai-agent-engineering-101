@@ -1,7 +1,7 @@
 """Public phase contracts for API structured output. No file reads or answer keys."""
 from core import DIMENSIONS, WORKERS
 
-POLICY = "phase-json-schema-v1"
+POLICY = "phase-json-schema-v2"
 
 
 def object_schema(properties):
@@ -10,7 +10,10 @@ def object_schema(properties):
 
 
 def text_schema(limit):
-    return {"type": "string", "minLength": 1, "maxLength": limit, "pattern": "\\S"}
+    # Some grammar backends use full matching, unlike JSON Schema's substring search.
+    # Bare \S can then force exactly one character. Explicitly allow the whole text.
+    return {"type": "string", "minLength": 1, "maxLength": limit,
+            "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"}
 
 
 def response_format(phase, payload):
@@ -48,4 +51,4 @@ def response_format(phase, payload):
     else:
         raise ValueError("unknown structured output phase")
     return {"type": "json_schema", "json_schema": {
-        "name": f"peer_{phase}_v1", "strict": True, "schema": schema}}
+        "name": f"peer_{phase}_v2", "strict": True, "schema": schema}}

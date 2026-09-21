@@ -2,6 +2,7 @@
 import copy
 import io
 import json
+import re
 from pathlib import Path
 import tempfile
 import unittest
@@ -12,7 +13,7 @@ from jsonschema import Draft202012Validator
 from core import Limits, Runtime, Task, fingerprint, parse_artifact
 from fixtures import DemoModel
 from models import BASE, LiveModel, OpenRouterClient, ReplayModel, messages
-from response_formats import response_format
+from response_formats import response_format, text_schema
 from contract_net import bid_response_format, parse_bid
 
 ROOT = Path(__file__).resolve().parent
@@ -25,6 +26,15 @@ def validator(phase, payload):
 
 
 class SchemaTests(unittest.IsolatedAsyncioTestCase):
+    def test_text_pattern_accepts_complete_multiline_text_under_full_matching(self):
+        patterns = (text_schema(2000)["pattern"],
+                    bid_response_format()["json_schema"]["schema"]["properties"]["reason"]["pattern"])
+        for pattern in patterns:
+            for value in ("주어진 수익성 자료를 계산했다.", "첫 줄\n둘째 줄", " A ", "x"):
+                self.assertIsNotNone(re.fullmatch(pattern, value))
+            for value in ("", " ", "\n\t"):
+                self.assertIsNone(re.fullmatch(pattern, value))
+
     async def test_all_nested_runtime_phases_validate_against_public_schemas(self):
         demo, phases = DemoModel(0), set()
         async def model(worker, phase, payload, task_id):
