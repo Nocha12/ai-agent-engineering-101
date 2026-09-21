@@ -38,6 +38,9 @@ def load_config(path):
             raise ConfigurationError(f"{name} must be a finite nonnegative number")
     if data["timeout_seconds"] == 0 or data["temperature"] > 2 or data["max_attempts"] > 3:
         raise ConfigurationError("timeout must be positive, temperature <= 2, max_attempts <= 3")
+    deadline = data.get("response_deadline_seconds")
+    if type(deadline) not in (int, float) or not 0 < deadline <= 180:
+        raise ConfigurationError("response_deadline_seconds must be positive and <= 180")
     if data.get("reasoning") != {"enabled": False}:
         raise ConfigurationError("this experiment fixes reasoning.enabled=false")
     provider = data.get("provider", {})

@@ -126,7 +126,7 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(payload["response_format"], bid_response_format())
         self.assertEqual(payload, next(fields["payload"] for event, fields in self.events if event == "request"))
         self.assertEqual(payload["reasoning"], {"enabled": False})
-        self.assertNotIn("only", payload["provider"])
+        self.assertEqual(payload["provider"]["only"], ["fireworks"])
         self.assertIs(payload["provider"]["allow_fallbacks"], True)
         self.assertIs(payload["provider"]["require_parameters"], True)
         self.assertEqual(len(payload["messages"]), 2)
@@ -190,6 +190,25 @@ class TransportTests(unittest.TestCase):
             raise TimeoutError()
         client = OpenRouterClient(FAKE_KEY, self.config, opener, self.delays.append)
         with self.assertRaisesRegex(CallError, "budget"):
+            client.complete([], self.emit, "1", "A", response_format=bid_response_format())
+        self.assertEqual(client.request_count, 1)
+
+    def test_heartbeat_body_cannot_bypass_deadline(self):
+        class Heartbeat(io.BytesIO):
+            def read1(self, size):
+                return b" "
+        self.config["response_deadline_seconds"] = 1
+        client = OpenRouterClient(FAKE_KEY, self.config, lambda *_, **__: Heartbeat(), self.delays.append)
+        with patch("openrouter_client.time.monotonic", side_effect=[0, 2, 3, 5]):
+            with self.assertRaisesRegex(CallError, "timeout"):
+                client.complete([], self.emit, "1", "A", response_format=bid_response_format())
+        self.assertEqual(client.request_count, 2)
+        self.assertEqual(self.delays, [2])
+        self.assertEqual(sum(event == "transport_error" for event, _ in self.events), 2)
+
+    def test_oversized_response_is_rejected_without_retry(self):
+        client = OpenRouterClient(FAKE_KEY, self.config, lambda *_, **__: io.BytesIO(b"x" * 2_000_001))
+        with self.assertRaisesRegex(CallError, "size limit"):
             client.complete([], self.emit, "1", "A", response_format=bid_response_format())
         self.assertEqual(client.request_count, 1)
 

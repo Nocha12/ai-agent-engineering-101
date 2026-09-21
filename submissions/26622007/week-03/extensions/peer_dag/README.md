@@ -48,6 +48,15 @@ HTTP 400 등 미지원 응답에서 스키마를 제거하거나 JSON mode로 �
 로컬의 파싱·필드 타입·깊이·DAG·수치 검증을 유지한다. 동적 facts 키와 스칼라 값은
 JSON Schema의 typed additionalProperties로 표현하므로 선택한 엔드포인트의 지원을 확인해야 한다.
 
+현재 기본 입찰과 peer DAG의 제공업체는 `provider.only=["fireworks"]`로 고정한다.
+자동 라우팅 실호출에서 Wafer의 JSON 형식 위반을 관찰했기 때문이다. 모델 ID는 유지한다.
+허용 목록 밖의 제공업체로 전환하지 않으며 Fireworks가 사용 불가하면 실행을 실패로 기록한다.
+[OpenRouter 문서](https://openrouter.ai/docs/guides/features/structured-outputs)는 엔드포인트별
+강제 수준 차이를 명시하고, [Fireworks 문서](https://docs.fireworks.ai/structured-responses/structured-response-formatting)는
+JSON Schema와 정규식 지원 및 일부 정규식의 제한을 설명한다. 로컬 검증은 계속 필요하다.
+응답 본문은 2 MB와 90초 수신 기한을 검사한다. 기한 검사는 각 청크 수신 직후이므로
+소켓 읽기 대기 30초가 추가될 수 있다. heartbeat로 무한 대기하지 않는다.
+
 깊이, 전체 작업 수, 계획별 하위 작업 수, 모델 호출 수, 동시 호출 수를 제한한다.
 현재 기본값과 두 확장의 `config.json`은 `max_depth=5`다. 루트가 깊이 0이므로
 깊이 0~4에서 재위임할 수 있고 깊이 5에서는 직접 실행해야 한다. 지원 설정 범위는 0~5다.

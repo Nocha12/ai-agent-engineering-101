@@ -84,10 +84,23 @@ class OpenRouterClient:
                                        "Content-Type": "application/json",
                                        "X-OpenRouter-Title": "AX Week 03 Contract Net"})
             started = time.monotonic()
+            deadline = started + self.config.get("response_deadline_seconds", 90)
             retryable, error = False, ""
             try:
                 with self.opener(request, timeout=self.config["timeout_seconds"]) as response:
-                    raw = response.read().decode("utf-8")
+                    chunks, size = [], 0
+                    while True:
+                        # A stream of heartbeat bytes must not keep read-all blocked indefinitely.
+                        chunk = response.read1(min(65536, 2_000_001 - size))
+                        if time.monotonic() > deadline:
+                            raise TimeoutError("response body deadline exceeded")
+                        if not chunk:
+                            break
+                        chunks.append(chunk)
+                        size += len(chunk)
+                        if size > 2_000_000:
+                            raise CallError("response body size limit exceeded")
+                    raw = b"".join(chunks).decode("utf-8")
             except HTTPError as exc:
                 status = exc.code
                 with exc:

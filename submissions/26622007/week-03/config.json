@@ -6,6 +6,7 @@
     "enabled": false
   },
   "provider": {
+    "only": ["fireworks"],
     "allow_fallbacks": true,
     "require_parameters": true,
     "max_price": {
@@ -14,6 +15,7 @@
     }
   },
   "timeout_seconds": 30,
+  "response_deadline_seconds": 90,
   "max_attempts": 2,
   "retry_delay_seconds": 2,
   "max_http_requests": 324
