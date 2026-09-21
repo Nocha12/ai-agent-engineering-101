@@ -88,6 +88,10 @@ python3 -m unittest discover -s submissions/26622007/week-03 -p 'test_*.py' -v
 `overconfident`는 C의 propose 단계 끝에 항상 입찰하고 confidence를 95 이상으로 반환하라는 지시만 추가한다.
 평가·실행·통합 지시와 선정 규칙은 동일하다. 조건별 실제 로그를 replay할 때도 같은 `--condition`을 지정한다.
 
+세 조건을 각각 3회 실행하려면 `python3 submissions/26622007/week-03/extensions/peer_dag/condition_study.py`를 사용한다.
+[실험 규약](conditions/PROTOCOL.md)과 입력·코드를 먼저 커밋해야 한다.
+[2026-09-21 비교 보고서](conditions/20260921T051850-f6cc75/REPORT.md)에 실제 9회 실행과 실패 원본, 통제 검사, 해석을 정리했다.
+
 ## 파일 책임
 
 | 파일 | 역할 |
