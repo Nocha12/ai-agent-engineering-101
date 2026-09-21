@@ -12,6 +12,7 @@ import time
 import uuid
 
 from core import Limits, Outcome, Runtime, Task, evaluate, fingerprint
+from case_catalog import catalog, load_case, select_case
 from fixtures import DemoModel
 from models import BASE, CONDITIONS, LiveModel, ReplayModel, redact, team_roster
 from openrouter_client import ConfigurationError, rate_limit_policy, read_key
@@ -56,14 +57,14 @@ class Recorder:
         self.stream.flush()
 
 
-def committed_inputs():
+def committed_inputs(input_paths=None):
     repo = Path(subprocess.check_output(["git", "rev-parse", "--show-toplevel"], cwd=ROOT, text=True).strip())
     # Freeze the evaluation contract before the first live request; never transmit it to a Worker.
-    for name in ("case.json", "expected.json", "config.json"):
-        path = ROOT / name
+    paths = input_paths if input_paths is not None else (ROOT / "case.json", ROOT / "expected.json")
+    for path in (*paths, ROOT / "config.json"):
         saved = subprocess.check_output(["git", "show", f"HEAD:{path.relative_to(repo).as_posix()}"], cwd=ROOT)
         if saved != path.read_bytes():
-            raise ValueError(f"commit {name} before live execution")
+            raise ValueError(f"commit {path.relative_to(ROOT)} before live execution")
     return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
 
 
@@ -71,15 +72,16 @@ async def run(args):
     config, limits = load_config()
     if args.parallel is not None:
         limits = Limits(**dict(asdict(limits), max_parallel=args.parallel))
-    task = Task.parse(json.loads((ROOT / "case.json").read_text()), root=True)
-    expected = json.loads((ROOT / "expected.json").read_text())
+    case_id = select_case(args.mode, args.case, args.replay)
+    task, expected, input_paths = load_case(case_id)
     key, sha = "", ""
     if args.mode == "live":
-        sha = committed_inputs()
+        sha = committed_inputs(input_paths)
         env_file = args.env_file or BASE.parent / ".env"
         key = read_key(env_file if env_file.exists() or args.env_file else None)
     from response_formats import POLICY
     state = {"mode": args.mode, "condition": args.condition, "requester": args.requester, "limits": asdict(limits),
+             "case_id": case_id, "evaluation_scope": "required_scalar_facts_only; design quality needs manual review",
              "response_format_policy": POLICY,
              "concurrency_policy": "task-worker-isolated-v1",
              "team_roster": team_roster(args.condition),
@@ -133,7 +135,8 @@ async def run(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("demo", "live", "replay", "plan"))
+    parser.add_argument("mode", choices=("demo", "live", "replay", "plan", "list"))
+    parser.add_argument("--case", help="Case ID from list; replay defaults to the case recorded in its log")
     parser.add_argument("--requester", choices=("A", "B", "C"), default="A")
     parser.add_argument("--condition", choices=CONDITIONS, default="baseline")
     parser.add_argument("--run-id", help="Optional unique run ID for a recorded experiment batch")
@@ -148,11 +151,18 @@ def main():
         parser.error("replay mode requires --replay")
     if not 0 <= args.replay_delay_ms <= 1000:
         parser.error("replay delay must be between 0 and 1000 ms")
+    if args.mode == "list":
+        print(json.dumps([{"id": item["id"], "title": item["title"]} for item in catalog()],
+                         ensure_ascii=False, indent=2))
+        return 0
     if args.mode == "plan":
+        task, expected, _ = load_case(select_case(args.mode, args.case, args.replay))
         config, limits = load_config()
         if args.parallel is not None:
             limits = Limits(**dict(asdict(limits), max_parallel=args.parallel))
-        print(json.dumps({"limits": asdict(limits), "transport": config["transport"],
+        print(json.dumps({"case_id": task.id, "task": asdict(task), "evaluation_fields": list(expected),
+                          "evaluation_scope": "required_scalar_facts_only; design quality needs manual review",
+                          "limits": asdict(limits), "transport": config["transport"],
                           "max_http_requests": limits.max_calls * rate_limit_policy(config["transport"])["max_attempts"],
                           "live_execution": "provided-data analysis artifacts only"}, ensure_ascii=False, indent=2))
         return 0
