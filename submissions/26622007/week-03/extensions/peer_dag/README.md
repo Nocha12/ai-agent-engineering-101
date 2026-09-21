@@ -31,6 +31,8 @@ LLM이 누락한 의존성·자원은 코드만으로 알아낼 수 없으므로
 
 ### API 구조화 출력 필수
 
+[적용·실호출 검증 보고서](RESPONSE_FORMAT_VERIFICATION.md)에 수정 과정, 실패 원본, 최종 23회 요청 검사와 재생 결과를 정리했다.
+
 모든 실제 peer 호출은 `response_formats.py`에서 만든 단계별
 `response_format={"type":"json_schema","json_schema":{"name":...,"strict":true,"schema":...}}`를 전달한다.
 propose는 입찰·계획·하위 작업 필드, review는 실제 후보 ID와 0~2 정수 점수,
