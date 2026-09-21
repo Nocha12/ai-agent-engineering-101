@@ -145,6 +145,8 @@ python3 -m unittest discover -s submissions/26622007/week-03 -p 'test_*.py' -v
 공통 역할표·strict JSON Schema·같은 Worker 병렬 정책을 적용한 최종 실험은
 [최종 규약](conditions/FINAL_PROTOCOL.md)에 따라 `condition_study.py --serial --gap-seconds 15 --protocol FINAL_PROTOCOL.md`로 실행한다.
 실험 9개를 차례로 진행하며 각 실험 내부의 `max_parallel=3`은 유지한다.
+[최종 실험 보고서](conditions/20260921T093041-84990d/FINAL_REPORT.md)에 9회 중 8회 성공,
+HTTP 429로 인한 실패 1회, 핵심 결과 일치와 계획·문장 변동, 실제 C 병렬 실행 및 순차/병렬 재생을 기록했다.
 
 ## 파일 책임
 
