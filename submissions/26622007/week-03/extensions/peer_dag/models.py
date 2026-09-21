@@ -56,14 +56,37 @@ facts 값은 문자열, 숫자, boolean만 허용한다. 객체나 배열은 넣
 }
 
 
+def team_roster(condition="baseline"):
+    """Public role descriptions, shared by every peer without scores or private state."""
+    if condition not in CONDITIONS:
+        raise ValueError("unknown condition")
+    return {worker: GENERALIST if condition == "homogeneous" else skill
+            for worker, skill in SKILLS.items()}
+
+
+def team_briefing(condition="baseline"):
+    roster = json.dumps(team_roster(condition), ensure_ascii=False, sort_keys=True)
+    return "\n[공통 팀 역할표]\n" + roster + """
+[협업 계획 규칙]
+모든 동료는 위의 동일한 팀 명단과 전문성을 알고 있으며 계획·평가·실행·위임·통합을 수행할 수 있다.
+계획할 때 본인과 동료의 전문성을 참고해 하위 작업의 목표와 검증 기준을 구체화하라.
+서로의 결과가 필요 없는 작업은 독립적인 steps로 두어 병렬 실행할 수 있게 하라.
+다른 작업의 결과가 필요한 경우에는 depends_on으로 선행 관계를 명시하고, 공유 자원은 reads/writes로 선언하라.
+같은 Worker에 여러 독립 작업이 배정돼도 작업별 세션에서 병렬 실행할 수 있다. 같은 Worker라는 이유만으로 선행 의존성을 만들지 말라.
+동료나 같은 Worker의 진행 중 대화는 공유되지 않는다. 필요한 선행 결과는 명시적인 의존 관계를 통해 전달받는다.
+실행기가 전체 동시 호출 상한과 자원 충돌을 검사한다. 불필요한 분해나 역할 수에 맞춘 작업 늘리기는 하지 말라.
+실제 담당 Worker는 입찰과 계획 평가 절차로 정한다. 역할표만으로 담당자를 확정하거나 steps에 지정되지 않은 필드를 추가하지 말라.
+"""
+
+
 def messages(worker, phase, payload, condition="baseline"):
     if condition not in CONDITIONS:
         raise ValueError("unknown condition")
     user = json.dumps(payload, ensure_ascii=False, sort_keys=True, allow_nan=False)
     if len(user.encode()) > 120_000:
         raise ValueError("model input byte limit exceeded")
-    skill = GENERALIST if condition == "homogeneous" else SKILLS[worker]
-    system = PROTOCOL.format(worker=worker, skill=skill) + PHASES[phase]
+    skill = team_roster(condition)[worker]
+    system = PROTOCOL.format(worker=worker, skill=skill) + team_briefing(condition) + PHASES[phase]
     if condition == "overconfident" and worker == "C" and phase == "propose":
         system += OVERCONFIDENT
     return [{"role": "system", "content": system},

@@ -107,6 +107,8 @@ class SchemaTests(unittest.IsolatedAsyncioTestCase):
                     await live("C", phase, payload, "root")
                     self.assertEqual(sent[-1]["response_format"], response_format(phase, payload))
                     self.assertEqual(sent[-1]["messages"], messages("C", phase, payload, condition))
+                    roster_line = sent[-1]["messages"][0]["content"].split("[공통 팀 역할표]\n", 1)[1].splitlines()[0]
+                    self.assertEqual(set(json.loads(roster_line)), {"A", "B", "C"})
                     self.assertIs(sent[-1]["provider"]["require_parameters"], True)
         logged = [row["payload"] for row in events if row["event"] == "http_request"]
         self.assertEqual(logged, sent)

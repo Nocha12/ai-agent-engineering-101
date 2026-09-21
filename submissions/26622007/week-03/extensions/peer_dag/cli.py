@@ -13,7 +13,7 @@ import uuid
 
 from core import Limits, Outcome, Runtime, Task, evaluate, fingerprint
 from fixtures import DemoModel
-from models import BASE, CONDITIONS, LiveModel, ReplayModel, redact
+from models import BASE, CONDITIONS, LiveModel, ReplayModel, redact, team_roster
 from openrouter_client import ConfigurationError, read_key
 
 ROOT = Path(__file__).resolve().parent
@@ -81,6 +81,7 @@ async def run(args):
     state = {"mode": args.mode, "condition": args.condition, "requester": args.requester, "limits": asdict(limits),
              "response_format_policy": POLICY,
              "concurrency_policy": "task-worker-isolated-v1",
+             "team_roster": team_roster(args.condition),
              "transport": config["transport"], "case_sha": fingerprint(asdict(task)),
              "expected_sha": fingerprint(expected),
              "selection_policy": "score, confidence, fixed per-child rotation v2",
