@@ -1,5 +1,11 @@
 # Week 03 — 출시 준비팀의 업무 배정 하네스
 
+2026-09-22 정정: 현재 기본/peer DAG 설정은 `max_tokens`와 `max_completion_tokens`를 요청에 넣지 않는다.
+이전 peer 실험의 2200토큰 상한은 사용자가 요청한 조건이 아니라 구현 에이전트가 임의로 넣은 설정이었다.
+아래 과거 28/45 결과에는 그 상한으로 잘린 17회가 포함되어 있으므로 상한 없는 시스템의 성능으로 해석하지 않는다.
+동일 45개 슬롯의 새 실험은 [출력 상한 제거 규약](extensions/peer_dag/conditions/SUITE_NO_TOKEN_LIMIT_PROTOCOL.md)을 따른다.
+제공업체 자체 기본 한도와 JSON Schema/전송/작업 자원 검증은 유지한다. 과거 설정과 원본 결과는 보존한다.
+
 **현재 작업 목록: 복합 과제 5개. 실제 계획·수행의 45회 확장 실험을 완료했다.**
 
 [45회 결과](extensions/peer_dag/conditions/20260921T113158-suite-ab4e67/FINAL_REPORT.md)와
@@ -89,7 +95,7 @@ python3 submissions/26622007/week-03/run.py smoke
 # 현재 목록 본 실험: 세 조건 × 3회 × 작업 5개 × 에이전트 3명 = 135회
 python3 submissions/26622007/week-03/run.py run
 
-# 최종 배정 실험과 같은 설정·회전 순서·429 재시도로 실행(새 결과 행 추가)
+# 과거 512토큰 배정 실험의 설정·회전 순서 재현(현재 기본 설정과 별도, 새 결과 행 추가)
 python3 submissions/26622007/week-03/task_sets/complex-final/allocation_study.py run
 
 # 특정 조건만 추가 실행. 이전 실패 로그와 CSV 행은 그대로 유지한다
@@ -108,7 +114,7 @@ python3 scripts/check_week03.py submissions/26622007/week-03
 - 공급자 `only=["fireworks"]`, `allow_fallbacks=true`, `require_parameters=true`. 허용 목록 밖 공급자로 전환하지 않는다. 과거 자동 라우팅 기록과 구분한다.
 - 모델 목록 fallback은 사용하지 않는다. 어떤 공급자가 선택돼도 요청 모델 ID는 동일하며 실제 응답의 provider/model/usage를 기록한다.
 - 조건 간 고정 대상은 라우팅 정책이다. 공급자별 구현·양자화 차이가 영향을 줄 수 있으므로 결과 해석 때 실제 공급자 분포도 확인한다.
-- temperature=0, max_tokens=512, reasoning.enabled=false 요청. 짧은 입찰용 설정이며 최대 추론 벤치마크와 같지 않다.
+- 현재 기본 설정은 temperature=0, reasoning.enabled=false이며 출력 토큰 상한 필드를 생략한다. 과거 배정 실험의 별도 설정은 재현용으로 max_tokens=512를 보존했다.
 - 입찰에는 `response_format.type=json_schema`, `strict=true`의 bid/confidence/reason 스키마를 명시한다. 실제 요청 payload와 응답을 검증하며 로컬 파싱·의미 검사를 유지한다. 응답을 임의로 수리하지 않는다.
 - 기본 config: 요청 30초, 응답 수신 기한 90초, 통신·일부 HTTP 오류 최대 2회, 한 명령 최대 324회 HTTP 요청. 최종 실험의 별도 config는 429 최대 6회·누적 대기 300초와 총 HTTP 상한 810회를 사용한다. 실제 9회 설정은 각 start 로그에 기록한다.
 - 공급자 토큰 단가 상한: 입력 $0.30/M, 출력 $1.20/M. 실제 비용·추론 토큰은 응답 usage에 있으면 기록한다.

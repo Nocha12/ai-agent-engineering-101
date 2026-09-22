@@ -1,5 +1,11 @@
 # 작업자가 계획하고 서로 위임하는 DAG 실험
 
+2026-09-22: 사용자의 요청에 따라 현재 설정과 실제 API payload의 출력 토큰 상한을 제거했다.
+`max_tokens`/`max_completion_tokens`를 보내지 않으며 다른 숫자로 대체하지 않는다.
+아래 45회는 과거 2200토큰 설정의 결과다. 2200은 사용자가 요청하지 않은 구현 에이전트의 설정이었고,
+그로 인한 17회 잘림 때문에 28/45를 상한 없는 시스템의 성공률로 해석할 수 없다.
+새 45회는 [별도 규약](conditions/SUITE_NO_TOKEN_LIMIT_PROTOCOL.md)과 ID로 실행하며 과거 기록을 교체하지 않는다.
+
 [복합 작업 목록 5개](cases/README.md)를 추가했다. 게임 기획과 코드 구조 설계를 함께 다루는 작업 등은
 `cli.py list`로 확인하고 `cli.py live --case game-design-architecture`처럼 선택한다.
 새 목록의 최종 45회 실험을 완료했다. [최종 결과](conditions/20260921T113158-suite-ab4e67/FINAL_REPORT.md)와
