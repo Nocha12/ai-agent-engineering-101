@@ -21,7 +21,7 @@ from core import fingerprint
 from models import BASE, CONDITIONS, messages, team_roster
 from response_formats import response_format
 
-PROTOCOL = ROOT / "conditions/SUITE_FINAL_PROTOCOL.md"
+PROTOCOL = ROOT / "conditions/SUITE_NO_TOKEN_LIMIT_PROTOCOL.md"
 DEADLINE_SECONDS = 600
 GAP_SECONDS = 15
 
@@ -269,11 +269,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("plan", "run"))
     args = parser.parse_args()
-    batch_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-suite-" + uuid.uuid4().hex[:6]
+    batch_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-no-token-limit-" + uuid.uuid4().hex[:6]
     plan = {"batch_id": batch_id, "schedule": schedule(batch_id), "config": load_config()[0],
             "protocol": str(PROTOCOL.relative_to(ROOT)), "deadline_seconds": DEADLINE_SECONDS,
             "inter_run_delay_seconds": GAP_SECONDS, "parallel_experiments": 1,
             "planned_runs": 45, "planned_fact_checks": 9 * sum(len(load_case(e["id"])[1]) for e in catalog())}
+    if {"max_tokens", "max_completion_tokens"} & plan["config"]["transport"].keys():
+        raise ValueError("this correction study must omit output token limits")
+    plan["output_token_policy"] = "omit max_tokens and max_completion_tokens; provider defaults apply"
     if args.mode == "plan":
         print(json.dumps(plan, ensure_ascii=False, indent=2))
         return
