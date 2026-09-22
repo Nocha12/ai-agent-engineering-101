@@ -15,8 +15,8 @@ from openrouter_client import OpenRouterClient, read_key, redact
 
 def main():
     provider = sys.argv[1]
-    if provider not in ('deepinfra',):
-        raise ValueError('diagnostic currently defines only the DeepInfra alternative')
+    if provider not in ('deepinfra', 'morph'):
+        raise ValueError('diagnostic provider must be deepinfra or morph')
     root = BASE / 'extensions/peer_dag'
     config = json.loads((root / 'config.json').read_text())['transport']
     assert not {'max_tokens', 'max_completion_tokens'} & config.keys()
