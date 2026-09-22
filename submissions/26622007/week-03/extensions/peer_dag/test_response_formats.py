@@ -1,5 +1,6 @@
 """Schema regression and actual serialized transport checks, with no API requests."""
 import copy
+import cli
 import io
 import json
 import re
@@ -26,6 +27,20 @@ def validator(phase, payload):
 
 
 class SchemaTests(unittest.IsolatedAsyncioTestCase):
+    def test_token_limit_is_optional_and_no_4096_application_ceiling_remains(self):
+        config, _ = cli.load_config()
+        self.assertNotIn("max_tokens", config["transport"])
+        with tempfile.TemporaryDirectory() as tmp, patch.object(cli, "ROOT", Path(tmp)):
+            for value in (2200, 8192):
+                config["transport"]["max_tokens"] = value
+                (Path(tmp) / "config.json").write_text(json.dumps(config))
+                self.assertEqual(cli.load_config()[0]["transport"]["max_tokens"], value)
+            for invalid in (None, True, 0, -1, 1.5, "2200"):
+                config["transport"]["max_tokens"] = invalid
+                (Path(tmp) / "config.json").write_text(json.dumps(config))
+                with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                    cli.load_config()
+
     def test_text_pattern_accepts_complete_multiline_text_under_full_matching(self):
         patterns = (text_schema(2000)["pattern"],
                     bid_response_format()["json_schema"]["schema"]["properties"]["reason"]["pattern"])
@@ -110,6 +125,8 @@ class SchemaTests(unittest.IsolatedAsyncioTestCase):
                     roster_line = sent[-1]["messages"][0]["content"].split("[공통 팀 역할표]\n", 1)[1].splitlines()[0]
                     self.assertEqual(set(json.loads(roster_line)), {"A", "B", "C"})
                     self.assertIs(sent[-1]["provider"]["require_parameters"], True)
+                    self.assertNotIn("max_tokens", sent[-1])
+                    self.assertNotIn("max_completion_tokens", sent[-1])
         logged = [row["payload"] for row in events if row["event"] == "http_request"]
         self.assertEqual(logged, sent)
         self.assertEqual(len(sent), 12)

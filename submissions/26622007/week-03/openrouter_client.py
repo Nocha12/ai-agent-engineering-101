@@ -109,7 +109,14 @@ class OpenRouterClient:
             raise ConfigurationError("response_format requires provider.require_parameters=true")
         rate_policy = rate_limit_policy(self.config)
         payload = {key: self.config[key] for key in
-                   ("model", "temperature", "max_tokens", "reasoning", "provider")}
+                   ("model", "temperature", "reasoning", "provider")}
+        # Omit an unset token limit; never substitute an application default.
+        # Explicit limits remain supported for replaying historical configurations.
+        if "max_tokens" in self.config:
+            limit = self.config["max_tokens"]
+            if type(limit) is not int or limit < 1:
+                raise ConfigurationError("max_tokens must be a positive integer when supplied")
+            payload["max_tokens"] = limit
         payload.update(messages=messages, stream=False, response_format=response_format)
         # Snapshot once so every retry and the recorded payload match the serialized request.
         encoded = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode()

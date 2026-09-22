@@ -29,7 +29,7 @@ def load_config():
     deadline = transport.get("response_deadline_seconds")
     if type(deadline) not in (int, float) or not 0 < deadline <= 180:
         raise ValueError("response_deadline_seconds must be positive and <= 180")
-    for key in ("max_tokens", "max_attempts", "max_http_requests"):
+    for key in ("max_attempts", "max_http_requests") + (("max_tokens",) if "max_tokens" in transport else ()):
         if type(transport.get(key)) is not int or transport[key] < 1:
             raise ValueError(f"invalid transport {key}")
     for key in ("timeout_seconds", "retry_delay_seconds", "temperature"):
@@ -38,7 +38,7 @@ def load_config():
             raise ValueError(f"invalid transport {key}")
     rate_policy = rate_limit_policy(transport)
     if (transport["timeout_seconds"] == 0 or transport["max_attempts"] > 2
-            or transport["timeout_seconds"] > 60 or transport["max_tokens"] > 4096
+            or transport["timeout_seconds"] > 60
             or transport["temperature"] > 2
             or transport["max_http_requests"] != rate_policy["max_attempts"]):
         raise ValueError("transport needs a positive timeout, <=2 ordinary attempts and a matching 429 request budget")

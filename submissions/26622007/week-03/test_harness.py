@@ -123,6 +123,8 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(self.delays, [2])
         self.assertIn("http_error", [event for event, _ in self.events])
         payload = json.loads(requests[0])
+        self.assertNotIn("max_tokens", payload)
+        self.assertNotIn("max_completion_tokens", payload)
         self.assertEqual(payload["response_format"], bid_response_format())
         self.assertEqual(payload, next(fields["payload"] for event, fields in self.events if event == "request"))
         self.assertEqual(payload["reasoning"], {"enabled": False})
@@ -130,6 +132,28 @@ class TransportTests(unittest.TestCase):
         self.assertIs(payload["provider"]["allow_fallbacks"], True)
         self.assertIs(payload["provider"]["require_parameters"], True)
         self.assertEqual(len(payload["messages"]), 2)
+
+    def test_explicit_historical_token_limit_is_forwarded_without_replacement(self):
+        requests = []
+        self.config["max_tokens"] = 2200
+        def opener(request, timeout):
+            requests.append(json.loads(request.data))
+            return self.response(bid())
+        client = OpenRouterClient(FAKE_KEY, self.config, opener)
+        client.complete([], self.emit, "1", "A", response_format=bid_response_format())
+        self.assertEqual(requests[0]["max_tokens"], 2200)
+        self.assertEqual(requests[0]["response_format"], bid_response_format())
+
+    def test_invalid_explicit_token_limit_fails_before_request(self):
+        def opener(*_, **__):
+            self.fail("invalid max_tokens reached the network")
+        for invalid in (None, True, 0, -1, 1.5, "2200"):
+            self.config["max_tokens"] = invalid
+            client = OpenRouterClient(FAKE_KEY, self.config, opener)
+            with self.subTest(invalid=invalid), self.assertRaises(ConfigurationError):
+                client.complete([], self.emit, "1", "A", response_format=bid_response_format())
+            self.assertEqual(client.request_count, 0)
+        self.assertFalse(self.events)
 
     def test_401_does_not_retry_and_secret_is_redacted(self):
         def opener(*_, **__):

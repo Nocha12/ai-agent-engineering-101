@@ -62,7 +62,8 @@ class SuiteTests(unittest.TestCase):
         config = suite.load_config()[0]
         state = dict(config, case_id=item['case_id'], condition=item['condition'],
                      team_roster=suite.team_roster(item['condition']), limits=config)
-        request = {key: config['transport'][key] for key in ('model', 'temperature', 'max_tokens', 'reasoning', 'provider')}
+        request = {key: config['transport'][key] for key in ('model', 'temperature', 'max_tokens', 'reasoning', 'provider')
+                   if key in config['transport']}
         request.update(messages=suite.messages('A', 'execute', {}, item['condition']),
                        response_format=suite.response_format('execute', {}))
         tags = dict(task_id=item['case_id'], contractor='A', phase='execute', attempt=1)

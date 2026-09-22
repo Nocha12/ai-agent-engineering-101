@@ -29,7 +29,7 @@ def load_config(path):
         raise ConfigurationError("config must be an object")
     if data.get("model") != "deepseek/deepseek-v4.1-flash":
         raise ConfigurationError("this experiment fixes model to deepseek/deepseek-v4.1-flash")
-    for name in ("max_tokens", "max_attempts", "max_http_requests"):
+    for name in ("max_attempts", "max_http_requests") + (("max_tokens",) if "max_tokens" in data else ()):
         if type(data.get(name)) is not int or data[name] < 1:
             raise ConfigurationError(f"{name} must be a positive integer")
     for name in ("temperature", "timeout_seconds", "retry_delay_seconds"):
