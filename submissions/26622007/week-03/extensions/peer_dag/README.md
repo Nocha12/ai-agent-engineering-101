@@ -2,17 +2,21 @@
 
 2026-09-22: 사용자의 요청에 따라 현재 설정과 실제 API payload의 출력 토큰 상한을 제거했다.
 `max_tokens`/`max_completion_tokens`를 보내지 않으며 다른 숫자로 대체하지 않는다.
-아래 45회는 과거 2200토큰 설정의 결과다. 2200은 사용자가 요청하지 않은 구현 에이전트의 설정이었고,
+이전 45회는 과거 2200토큰 설정의 결과다. 2200은 사용자가 요청하지 않은 구현 에이전트의 설정이었고,
 그로 인한 17회 잘림 때문에 28/45를 상한 없는 시스템의 성공률로 해석할 수 없다.
-새 45회는 [별도 규약](conditions/SUITE_NO_TOKEN_LIMIT_PROTOCOL.md)과 ID로 실행하며 과거 기록을 교체하지 않는다.
+새 45회는 [별도 규약](conditions/SUITE_NO_TOKEN_LIMIT_PROTOCOL.md)과 ID로 완료했으며 과거 기록을 교체하지 않았다.
 
 [복합 작업 목록 5개](cases/README.md)를 추가했다. 게임 기획과 코드 구조 설계를 함께 다루는 작업 등은
 `cli.py list`로 확인하고 `cli.py live --case game-design-architecture`처럼 선택한다.
-새 목록의 최종 45회 실험을 완료했다. [최종 결과](conditions/20260921T113158-suite-ab4e67/FINAL_REPORT.md)와
-[산출물 및 품질 점검](conditions/20260921T113158-suite-ab4e67/QUALITY_REVIEW.md)을 참고한다.
-baseline 8/15, homogeneous 11/15, overconfident 9/15가 필수 facts 검사를 통과했다.
-실행 중첩 20회(동일 Worker 중첩 12회), 실제 최대 깊이 2를 관측했다. 실패 17회는 출력 2200토큰 잘림이며 원본을 보존했다.
-고정 응답 직렬/병렬 재생 10회는 상태와 모든 산출물이 같았다. 이 결과는 실제 LLM 응답의 결정성을 뜻하지 않는다.
+출력 상한 제거 후 [45회 최종 결과](conditions/20260922T012131-no-token-limit-9703d2/FINAL_REPORT.md)와
+[산출물 및 품질 점검](conditions/20260922T012131-no-token-limit-9703d2/QUALITY_REVIEW.md)을 참고한다.
+baseline 10/15, homogeneous 10/15, overconfident 9/15가 필수 facts 검사를 통과했다. 나머지 16회는 HTTP 429 소진 실패다.
+본 실험의 실행 중첩은 16회(동일 Worker 중첩 7회), 실제 최대 깊이는 1이다.
+[별도 429 복구 16회](conditions/20260922T012131-no-token-limit-9703d2/recovery_429/REPORT.md)는 문서 16개를 생성하고 facts 15/16을 통과했다. 실제 최대 깊이 2, 중첩 11회(동일 Worker 5회)다.
+복구를 포함하면 원래 45개 슬롯 모두 문서를 확보했고 44개는 필수 facts가 맞다. 한 건의 값 의미 충돌을 포함해 원본과 정성 점검을 보존했다.
+본 실험과 복구의 응답 총 829개는 잘림 없이 stop으로 종료됐으며 strict JSON Schema 검사를 통과했다. 이는 설계 문서의 내용 정확성과 별개다.
+[과거 2200토큰 실험](conditions/20260921T113158-suite-ab4e67/FINAL_REPORT.md)의 통과 28/45와 잘림 17회는 별도 기록이다.
+당시 고정 응답 직렬/병렬 재생 10회는 상태와 모든 산출물이 같았다. 새 45회 통계에 합산하지 않으며 실제 LLM 응답의 결정성을 뜻하지 않는다.
 아래 과거 실험은 기존 출시 검토 한 사례의 기록이며 이번 5개 사례 결과와 합산하지 않는다.
 
 기존 Contract Net의 필수 세 조건과 별개인 확장이다. 사용자가 제안한 구조를 구현한다.

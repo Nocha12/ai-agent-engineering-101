@@ -1,11 +1,11 @@
 # Week 03 보고서 — 실제 실험 기록과 해석 초안
 
-2026-09-22 설정 정정: 아래 peer DAG 45회는 구현 에이전트가 임의로 넣은 `max_tokens=2200` 설정의 과거 기록이다.
-17회 실패는 그 상한에서 JSON이 잘린 결과이므로 28/45를 출력 상한 없는 시스템의 성공률로 해석하지 않는다.
-현재 기본/peer 설정에서는 출력 토큰 상한을 생략하며, 사용자 요청에 따른 별도 45회 재실험은
-[새 규약](extensions/peer_dag/conditions/SUITE_NO_TOKEN_LIMIT_PROTOCOL.md)에 기록한다. 기본 배정 9회의 과거 설정과 결과는 그대로 보존한다.
+2026-09-22: 사용자 요청에 따라 기본/peer 설정의 출력 토큰 상한을 제거하고 [새 규약](extensions/peer_dag/conditions/SUITE_NO_TOKEN_LIMIT_PROTOCOL.md)으로 45회를 재실험했다.
+[최신 결과](extensions/peer_dag/conditions/20260922T012131-no-token-limit-9703d2/FINAL_REPORT.md)는 최초 facts 통과 29/45, 별도 429 복구 15/16이다.
+이전 `max_tokens=2200`은 구현 에이전트가 임의로 넣은 설정이었다. 그 상한에서 잘린 17회와 과거 28/45 기록을 최신 결과와 구분한다.
+기본 배정 9회의 과거 512토큰 설정과 결과도 그대로 보존한다.
 
-**동일 5개 작업의 기본 배정 9회와 peer DAG 수행 45회를 완료했다. 아래는 관측 기록이며 3·4절의 논문 비교와 최종 해석은 사용자 작성·검토가 남아 있다.**
+**동일 5개 작업의 기본 배정 9회, 출력 상한 제거 후 peer DAG 수행 45회와 별도 복구 16회를 완료했다. 아래는 관측 기록이며 3·4절의 논문 비교와 최종 해석은 사용자 작성·검토가 남아 있다.**
 Codex가 사용자의 설계 지시에 따라 실행기와 합성 사례를 구현하고 로그를 보존했다. 자동 형식 검사 통과를 보고서 해석의 완성으로 보지 않는다.
 
 ## 1. 설정과 재현
@@ -56,7 +56,20 @@ Codex가 사용자의 설계 지시에 따라 실행기와 합성 사례를 구�
 
 [이전 보고서 원본](REPORT_LEGACY_20260915.md)과 [이전 6개 작업](task_sets/launch-v1/tasks.json)도 보존했다.
 
-### 확장: peer DAG 작업 수행 45회
+### 최신 확장: 출력 상한 제거 후 peer DAG 45회와 429 복구
+
+[45회 최종 보고서](extensions/peer_dag/conditions/20260922T012131-no-token-limit-9703d2/FINAL_REPORT.md), [정성 점검](extensions/peer_dag/conditions/20260922T012131-no-token-limit-9703d2/QUALITY_REVIEW.md), [61회 증거 검증](extensions/peer_dag/conditions/20260922T012131-no-token-limit-9703d2/evidence_verification.json).
+기존 작업·프롬프트·스키마·실행 순서를 유지하고 API 요청의 `max_tokens`/`max_completion_tokens`를 생략했다. 모든 단계는 strict JSON Schema를 사용한다.
+baseline 10/15, homogeneous 10/15, overconfident 9/15가 필수 facts를 통과했다. 총 29/45, 306/486 fields이며 나머지 16회는 HTTP 429 소진 실패다.
+응답 449개는 모두 스키마를 준수하고 stop으로 종료됐다. 실행 중첩은 16회, 동일 Worker 중첩은 7회, 실제 최대 깊이는 1이다. 설정의 허용 깊이 5와 구분한다.
+
+429 실패 16회만 새 ID로 각각 한 번 [복구 실행](extensions/peer_dag/conditions/20260922T012131-no-token-limit-9703d2/recovery_429/REPORT.md)했다. 16개 문서를 생성했고 facts는 15/16이 통과했다.
+복구의 응답 380개도 모두 스키마를 준수하고 stop으로 종료됐다. 복구의 실제 최대 깊이는 2이며 실행 중첩 11회, 동일 Worker 중첩 5회다.
+복구까지 포함해 원래 45개 슬롯 모두 문서를 확보했고 44개는 필수 facts가 맞다. 남은 한 건은 [공헌이익과 개발 여유 시간의 키 의미 충돌](extensions/peer_dag/conditions/20260922T012131-no-token-limit-9703d2/recovery_429/FACT_KEY_COLLISION.md)로 14/16이다.
+44/45는 최초 성공률이 아니며, 실패만 선택한 복구 16회를 균형 잡힌 조건 비교 표에 합산하지 않는다.
+문서 정성 점검은 본 실험 충족 8·부분 충족 21·미충족 16, [복구 문서](extensions/peer_dag/conditions/20260922T012131-no-token-limit-9703d2/recovery_429/QUALITY_REVIEW.md) 충족 2·부분 충족 14다. 자동 facts 통과를 문서의 모든 설계가 맞다는 뜻으로 해석하지 않는다.
+
+### 과거 확장: 2200토큰 상한의 peer DAG 작업 수행 45회
 
 [최종 확장 보고서](extensions/peer_dag/conditions/20260921T113158-suite-ab4e67/FINAL_REPORT.md)와 [산출물 품질 점검](extensions/peer_dag/conditions/20260921T113158-suite-ab4e67/QUALITY_REVIEW.md)을 참고한다.
 baseline 8/15, homogeneous 11/15, overconfident 9/15가 필수 facts를 통과했다. 총 28/45, 290/486 fields. 실패 17회는 2200토큰 잘림이며 부분 결과도 보존했다.

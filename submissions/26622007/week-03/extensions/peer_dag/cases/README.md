@@ -2,10 +2,11 @@
 
 기존 출시 검토 1개와 새 복합 작업 4개다. 기본 과제의 `tasks.json`과 ID·공개 설명이 일치한다.
 아래는 실행 전에 고정한 요구사항과 평가 기준이며 에이전트가 작성한 결과물이 아니다.
-이 기준으로 5개 작업 × 3개 조건 × 3회 실험을 완료했다.
-[최종 결과](../conditions/20260921T113158-suite-ab4e67/FINAL_REPORT.md)와
-[실제 산출물·품질 점검](../conditions/20260921T113158-suite-ab4e67/QUALITY_REVIEW.md)을 별도로 확인한다.
-실험 manifest의 이 파일 hash는 실행 전 커밋 `69d801c` 버전이며, 결과 링크는 실험 종료 후 추가했다. 아래 평가 기준은 유지했다.
+이 기준으로 출력 상한 제거 후 5개 작업 × 3개 조건 × 3회 실험과 별도 429 복구를 완료했다.
+[최신 결과](../conditions/20260922T012131-no-token-limit-9703d2/FINAL_REPORT.md)와
+[실제 산출물·품질 점검](../conditions/20260922T012131-no-token-limit-9703d2/QUALITY_REVIEW.md)을 별도로 확인한다.
+최신 manifest의 이 파일 hash는 실행 소스 커밋 `d3014d2`의 버전이다. 이번 결과 링크와 출력 상한 설명은 모든 실험 종료 후 수정했으며 아래 요구사항과 평가 기준은 유지했다.
+이전 `69d801c` 버전으로 실행한 [2200토큰 실험](../conditions/20260921T113158-suite-ab4e67/FINAL_REPORT.md)도 보존했다.
 
 |ID|핵심 산출물|협업 시 연결해야 할 부분|
 |---|---|---|
@@ -65,5 +66,5 @@ live 전에는 선택한 case/expected, catalog, config가 커밋돼 있는지 �
 
 현재 max_depth=5, max_tasks=12, max_steps=4, max_calls=64, max_parallel=3을 유지한다.
 새 4개 과제는 `require_delegate=false`여서 계획을 스스로 정한다. 더 큰 과제라고 깊이 2 이상이나 재귀 협업이 실제로 발생했다고 미리 단정하지 않는다.
-API 출력 한도 2200토큰도 유지하므로 문서 누락이나 잘림이 생기면 그 자체를 기록하고, 설정을 바꿔 재실험할 경우 별도 조건으로 취급한다.
+현재 API 요청에는 `max_tokens`와 `max_completion_tokens`를 넣지 않는다. 기존 2200토큰 상한은 사용자가 요청하지 않은 설정이라 제거했고, [별도 규약](../conditions/SUITE_NO_TOKEN_LIMIT_PROTOCOL.md)과 실행 ID로 재실험했다. 제공업체 자체 기본 한도는 남는다.
 기존 `condition_study.py`는 release-review 한 사례의 9회 반복 전용이다. 새 `suite_study.py`가 5개 전체의 45회를 순회한다.

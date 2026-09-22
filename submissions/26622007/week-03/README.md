@@ -3,13 +3,18 @@
 2026-09-22 정정: 현재 기본/peer DAG 설정은 `max_tokens`와 `max_completion_tokens`를 요청에 넣지 않는다.
 이전 peer 실험의 2200토큰 상한은 사용자가 요청한 조건이 아니라 구현 에이전트가 임의로 넣은 설정이었다.
 아래 과거 28/45 결과에는 그 상한으로 잘린 17회가 포함되어 있으므로 상한 없는 시스템의 성능으로 해석하지 않는다.
-동일 45개 슬롯의 새 실험은 [출력 상한 제거 규약](extensions/peer_dag/conditions/SUITE_NO_TOKEN_LIMIT_PROTOCOL.md)을 따른다.
+동일 45개 슬롯의 새 실험을 [출력 상한 제거 규약](extensions/peer_dag/conditions/SUITE_NO_TOKEN_LIMIT_PROTOCOL.md)에 따라 완료했다.
 제공업체 자체 기본 한도와 JSON Schema/전송/작업 자원 검증은 유지한다. 과거 설정과 원본 결과는 보존한다.
 
-**현재 작업 목록: 복합 과제 5개. 실제 계획·수행의 45회 확장 실험을 완료했다.**
+**현재 작업 목록: 복합 과제 5개. 출력 상한 없는 본 실험 45회와 429 복구 16회를 완료했다.**
 
-[45회 결과](extensions/peer_dag/conditions/20260921T113158-suite-ab4e67/FINAL_REPORT.md)와
-[산출물 품질 점검](extensions/peer_dag/conditions/20260921T113158-suite-ab4e67/QUALITY_REVIEW.md)을 확인한다.
+[최신 45회 결과](extensions/peer_dag/conditions/20260922T012131-no-token-limit-9703d2/FINAL_REPORT.md)와
+[산출물 품질 점검](extensions/peer_dag/conditions/20260922T012131-no-token-limit-9703d2/QUALITY_REVIEW.md)을 확인한다.
+본 실험의 필수 facts 통과는 29/45이며 나머지 16회는 HTTP 429 소진 실패다.
+[별도 복구](extensions/peer_dag/conditions/20260922T012131-no-token-limit-9703d2/recovery_429/REPORT.md)는 15/16이 facts를 통과했다.
+복구까지 포함하면 원래 45개 슬롯 모두 최종 문서를 확보했고 44개는 필수 facts가 맞다. 이 44/45는 최초 시도의 성공률이 아니다.
+남은 한 건은 공헌이익과 개발 여유 시간의 의미 충돌이다. 전체 829개 반환 응답은 JSON Schema 검사를 통과했고 잘림 없이 종료됐다.
+[과거 2200토큰 실험](extensions/peer_dag/conditions/20260921T113158-suite-ab4e67/FINAL_REPORT.md)의 28/45 기록은 별도로 보존했다.
 기본 강의 배정 실험은 별도 [규약·실행기](task_sets/complex-final/PROTOCOL.md)와 [보고서](REPORT.md)에서 다룬다.
 
 관리자 1명과 DeepSeek V4.1 Flash 입찰자 3명으로 작업 5개를 배정한다.
@@ -141,9 +146,10 @@ reported_cost_usd는 API가 제공한 비용 합계다. 누락 응답·통신 �
 
 ## 검증 상태
 
-모의 테스트 16개, Python 문법, CSV와 원본 로그의 수치 대조는 통과했다.
-공식 과제 검사에서는 코드·작업·보고서 형식이 통과했고, homogeneous 3회·overconfident 3회 및 전체 로그 수 부족으로 3개 검사가 실패했다.
-검사기가 실패 행도 횟수로 세므로 baseline 형식 통과를 반복 실험 완료로 해석하면 안 된다. 현재 설정의 성공 baseline은 1회다.
+출력 상한 제거 후 오프라인 검사 96개(기본 30, peer 49, 중단된 research 호환성 17)와 429 복구 대상 선정 검사 5개를 통과했다.
+[61회 증거 재검증](extensions/peer_dag/conditions/20260922T012131-no-token-limit-9703d2/evidence_verification.json)은 원본 로그에서 지표를 재계산하고 실제 요청의 상한 부재·strict response_format·복구 대상 일치를 확인했다.
+기본 배정의 세 조건 × 3회도 별도 완료했으며 당시 512토큰 설정은 과거 재현용으로 보존했다. 자세한 결과는 [REPORT.md](REPORT.md)에 있다.
+공식 과제 형식 검사는 [검사 로그](logs/20260922-no-token-limit-course-check.log)로 확인한다. 자동 facts 검사와 형식 검사는 문서 내용의 정확성이나 아래 학습 부분의 완성을 보장하지 않는다.
 
 ## 사용자가 마무리할 학습 부분
 
