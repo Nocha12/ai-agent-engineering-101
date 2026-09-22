@@ -18,7 +18,7 @@ def selected_failure(metric):
         return True
     rejections = metric['proposal_rejections']
     return (metric['error'] == 'ValueError: no valid bids' and bool(rejections)
-            and all(row['error'] == 'CallError: HTTP 429' for row in rejections))
+            and all(row['error'] in ('HTTP 429', 'CallError: HTTP 429') for row in rejections))
 
 
 async def run(folder, manifest):
