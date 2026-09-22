@@ -1,5 +1,7 @@
 ## What I built
 
+![재귀 위임: 하위 작업 분담과 결과 통합](https://raw.githubusercontent.com/Nocha12/ai-agent-engineering-101/49a35c581a997f4917ca6a26c7f6a8ea28286875/submissions/26622007/week-03/diagrams/agent-state-overview.png)
+
 A/B/C가 계획·확신도·이유를 제안하고, 작업 요청자의 계획 심사 뒤 고정 규칙으로 담당자를 선정하는 Contract Net 확장입니다. 담당자가 다시 작업을 위임하며 의존성이 없는 작업은 병렬 실행합니다.
 
 5개 복합 작업 × 3조건 × 3회에 429 복구를 반영했습니다. 원래 실패를 포함한 실제 시도 61개를 CSV·콘솔·전체 협의 JSONL에 보존하고, 최종 45개 작업을 중복 없이 집계했습니다. 문서 생성 45/45, 필수 facts 통과 44/45, 정답 배정 17/45입니다. 보고서에는 재귀 도식, Smith 비교, 기본 실험과의 차이·품질 한계를 간결하게 적었습니다.
