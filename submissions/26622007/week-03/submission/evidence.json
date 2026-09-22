@@ -1,7 +1,7 @@
 {
   "batch_id": "20260922T012131-no-token-limit-9703d2",
   "source_summary_sha256": "c4cd99aa21217e541bb954ce9f1ca95faf07867f4265d9a7e5bb90d060dacea4",
-  "csv_sha256": "c433b408990c2160e51da9224875c60aedd0958de931a35160e4bc18be8b36bc",
+  "csv_sha256": "707562d9a15827f4de701a1c6e18864133808d9fd8b6c026cd114ee075f6a4eb",
   "definitions": {
     "run": "one recorded CLI invocation of one case; no fabricated group run IDs",
     "tasks": "root cases (1 per completed invocation), not recursive subtasks",
@@ -9,50 +9,54 @@
     "messages": "all depths: propose call_start + valid bid=true proposal + award",
     "excluded_messages": "review, execution, synthesis, refusals, invalid proposals and HTTP retries",
     "failure": "all five count columns blank; partial observations retained only in note/evidence",
-    "report_blocks": "CSV sums by original block and condition; failed counts remain missing",
-    "recovery": "separate export, never merged into primary CSV"
+    "report_blocks": "CSV completed-row sums by original block and condition; one result per original slot",
+    "recovery": "user-requested final-slot estimate includes 429 recovery; original failed attempts remain blank rows"
   },
   "groups": [
     {
       "block": 1,
       "condition": "baseline",
-      "attempts": 5,
-      "completed": 3,
+      "attempts": 7,
+      "slots": 5,
+      "completed": 5,
       "failed": 2,
-      "tasks": 3,
+      "tasks": 5,
       "correct": 2,
-      "messages": 42,
+      "messages": 133,
       "unassigned": 0,
-      "misawards": 1
+      "misawards": 3
     },
     {
       "block": 1,
       "condition": "homogeneous",
-      "attempts": 5,
-      "completed": 3,
+      "attempts": 7,
+      "slots": 5,
+      "completed": 5,
       "failed": 2,
-      "tasks": 3,
+      "tasks": 5,
       "correct": 2,
-      "messages": 42,
+      "messages": 105,
       "unassigned": 0,
-      "misawards": 1
+      "misawards": 3
     },
     {
       "block": 1,
       "condition": "overconfident",
-      "attempts": 5,
-      "completed": 3,
+      "attempts": 7,
+      "slots": 5,
+      "completed": 5,
       "failed": 2,
-      "tasks": 3,
-      "correct": 0,
-      "messages": 91,
+      "tasks": 5,
+      "correct": 1,
+      "messages": 189,
       "unassigned": 0,
-      "misawards": 3
+      "misawards": 4
     },
     {
       "block": 2,
       "condition": "baseline",
       "attempts": 5,
+      "slots": 5,
       "completed": 5,
       "failed": 0,
       "tasks": 5,
@@ -65,6 +69,7 @@
       "block": 2,
       "condition": "homogeneous",
       "attempts": 5,
+      "slots": 5,
       "completed": 5,
       "failed": 0,
       "tasks": 5,
@@ -77,6 +82,7 @@
       "block": 2,
       "condition": "overconfident",
       "attempts": 5,
+      "slots": 5,
       "completed": 5,
       "failed": 0,
       "tasks": 5,
@@ -88,38 +94,41 @@
     {
       "block": 3,
       "condition": "baseline",
-      "attempts": 5,
-      "completed": 2,
+      "attempts": 8,
+      "slots": 5,
+      "completed": 5,
       "failed": 3,
-      "tasks": 2,
-      "correct": 1,
-      "messages": 35,
+      "tasks": 5,
+      "correct": 2,
+      "messages": 119,
       "unassigned": 0,
-      "misawards": 1
+      "misawards": 3
     },
     {
       "block": 3,
       "condition": "homogeneous",
-      "attempts": 5,
-      "completed": 2,
+      "attempts": 8,
+      "slots": 5,
+      "completed": 5,
       "failed": 3,
-      "tasks": 2,
-      "correct": 1,
-      "messages": 63,
+      "tasks": 5,
+      "correct": 2,
+      "messages": 140,
       "unassigned": 0,
-      "misawards": 1
+      "misawards": 3
     },
     {
       "block": 3,
       "condition": "overconfident",
-      "attempts": 5,
-      "completed": 1,
+      "attempts": 9,
+      "slots": 5,
+      "completed": 5,
       "failed": 4,
-      "tasks": 1,
-      "correct": 0,
-      "messages": 35,
+      "tasks": 5,
+      "correct": 2,
+      "messages": 154,
       "unassigned": 0,
-      "misawards": 1
+      "misawards": 3
     }
   ],
   "primary": [

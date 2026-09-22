@@ -141,29 +141,30 @@ def groups(rows):
                       and json.loads(r["note"])["block"] == block]
             completed = [r for r in subset if r["tasks"] != ""]
             output.append({"block": block, "condition": condition, "attempts": len(subset),
+                           "slots": len({json.loads(r["note"])["case"] for r in subset}),
                            "completed": len(completed), "failed": len(subset) - len(completed),
                            **{k: sum(int(r[k]) for r in completed) for k in COUNTS}})
     return output
 
 
 def block_table(rows):
-    lines = ["|회차|조건|완료/시도|정답|오배정|미배정|메시지|실패|",
+    lines = ["|회차|조건|완료/작업|정답|오배정|미배정|메시지|429 복구|",
              "|---:|---|---:|---:|---:|---:|---:|---:|"]
     for g in groups(rows):
-        lines.append(f"|{g['block']}|{g['condition']}|{g['completed']}/{g['attempts']}|"
+        lines.append(f"|{g['block']}|{g['condition']}|{g['completed']}/{g['slots']}|"
                      f"{g['correct']}|{g['misawards']}|{g['unassigned']}|{g['messages']}|{g['failed']}|")
     return "\n".join(lines)
 
 
 def individual_table(rows):
     lines = ["# 제출 CSV의 실행별 결과", "",
-             "`results.csv`의 45개 실제 실행을 그대로 표시한다. —는 0이 아닌 오류 중단으로 인한 공란이다.", "",
-             "|회차|조건|작업|상태|tasks|correct|messages|unassigned|misawards|원본 콘솔|",
-             "|---:|---|---|---|---:|---:|---:|---:|---:|---|"]
+             "`results.csv`의 61개 실제 시도(본 실험 45 + 429 복구 16)를 그대로 표시한다. 완료 행은 중복 없이 원래 45개 슬롯에 대응한다. —는 0이 아닌 오류 중단으로 인한 공란이다.", "",
+             "|회차|조건|작업|구분|상태|tasks|correct|messages|unassigned|misawards|원본 콘솔|",
+             "|---:|---|---|---|---|---:|---:|---:|---:|---:|---|"]
     for row in rows:
         note = json.loads(row["note"])
         values = "|".join(str(row[k]) if row[k] != "" else "—" for k in COUNTS)
-        lines.append(f"|{note['block']}|{row['condition']}|{note['case']}|{note['status']}|{values}|"
+        lines.append(f"|{note['block']}|{row['condition']}|{note['case']}|{note['cohort']}|{note['status']}|{values}|"
                      f"[로그](../{note['console']})|")
     return "\n".join(lines) + "\n"
 
@@ -183,23 +184,29 @@ def artifacts():
     require(len({r["run"] for r in primary + recovery}) == 61, "reused execution ID")
     for group in groups(primary):
         require(group["attempts"] == 5, "each condition/block must contain the same five cases")
+    combined = primary + recovery
+    completed_slots = [(json.loads(r["note"])["block"], r["condition"], json.loads(r["note"])["case"])
+                       for r in combined if r["tasks"] != ""]
+    require(len(completed_slots) == len(set(completed_slots)) == 45 and set(completed_slots) == expected,
+            "final results must contain exactly one completed attempt for every original slot")
     evidence = {"batch_id": BATCH_ID, "source_summary_sha256": digest((BATCH / "summary.json").read_bytes()),
-                "csv_sha256": digest(csv_bytes(primary)),
+                "csv_sha256": digest(csv_bytes(combined)),
                 "definitions": {"run": "one recorded CLI invocation of one case; no fabricated group run IDs",
                                 "tasks": "root cases (1 per completed invocation), not recursive subtasks",
                                 "allocation": "root award compared with precommitted gold",
                                 "messages": "all depths: propose call_start + valid bid=true proposal + award",
                                 "excluded_messages": "review, execution, synthesis, refusals, invalid proposals and HTTP retries",
                                 "failure": "all five count columns blank; partial observations retained only in note/evidence",
-                                "report_blocks": "CSV sums by original block and condition; failed counts remain missing",
-                                "recovery": "separate export, never merged into primary CSV"},
-                "groups": groups(primary), "primary": primary_evidence, "recovery": recovery_evidence}
-    outputs = {ROOT / "results.csv": csv_bytes(primary),
+                                "report_blocks": "CSV completed-row sums by original block and condition; one result per original slot",
+                                "recovery": "user-requested final-slot estimate includes 429 recovery; original failed attempts remain blank rows"},
+                "groups": groups(combined), "primary": primary_evidence, "recovery": recovery_evidence}
+    outputs = {ROOT / "results.csv": csv_bytes(combined),
+               OUTPUT / "results-primary.csv": csv_bytes(primary),
                OUTPUT / "results-recovery.csv": csv_bytes(recovery),
-               OUTPUT / "RESULTS_BY_RUN.md": individual_table(primary).encode(),
-               OUTPUT / "BLOCK_RESULTS.md": (block_table(primary) + "\n").encode(),
+               OUTPUT / "RESULTS_BY_RUN.md": individual_table(combined).encode(),
+               OUTPUT / "BLOCK_RESULTS.md": (block_table(combined) + "\n").encode(),
                OUTPUT / "evidence.json": (json.dumps(evidence, ensure_ascii=False, indent=2) + "\n").encode()}
-    return outputs, copies + recovery_copies, primary
+    return outputs, copies + recovery_copies, combined
 
 
 def main():
@@ -235,7 +242,7 @@ def main():
         report.write_text(expected)
     else:
         require(text == expected, "report table differs from the submission CSV")
-    print(json.dumps({"passed": True, "mode": "write" if args.write else "check", "primary_rows": len(rows),
+    print(json.dumps({"passed": True, "mode": "write" if args.write else "check", "csv_rows": len(rows),
                       "completed_rows": sum(r["tasks"] != "" for r in rows),
                       "error_rows_with_blank_counts": sum(r["tasks"] == "" for r in rows),
                       "byte_identical_console_copies": len(copies), "report_groups": len(groups(rows))}))

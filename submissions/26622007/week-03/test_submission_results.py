@@ -54,9 +54,10 @@ class SubmissionExportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "root award differs"):
             export.project(dict(metric, root_award="B"), trace, "B", "primary")
 
-    def test_primary_and_selected_recovery_remain_separate(self):
+    def test_final_slots_include_recovery_once_and_preserve_original_failures(self):
         outputs, copies, _ = export.artifacts()
-        primary = list(csv.DictReader(io.StringIO(outputs[export.ROOT / "results.csv"].decode())))
+        combined = list(csv.DictReader(io.StringIO(outputs[export.ROOT / "results.csv"].decode())))
+        primary = list(csv.DictReader(io.StringIO(outputs[export.OUTPUT / "results-primary.csv"].decode())))
         recovery = list(csv.DictReader(io.StringIO(outputs[export.OUTPUT / "results-recovery.csv"].decode())))
         self.assertEqual(list(primary[0]), export.HEADER)
         self.assertEqual((len(primary), len(recovery), len(copies)), (45, 16, 61))
@@ -65,6 +66,16 @@ class SubmissionExportTests(unittest.TestCase):
         self.assertTrue(all(r["tasks"] == "1" for r in recovery))
         self.assertEqual(sum(not json.loads(r["note"])["facts_passed"] for r in recovery), 1)
         self.assertFalse({r["run"] for r in primary} & {r["run"] for r in recovery})
+        self.assertEqual(len(combined), 61)
+        self.assertEqual(sum(r["tasks"] == "1" for r in combined), 45)
+        self.assertEqual(sum(r["tasks"] == "" for r in combined), 16)
+        completed = [r for r in combined if r["tasks"] == "1"]
+        slots = {(json.loads(r["note"])["block"], r["condition"], json.loads(r["note"])["case"])
+                 for r in completed}
+        self.assertEqual(len(slots), 45)
+        self.assertEqual(sum(int(r["correct"]) for r in completed), 17)
+        self.assertEqual(sum(int(r["misawards"]) for r in completed), 28)
+        self.assertEqual(sum(json.loads(r["note"])["facts_passed"] for r in completed), 44)
 
 
 if __name__ == "__main__":
