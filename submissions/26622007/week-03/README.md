@@ -15,7 +15,7 @@ python3 -m venv submissions/26622007/.venv
 source submissions/26622007/.venv/bin/activate
 python3 -m pip install -r submissions/26622007/week-03/extensions/peer_dag/requirements-dev.txt
 
-# API 호출 없이 원본 로그·CSV·보고서 표·콘솔 사본 일치 검사
+# API 호출 없이 원본 로그·CSV·보고서 표·콘솔/JSONL 사본 일치 검사
 python3 submissions/26622007/week-03/submission_results.py --check
 python3 submissions/26622007/week-03/submission/compare_results.py --check
 python3 -m unittest discover -s submissions/26622007/week-03 -p 'test_*.py' -v
@@ -38,7 +38,7 @@ python3 submissions/26622007/week-03/extensions/peer_dag/suite_study.py run
 
 ## 근거와 이전 시도
 
-- [집계 정의와 검증](submission/README.md): CSV 필드, 429 복구, 원본 콘솔 사본.
+- [집계 정의와 검증](submission/README.md): CSV 필드, 429 복구, 원본 콘솔·전체 협의 JSONL 사본.
 - [기본 실험·직접 수행과 비교](submission/COMPARISON.md): 배정 정확도, 산출물 양, 관측 깊이·병렬도, 품질 한계.
 - [현재 구현·프롬프트](extensions/peer_dag/README.md), [작업과 gold](TASK_DESIGN.md), [사례 입력](extensions/peer_dag/cases/README.md).
 - [최초 실험 원본](extensions/peer_dag/conditions/20260922T012131-no-token-limit-9703d2/FINAL_REPORT.md)과 [429 복구 원본](extensions/peer_dag/conditions/20260922T012131-no-token-limit-9703d2/recovery_429/REPORT.md)은 당시 집계 범위를 그대로 보존했다. 현재 제출 표의 합산 정의는 위 집계 문서를 따른다.

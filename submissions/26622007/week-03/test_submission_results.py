@@ -60,7 +60,7 @@ class SubmissionExportTests(unittest.TestCase):
         primary = list(csv.DictReader(io.StringIO(outputs[export.OUTPUT / "results-primary.csv"].decode())))
         recovery = list(csv.DictReader(io.StringIO(outputs[export.OUTPUT / "results-recovery.csv"].decode())))
         self.assertEqual(list(primary[0]), export.HEADER)
-        self.assertEqual((len(primary), len(recovery), len(copies)), (45, 16, 61))
+        self.assertEqual((len(primary), len(recovery), len(copies)), (45, 16, 122))
         self.assertEqual(sum(r["tasks"] == "" for r in primary), 16)
         self.assertEqual({json.loads(r["note"])["cohort"] for r in primary}, {"primary"})
         self.assertTrue(all(r["tasks"] == "1" for r in recovery))
@@ -76,6 +76,28 @@ class SubmissionExportTests(unittest.TestCase):
         self.assertEqual(sum(int(r["correct"]) for r in completed), 17)
         self.assertEqual(sum(int(r["misawards"]) for r in completed), 28)
         self.assertEqual(sum(json.loads(r["note"])["facts_passed"] for r in completed), 44)
+
+    def test_every_run_exports_full_protocol_trace_alongside_console(self):
+        _, copies, rows = export.artifacts()
+        contents = dict(copies)
+        for row in rows:
+            note = json.loads(row["note"])
+            console = export.ROOT / note["console"]
+            trace = export.ROOT / note["trace"]
+            self.assertEqual(console.parent, export.ROOT / "logs")
+            self.assertEqual(trace.parent, export.ROOT / "logs")
+            self.assertIn(console, contents)
+            self.assertEqual(contents[trace], (export.PEER / "logs" / trace.name).read_bytes())
+            events = [json.loads(line) for line in contents[trace].decode().splitlines()]
+            announcements = [e for e in events if e["event"] == "http_request" and e["phase"] == "propose"]
+            self.assertTrue(announcements)
+            self.assertTrue(all(e["payload"]["messages"] for e in announcements))
+            for event in events:
+                if event["event"] == "proposal":
+                    self.assertIn("confidence", event["proposal"])
+                    self.assertTrue(event["proposal"]["reason"])
+            if row["tasks"]:
+                self.assertTrue(any(e["event"] == "award" for e in events))
 
 
 if __name__ == "__main__":

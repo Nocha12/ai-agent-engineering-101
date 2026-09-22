@@ -94,7 +94,8 @@ def project(metric, numbered, gold, cohort):
             "messages_scope": "all_recursive_negotiations", "message_parts": dict(counts),
             "root_messages": sum(root_counts.values()),
             "proposal_rejections": metric["proposal_rejections"],
-            "console": f"logs/{metric['run_id']}.console.log"}
+            "console": f"logs/{metric['run_id']}.console.log",
+            "trace": f"logs/{metric['run_id']}.jsonl"}
     if not completed:
         partial = dict(observed)
         partial["root_unawarded"] = partial.pop("unassigned")
@@ -122,10 +123,12 @@ def collect(folder, cohort, gold):
         console = folder / (metric["run_id"] + ".console.log")
         console_bytes = console.read_bytes()
         destination = ROOT / "logs" / console.name
-        # Source console already contains every original event and the actual
-        # process status. Never synthesize or tidy a new execution transcript.
-        copies.append((destination, console_bytes))
+        trace_destination = ROOT / "logs" / trace.name
+        # The console contains the command and final summary; full protocol
+        # events were written to JSONL. Preserve both originals byte for byte.
+        copies.extend(((destination, console_bytes), (trace_destination, trace_bytes)))
         item.update(trace=relative(trace), trace_sha256=digest(trace_bytes),
+                    submission_trace=relative(trace_destination),
                     source_console=relative(console), console=relative(destination),
                     console_sha256=digest(console_bytes))
         rows.append(row)
@@ -159,13 +162,13 @@ def block_table(rows):
 def individual_table(rows):
     lines = ["# 제출 CSV의 실행별 결과", "",
              "`results.csv`의 61개 실제 시도(본 실험 45 + 429 복구 16)를 그대로 표시한다. 완료 행은 중복 없이 원래 45개 슬롯에 대응한다. —는 0이 아닌 오류 중단으로 인한 공란이다.", "",
-             "|회차|조건|작업|구분|상태|tasks|correct|messages|unassigned|misawards|원본 콘솔|",
+             "|회차|조건|작업|구분|상태|tasks|correct|messages|unassigned|misawards|원본 기록|",
              "|---:|---|---|---|---|---:|---:|---:|---:|---:|---|"]
     for row in rows:
         note = json.loads(row["note"])
         values = "|".join(str(row[k]) if row[k] != "" else "—" for k in COUNTS)
         lines.append(f"|{note['block']}|{row['condition']}|{note['case']}|{note['cohort']}|{note['status']}|{values}|"
-                     f"[로그](../{note['console']})|")
+                     f"[콘솔](../{note['console']}) · [전체 협의](../{note['trace']})|")
     return "\n".join(lines) + "\n"
 
 
@@ -225,7 +228,7 @@ def main():
             with destination.open("xb") as stream:
                 stream.write(content)
         else:
-            raise ValueError(f"missing console copy: {destination.name}")
+            raise ValueError(f"missing original log copy: {destination.name}")
     for destination, content in outputs.items():
         if args.write:
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -245,7 +248,9 @@ def main():
     print(json.dumps({"passed": True, "mode": "write" if args.write else "check", "csv_rows": len(rows),
                       "completed_rows": sum(r["tasks"] != "" for r in rows),
                       "error_rows_with_blank_counts": sum(r["tasks"] == "" for r in rows),
-                      "byte_identical_console_copies": len(copies), "report_groups": len(groups(rows))}))
+                      "byte_identical_console_copies": sum(p.name.endswith(".console.log") for p, _ in copies),
+                      "byte_identical_trace_copies": sum(p.suffix == ".jsonl" for p, _ in copies),
+                      "report_groups": len(groups(rows))}))
 
 
 if __name__ == "__main__":

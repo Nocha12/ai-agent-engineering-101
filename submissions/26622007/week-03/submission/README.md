@@ -7,7 +7,7 @@
 |파일|범위|
 |---|---|
 |[../results.csv](../results.csv)|최초 45회 + 429 복구 16회 = 61개 실제 시도, 과제 지정 8열|
-|[RESULTS_BY_RUN.md](RESULTS_BY_RUN.md)|CSV 61행을 전부 표시한 표와 실행별 콘솔 링크|
+|[RESULTS_BY_RUN.md](RESULTS_BY_RUN.md)|CSV 61행을 전부 표시한 표와 실행별 콘솔·전체 협의 기록 링크|
 |[BLOCK_RESULTS.md](BLOCK_RESULTS.md)|조건×원래 회차로 묶은 9행, 보고서와 동일|
 |[results-primary.csv](results-primary.csv)|최초 45회만 분리한 보존용 내보내기|
 |[results-recovery.csv](results-recovery.csv)|본 실험에서 실패한 16개 슬롯의 별도 복구|
@@ -21,7 +21,7 @@
 - `correct`, `misawards`: 최초 책임자만 사전 `tasks.json`의 gold와 비교한다. 하위 작업에는 사후 gold를 붙이지 않는다.
 - `messages`: 모든 깊이에서 **propose의 `call_start` 1건 = 공고 1건**, 로컬 검증을 통과한 `proposal.bid=true` 1건 = 입찰 1건, `award` 1건 = 낙찰 1건으로 센다. 리뷰·실행·통합·거절·잘못된 제안·HTTP 재시도는 이 세 메시지 유형이 아니다. 전체 API 호출 수는 `note.calls`로 별도 기록한다.
 - `unassigned`: 완료한 실행에서 담당자가 없는 루트의 수다. 이 실험에서 복구를 포함해 완료한 45개 실행에는 모두 루트 낙찰자가 있으므로 0이다. HTTP 장애 때문에 낙찰에 도달하지 못한 실행을 정상적인 무응찰로 바꾸지 않는다.
-- `note`: 작업, 회차, 상태, gold, 최초 책임자, facts 통과, 메시지 구성, API 호출·429 수, 원본 콘솔 경로를 기록한다.
+- `note`: 작업, 회차, 상태, gold, 최초 책임자, facts 통과, 메시지 구성, API 호출·429 수, 원본 콘솔과 전체 JSONL 경로를 기록한다.
 
 본 실험의 HTTP 429 중단 16행은 과제 규약대로 `tasks,correct,messages,unassigned,misawards`를 **모두 공란**으로 남기고 원래 오류를 `note.error`에 보존한다. 공란은 0이 아니다. 15행은 루트 배정 전, 1행은 C에게 결제 작업을 배정한 뒤 하위 작업에서 실패했다. 후자의 부분 오배정도 `note.observed_partial`에 남기지만 완료행 합계에는 더하지 않는다. 여기의 `root_unawarded`는 단순히 낙찰 기록이 없다는 뜻이며 정상적인 무응찰 지표와 구분한다.
 
@@ -31,7 +31,7 @@
 
 ## 원본 보존과 재현
 
-45회 본 실험과 16회 복구의 기존 `.console.log`를 루트 `logs/`에 **바이트 단위로 동일하게 복사**했다. 기존 JSONL·콘솔·산출물은 그대로다. 과거 배정 CSV의 보존본 SHA-256은 `dc215d0e6db38ec27245e3a2f058d83c01d1526d4b70aa5812ba13d76c462bf1`이다.
+45회 본 실험과 16회 복구의 기존 `.console.log` 61개와 전체 협의 `.jsonl` 61개를 루트 `logs/`에 **바이트 단위로 동일하게 복사**했다. 콘솔에는 실행 요약이 있고, 공고·입찰 이유·확신도·낙찰은 JSONL에서 확인한다. [기록 읽기](../logs/README.md). 기존 JSONL·콘솔·산출물은 그대로다. 과거 배정 CSV의 보존본 SHA-256은 `dc215d0e6db38ec27245e3a2f058d83c01d1526d4b70aa5812ba13d76c462bf1`이다.
 
 ```bash
 # 표준 라이브러리만 사용. 원본 로그에서 CSV·보고서 표·해시를 재계산해 대조한다.
