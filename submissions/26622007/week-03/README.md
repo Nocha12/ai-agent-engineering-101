@@ -1,4 +1,8 @@
-# Week 03 — 출시 준비팀의 업무 배정 하네스
+# Week 03 — 계획 심사와 재귀 위임 하네스
+
+[REPORT.md](REPORT.md)는 현재 peer DAG 코드와 출력 상한 없는 45회·별도 복구 16회를 기준으로 작성한다.
+최초 배정, 하위 실제 위임, 최종 산출물을 함께 평가한다. 과거 배정 전용 코드의 보고서는
+[참고 기록](REPORT_ALLOCATION_REFERENCE_20260922.md)으로 보존했으며 현재 결과와 합산하지 않는다.
 
 2026-09-22 정정: 현재 기본/peer DAG 설정은 `max_tokens`와 `max_completion_tokens`를 요청에 넣지 않는다.
 이전 peer 실험의 2200토큰 상한은 사용자가 요청한 조건이 아니라 구현 에이전트가 임의로 넣은 설정이었다.
@@ -15,13 +19,15 @@
 복구까지 포함하면 원래 45개 슬롯 모두 최종 문서를 확보했고 44개는 필수 facts가 맞다. 이 44/45는 최초 시도의 성공률이 아니다.
 남은 한 건은 공헌이익과 개발 여유 시간의 의미 충돌이다. 전체 829개 반환 응답은 JSON Schema 검사를 통과했고 잘림 없이 종료됐다.
 [과거 2200토큰 실험](extensions/peer_dag/conditions/20260921T113158-suite-ab4e67/FINAL_REPORT.md)의 28/45 기록은 별도로 보존했다.
-기본 강의 배정 실험은 별도 [규약·실행기](task_sets/complex-final/PROTOCOL.md)와 [보고서](REPORT.md)에서 다룬다.
+기본 강의 배정 실험은 별도 [규약·실행기](task_sets/complex-final/PROTOCOL.md)와 [이전 보고서](REPORT_ALLOCATION_REFERENCE_20260922.md)에서 다룬다.
 
-관리자 1명과 DeepSeek V4.1 Flash 입찰자 3명으로 작업 5개를 배정한다.
+현재 peer DAG에서는 DeepSeek V4.1 Flash를 사용하는 A/B/C가 모두 계획·심사·실행·위임·통합을 수행한다.
+고정 관리자 전용 에이전트 없이 각 작업의 요청자가 관리자 역할을 맡는다. [현재 구조와 실행](extensions/peer_dag/README.md)을 참고한다.
 출시 검토, 게임 기획·코드 구조 설계, 결제 시스템 재설계, 서비스 확장, 출시 운영을 포함한다.
 [작업·gold 설계](TASK_DESIGN.md)와 [실제 계획·수행용 사례](extensions/peer_dag/cases/README.md)를 참고한다.
 같은 사건이라도 요구하는 결과물에 따라 적임자가 달라지는지 관찰한다.
-실제 고객 응대·결제·배포를 실행하지 않는다. 측정 대상은 사전 gold와의 **담당자 일치**다.
+실제 고객 응대·결제·배포를 실행하지 않는다. 사전 gold와의 최초 담당자 일치, 실제 위임·병렬 실행, 최종 수치와 문서 품질을 구분해 측정한다.
+아래의 `contract_net.py`·`run.py`와 기본 명령은 과거 배정 전용 구현을 재현하는 참고 설명이다.
 
 ## 이전 작업 목록의 실제 테스트 결과
 
@@ -41,7 +47,7 @@
 - 앞선 HTTP 429 실패 3회와 Novita 고정 성공 1회도 보존했다. 설정이 달라 현재 조건 비교의 반복 횟수에 포함하지 않는다.
 - 이 자동 라우팅 결과는 과거 기록이며 현재 Fireworks 고정 5개 작업 실험과 섞지 않는다. REPORT의 Smith 비교·해석은 사용자 검토가 필요하다.
 
-## 구조
+## 기본 배정 구현의 참고 구조
 
 [멀티 에이전트 설계: 역할·통신·기억·권한](https://excalidraw.com/#json=FZ2X8m1r9bWg6MMVcxxTD,0_U2FcQXtrJWVCYhb9Elzg) · [편집 가능한 원본](diagrams/multi-agent-design.excalidraw)
 
@@ -113,7 +119,7 @@ python3 submissions/26622007/week-03/run.py summary
 python3 scripts/check_week03.py submissions/26622007/week-03
 ```
 
-## 고정 조건
+## 기본 배정 구현의 고정 조건
 
 - 모델 `deepseek/deepseek-v4.1-flash`, OpenRouter 주소는 코드에 고정.
 - 공급자 `only=["fireworks"]`, `allow_fallbacks=true`, `require_parameters=true`. 허용 목록 밖 공급자로 전환하지 않는다. 과거 자동 라우팅 기록과 구분한다.
@@ -148,7 +154,7 @@ reported_cost_usd는 API가 제공한 비용 합계다. 누락 응답·통신 �
 
 출력 상한 제거 후 오프라인 검사 96개(기본 30, peer 49, 중단된 research 호환성 17)와 429 복구 대상 선정 검사 5개를 통과했다.
 [61회 증거 재검증](extensions/peer_dag/conditions/20260922T012131-no-token-limit-9703d2/evidence_verification.json)은 원본 로그에서 지표를 재계산하고 실제 요청의 상한 부재·strict response_format·복구 대상 일치를 확인했다.
-기본 배정의 세 조건 × 3회도 별도 완료했으며 당시 512토큰 설정은 과거 재현용으로 보존했다. 자세한 결과는 [REPORT.md](REPORT.md)에 있다.
+기본 배정의 세 조건 × 3회도 별도 완료했으며 당시 512토큰 설정은 과거 재현용으로 보존했다. 자세한 결과는 [이전 보고서](REPORT_ALLOCATION_REFERENCE_20260922.md)에 있다.
 공식 과제 형식 검사는 [검사 로그](logs/20260922-no-token-limit-course-check.log)로 확인한다. 자동 facts 검사와 형식 검사는 문서 내용의 정확성이나 아래 학습 부분의 완성을 보장하지 않는다.
 
 ## 사용자가 마무리할 학습 부분
