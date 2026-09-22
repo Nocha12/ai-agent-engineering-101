@@ -38,12 +38,13 @@ for name, folder, summary in [('primary', B, primary), ('recovery', B / 'recover
             elif row['event'] == 'http_response':
                 responses += 1
                 finishes[json.loads(row['raw_response'])['choices'][0]['finish_reason']] += 1
-    assert group_metrics(summary['runs']) == summary['total']
+    assert json.loads(json.dumps(group_metrics(summary['runs']))) == summary['total']
     counts[name] = {'runs': len(summary['runs']), 'requests': requests, 'responses': responses,
                     'finish_reasons': dict(finishes), 'metrics_recomputed': True,
                     'no_request_token_limits': True, 'strict_response_format': True}
 broken = []
 files = [B / 'FINAL_REPORT.md', B / 'QUALITY_REVIEW.md', B / 'recovery_429/REPORT.md',
+         B / 'recovery_429/FACT_KEY_COLLISION.md',
          B / 'recovery_429/QUALITY_REVIEW.md', *B.glob('documents/*.md'), *B.glob('recovery_429/documents/*.md')]
 for path in files:
     for target in re.findall(r'\]\(([^)]+)\)', path.read_text()):
