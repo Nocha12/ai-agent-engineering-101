@@ -11,7 +11,7 @@ const C = { ink:'#172C43', muted:'#6B7B8F', line:'#8DA0B5', paper:'#F7F9FC',
 const esc = v => String(v).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
 const t = (x,y,s,size=22,color=C.ink,weight=500,anchor='middle') => `<text x="${x}" y="${y}" text-anchor="${anchor}" font-size="${size}" fill="${color}" font-weight="${weight}">${esc(s)}</text>`;
 const rect = (x,y,w,h,fill='white',stroke='#D5DFEA',r=18,extra='') => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${r}" fill="${fill}" stroke="${stroke}" stroke-width="2" ${extra}/>`;
-const line = (d,color=C.line,dash=false,arrow=true,width=3) => `<path d="${d}" fill="none" stroke="${color}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round" ${dash?'stroke-dasharray="7 7"':''} ${arrow?`marker-end="url(#${color===C.fail?'red':color===C.b?'green':'arrow'})"`:''}/>`;
+const line = (d,color=C.line,dash=false,arrow=true,width=3) => `<path d="${d}" fill="none" stroke="${color}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round" ${dash?'stroke-dasharray="7 7"':''} ${arrow?`marker-end="url(#${color===C.fail?'red':color===C.b?'green':color===C.a?'blue':'arrow'})"`:''}/>`;
 const card = (x,y,w,h,title,fill='white',stroke='#D5DFEA',color=C.ink,size=24) => `<g data-node="${esc(title)}">${rect(x,y,w,h,fill,stroke,14)}${t(x+w/2,y+h/2+size*.34,title,size,color,650)}</g>`;
 function peer(x,y,id,r=21){ const col=C[id.toLowerCase()]; return `<circle cx="${x}" cy="${y}" r="${r}" fill="${col}"/>${t(x,y+r*.36,id,r*1.05,'white',700)}`; }
 function check(x,y,color=C.b,size=12){return line(`M${x-size*.6} ${y} l${size*.45} ${size*.45} l${size*.85} -${size*.95}`,color,false,false,3);}
@@ -19,7 +19,7 @@ function lock(x,y,color=C.muted){ return `<path d="M${x-7} ${y} v-6 a7 7 0 0 1 1
 function artifact(x,y,color=C.b){return `<path d="M${x} ${y} h48 l20 20 v72 h-68 z" fill="white" stroke="${color}" stroke-width="2.5"/><path d="M${x+48} ${y} v20 h20" fill="none" stroke="${color}" stroke-width="2.5"/>${line(`M${x+15} ${y+43} h36 M${x+15} ${y+56} h29 M${x+15} ${y+69} h33`,color,false,false,2.5)}`;}
 function header(title,number){return t(54,55,`WEEK 03   /   ${number}`,16,C.muted,700,'start')+t(54,109,title,35,C.ink,750,'start');}
 function frame(title,content,height){
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="${height}" viewBox="0 0 1600 ${height}" role="img" aria-label="${esc(title)}"><style>text{font-family:'Apple SD Gothic Neo','Noto Sans CJK KR',sans-serif}</style><defs>${[['arrow',C.line],['green',C.b],['red',C.fail]].map(([id,c])=>`<marker id="${id}" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8" fill="${c}"/></marker>`).join('')}</defs><rect width="1600" height="${height}" fill="${C.paper}"/>${content}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="${height}" viewBox="0 0 1600 ${height}" role="img" aria-label="${esc(title)}"><style>text{font-family:'Apple SD Gothic Neo','Noto Sans CJK KR',sans-serif}</style><defs>${[['arrow',C.line],['green',C.b],['red',C.fail],['blue',C.a]].filter(([id])=>content.includes(`url(#${id})`)).map(([id,c])=>`<marker id="${id}" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8" fill="${c}"/></marker>`).join('')}</defs><rect width="1600" height="${height}" fill="${C.paper}"/>${content}</svg>`;
 }
 function proposal(x,y,id,kind){
   let p='';
@@ -37,7 +37,7 @@ function recursiveTask(x,y,title){
     line(`M${x+94} ${y+127} V${y+141}`,C.line,false,true,2)+
     t(x+94,y+160,'수행 / 다시 분담',17,C.ink,600);
 }
-const agent = frame('동료가 계획하고, 같은 규칙으로 맡긴다',[
+const selection = frame('동료가 계획하고, 같은 규칙으로 맡긴다',[
   header('동료가 계획하고, 같은 규칙으로 맡긴다','01'),
   t(161,163,'A · B · C',23,C.ink,700),t(161,190,'요청자 포함',17,C.muted),
   t(161,655,'계획 · 이유 · 확신도',20,C.muted),
@@ -79,6 +79,57 @@ const agent = frame('동료가 계획하고, 같은 규칙으로 맡긴다',[
   artifact(1471,389),t(1505,520,'결과 제출',22,C.ink,650),
   t(467,716,'■',18,C.rule),t(490,716,'실행 코드',18,C.muted,500,'start'),
 ].join(''),778);
+
+// The same task module is literally drawn inside itself. Blue descends into calls;
+// green ascends from child results. Adjacent collapsed modules are leaf siblings.
+function collapsedLeaf(x,y){
+  return `<g data-collapsed-task="leaf">${rect(x,y,125,170,'white','#AFC5DC',17)}
+    ${t(x+62.5,y+30,'작업 처리',19,C.ink,700)}
+    ${peer(x+29,y+61,'A',13)}${peer(x+62.5,y+61,'B',13)}${peer(x+96,y+61,'C',13)}
+    ${t(x+62.5,y+94,'…',24,C.muted)}
+    ${t(x+62.5,y+124,'직접 수행',19,C.ink,650)}
+    ${check(x+62.5,y+148,C.b,13)}</g>`;
+}
+function nestedTask(x,y,w,h,depth){
+  const leaf=depth===2;
+  const row=y+85, mid=row+41, resultX=x+w-215, returnX=x+w-20;
+  let body=rect(x,y,w,h,depth%2?'#F4F8FC':'white','#AFC5DC',23)+
+    t(x+30,y+41,'작업 처리',27,C.ink,700,'start')+
+    card(x+w-117,y+17,91,33,`깊이 ${depth}`,C.ap,C.ap,C.a,17)+
+    rect(x+30,row,155,82,'white','#AFC5DC',14)+
+    peer(x+65,row+28,'A',16)+peer(x+108,row+28,'B',16)+peer(x+151,row+28,'C',16)+
+    t(x+107.5,row+67,'계획 제안',20,C.ink,650)+
+    t(x+107.5,row+108,'요청자 포함',16,C.muted)+
+    line(`M${x+186} ${mid} H${x+232}`,C.a)+
+    card(x+235,row+10,88,62,'심사','white','#AFC5DC',C.ink,22)+
+    card(x+327,row+10,88,62,'선정',C.rule,C.rule,'white',22)+
+    t(x+279,row+98,'요청자',16,C.muted)+t(x+371,row+98,'코드',16,C.muted)+
+    line(`M${x+416} ${mid} H${x+507}`,C.a)+
+    card(x+510,row+10,140,62,leaf?'직접 수행':'분담',leaf?C.bp:C.ap,leaf?'#9ACAB9':'#AFC5DC',C.ink,23)+
+    card(resultX,row,150,82,leaf?'결과':'결과 통합',C.bp,'#9ACAB9',C.b,23);
+  if(leaf){
+    body+=line(`M${x+651} ${mid} H${resultX-3}`,C.b);
+  }else{
+    const nextY=y+265, siblingX=x+40, siblingCenter=x+102.5, nextMid=nextY+126;
+    body+=nestedTask(x+195,nextY,w-240,h-320,depth+1)+collapsedLeaf(siblingX,nextY);
+    // Delegate to an independent leaf and one expanded recursive child.
+    body+=line(`M${x+580} ${row+74} V${y+210} H${siblingCenter} V${nextY-3}`,C.a)+
+      line(`M${x+180} ${y+210} V${nextMid} H${x+222}`,C.a)+
+      `<circle cx="${x+180}" cy="${y+210}" r="4" fill="${C.a}"/>`+
+      // Results return around the enclosing module, never to another sibling's input.
+      line(`M${siblingCenter} ${nextY+171} V${y+h-22} H${returnX} V${row+116} H${resultX+75} V${row+85}`,C.b)+
+      line(`M${x+w-109} ${nextMid} H${returnX}`,C.b,false,false)+
+      `<circle cx="${returnX}" cy="${nextMid}" r="4" fill="${C.b}"/>`+
+      t(resultX+75,row-15,'모두 완료 후',17,C.b,600);
+  }
+  return `<g data-recursion-depth="${depth}">${body}</g>`;
+}
+const agent=frame('재귀 위임 · 같은 구조의 반복',[
+  header('재귀 위임 · 같은 구조의 반복','01'),
+  line('M1192 97 h44',C.a),t(1252,104,'위임',18,C.a,650,'start'),
+  line('M1336 97 h44',C.b),t(1396,104,'결과 복귀',18,C.b,650,'start'),
+  nestedTask(55,155,1490,870,0),
+].join(''),1060);
 
 function status(x,y,label,fill,color,w=100){ return `<g data-node="${esc(label)}">${rect(x,y,w,32,fill,fill,16)}${t(x+w/2,y+22,label,17,color,700)}</g>`; }
 function task(x,y,w,title,who,state){
@@ -136,7 +187,7 @@ const collaboration = frame('독립 작업은 나란히, 다음 작업은 결과
   try {
     const page = await browser.newPage({viewport:{width:1600,height:1000},deviceScaleFactor:1.5});
     const checks=[];
-    for(const [name,svg] of [['agent-state-overview',agent],['collaboration-state-overview',collaboration]]){
+    for(const [name,svg] of [['agent-state-overview',agent],['agent-selection-detail',selection],['collaboration-state-overview',collaboration]]){
       fs.writeFileSync(path.join(ROOT,name+'.svg'),svg+'\n');
       await page.setContent(`<!doctype html><html lang="ko"><meta charset="utf-8"><style>body{margin:0}svg{display:block}</style>${svg}</html>`);
       await page.evaluate(()=>document.fonts.ready);

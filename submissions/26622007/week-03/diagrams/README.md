@@ -4,8 +4,9 @@
 
 [현재 동작·상태 도식](CURRENT_STATES.md) — 동등한 동료의 계획 제안, 공통 검증·선정, 재귀 위임, 의존성에 따른 병렬 실행과 작업별 상태 관리를 두 그림으로 정리했다.
 
-- [에이전트 동작 PNG](agent-state-overview.png) · [SVG](agent-state-overview.svg)
+- [중첩 구조로 표현한 재귀 위임 PNG](agent-state-overview.png) · [SVG](agent-state-overview.svg)
 - [협업 상태 PNG](collaboration-state-overview.png) · [SVG](collaboration-state-overview.svg)
+- [계획 심사·선정 규칙 상세 PNG](agent-selection-detail.png) · [SVG](agent-selection-detail.svg)
 
 아래 Excalidraw 도식은 **2026-09-15의 배정 전용 코드**에 대한 과거 자료다. 현재 `extensions/peer_dag`의 구조와 구분한다. 아래의 ‘현재’와 소스 버전은 당시 작성 시점을 가리킨다.
 
