@@ -1,12 +1,17 @@
 """Show unreviewed original roots; classify missing final artifacts as incomplete."""
 import json
 from pathlib import Path
+import argparse
 
 B = Path(__file__).resolve().parent
 ROOT = B.parent.parent
-notes = B / 'qualitative_notes.jsonl'
+parser = argparse.ArgumentParser()
+parser.add_argument('--recovery', action='store_true')
+recovery = parser.parse_args().recovery
+FOLDER = B / 'recovery_429' if recovery else B
+notes = B / ('recovery_qualitative_notes.jsonl' if recovery else 'qualitative_notes.jsonl')
 seen = {json.loads(line)['run_id'] for line in notes.read_text().splitlines()} if notes.exists() else set()
-for path in sorted(B.glob('*.metrics.json')):
+for path in sorted(FOLDER.glob('*.metrics.json')):
     m = json.loads(path.read_text())
     if m['run_id'] in seen:
         continue

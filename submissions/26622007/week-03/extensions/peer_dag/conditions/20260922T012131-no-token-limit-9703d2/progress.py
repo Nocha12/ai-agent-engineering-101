@@ -1,14 +1,18 @@
 """Read-only progress of the manifest's live runs (never includes replays)."""
 from collections import Counter
+import argparse
 import json
 from pathlib import Path
 
 B = Path(__file__).resolve().parent
 ROOT = B.parent.parent
-manifest = json.loads((B / 'manifest.json').read_text())
+parser = argparse.ArgumentParser()
+parser.add_argument('--recovery', action='store_true')
+FOLDER = B / 'recovery_429' if parser.parse_args().recovery else B
+manifest = json.loads((FOLDER / 'manifest.json').read_text())
 metrics, events = [], []
 for item in manifest['schedule']:
-    metric = B / (item['run_id'] + '.metrics.json')
+    metric = FOLDER / (item['run_id'] + '.metrics.json')
     if metric.exists():
         metrics.append(json.loads(metric.read_text()))
     log = ROOT / 'logs' / (item['run_id'] + '.jsonl')
