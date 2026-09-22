@@ -104,7 +104,7 @@ HTTP 재시도는 별도 고정 제한을 사용한다. 현재 429는 최대 6�
 선행 의존성, read/write 충돌, 부모의 하위 결과 대기는 기존과 같이 검사한다.
 `concurrency_policy=task-worker-isolated-v1`을 실행 설정에 기록한다. 일시 중단한 연구·메모리 확장은 기존 Worker별 순차 정책을 유지한다.
 [같은 Worker 병렬 검증](SAME_WORKER_PARALLEL_VERIFICATION.md)에서 C의 실제 동시 실행과 기존 응답 재생 결과를 확인할 수 있다.
-확장 로그·결과물은 이 폴더 안에 저장한다. 기본 `results.csv`, `tasks.json`, `REPORT.md`에는 섞지 않는다.
+확장 로그·결과물은 이 폴더 안에 저장한다. 최신 제출 보고서와 `results.csv`는 [제출 집계 규약](../../submission/README.md)에 따라 이 실험의 429 복구 포함 최종 결과를 내보낸다. 이전 기본 배정 결과는 별도 CSV로 보존한다.
 
 `expected.json`의 평가 답안은 어떤 Worker의 요청에도 넣지 않는다. 과제 해석과 계획 타당성 검토는 사용자의 학습 부분이다.
 
