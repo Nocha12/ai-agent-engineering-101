@@ -1,6 +1,15 @@
-# 현재 설계 · Excalidraw
+# 설계 다이어그램
 
-## 멀티 에이전트 설계 관점
+## 현재 코드: 재귀 위임과 협업 상태
+
+[현재 동작·상태 도식](CURRENT_STATES.md) — 동등한 동료의 계획 제안, 공통 검증·선정, 재귀 위임, 의존성에 따른 병렬 실행과 작업별 상태 관리를 두 그림으로 정리했다.
+
+- [에이전트 동작 PNG](agent-state-overview.png) · [SVG](agent-state-overview.svg)
+- [협업 상태 PNG](collaboration-state-overview.png) · [SVG](collaboration-state-overview.svg)
+
+아래 Excalidraw 도식은 **2026-09-15의 배정 전용 코드**에 대한 과거 자료다. 현재 `extensions/peer_dag`의 구조와 구분한다. 아래의 ‘현재’와 소스 버전은 당시 작성 시점을 가리킨다.
+
+## 이전 멀티 에이전트 설계 관점 · Excalidraw
 
 [멀티 에이전트 설계 공유본](https://excalidraw.com/#json=FZ2X8m1r9bWg6MMVcxxTD,0_U2FcQXtrJWVCYhb9Elzg) · [편집 가능한 원본](multi-agent-design.excalidraw) · [확인 화면](multi-agent-design-shared-preview.png)
 
