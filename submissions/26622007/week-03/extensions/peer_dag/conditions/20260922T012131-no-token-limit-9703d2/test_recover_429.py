@@ -1,4 +1,4 @@
-"""Offline selection regression against the six actual exhausted-429 traces."""
+"""Offline recovery selection regression against actual exhausted-429 traces."""
 import json
 import unittest
 from recover_429 import B, selected_failure
@@ -23,6 +23,15 @@ class SelectionTests(unittest.TestCase):
 
     def test_success_is_never_retried(self):
         self.assertFalse(selected_failure({'passed': True, 'error': 'CallError: HTTP 429'}))
+
+    def test_nested_actual_rate_failure_is_selected(self):
+        metric = json.loads((B / f'{B.name}-r3-payment-redesign-overconfident.metrics.json').read_text())
+        self.assertTrue(selected_failure(metric))
+
+    def test_nested_mixed_cause_or_empty_cause_is_not_selected(self):
+        error = 'ValueError: child failed or blocked; partial results retained'
+        for failures in ([], [{'error': error}], [{'error': error}, {'error': 'CallError: HTTP 429'}, {'error': 'bad JSON'}]):
+            self.assertFalse(selected_failure({'passed': False, 'error': error, 'task_failures': failures}))
 
 
 if __name__ == '__main__':

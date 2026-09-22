@@ -16,9 +16,21 @@ def selected_failure(metric):
         return False
     if metric['error'] == 'CallError: HTTP 429':
         return True
-    rejections = metric['proposal_rejections']
-    return (metric['error'] == 'ValueError: no valid bids' and bool(rejections)
-            and all(row['error'] in ('HTTP 429', 'CallError: HTTP 429') for row in rejections))
+    rejections = metric.get('proposal_rejections', [])
+    def all_rate_limited(rows):
+        return bool(rows) and all(row['error'] in ('HTTP 429', 'CallError: HTTP 429') for row in rows)
+    if metric['error'] == 'ValueError: no valid bids':
+        return all_rate_limited(rejections)
+    propagated = 'ValueError: child failed or blocked; partial results retained'
+    if metric['error'] != propagated:
+        return False
+    # The root can report only a dependency failure while the actual 429 is below it.
+    causes = [row for row in metric.get('task_failures', []) if row['error'] != propagated]
+    return bool(causes) and all(
+        row['error'] == 'CallError: HTTP 429' or (
+            row['error'] == 'ValueError: no valid bids' and all_rate_limited([
+                rejection for rejection in rejections if rejection.get('task_id') == row['task_id']]))
+        for row in causes)
 
 
 async def run(folder, manifest):
