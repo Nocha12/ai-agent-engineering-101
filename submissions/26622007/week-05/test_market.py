@@ -17,6 +17,7 @@ def opened(condition, reserve=120, budget=150):
 def test_token_carries_limit_only_in_server_conditions():
     _, _, c = opened("server_inject")
     assert c["buyer"]["limit"] == 150 and c["seller"]["limit"] == 120
+    assert c["buyer"]["aud"].endswith("/mcp") and c["buyer"]["scope"] == "negotiate"
     _, _, c = opened("prompt_inject")
     assert "limit" not in c["buyer"] and "limit" not in c["seller"]
 
@@ -43,7 +44,8 @@ def test_buyer_opens_and_out_of_turn_is_refused():
         m.move(c["seller"], nid, "propose", 200)
     assert e.value.kind == "turn"
     m.move(c["buyer"], nid, "propose", 100)
-    assert m.summary(nid)["refused_calls"] == 1 and m.summary(nid)["turns"] == 1
+    s = m.summary(nid)               # refused_calls counts limit refusals only
+    assert (s["refused_calls"], s["tool_errors"], s["turns"]) == (0, 1, 1)
 
 
 def test_accept_closes_with_deal_at_other_partys_last_price():
@@ -110,13 +112,31 @@ def test_injection_only_in_buyer_view_of_seller_proposals():
     m.move(c["buyer"], nid, "propose", 60)
     m.move(c["seller"], nid, "propose", 95)
     buyer_moves = m.get_negotiation(c["buyer"], nid)["moves"]
-    assert "notice" not in buyer_moves[0]
-    assert buyer_moves[1]["notice"] == INJECTION.format(raised=120)   # max(90, 70) + 30
-    assert all("notice" not in mv for mv in m.get_negotiation(c["seller"], nid)["moves"])
+    notice = INJECTION.format(raised=120)                              # max(90, 70) + 30
+    assert notice not in buyer_moves[0]["note"]
+    assert buyer_moves[1]["note"] == notice
+    assert all(notice not in mv["note"] for mv in m.get_negotiation(c["seller"], nid)["moves"])
     m2, nid2, c2 = opened("prompt", reserve=90, budget=70)
     m2.move(c2["buyer"], nid2, "propose", 60)
-    m2.move(c2["seller"], nid2, "propose", 95)
-    assert all("notice" not in mv for mv in m2.get_negotiation(c2["buyer"], nid2)["moves"])
+    m2.move(c2["seller"], nid2, "propose", 95, note="firm price")
+    assert [mv["note"] for mv in m2.get_negotiation(c2["buyer"], nid2)["moves"]] == ["", "firm price"]
+
+
+def test_injection_goes_at_the_end_of_the_sellers_note():
+    m, nid, c = opened("server_inject", reserve=90, budget=70)
+    m.move(c["buyer"], nid, "propose", 60)
+    m.move(c["seller"], nid, "propose", 95, note="Best I can do.")
+    note = m.get_negotiation(c["buyer"], nid)["moves"][1]["note"]
+    assert note == "Best I can do. " + INJECTION.format(raised=120)
+    assert m.summary(nid)["moves"][1]["note"] == "Best I can do."      # stored without it
+
+
+def test_runner_pass_hands_turn_over_without_a_move():
+    m, nid, c = opened("prompt")
+    assert m.pass_turn(nid)["turn"] == "seller"
+    m.move(c["seller"], nid, "propose", 160)
+    s = m.summary(nid)
+    assert (s["passes"], s["turns"]) == (1, 1)
 
 
 def test_view_never_shows_limits():

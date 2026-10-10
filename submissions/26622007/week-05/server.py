@@ -1,24 +1,29 @@
 """Week 05: the market as an MCP server over Streamable HTTP (Python SDK v2).
 
-    MARKET_ADMIN_KEY=<secret> python server.py [--port 8765]
+    MARKET_ADMIN_KEY=<secret> [MARKET_URL=http://127.0.0.1:8765] python server.py
 
 - /mcp            MCP endpoint. Every request needs `Authorization: Bearer <token>`;
                   without a valid one the SDK's bearer middleware answers 401 with
                   a `WWW-Authenticate` header before any tool runs.
 - /admin/open     POST {item, reserve, budget, condition} -> negotiation id and the
                   two party tokens. For the runner only, guarded by X-Admin-Key.
+- /admin/pass     POST {negotiation_id} -> hand the turn to the other party when a
+                  host ended without a valid move. Admin only.
 - /admin/summary  GET ?negotiation_id=... -> the episode record (moves, refusals,
                   counts). Also admin only.
+
+Tokens are minted for this server only (audience = MARKET_URL/mcp, scope
+"negotiate"); the SDK refuses a token minted for another resource.
 
 The role comes from the token, never from an argument. Every tool still takes
 the negotiation_id because the protocol has no sessions; the token decides
 whether the caller may touch it.
 """
-import argparse
 import json
 import os
 import sys
 import time
+from urllib.parse import urlparse
 
 import uvicorn
 from starlette.requests import Request
@@ -33,7 +38,9 @@ from mcp.server.mcpserver.exceptions import ToolError
 from market import Market, MoveError
 
 ADMIN_KEY = os.environ.get("MARKET_ADMIN_KEY", "")
-market = Market()
+BASE = os.environ.get("MARKET_URL", "http://127.0.0.1:8765").rstrip("/")
+RESOURCE = f"{BASE}/mcp"
+market = Market(resource=RESOURCE)
 
 
 def log(event: str, **fields):
@@ -47,7 +54,8 @@ class MarketTokenVerifier:
         if not claims or claims.get("role") not in ("buyer", "seller") or "nid" not in claims:
             return None
         return AccessToken(token=token, client_id=f"{claims['role']}@{claims['nid']}",
-                           scopes=[], claims=claims)
+                           scopes=claims.get("scope", "").split(), resource=claims.get("aud"),
+                           claims=claims)
 
 
 def caller() -> dict:
@@ -74,8 +82,8 @@ mcp = MCPServer(
     instructions="A market for one-item price negotiations between a buyer and a seller. "
                  "Your bearer token decides your role and your negotiation.",
     token_verifier=MarketTokenVerifier(),
-    auth=AuthSettings(issuer_url="http://127.0.0.1/market-tokens",
-                      resource_server_url=None),
+    auth=AuthSettings(issuer_url=BASE, resource_server_url=RESOURCE,
+                      required_scopes=["negotiate"], validate_token_resource=True),
 )
 
 
@@ -86,27 +94,27 @@ def get_negotiation(negotiation_id: str) -> dict:
 
 
 @mcp.tool()
-def propose(negotiation_id: str, price: int) -> dict:
-    """Offer a whole-number price for the item. Only on your turn. Ends your turn."""
-    return _call("propose", negotiation_id, market.move, act="propose", price=price)
+def propose(negotiation_id: str, price: int, note: str = "") -> dict:
+    """Offer a whole-number price for the item. Only on your turn. Ends your turn. The optional note is a short message the other party will read."""
+    return _call("propose", negotiation_id, market.move, act="propose", price=price, note=note)
 
 
 @mcp.tool()
-def accept_proposal(negotiation_id: str) -> dict:
+def accept_proposal(negotiation_id: str, note: str = "") -> dict:
     """Agree to the other party's last proposed price. Only on your turn. Closes the negotiation with a deal at that price."""
-    return _call("accept_proposal", negotiation_id, market.move, act="accept_proposal")
+    return _call("accept_proposal", negotiation_id, market.move, act="accept_proposal", note=note)
 
 
 @mcp.tool()
-def reject_proposal(negotiation_id: str) -> dict:
+def reject_proposal(negotiation_id: str, note: str = "") -> dict:
     """Decline the other party's last proposal and keep negotiating. Only on your turn. Ends your turn."""
-    return _call("reject_proposal", negotiation_id, market.move, act="reject_proposal")
+    return _call("reject_proposal", negotiation_id, market.move, act="reject_proposal", note=note)
 
 
 @mcp.tool()
-def refuse(negotiation_id: str) -> dict:
+def refuse(negotiation_id: str, note: str = "") -> dict:
     """Leave the negotiation. Only on your turn. Closes it with no deal."""
-    return _call("refuse", negotiation_id, market.move, act="refuse")
+    return _call("refuse", negotiation_id, market.move, act="refuse", note=note)
 
 
 # ---- admin routes: plain HTTP, not MCP tools; the agents never see them ----
@@ -130,6 +138,18 @@ async def admin_open(request: Request):
     return JSONResponse(opened)
 
 
+@mcp.custom_route("/admin/pass", methods=["POST"])
+async def admin_pass(request: Request):
+    if not _admin_ok(request):
+        return JSONResponse({"error": "admin key required"}, status_code=403)
+    nid = (await request.json()).get("negotiation_id", "")
+    if nid not in market.negotiations:
+        return JSONResponse({"error": f"no negotiation {nid!r}"}, status_code=404)
+    result = market.pass_turn(nid)
+    log("admin_pass", negotiation_id=nid, **result)
+    return JSONResponse(result)
+
+
 @mcp.custom_route("/admin/summary", methods=["GET"])
 async def admin_summary(request: Request):
     if not _admin_ok(request):
@@ -141,14 +161,12 @@ async def admin_summary(request: Request):
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--host", default="127.0.0.1")
-    ap.add_argument("--port", type=int, default=8765)
-    a = ap.parse_args()
     if not ADMIN_KEY:
         sys.exit("set MARKET_ADMIN_KEY so the runner can open negotiations")
-    log("server_start", host=a.host, port=a.port, endpoint=f"http://{a.host}:{a.port}/mcp")
-    uvicorn.run(mcp.streamable_http_app(host=a.host), host=a.host, port=a.port, log_level="warning")
+    url = urlparse(BASE)
+    host, port = url.hostname or "127.0.0.1", url.port or 80
+    log("server_start", endpoint=RESOURCE)
+    uvicorn.run(mcp.streamable_http_app(host=host), host=host, port=port, log_level="warning")
 
 
 if __name__ == "__main__":
