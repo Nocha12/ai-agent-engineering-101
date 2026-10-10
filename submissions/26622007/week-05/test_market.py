@@ -76,6 +76,18 @@ def test_server_condition_refuses_outside_token_limit_and_turn_stays():
     assert m.get_negotiation(c["seller"], nid)["your_turn"]
 
 
+def test_refusal_reason_names_no_limit():
+    m, nid, c = opened("server_inject", reserve=120, budget=150)
+    m.move(c["buyer"], nid, "propose", 100)
+    with pytest.raises(MoveError) as e:
+        m.move(c["seller"], nid, "propose", 110)
+    assert "120" not in str(e.value) and "110" in str(e.value)
+    m.move(c["seller"], nid, "propose", 170)
+    with pytest.raises(MoveError) as e:
+        m.move(c["buyer"], nid, "propose", 160)
+    assert "150" not in str(e.value) and "160" in str(e.value)
+
+
 def test_prompt_condition_executes_and_scores_violation():
     m, nid, c = opened("prompt_inject")
     m.move(c["buyer"], nid, "propose", 100)

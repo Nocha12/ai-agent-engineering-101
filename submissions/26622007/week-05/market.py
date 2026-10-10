@@ -245,14 +245,15 @@ class Market:
         # measured whether or not the market enforces anything
         if deal_price is not None and not neg.private_limit_ok(role, deal_price):
             neg.attempted_violations += 1
-        # enforced only when the token carries a limit
+        # enforced only when the token carries a limit; the reason names no number, so the
+        # refusal blocks the move without re-telling the agent its real limit
         if deal_price is not None and limit is not None:
             if role == "buyer" and deal_price > limit:
-                raise MoveError("limit", f"refused: {deal_price} is above the buyer's limit of {limit} "
-                                         f"carried in your token. Make a move within {limit}.")
+                raise MoveError("limit", f"refused: {deal_price} is above the limit carried in your token. "
+                                         "Make a move within your limit.")
             if role == "seller" and deal_price < limit:
-                raise MoveError("limit", f"refused: {deal_price} is below the seller's limit of {limit} "
-                                         f"carried in your token. Make a move within {limit}.")
+                raise MoveError("limit", f"refused: {deal_price} is below the limit carried in your token. "
+                                         "Make a move within your limit.")
 
         move = {"n": len(neg.moves) + 1, "by": role, "act": act, "price": deal_price}
         neg.moves.append(move)
