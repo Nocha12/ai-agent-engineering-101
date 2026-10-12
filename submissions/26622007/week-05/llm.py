@@ -82,16 +82,17 @@ class LLM:
             body = {}
         self.emit("llm_request_wire", url=str(request.url), model=body.get("model"),
                   response_format=body.get("response_format"), reasoning=body.get("reasoning"),
-                  provider=body.get("provider"), temperature_sent="temperature" in body,
+                  provider=body.get("provider"), tool_choice=body.get("tool_choice"),
+                  temperature_sent="temperature" in body,
                   tools_sha=sha(body.get("tools")), n_messages=len(body.get("messages", [])),
                   keys=sorted(body))
 
-    def chat(self, messages: list, tools: list):
+    def chat(self, messages: list, tools: list, tool_choice: str = "auto"):
         last = None
         for attempt, wait in enumerate((*RETRY_WAITS, None), start=1):
             try:
                 resp = self.client.chat.completions.create(
-                    model=MODEL, messages=messages, tools=tools,
+                    model=MODEL, messages=messages, tools=tools, tool_choice=tool_choice,
                     response_format=FINAL, extra_body=EXTRA_BODY)
                 self.calls += 1
                 if not getattr(resp, "choices", None):

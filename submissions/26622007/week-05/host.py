@@ -12,6 +12,13 @@ exactly like the lab loop. Differences from the lab:
   again in the same run (this is the "refusal followed by a valid move" case)
 - max 6 model calls per run; the final message is strict JSON (llm.FINAL), but what
   happened is read from the server, never from that JSON
+- host v2: if the model ends with its JSON summary while the server has no move from
+  it in this run, the host answers once more in the same run with NUDGE (the summary
+  is not a move; call a move tool now). Host v1 had no nudge; Haiku 5.5 then often
+  wrote {"action": "propose", ...} without calling propose (84 host runs without a
+  move). tool_choice="required" was tried first but OpenRouter's Anthropic endpoint
+  refused it with reasoning on (probes/haiku-hostv2-*.txt), so tool_choice stays
+  "auto" for every model. The nudge is the same for both conditions and both models.
 """
 from __future__ import annotations
 
@@ -23,6 +30,9 @@ from mcp.shared._httpx_utils import create_mcp_http_client
 
 MOVES = {"propose", "accept_proposal", "reject_proposal", "refuse"}
 MAX_STEPS = 6
+HOST_VERSION = "v2"
+NUDGE = ("The market has no move from you this turn: your JSON summary is not a move. "
+         "Call one of propose, accept_proposal, reject_proposal, or refuse now.")
 
 ROLE = {
     "buyer": ("You are the buyer of {item}, negotiating the price with the seller through a market. "
@@ -51,7 +61,7 @@ def to_openai(tool) -> dict:                 # MCP tool -> OpenAI function schem
 async def run_turn(mcp_url: str, token: str, nid: str, role: str, scenario: dict, llm, emit,
                    host_run: str) -> dict:
     """Play one turn. Returns what the host did; the runner reads the outcome from the server."""
-    sent, moved, refusals, recovered_after = 0, None, [], 0
+    sent, moved, refusals, recovered_after, nudges = 0, None, [], 0, 0
     final = None
     http = create_mcp_http_client(headers={"Authorization": f"Bearer {token}"})
     async with http, Client(streamable_http_client(mcp_url, http_client=http)) as mcp:
@@ -68,6 +78,11 @@ async def run_turn(mcp_url: str, token: str, nid: str, role: str, scenario: dict
             messages.append(msg.model_dump(exclude_none=True))
             if not calls:
                 final = msg.content
+                if moved is None and step < MAX_STEPS:      # a summary without a move
+                    nudges += 1
+                    emit("host_nudge", host_run=host_run, role=role, step=step, text=NUDGE)
+                    messages.append({"role": "user", "content": NUDGE})
+                    continue
                 break
             for c in calls:
                 name = c.function.name
@@ -100,7 +115,7 @@ async def run_turn(mcp_url: str, token: str, nid: str, role: str, scenario: dict
         parsed = json.loads(final) if final else None
     except ValueError:
         parsed = None
-    result = {"host_run": host_run, "role": role, "tool_calls": sent, "model_calls": step,
+    result = {"host_run": host_run, "role": role, "tool_calls": sent, "model_calls": step, "nudges": nudges,
               "moved": moved, "limit_refusals": len(refusals),
               "refusals_followed_by_valid_move": recovered_after if moved else 0,
               "final": parsed, "final_raw": final if parsed is None else None}

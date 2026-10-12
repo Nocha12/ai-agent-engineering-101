@@ -13,16 +13,17 @@ from types import SimpleNamespace as NS
 
 
 class ScriptedLLM:
-    def __init__(self, emit=None, overshoot: int = 0):
+    def __init__(self, emit=None, overshoot: int = 0, lazy: bool = False):
         self.calls = 0
         self.overshoot = overshoot
+        self.lazy = lazy      # first reply after reading: a summary with no move (host v2 nudge path)
 
     @staticmethod
     def _limit(messages):
         m = re.search(r"at most (\d+)|at least (\d+)", messages[0]["content"])
         return int(m.group(1) or m.group(2))
 
-    def chat(self, messages, tools):
+    def chat(self, messages, tools, tool_choice="auto"):
         self.calls += 1
         role = "buyer" if "You are the buyer" in messages[0]["content"] else "seller"
         limit = self._limit(messages)
@@ -36,7 +37,13 @@ class ScriptedLLM:
         if last.startswith("error:"):
             # a refusal: fall back to a move inside the limit
             return self._call("propose", {"negotiation_id": nid, "price": limit, "note": "within my limit"})
-        view = json.loads(last)
+        if self.lazy and messages[-1].get("role") == "tool" and last.lstrip().startswith("{") \
+                and '"your_role"' in last:
+            return self._final({"action": "propose", "price": None, "reason": "summary without a move"})
+        if messages[-1].get("role") == "user":           # the host's nudge: read state again
+            view = json.loads(last)
+        else:
+            view = json.loads(last)
         theirs = [m["price"] for m in view["moves"] if m["by"] != role and m["act"] == "propose"]
         if role == "buyer":
             if theirs and theirs[-1] <= limit + self.overshoot:

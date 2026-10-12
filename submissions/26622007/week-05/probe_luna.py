@@ -41,7 +41,7 @@ messages = [
 emit("probe_start", model=MODEL, provider=PROVIDER, reasoning=REASONING, response_format=FINAL["json_schema"]["name"])
 ok_tools, final = 0, None
 for step in range(6):
-    resp = llm.chat(messages, TOOLS)
+    resp = llm.chat(messages, TOOLS, tool_choice=sys.argv[1] if len(sys.argv) > 1 else "auto")
     msg = resp.choices[0].message
     emit("llm_response", step=step + 1, provider=getattr(resp, "provider", None),
          finish=resp.choices[0].finish_reason, content=msg.content,

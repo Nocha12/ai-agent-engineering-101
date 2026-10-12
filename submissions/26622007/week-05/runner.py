@@ -35,7 +35,7 @@ from pathlib import Path
 
 import httpx2
 
-from host import run_turn, system_prompt
+from host import HOST_VERSION, run_turn, system_prompt
 from llm import LLM, MODEL, PROVIDER, REASONING, sha
 from market import CONDITIONS, MAX_MOVES
 
@@ -43,7 +43,7 @@ HERE = Path(__file__).resolve().parent
 HEADER = ["run", "condition", "scenario", "deal_possible", "outcome", "price", "correct", "violation",
           "attempted_violations", "refused_calls", "turns", "tool_calls", "note"]
 MAX_HOST_RUNS = 16
-HOST = "week01-loop-mcp"
+HOST = f"week01-loop-mcp-{HOST_VERSION}"
 
 
 class Log:
@@ -103,7 +103,7 @@ async def episode(base: str, admin: dict, run: str, condition: str, sc: dict, ll
     def summary():
         return httpx2.get(f"{base}/admin/summary", params={"negotiation_id": nid}, headers=admin).json()
 
-    tool_calls = host_runs = refusals = recovered = 0
+    tool_calls = host_runs = refusals = recovered = nudges = 0
     stop = None
     while True:
         s = summary()
@@ -123,13 +123,14 @@ async def episode(base: str, admin: dict, run: str, condition: str, sc: dict, ll
         tool_calls += r["tool_calls"]
         refusals += r["limit_refusals"]
         recovered += r["refusals_followed_by_valid_move"]
+        nudges += r["nudges"]
         if summary()["turns"] == s["turns"]:           # the server accepted no move this run
             p = httpx2.post(f"{base}/admin/pass", headers=admin, json={"negotiation_id": nid}).json()
             log("runner_pass", host_run=hr, role=role, **p)
     s = summary()
     log("episode_result", run=run, scenario=sc["id"], stop=stop, host_runs=host_runs,
-        host_tool_calls=tool_calls, refusals_followed_by_valid_move=recovered, server_summary=s)
-    return {"s": s, "tool_calls": tool_calls, "host_runs": host_runs, "stop": stop,
+        host_tool_calls=tool_calls, refusals_followed_by_valid_move=recovered, nudges=nudges, server_summary=s)
+    return {"s": s, "tool_calls": tool_calls, "host_runs": host_runs, "stop": stop, "nudges": nudges,
             "refusals": refusals, "recovered": recovered}
 
 
@@ -153,7 +154,7 @@ async def main(a):
     proc = start_server(a.port, admin_key, server_logs / f"{run}.txt")
     if a.scripted:                                   # smoke test: no API call
         from scripted_llm import ScriptedLLM
-        llm, model = ScriptedLLM(log, overshoot=a.overshoot), f"scripted(overshoot={a.overshoot})"
+        llm, model = ScriptedLLM(log, overshoot=a.overshoot, lazy=a.lazy), f"scripted(overshoot={a.overshoot},lazy={a.lazy})"
     else:
         llm, model = LLM(log), MODEL
     log("run_start", run=run, condition=a.condition, host=HOST, model=model, provider=PROVIDER, reasoning=REASONING,
@@ -171,7 +172,7 @@ async def main(a):
                        "violation": s["violation"], "attempted_violations": s["attempted_violations"],
                        "refused_calls": s["refused_calls"], "turns": s["turns"], "tool_calls": e["tool_calls"],
                        "note": (f"host={HOST}; model={model}; reasoning={REASONING}; passes={s['passes']}; "
-                                f"host_runs={e['host_runs']}; stop={e['stop']}; "
+                                f"host_runs={e['host_runs']}; nudges={e['nudges']}; stop={e['stop']}; "
                                 f"refusals_followed_by_valid_move={e['recovered']}/{e['refusals']}; "
                                 f"llm_calls={llm.calls - calls_before}")}
             except Exception as exc:                 # crashed episode: keep the row, blank fields
@@ -197,4 +198,5 @@ if __name__ == "__main__":
     ap.add_argument("--server-log-dir", default="server_logs")
     ap.add_argument("--scripted", action="store_true", help="smoke test with scripted_llm, no API call")
     ap.add_argument("--overshoot", type=int, default=0, help="scripted buyer accepts up to budget+N")
+    ap.add_argument("--lazy", action="store_true", help="scripted model first answers with a summary, no move")
     asyncio.run(main(ap.parse_args()))
