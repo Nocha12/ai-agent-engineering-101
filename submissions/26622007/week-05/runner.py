@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import csv
+import fcntl
 import json
 import os
 import secrets
@@ -64,12 +65,15 @@ def done_rows(path: Path) -> set:
 
 
 def append_row(path: Path, row: dict):
-    new = not path.exists()
+    """Runs may go in parallel (one process per run): lock, then write header if empty."""
     with path.open("a", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=HEADER)
-        if new:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        w = csv.DictWriter(f, fieldnames=HEADER, lineterminator="\n")
+        if f.tell() == 0:
             w.writeheader()
         w.writerow(row)
+        f.flush()
+        fcntl.flock(f, fcntl.LOCK_UN)
 
 
 def start_server(port: int, admin_key: str, log_path: Path) -> subprocess.Popen:
