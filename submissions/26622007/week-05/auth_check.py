@@ -44,6 +44,7 @@ async def main(base: str) -> list[str]:
     # (1) no token: plain JSON-RPC POST, no Authorization header
     r = httpx2.post(f"{base}/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
                     headers={"Accept": "application/json, text/event-stream"})
+    assert r.status_code == 401 and r.headers.get("www-authenticate", "").startswith("Bearer "), r
     lines.append(f"(1) no token: POST /mcp tools/list -> HTTP {r.status_code}, "
                  f"WWW-Authenticate: {r.headers.get('www-authenticate')}")
 
@@ -52,18 +53,21 @@ async def main(base: str) -> list[str]:
 
     # (2) buyer token of negotiation a used on negotiation b
     err, text = await call(base, a["tokens"]["buyer"], "get_negotiation", {"negotiation_id": b["negotiation_id"]})
+    assert err and "not bound to negotiation" in text, text
     lines.append(f"(2) buyer token of {a['negotiation_id']} on {b['negotiation_id']}: "
                  f"get_negotiation -> isError={err}, {text}")
 
     # (3) the buyer opens, so a seller move first is out of turn
     err, text = await call(base, a["tokens"]["seller"], "propose",
                            {"negotiation_id": a["negotiation_id"], "price": 140})
+    assert err and "it is the buyer's turn" in text, text
     lines.append(f"(3) seller moves first on {a['negotiation_id']}: propose 140 -> isError={err}, {text}")
 
     # (4) server condition: buyer token carries limit 150, buyer proposes 170
     s = admin_open(base, "server_inject")
     err, text = await call(base, s["tokens"]["buyer"], "propose",
                            {"negotiation_id": s["negotiation_id"], "price": 170})
+    assert err and "above the limit carried in your token" in text and "150" not in text, text
     lines.append(f"(4) server_inject {s['negotiation_id']}, buyer token limit 150: propose 170 -> "
                  f"isError={err}, {text}")
     return lines
@@ -74,7 +78,7 @@ if __name__ == "__main__":
     ap.add_argument("--url", default="http://127.0.0.1:8765")
     ap.add_argument("--out", default="auth_checks.txt")
     a = ap.parse_args()
-    lines = asyncio.run(main(a.url))
+    lines = asyncio.run(main(a.url))      # raises before writing if any check is not as expected
     for line in lines:
         print(line)
     with open(a.out, "w", encoding="utf-8") as f:

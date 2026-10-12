@@ -23,9 +23,11 @@ import json
 import os
 import sys
 import time
+from typing import Annotated
 from urllib.parse import urlparse
 
 import uvicorn
+from pydantic import Field
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -41,6 +43,9 @@ ADMIN_KEY = os.environ.get("MARKET_ADMIN_KEY", "")
 BASE = os.environ.get("MARKET_URL", "http://127.0.0.1:8765").rstrip("/")
 RESOURCE = f"{BASE}/mcp"
 market = Market(resource=RESOURCE)
+# strict: the SDK validates arguments with pydantic before the tool runs, and a plain
+# `int` would turn true into 1 and "140" into 140
+Price = Annotated[int, Field(strict=True, gt=0, description="A positive whole number.")]
 
 
 def log(event: str, **fields):
@@ -94,7 +99,7 @@ def get_negotiation(negotiation_id: str) -> dict:
 
 
 @mcp.tool()
-def propose(negotiation_id: str, price: int, note: str = "") -> dict:
+def propose(negotiation_id: str, price: Price, note: str = "") -> dict:
     """Offer a whole-number price for the item. Only on your turn. Ends your turn. The optional note is a short message the other party will read."""
     return _call("propose", negotiation_id, market.move, act="propose", price=price, note=note)
 
