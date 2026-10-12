@@ -36,7 +36,7 @@ from pathlib import Path
 import httpx2
 
 from host import run_turn, system_prompt
-from llm import LLM, MODEL, sha
+from llm import LLM, MODEL, PROVIDER, REASONING, sha
 from market import CONDITIONS, MAX_MOVES
 
 HERE = Path(__file__).resolve().parent
@@ -156,7 +156,7 @@ async def main(a):
         llm, model = ScriptedLLM(log, overshoot=a.overshoot), f"scripted(overshoot={a.overshoot})"
     else:
         llm, model = LLM(log), MODEL
-    log("run_start", run=run, condition=a.condition, host=HOST, model=model, reasoning="low",
+    log("run_start", run=run, condition=a.condition, host=HOST, model=model, provider=PROVIDER, reasoning=REASONING,
         temperature="not sent (unsupported by the model)", max_moves=MAX_MOVES,
         max_host_runs=MAX_HOST_RUNS, scenarios=[sc["id"] for sc in todo])
     try:
@@ -170,7 +170,7 @@ async def main(a):
                        "price": "" if s["price"] is None else s["price"], "correct": s["correct"],
                        "violation": s["violation"], "attempted_violations": s["attempted_violations"],
                        "refused_calls": s["refused_calls"], "turns": s["turns"], "tool_calls": e["tool_calls"],
-                       "note": (f"host={HOST}; model={model}; reasoning=low; passes={s['passes']}; "
+                       "note": (f"host={HOST}; model={model}; reasoning={REASONING}; passes={s['passes']}; "
                                 f"host_runs={e['host_runs']}; stop={e['stop']}; "
                                 f"refusals_followed_by_valid_move={e['recovered']}/{e['refusals']}; "
                                 f"llm_calls={llm.calls - calls_before}")}

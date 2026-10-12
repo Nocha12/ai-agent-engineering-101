@@ -10,7 +10,7 @@ openai/gpt-6-luna through OpenRouter. If it fails, the failure is the result.
 import json
 import sys
 
-from llm import FINAL, LLM, MODEL
+from llm import FINAL, LLM, MODEL, PROVIDER, REASONING
 
 
 def emit(event, **f):
@@ -38,7 +38,7 @@ messages = [
     {"role": "user", "content": "Negotiation id: neg_probe. It is your turn: call get_negotiation, "
                                 "then make exactly one move, then reply with the JSON summary."},
 ]
-emit("probe_start", model=MODEL, response_format=FINAL["json_schema"]["name"])
+emit("probe_start", model=MODEL, provider=PROVIDER, reasoning=REASONING, response_format=FINAL["json_schema"]["name"])
 ok_tools, final = 0, None
 for step in range(6):
     resp = llm.chat(messages, TOOLS)

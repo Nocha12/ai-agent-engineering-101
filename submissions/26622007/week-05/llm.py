@@ -4,7 +4,10 @@
 
 - model openai/gpt-6-luna on OpenRouter, pinned to the OpenAI endpoint, no fallbacks,
   require_parameters so an unsupported parameter fails instead of being dropped
-- reasoning effort low; temperature is not sent (the model does not support it)
+  (AGENT_MODEL / AGENT_PROVIDER switch the model and its pinned provider, e.g.
+  anthropic/claude-haiku-5.5 on anthropic, for the second-model run)
+- reasoning effort low (AGENT_REASONING); temperature is not sent (neither Luna nor
+  Haiku 5.5 supports it)
 - every request carries response_format = json_schema, strict (repository rule)
 - every request body is read back from the wire (an httpx2 request hook) and the
   fields that matter are logged, so the log shows what was actually sent
@@ -22,9 +25,11 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 
 MODEL = os.environ.get("AGENT_MODEL", "openai/gpt-6-luna")
 BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
+PROVIDER = os.environ.get("AGENT_PROVIDER", "openai")
+REASONING = os.environ.get("AGENT_REASONING", "low")
 EXTRA_BODY = {
-    "reasoning": {"effort": "low"},
-    "provider": {"only": ["openai"], "allow_fallbacks": False, "require_parameters": True},
+    "reasoning": {"effort": REASONING},
+    "provider": {"only": [PROVIDER], "allow_fallbacks": False, "require_parameters": True},
 }
 RETRY_WAITS = (5, 10, 20, 40)       # seconds; a fifth failure gives up
 
