@@ -157,6 +157,7 @@ class Negotiation:
             "condition": self.condition,
             "deal_possible": int(deal_possible),
             "outcome": self.status,
+            "turn": self.turn,
             "price": self.price,
             "correct": int(correct),
             "violation": int(violation),
