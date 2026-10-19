@@ -2,24 +2,25 @@
 
 seller와 buyer를 직접 짜고, 판단은 모두 Claude Code(`claude -p --model haiku`)에 맡겼다. 코드는 A2A(카드, `SendMessage`, `taskId`, 상태, 영수증)와 장부만 다루고, 가격·수락·거절·포기는 하네스가 정한다.
 
-- **trade test:** 21/21 통과를 두 번 했다. 제출한 `test-report.json`은 2회차(카탈로그 seller)이고, 1회차는 `logs/runs/trade-01/`, 2회차 사본은 `logs/runs/trade-02/`에 있다.
+- **trade test:** haiku로 네 번 돌려 네 번 모두 21/21이었다. 제출한 `test-report.json`은 마지막 커밋의 코드로 돌린 4회차이고, 회차별 사본은 `logs/runs/trade-01/`~`trade-04/`에 있다. 코드는 회차 사이에 바뀌었다. 1회차는 카탈로그 전, 2회차는 카탈로그 seller, 3회차는 OpenRouter 백엔드 추가 후, 4회차는 공개 배포용 안전장치 추가 후다. 같은 seller·buyer를 Luna(OpenRouter)로 돌린 회차도 21/21이었다(`logs/runs/luna-trade/`).
+- **배포:** seller를 `https://nocha-furniture-a2a.onrender.com`에 올렸다(6절).
 - **도전 1:** 2,993개 품목 카탈로그. 설명형 요청 6개가 모두 통과했다(`logs/challenge-1/`).
 - **도전 2:** 가게 20곳. 품목 5개·예산 2,000과 품목 8개·예산 1,600 두 조건 모두 통과했다(`logs/challenge-2/`).
 
-결과를 먼저 적으면, trade test에서 실패한 판은 없었다. 대신 seller의 reserve 방어 코드가 두 회차에 걸쳐 4번 개입했다. haiku가 reserve 260인 책장을 245·250에 역제안하려 한 것을 코드가 260으로 올렸다. reserve를 프롬프트로만 지켰다면 이 4판은 `seller_holds_reserve` 탈락이다(3절).
+결과를 먼저 적으면, trade test에서 실패한 판은 없었다. 대신 seller의 reserve 방어 코드가 haiku 네 회차에 걸쳐 6번 개입했다. haiku가 reserve 260인 책장을 245·250에 역제안하려 한 것을 코드가 260으로 올렸다. reserve를 프롬프트로만 지켰다면 네 회차 모두 `seller_holds_reserve`에서 적어도 한 판이 탈락이다(3절).
 
 ## 1. 하네스, 모델, 명령
 
 | 항목 | 값 |
 |---|---|
 | 하네스 | Claude Code 2.1.296 (실습 중 2.1.170에서 업데이트) |
-| 모델 | `haiku` 별칭, 구독 로그인(Pro). API 키 없음 |
+| 모델 | `haiku` 별칭 → `claude-haiku-5-5`(Claude Haiku 5.5, `claude -p` 응답의 `modelUsage`로 확인). 구독 로그인(Pro), API 키 없음 |
 | 호출 명령 | `claude -p --model haiku --tools "" --setting-sources "" --no-session-persistence --output-format json --system-prompt <역할> --json-schema <스키마>`, 프롬프트는 stdin |
 | 실행 위치 | 호출마다 `tempfile.TemporaryDirectory()`로 만든 빈 폴더. 저장소의 CLAUDE.md·AGENTS.md를 읽지 않게 했다 |
 | 구조화 출력 | 모든 호출에 `--json-schema`. 답은 JSON의 `structured_output`에서 읽고, `harness.validate()`가 필드·타입·enum을 다시 검사한다. 실패하면 한 번 더 부르고, 두 번 다 실패하면 `HarnessError` |
 | 전송 확인 | 호출마다 `...-harness claude -p --model haiku --json-schema(set) 3.3s -> {...}` 한 줄을 stderr에 남긴다. 이 줄은 `--json-schema`가 붙은 명령의 결과에서만 찍힌다 |
 | 버전 | Python 3.12.10, `a2a-sdk==1.2.2`, `uvicorn==0.54.0`, `httpx==0.28.1` (`requirements.txt`) |
-| trade test | 2회차 기준 약 4분, 하네스 호출 55번(README 참조 실행은 4분 41초, 60번) |
+| trade test | 4회차(제출본) 약 4분 20초, 하네스 호출 55번(README 참조 실행은 4분 41초, 60번) |
 
 `agent.json`:
 
@@ -56,7 +57,7 @@ seller와 buyer를 직접 짜고, 판단은 모두 Claude Code(`claude -p --mode
 
 ## 3. 통과까지 실패한 것과 고친 것
 
-trade test는 두 회차 모두 첫 시도에 21/21이었다. 그래서 "실패 → 수정"보다 "코드가 막아서 실패가 되지 않은 것"과 "실습·도전 과제에서 막힌 것"을 적는다.
+trade test는 haiku 네 회차와 Luna 한 회차 모두 21/21이었다. 그래서 "실패 → 수정"보다 "코드가 막아서 실패가 되지 않은 것"과 "실습·도전 과제에서 막힌 것"을 적는다.
 
 **1) haiku는 reserve를 알려 줘도 그 밑으로 부른다.** 하네스를 처음 시험한 프롬프트("Lamp, reserve 100. Buyer offered 80.")에 haiku는 `{"action": "counter", "price": 95}`로 답했다. 실습 단계라 로그 파일로는 남기지 않았다. 이걸 보고 reserve를 코드로도 막기로 했다. trade test에서도 같은 일이 났다(`logs/runs/trade-01/seller-under-test.log`):
 
@@ -66,7 +67,7 @@ trade test는 두 회차 모두 첫 시도에 21/21이었다. 그래서 "실패 
 [20:47:53] seller GUARD counter 245 < reserve 260 -> 260
 ```
 
-1회차에 3번(245, 250, 250), 2회차에 1번(`[20:55:01] seller GUARD counter 250 < reserve 260 -> 260`) 났다. 모두 손님이 230에서 멈춘 `seller_holds_reserve`에서였다. 시스템 프롬프트에 "Never ask for or accept less than the reserve"가 있었는데도, 손님이 가까이 오면 "조금 더 내려 주겠다"는 쪽이 이겼다. 코드가 없었다면 2회차 제출본도 21/21이 아니다.
+1회차에 3번(245, 250, 250), 2·3·4회차에 1번씩(예: `[20:55:01] seller GUARD counter 250 < reserve 260 -> 260`) 났다. 모두 손님이 230에서 멈춘 `seller_holds_reserve`에서였다. 시스템 프롬프트에 "Never ask for or accept less than the reserve"가 있었는데도, 손님이 가까이 오면 "조금 더 내려 주겠다"는 쪽이 이겼다. 코드가 없었다면 제출한 4회차도 21/21이 아니다.
 
 **2) 실습 STEP 6의 `--exec`로는 흥정이 안 된다.** `a2a server --exec "claude -p ..."`로 감싼 Claude Shop에 같은 `--task-id`로 이어 보내자 이렇게 나왔다.
 
@@ -162,3 +163,29 @@ shopper #0@s17 BOUGHT at 225; spent 1315/1600
 - **플래너는 이름에 끌린다.** 두 조건 모두 1순위로 Outlet만 골랐다. 이름에 가격대가 드러난 셈이다.
 - **책장이 전문점으로 가지 않았다.** 첫 조건에서 책장은 수납 전문점이 아니라 테이블 가게(s07)로 갔다. 모든 가게가 trade test용 기본 `bookshelf`를 갖고 있어서 카드에 bookshelf가 적혀 있었기 때문이다. 그 가게 seller는 기본 `bookshelf`(소나무, 150권)를 내놓았다.
 - **흥정이 짧아 요약의 효과는 작았다.** 가장 긴 흥정도 4턴이었다. "최근 3개만 남기는 요약"이 긴 흥정에서 판단을 흐리는지는 이번 실행으로는 보지 못했다.
+
+## 6. 가산점: 배포한 seller
+
+- **주소:** `https://nocha-furniture-a2a.onrender.com`. 카드는 `/.well-known/agent-card.json`에 있고, `agent.json`의 `"deployed"`에 적었다.
+- **호스팅:** Render 무료 Web Service. Root Directory는 `submissions/26622007/week-06`, 시작 명령은 `python seller.py --host 0.0.0.0 --port $PORT --public-url $RENDER_EXTERNAL_URL`이다. 무료 인스턴스라 한동안 요청이 없으면 잠들고, 그다음 첫 요청은 50초 넘게 걸릴 수 있다.
+- **하네스:** 서버에는 `claude` 구독 로그인이 없어서, 같은 `seller.py`를 `HARNESS=openrouter`로 돌린다. `harness.py`의 백엔드만 바뀐다.
+  - 모델은 `openai/gpt-6-luna`(OpenRouter)이고, 제공업체를 `openai`로 고정했다(`allow_fallbacks: false`, `require_parameters: true`).
+  - `reasoning.effort=low`, temperature는 보내지 않는다.
+  - 모든 요청에 `response_format = json_schema, strict: true`를 넣는다. 보낸 본문을 다시 읽어 남긴 wire 로그 한 줄이 다음과 같다:
+    `wire model=openai/gpt-6-luna response_format=json_schema/strict=True provider={'only': ['openai'], 'allow_fallbacks': False, 'require_parameters': True} reasoning={'effort': 'low'} temperature_sent=False`
+  - 답은 Claude Code 경로와 같은 `validate()`를 거친다.
+- **공개 서버라서 넣은 것:**
+  - `OPENROUTER_API_KEY`는 Render 환경 변수에만 있고 저장소에는 없다.
+  - OpenRouter 호출은 시간당 300번으로 제한했다(`OR_MAX_CALLS_PER_HOUR`). 넘으면 seller가 `failed`로 답하고 모델을 부르지 않는다.
+  - 손님 메시지는 앞 500자만 프롬프트에 들어간다.
+- **배포 전 확인: Luna로 돌린 trade test.** 임시 `agent.json`으로 같은 seller·buyer를 `HARNESS=openrouter`로 돌려 21/21이었다(`logs/runs/luna-trade/`). 약 3분 40초, Luna 호출 52번이었다. 이 실행에서는 seller의 `GUARD`가 0번이었다.
+  - haiku와 달리 `seller_deal` 세 판을 모두 100에 팔았고, `seller_holds_reserve` 한 판은 280에서 거절로 끝냈다.
+  - 그렇다고 Luna가 reserve를 늘 지키는 것은 아니다. 하네스 단독 시험("Lamp, reserve 100. The buyer offered 80.")에서 Luna도 `{"action": "counter", "price": 90}`이라고 답했다. haiku의 95와 같은 실수라서, 모델을 바꿔도 코드 방어는 그대로 둔다.
+- **배포 후 확인** (`logs/deployed/`):
+  - **카드:** `a2a card get`의 Interfaces가 `JSONRPC https://nocha-furniture-a2a.onrender.com/`로 나온다. `--public-url`이 없으면 `127.0.0.1`이 찍힌다.
+  - **도전 1 요청:** `challenge1.py`를 배포 주소로 돌려 6/6 통과했다(`run-1019-2259.log`).
+  - **하네스가 다른 두 에이전트의 거래:** 로컬의 내 buyer(Claude Code, haiku)가 배포된 내 seller(OpenRouter, Luna)와 A2A로만 거래했다.
+    - lamp, 예산 120: 160을 부른 가게에 100을 제안해 100에 샀다.
+    - bookshelf, 예산 230: 가게가 400에서 280까지 내려오는 동안 buyer는 160 → 230까지 올렸다. 그다음 `walk_away`를 골라 `CancelTask`를 보냈고, 가게는 `TASK_STATE_CANCELED`로 답했다.
+
+    두 에이전트는 서로의 모델을 모르고, 주고받은 것은 카드, `SendMessage`, `taskId`, 상태, 그리고 4절의 "마지막 숫자가 가격"이라는 약속뿐이었다.
