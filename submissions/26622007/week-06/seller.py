@@ -17,6 +17,7 @@ one item from that list and opens with a price.
 """
 import argparse
 import asyncio
+import os
 import re
 import sys
 import time
@@ -232,8 +233,7 @@ class Seller(AgentExecutor):
         await TaskUpdater(event_queue=event_queue, task_id=task.id, context_id=task.context_id).cancel()
 
 
-def build(port, catalog, name):
-    url = f"http://127.0.0.1:{port}/"
+def build(url, catalog, name):
     card = AgentCard(
         name=name,
         description=f"Furniture shop with {len(catalog.items)} items. Describe what you need, then negotiate the price.",
@@ -262,7 +262,11 @@ if __name__ == "__main__":
     ap.add_argument("--port", type=int, default=9999)
     ap.add_argument("--catalog", default="catalog.json")
     ap.add_argument("--name", default="Nocha Furniture")
+    ap.add_argument("--host", default="127.0.0.1", help="0.0.0.0 when deployed")
+    ap.add_argument("--public-url", help="the URL written into the Agent Card when deployed")
     args = ap.parse_args()
     cat = Catalog(args.catalog)
-    log(f"{args.name}: {len(cat.items)} items from {args.catalog}, listening on 127.0.0.1:{args.port}")
-    uvicorn.run(build(args.port, cat, args.name), host="127.0.0.1", port=args.port, log_level="warning")
+    url = args.public_url.rstrip("/") + "/" if args.public_url else f"http://127.0.0.1:{args.port}/"
+    log(f"{args.name}: {len(cat.items)} items from {args.catalog}, listening on {args.host}:{args.port}, "
+        f"card url {url}, harness {os.environ.get('HARNESS', 'claude')}")
+    uvicorn.run(build(url, cat, args.name), host=args.host, port=args.port, log_level="warning")
