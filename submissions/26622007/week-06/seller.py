@@ -38,6 +38,7 @@ from harness import HarnessError, ask
 
 MAX_ROUNDS = 10   # hard stop in code; the harness normally ends the talk earlier
 CANDIDATES = 15
+MAX_TEXT = 500    # characters of a buyer message that reach the prompts
 
 SYSTEM = """You are the owner of a furniture shop, negotiating the price of one item with a buyer.
 Your goal is to sell at a good price. Rules:
@@ -155,7 +156,7 @@ class Seller(AgentExecutor):
             await event_queue.enqueue_event(task)
         up = TaskUpdater(event_queue=event_queue, task_id=task.id, context_id=task.context_id)
         say = lambda text: up.new_agent_message(parts=[new_text_part(text)])
-        text = get_message_text(context.message) or ""
+        text = (get_message_text(context.message) or "")[:MAX_TEXT]
         deal = self.open.get(task.id)
         log(f"task {task.id[:8]} <- {text!r}")
 

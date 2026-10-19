@@ -32,8 +32,10 @@ OR_URL = "https://openrouter.ai/api/v1/chat/completions"
 OR_MODEL = os.environ.get("OR_MODEL", "openai/gpt-6-luna")
 OR_PROVIDER = os.environ.get("OR_PROVIDER", "openai")
 OR_REASONING = os.environ.get("OR_REASONING", "low")
+OR_MAX_CALLS_PER_HOUR = int(os.environ.get("OR_MAX_CALLS_PER_HOUR", "300"))   # a public seller spends real credit
 TIMEOUT = 90
 RETRIES = 2
+_or_calls = []   # start times of OpenRouter calls in the last hour
 
 
 class HarnessError(RuntimeError):
@@ -93,6 +95,11 @@ def _ask_openrouter(prompt, schema, system, tag):
     key = os.environ.get("OPENROUTER_API_KEY")
     if not key:
         raise HarnessError("HARNESS=openrouter needs OPENROUTER_API_KEY in the environment")
+    now = time.time()
+    _or_calls[:] = [t for t in _or_calls if now - t < 3600]
+    if len(_or_calls) >= OR_MAX_CALLS_PER_HOUR:
+        raise HarnessError(f"call cap reached: {OR_MAX_CALLS_PER_HOUR} OpenRouter calls in the last hour")
+    _or_calls.append(now)
     body = {
         "model": OR_MODEL,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
