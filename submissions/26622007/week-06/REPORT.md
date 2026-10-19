@@ -243,3 +243,19 @@ buyer-harness ... -> {"shop_price": 260, "action": "offer", "price": 215}
 - 두 모델 모두 숫자 고르기와 적대적 문장 무시를 모델 단계에서 해냈다. 코드 방어가 한 번도 필요하지 않았다.
 - 바로 그 seller가 trade test에서는 reserve 밑으로 역제안하려 해서 코드에 막혔다. 같은 5회차에 3번이다. "누가 무엇을 말했나"를 읽는 일은 잘하는데, "어디까지 양보하나"라는 숫자 한계는 대화가 길어지면 흔들린다. 그래서 숫자 한계는 코드로 막고 읽기는 모델에 맡기는 나눔을 유지했다.
 - trade test의 테스트 가게는 metadata를 보내지 않고 `230 is too low. Counteroffer: 260.`처럼 숫자를 둘 쓴다. 5회차에서 buyer 하네스는 이 메시지에서 11번 모두 260을 골랐다(`shop price 260 (read by the harness)`).
+
+## 8. 선택: 다른 수강생의 seller와 교차 거래
+
+week-06 PR 27개의 `agent.json`과 본문을 훑어 공개 주소가 있는 seller 세 곳을 찾았다. 카드를 먼저 확인하니 셋 다 JSON-RPC v1.0이었다. 내 buyer(Claude Code, haiku, 도전 3 코드)로 가게마다 lamp(예산 120)와 bookshelf(예산 230)를 한 번씩 샀다. 가게 쪽 사용량을 쓰므로 거래는 이 6번만 했다(`logs/cross/`).
+
+| 가게 (카드에 적힌 하네스) | lamp, 예산 120 | bookshelf, 예산 230 |
+|---|---|---|
+| thisjonghoon, Llama Furniture Shop (Workers AI `llama-3.1-8b-instruct`) | 180 → 160 → 140 → 130, 내가 120을 불러 **120에 거래** | 첫 제안 180에 가게가 바로 `REJECTED` |
+| dragonash22, Harness Shop (Workers AI, reserve는 코드로 막음) | 150 → … → 122 → 121, 예산 120을 넘어서 **포기** (`CancelTask` → `CANCELED`) | 350 → … → 265, 예산 초과로 포기 |
+| helenjeon101, Catalog Shop (Vercel) | 가게가 `TASK_STATE_FAILED`: `Your API key has expired` | 같음 |
+
+- **두 하네스 사이에 모델은 몰라도 거래는 됐다.** 한쪽은 Claude Code, 다른 쪽은 Workers AI Llama였다. 가게 메시지는 `That's a bit low, but I'm willing to compromise. Counteroffer: 160.`처럼 숫자를 하나만 썼고, buyer 하네스는 매번 그 숫자를 호가로 읽었다.
+- **예산 경계를 모델이 지켰다.** dragonash22 가게가 `120 is too low. Counteroffer: 121.`이라고 하자 haiku는 `{"shop_price": 121, "action": "walk_away", "price": 120}`으로 답했다. 6번의 거래에서 buyer의 `GUARD`는 0번이었다.
+- **흥정 관습은 A2A 밖의 일이다.** thisjonghoon 가게는 첫 저가 제안에 곧바로 거래를 끝냈다. 내 buyer의 "낮게 시작해 천천히 올리기"는 낮은 제안 5번까지 기다리는 테스트 가게에 맞춘 것이라 여기서는 통하지 않았다. 상대가 몇 번까지 참는지는 카드에도 규격에도 없다.
+- **고장도 규격대로 전해졌다.** helenjeon101 가게는 자기 모델 API 키가 만료돼 `TASK_STATE_FAILED`와 오류 문장을 돌려줬고, 내 buyer는 `END TASK_STATE_FAILED, no deal`로 끝났다.
+- **반대 방향은 하지 못했다.** 다른 수강생의 buyer가 내 배포 seller(`https://nocha-furniture-a2a.onrender.com`)를 사는 쪽은, 상대가 자기 buyer를 돌려 줘야 해서 이번 제출에는 없다.
