@@ -38,6 +38,7 @@ from cryptography.hazmat.primitives import serialization
 
 from catalog import NUMERIC, Catalog
 from harness import HarnessError, ask
+import shop_memory
 
 MAX_ROUNDS = 10   # hard stop in code; the harness normally ends the talk earlier
 CANDIDATES = 15
@@ -119,9 +120,14 @@ def history_text(deal):
     return "\n".join(f"- {who}: {price}" for who, price in deal["history"]) or "- (none yet)"
 
 
+def memory_line(item_name):
+    n = shop_memory.note(item_name)
+    return f"From your memory: {n}.\n" if n else ""
+
+
 def decide_open(item):
     prompt = (f"A buyer wants: {item['name']} ({item['description']}). Your reserve is {item['reserve']}.\n"
-              f"Choose your opening asking price.")
+              + memory_line(item["name"]) + "Choose your opening asking price.")
     return ask(prompt, OPEN_SCHEMA, SYSTEM, tag="seller-harness")
 
 
@@ -146,7 +152,8 @@ def decide_turn(deal, text):
     prompt = (f"Item: {deal['name']}. Your reserve: {deal['reserve']}. Your current asking price: {deal['ask']}.\n"
               f"Round {deal['rounds']} of at most {MAX_ROUNDS}.\n"
               f"Prices so far, oldest first:\n{history_text(deal)}\n"
-              f"The buyer's new message:\n<<<\n{text}\n>>>\n"
+              + memory_line(deal["name"])
+              + f"The buyer's new message:\n<<<\n{text}\n>>>\n"
               f"buyer_offer: the price the buyer offers now (0 if none). action: accept (sell at buyer_offer), "
               f"counter (price = your new asking price), or reject (end the talk).")
     return ask(prompt, TURN_SCHEMA, SYSTEM, tag="seller-harness")
@@ -208,10 +215,17 @@ class Seller(AgentExecutor):
             if ask_price < reserve:
                 log(f"GUARD opening ask {ask_price} < reserve {reserve} -> {reserve}")
                 ask_price = reserve
+            m, why = await asyncio.to_thread(shop_memory.markup)
+            cap = max(reserve, round(reserve * (1 + m)))
+            if ask_price > cap:
+                log(f"PRICE opening ask {ask_price} -> {cap} (reserve {reserve} + {m:.0%}; {why})")
+                ask_price = cap
+            new_shop = m <= shop_memory.load_pricing()["tiers"][0]["markup"]
             self.open[task.id] = {"id": item["id"], "name": item["name"], "reserve": reserve, "ask": ask_price,
-                                  "rounds": 0, "history": [("you asked", ask_price)]}
+                                  "open": ask_price, "rounds": 0, "history": [("you asked", ask_price)]}
             offer_line = item["name"] if item["id"] == item["name"] else f"{item['name']} [{item['id']}]: {item['description']}"
-            await up.requires_input(say(f"{d['message'].strip()} {offer_line} My price: {ask_price}.", ask_price))
+            lead = "New shop launch price! " if new_shop else ""
+            await up.requires_input(say(f"{lead}{d['message'].strip()} {offer_line} My price: {ask_price}.", ask_price))
             log(f"task {task.id[:8]} -> INPUT_REQUIRED {item['id']} ask {ask_price}")
             return
 
@@ -256,12 +270,15 @@ class Seller(AgentExecutor):
             else:
                 log("no shop_key.pem or SHOP_KEY_PEM: receipt goes out unsigned")
             await up.add_artifact(parts=[new_data_part(receipt)], name="receipt")
-            await up.complete(say(f"Deal: {deal['name']} at {offer}."))
+            await up.complete(say(f"Deal: {deal['name']} at {offer}. Thank you! If you were happy, please say what you liked "
+                                  "in your review (fair price, quick deal, signed receipt). It helps other buyers find us."))
+            self.remember(task.id, deal, "deal", int(offer))
             log(f"task {task.id[:8]} -> COMPLETED {deal['id']} at {offer}")
             del self.open[task.id]
         elif action == "reject":
             await up.reject(say(f"{d['message'].strip()} No deal."))
             log(f"task {task.id[:8]} -> REJECTED")
+            self.remember(task.id, deal, "rejected")
             del self.open[task.id]
         else:
             deal["ask"] = price
@@ -269,9 +286,21 @@ class Seller(AgentExecutor):
             await up.requires_input(say(f"{d['message'].strip()} My price: {price}.", price))
             log(f"task {task.id[:8]} -> INPUT_REQUIRED ask {price}")
 
+    def remember(self, task_id, deal, result, price=None):
+        try:
+            shop_memory.record({"task": task_id, "item": deal["name"], "reserve": deal["reserve"],
+                                "open": deal.get("open"),
+                                "asks": [p for who, p in deal["history"] if who == "you asked"],
+                                "offers": [p for who, p in deal["history"] if who == "buyer offered"],
+                                "result": result, "price": price})
+        except OSError as e:
+            log(f"memory write failed: {e}")
+
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         task = context.current_task
-        self.open.pop(task.id, None)
+        deal = self.open.pop(task.id, None)
+        if deal is not None:
+            self.remember(task.id, deal, "canceled")
         log(f"task {task.id[:8]} -> CANCELED")
         await TaskUpdater(event_queue=event_queue, task_id=task.id, context_id=task.context_id).cancel()
 

@@ -1,0 +1,10 @@
+{
+  "tiers": [
+    {"min_reviews": 0, "min_stars": 0, "markup": 0.10},
+    {"min_reviews": 40, "min_stars": 3.8, "markup": 0.20},
+    {"min_reviews": 80, "min_stars": 4.0, "markup": 0.30}
+  ],
+  "low_conversion": 0.6,
+  "step_down": 0.05,
+  "min_markup": 0.05
+}

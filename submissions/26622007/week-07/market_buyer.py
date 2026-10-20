@@ -9,8 +9,10 @@ What the code does and what the harness does:
 - Code drops shops my memory has caught cheating (a receipt that did not match the deal)
   and shops that did not answer my last two visits. A shop is remembered by name,
   because its URL changes every time its kit restarts.
-- Code keeps unknown shops (no reviews, no history) out of the choice while a shop with
-  good evidence exists, except for one random unknown shop EXPLORE of the time.
+- Code skips shops with two or more reviews averaging under BAD_STARS.
+- The buyer opens new markets: EXPLORE_NEW of the time (always, when it knows no cheap shop yet)
+  the pool is shops with at most LOW_REVIEWS reviews it has never tried; otherwise the pool is
+  shops that sold this item to it under its own average price before ("found cheap").
 - The market and the market test write different memory files, chosen from the {shops} path.
 - The harness picks one of the remaining shops and says why (strict JSON schema).
 - The negotiation is the week-06 buyer (buyer.negotiate): code guards the budget.
@@ -29,8 +31,9 @@ from buyer import log, negotiate
 from harness import HarnessError, ask
 
 MEMORY = os.environ.get("BUYER_MEMORY")   # set in main() from the {shops} path unless given
-EXPLORE = 0.2          # chance to keep one unknown shop in the choice when a good one exists
-GOOD_STARS = 3.5       # average stars that count as good evidence
+LOW_REVIEWS = 3        # a shop with this many reviews or fewer is one others have barely found
+EXPLORE_NEW = 0.7      # chance to try a new low-review shop when I already know a cheap one
+BAD_STARS = 2.5        # two or more reviews averaging below this: skipped in code
 REVIEWS_SHOWN = 5      # newest reviews per shop that reach the prompt
 REVIEW_CHARS = 160     # characters per review that reach the prompt
 
@@ -82,6 +85,12 @@ def caught_cheating(trades):
     return [t for t in trades if t.get("problems")]
 
 
+def unsigned(trades):
+    """The shop's last deal with me came without sig_seller: in Round 2 such a deal does not count."""
+    deals = [t for t in trades if t["result"] == "deal" and "signed" in t]
+    return bool(deals) and deals[-1]["signed"] is False
+
+
 def item_stats(trades, item):
     """What this shop did for this item before: deal prices and the lowest ask it reached."""
     same = [t for t in trades if t["item"] == item]
@@ -110,6 +119,9 @@ def history_line(trades, item=None):
             parts.append(f"{item}: average deal {sum(d) / len(d):.0f}")
         if low is not None:
             parts.append(f"{item}: lowest ask seen {low}")
+    if any("signed" in t for t in deals):
+        signed = sum(1 for t in deals if t.get("signed"))
+        parts.append(f"{signed} of {len(deals)} receipts signed")
     held = [t for t in deals if t.get("holds")]
     if held:
         parts.append(f"{len(held)} deal(s) closed after you held at your budget")
@@ -153,44 +165,76 @@ def shop_summary(shop, trades, item=None):
     return "\n".join(lines)
 
 
+def gem_names(memory, item):
+    """Shops that sold this item to me at least 5% under my own average price for it (signed, no problems)."""
+    deals = [t for t in memory["trades"] if t["item"] == item and t["result"] == "deal" and not t.get("problems")
+             and t.get("signed", True) and t.get("price") is not None]
+    if len(deals) < 2:
+        return set()
+    avg = sum(t["price"] for t in deals) / len(deals)
+    by_shop = {}
+    for t in deals:
+        by_shop.setdefault(t["shop"], []).append(t["price"])
+    return {n for n, ps in by_shop.items() if sum(ps) / len(ps) <= avg * 0.95}
+
+
 def choose(shops, memory, item, budget):
-    """Returns (shop, reason). Code removes cheaters first; the harness picks among the rest."""
+    """Returns (shop, reason).
+
+    Code removes cheaters, dead shops, shops whose receipts were unsigned and shops with clearly bad
+    reviews. Then it sets the pool: mostly shops with few or no reviews that I have not tried yet
+    (looking for good shops others have not found), otherwise the shops I found cheap before.
+    The harness picks one shop from the pool."""
     candidates = []
     for s in shops:
         mine = my_history(memory, s["name"])
         bad = caught_cheating(mine)
+        a, n = avg_stars(s), len(s.get("reviews") or [])
         if bad:
             log(f"[choose] skip {s['name']!r}: my memory caught it {len(bad)} time(s): {bad[-1]['problems']}")
         elif unreachable(mine):
             log(f"[choose] skip {s['name']!r}: it did not answer my last two visits")
+        elif unsigned(mine):
+            log(f"[choose] skip {s['name']!r}: its last receipt had no sig_seller, so a deal there does not count")
+        elif n >= 2 and a is not None and a < BAD_STARS:
+            log(f"[choose] skip {s['name']!r}: {n} reviews averaging {a:.1f} stars")
         else:
             candidates.append(s)
     if not candidates:
-        log("[choose] no shop left after skipping cheaters and dead shops; choosing among all of them")
+        log("[choose] no shop left after the filters; choosing among all of them")
         candidates = list(shops)
 
-    def good(s):
-        mine = my_history(memory, s["name"])
-        a = avg_stars(s)
-        return (a is not None and a >= GOOD_STARS) or any(t["result"] == "deal" for t in mine)
-
-    unknown = [s for s in candidates if not s.get("reviews") and not my_history(memory, s["name"])]
-    if unknown and any(good(s) for s in candidates):
-        keep = [random.choice(unknown)] if random.random() < EXPLORE else []
-        candidates = [s for s in candidates if s not in unknown] + keep
-        log(f"[choose] {len(unknown)} unknown shop(s) left out because a shop with good evidence exists"
-            + (f"; exploring {keep[0]['name']!r} this time" if keep else ""))
-    if len(candidates) == 1:
-        return candidates[0], "the only shop left"
+    tried = {t["shop"] for t in memory["trades"]}
+    gems = gem_names(memory, item)
+    new = [s for s in candidates if s["name"] not in tried and len(s.get("reviews") or []) <= LOW_REVIEWS]
+    found = [s for s in candidates if s["name"] in gems]
+    low = [s for s in candidates if len(s.get("reviews") or []) <= LOW_REVIEWS]
+    if new and (not found or random.random() < EXPLORE_NEW):
+        pool, mode = new, "explore"
+        task = ("You are exploring the market: these shops have few or no reviews and you have never tried them. "
+                "Pick the one most likely to be honest and cheap. Skip any whose reviews report receipt problems.")
+    elif found:
+        pool, mode = found, "gem"
+        task = "These shops sold you this item cheaply before. Pick the one that gave you the best deal."
+    elif low:
+        pool, mode = low, "low-review"
+        task = "These shops have few reviews. Pick the one most likely to be honest and cheap."
+    else:
+        pool, mode = candidates, "all"
+        task = "Pick the shop most likely to be honest and cheap."
+    log(f"[choose] mode {mode}: {len(pool)} of {len(candidates)} shops "
+        f"({len(new)} new with <= {LOW_REVIEWS} reviews, {len(found)} found cheap before)")
+    if len(pool) == 1:
+        return pool[0], f"{mode}: the only shop in the pool"
 
     by_name = {}
-    for s in candidates:                      # two entries with one name: keep the first (newest list order)
+    for s in pool:                            # two entries with one name: keep the first (newest list order)
         by_name.setdefault(s["name"], s)
     summaries = "\n\n".join(shop_summary(s, my_history(memory, s["name"]), item) for s in by_name.values())
-    prompt = (f"You need to buy: {item}. Your budget: {budget}.\n\nShops:\n\n{summaries}\n\n"
+    prompt = (f"You need to buy: {item}. Your budget: {budget}.\n{task}\n\nShops:\n\n{summaries}\n\n"
               f"Pick one shop by name and give a one-sentence reason.")
     d = ask(prompt, pick_schema(list(by_name)), PICK_SYSTEM, tag="buyer-choose")
-    return by_name[d["shop"]], d["reason"]
+    return by_name[d["shop"]], f"{mode}: {d['reason']}"
 
 
 # --- after the trade
@@ -209,6 +253,8 @@ def check_receipt(rec, out, item, budget):
         problems.append(f"receipt price {price:g} is over my budget {budget}")
     if str(rec.get("item", "")).strip().lower() != item.strip().lower():
         warnings.append(f"receipt item {rec.get('item')!r} is not {item!r}")
+    if not rec.get("sig_seller"):
+        warnings.append("receipt has no sig_seller, so the deal does not count in Round 2")
     if rec.get("task") is not None and rec.get("task") != out["task"]:
         problems.append(f"receipt task {rec.get('task')!r} is not the A2A task {out['task']!r}")
     return problems, warnings
@@ -296,7 +342,8 @@ def main():
         "time": time.strftime("%Y-%m-%dT%H:%M:%S"), "shop": shop["name"], "item": args.item, "budget": args.budget,
         "result": "deal" if rec is not None else (out["state"] or "error").replace("TASK_STATE_", "").lower(),
         "price": rec.get("price") if rec else None,
-        "asks": asks, "holds": out.get("holds", 0), "problems": problems, "warnings": warnings, "why": why})
+        "asks": asks, "holds": out.get("holds", 0), "problems": problems, "warnings": warnings, "why": why,
+        "signed": bool(rec.get("sig_seller")) if rec else None})
     save_memory(memory)
     log(f"memory: {len(memory['trades'])} trades saved to {MEMORY}")
 
