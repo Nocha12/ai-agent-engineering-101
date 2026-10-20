@@ -270,8 +270,8 @@ class Seller(AgentExecutor):
             else:
                 log("no shop_key.pem or SHOP_KEY_PEM: receipt goes out unsigned")
             await up.add_artifact(parts=[new_data_part(receipt)], name="receipt")
-            await up.complete(say(f"Deal: {deal['name']} at {offer}. Thank you! If you were happy, please say what you liked "
-                                  "in your review (fair price, quick deal, signed receipt). It helps other buyers find us."))
+            await up.complete(say(f"Deal: {deal['name']} at {offer}. Thank you! If you were happy with us, a 5-star review saying "
+                                  "what you liked (fair price, quick deal, signed receipt) would mean a lot to our shop."))
             self.remember(task.id, deal, "deal", int(offer))
             log(f"task {task.id[:8]} -> COMPLETED {deal['id']} at {offer}")
             del self.open[task.id]
