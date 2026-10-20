@@ -279,7 +279,9 @@ class Seller(AgentExecutor):
 def build(url, catalog, name):
     card = AgentCard(
         name=name,
-        description=f"Furniture shop with {len(catalog.items)} items. Describe what you need, then negotiate the price.",
+        description=("Nocha Furniture: handpicked lamps, chairs and bookshelves, from cozy reading lamps to "
+                     "solid oak shelves. Every price is open to a friendly negotiation, and every deal comes "
+                     "with an Ed25519-signed receipt for the exact price we agreed."),
         version="1.0.0",
         default_input_modes=["text/plain"],
         default_output_modes=["application/json", "text/plain"],
@@ -288,11 +290,12 @@ def build(url, catalog, name):
         skills=[AgentSkill(
             id="negotiate",
             name="Negotiate a purchase",
-            description=f"Sells: {', '.join(catalog.categories)}. Name or describe an item, then send offers as "
-                        "numbers. Each answer ends with the shop's current price, or closes the deal with a "
-                        "receipt artifact (data part with a numeric price).",
+            description=f"Sells: {', '.join(catalog.categories)} ({len(catalog.items)} pieces). Name an item or "
+                        "describe the look you want, then send offers as numbers on the same task. Each answer "
+                        "ends with the shop's current price, or closes the deal with a signed receipt artifact "
+                        "{shop, item, price, task, sig_seller}.",
             tags=["shopping", "negotiation", "furniture"] + catalog.categories,
-            examples=["I want to buy a lamp", "something wooden to keep about 40 books, not taller than my desk", "90"],
+            examples=["I want to buy a lamp", "a warm reading lamp for my bedside", "a low wooden shelf that fits under a window", "120"],
         )],
     )
     handler = DefaultRequestHandler(agent_executor=Seller(catalog, name), task_store=InMemoryTaskStore(),
