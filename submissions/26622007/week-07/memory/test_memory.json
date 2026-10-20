@@ -259,6 +259,132 @@
     130
    ],
    "problems": []
+  },
+  {
+   "time": "2026-10-20T20:15:21",
+   "shop": "Kit Shop",
+   "item": "lamp",
+   "budget": 120,
+   "result": "deal",
+   "price": 110.0,
+   "asks": [
+    130
+   ],
+   "holds": 0,
+   "problems": []
+  },
+  {
+   "time": "2026-10-20T20:15:27",
+   "shop": "Kit Shop",
+   "item": "lamp",
+   "budget": 120,
+   "result": "deal",
+   "price": 110.0,
+   "asks": [
+    130
+   ],
+   "holds": 0,
+   "problems": []
+  },
+  {
+   "time": "2026-10-20T20:15:34",
+   "shop": "Kit Shop",
+   "item": "lamp",
+   "budget": 120,
+   "result": "deal",
+   "price": 100.0,
+   "asks": [
+    130
+   ],
+   "holds": 0,
+   "problems": []
+  },
+  {
+   "time": "2026-10-20T20:15:52",
+   "shop": "Kit Shop",
+   "item": "bookshelf",
+   "budget": 230,
+   "result": "canceled",
+   "price": null,
+   "asks": [
+    338,
+    264,
+    260,
+    260
+   ],
+   "holds": 0,
+   "problems": []
+  },
+  {
+   "time": "2026-10-20T20:16:10",
+   "shop": "Kit Shop",
+   "item": "bookshelf",
+   "budget": 230,
+   "result": "canceled",
+   "price": null,
+   "asks": [
+    338,
+    269,
+    260,
+    260
+   ],
+   "holds": 0,
+   "problems": []
+  },
+  {
+   "time": "2026-10-20T20:16:27",
+   "shop": "Kit Shop",
+   "item": "bookshelf",
+   "budget": 230,
+   "result": "canceled",
+   "price": null,
+   "asks": [
+    338,
+    269,
+    260,
+    260
+   ],
+   "holds": 0,
+   "problems": []
+  },
+  {
+   "time": "2026-10-20T20:16:34",
+   "shop": "Kit Shop South",
+   "item": "lamp",
+   "budget": 120,
+   "result": "deal",
+   "price": 100.0,
+   "asks": [
+    130
+   ],
+   "holds": 0,
+   "problems": []
+  },
+  {
+   "time": "2026-10-20T20:16:42",
+   "shop": "Kit Shop South",
+   "item": "lamp",
+   "budget": 120,
+   "result": "deal",
+   "price": 105.0,
+   "asks": [
+    130
+   ],
+   "holds": 0,
+   "problems": []
+  },
+  {
+   "time": "2026-10-20T20:16:50",
+   "shop": "Kit Shop South",
+   "item": "lamp",
+   "budget": 120,
+   "result": "deal",
+   "price": 110.0,
+   "asks": [
+    130
+   ],
+   "holds": 0,
+   "problems": []
   }
  ]
 }
