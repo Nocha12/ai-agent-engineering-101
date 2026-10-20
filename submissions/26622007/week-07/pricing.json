@@ -27,9 +27,9 @@
     "cut_far": 0.05
   },
   "item_max_markup": {
-    "lamp": 0.05,
-    "chair": 0.06,
-    "bookshelf": 0.06
+    "lamp": 0.0,
+    "chair": 0.0,
+    "bookshelf": 0.0
   },
   "low_conversion": 0.6,
   "step_down": 0.05,
