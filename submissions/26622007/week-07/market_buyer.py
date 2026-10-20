@@ -34,6 +34,7 @@ MEMORY = os.environ.get("BUYER_MEMORY")   # set in main() from the {shops} path 
 LOW_REVIEWS = 3        # a shop with this many reviews or fewer is one others have barely found
 EXPLORE_NEW = 0.7      # chance to try a new low-review shop when I already know a cheap one
 BAD_STARS = 2.5        # two or more reviews averaging below this: skipped in code
+OVERPRICED = 1.15      # lowest ask seen (2+ visits) this far above my own average deal price: skip for the item
 REVIEWS_SHOWN = 5      # newest reviews per shop that reach the prompt
 REVIEW_CHARS = 160     # characters per review that reach the prompt
 
@@ -178,6 +179,23 @@ def gem_names(memory, item):
     return {n for n, ps in by_shop.items() if sum(ps) / len(ps) <= avg * 0.95}
 
 
+def my_avg_price(memory, item):
+    p = [t["price"] for t in memory["trades"] if t["item"] == item and t["result"] == "deal"
+         and not t.get("problems") and t.get("price") is not None]
+    return sum(p) / len(p) if len(p) >= 3 else None
+
+
+def overpriced(trades, item, avg):
+    """The shop never came near my usual price for this item on two or more visits."""
+    if avg is None:
+        return None
+    same = [t for t in trades if t["item"] == item and t.get("asks")]
+    if len(same) < 2 or any(t["result"] == "deal" for t in same):
+        return None
+    low = min(min(t["asks"]) for t in same)
+    return low if low > avg * OVERPRICED else None
+
+
 def choose(shops, memory, item, budget):
     """Returns (shop, reason).
 
@@ -186,8 +204,10 @@ def choose(shops, memory, item, budget):
     (looking for good shops others have not found), otherwise the shops I found cheap before.
     The harness picks one shop from the pool."""
     candidates = []
+    avg = my_avg_price(memory, item)
     for s in shops:
         mine = my_history(memory, s["name"])
+        dear = overpriced(mine, item, avg)
         bad = caught_cheating(mine)
         a, n = avg_stars(s), len(s.get("reviews") or [])
         if bad:
@@ -196,6 +216,8 @@ def choose(shops, memory, item, budget):
             log(f"[choose] skip {s['name']!r}: it did not answer my last two visits")
         elif unsigned(mine):
             log(f"[choose] skip {s['name']!r}: its last receipt had no sig_seller, so a deal there does not count")
+        elif dear is not None:
+            log(f"[choose] skip {s['name']!r}: its lowest {item} ask {dear} is over {OVERPRICED:.0%} of my usual {avg:.0f}")
         elif n >= 2 and a is not None and a < BAD_STARS:
             log(f"[choose] skip {s['name']!r}: {n} reviews averaging {a:.1f} stars")
         else:
@@ -209,6 +231,8 @@ def choose(shops, memory, item, budget):
     new = [s for s in candidates if s["name"] not in tried and len(s.get("reviews") or []) <= LOW_REVIEWS]
     found = [s for s in candidates if s["name"] in gems]
     low = [s for s in candidates if len(s.get("reviews") or []) <= LOW_REVIEWS]
+    trusted = [s for s in candidates if any(t["result"] == "deal" and t.get("signed") and not t.get("problems")
+                                            for t in my_history(memory, s["name"]))]
     if new and (not found or random.random() < EXPLORE_NEW):
         pool, mode = new, "explore"
         task = ("You are exploring the market: these shops have few or no reviews and you have never tried them. "
@@ -216,6 +240,9 @@ def choose(shops, memory, item, budget):
     elif found:
         pool, mode = found, "gem"
         task = "These shops sold you this item cheaply before. Pick the one that gave you the best deal."
+    elif trusted:
+        pool, mode = trusted, "trusted"
+        task = "You have bought from these shops before with signed receipts. Pick the one likely to be cheapest for this item."
     elif low:
         pool, mode = low, "low-review"
         task = "These shops have few reviews. Pick the one most likely to be honest and cheap."
