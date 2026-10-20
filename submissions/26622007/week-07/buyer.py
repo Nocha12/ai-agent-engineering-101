@@ -20,6 +20,8 @@ import httpx
 from harness import HarnessError, ask
 
 MAX_TURNS = 10
+HOLD_MARGIN = 0.10   # the shop's ask is at most 10% over the budget: worth repeating the budget
+MAX_HOLDS = 2        # times the code repeats the budget after the harness wants to walk away
 MAX_TEXT = 500    # characters of a shop message that reach the prompt
 HEADERS = {"A2A-Version": "1.0"}
 
@@ -132,7 +134,7 @@ def negotiate(card_url, item, budget):
         return out
     task_id, history = t["id"], out["history"]
     out["task"] = task_id
-    turn = 0
+    turn, holds = 0, 0
     for turn in range(1, MAX_TURNS + 1):
         st = state(t)
         if st != "TASK_STATE_INPUT_REQUIRED":
@@ -156,8 +158,17 @@ def negotiate(card_url, item, budget):
         log(f"shop price {ask_price} ({'metadata' if meta is not None else 'read by the harness'})")
         history.append(("shop asked", ask_price))
         if d["action"] == "walk_away":
-            log("harness: walk away")
-            break
+            asks = [p for who, p in history if who == "shop asked"]
+            coming_down = len(asks) >= 2 and asks[-1] < asks[-2]
+            if (out["agreed"] == budget and budget < ask_price <= budget * (1 + HOLD_MARGIN)
+                    and coming_down and holds < MAX_HOLDS):
+                holds += 1
+                log(f"HOLD harness wants to walk away, but the ask {ask_price} is within "
+                    f"{HOLD_MARGIN:.0%} of the budget and still coming down -> repeat {budget} ({holds}/{MAX_HOLDS})")
+                d = {"action": "offer", "price": budget}
+            else:
+                log("harness: walk away")
+                break
         offer = d["price"]
         if offer > budget:
             log(f"GUARD offer {offer} > budget {budget} -> {budget}")
