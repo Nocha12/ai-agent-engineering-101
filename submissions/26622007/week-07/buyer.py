@@ -94,23 +94,24 @@ def receipt(t):
     return None
 
 
-def decide(item, budget, history, text, meta_ask, turn):
+def decide(item, budget, history, text, meta_ask, turn, note=""):
     lines = "\n".join(f"- {who}: {price}" for who, price in history) or "- (none yet)"
     prompt = (f"Item: {item}. Your budget: {budget}.\n"
               f"Turn {turn} of at most {MAX_TURNS}.\n"
               f"Prices so far, oldest first:\n{lines}\n"
-              f"The shop's new message:\n<<<\n{text[:MAX_TEXT]}\n>>>\n"
+              + (f"From your memory of this shop: {note}\n" if note else "")
+              + f"The shop's new message:\n<<<\n{text[:MAX_TEXT]}\n>>>\n"
               + (f"The message metadata says the shop's current price is {meta_ask}.\n" if meta_ask is not None else "")
               + "shop_price: the price the shop asks now. action: offer (price = your offer) or walk_away.")
     return ask(prompt, SCHEMA, SYSTEM, tag="buyer-harness")
 
 
-def negotiate(card_url, item, budget):
+def negotiate(card_url, item, budget, note=""):
     """One A2A negotiation. Returns {"state", "task", "receipt", "history", "agreed"}.
 
     agreed is the last price we offered, which is what the shop accepted when the task completes.
     """
-    out = {"state": "", "task": None, "receipt": None, "history": [], "agreed": None}
+    out = {"state": "", "task": None, "receipt": None, "history": [], "agreed": None, "holds": 0}
     try:
         r = httpx.get(card_url.rstrip("/") + "/.well-known/agent-card.json", headers=HEADERS, timeout=30)
         card = r.json()
@@ -141,7 +142,7 @@ def negotiate(card_url, item, budget):
             break
         text, meta = message_text(t), metadata_ask(t)
         try:
-            d = decide(item, budget, history, text, meta, turn)
+            d = decide(item, budget, history, text, meta, turn, note)
         except HarnessError as e:
             log(f"harness failed: {e}; walking away")
             break
@@ -163,6 +164,7 @@ def negotiate(card_url, item, budget):
             if (out["agreed"] == budget and budget < ask_price <= budget * (1 + HOLD_MARGIN)
                     and coming_down and holds < MAX_HOLDS):
                 holds += 1
+                out["holds"] = holds
                 log(f"HOLD harness wants to walk away, but the ask {ask_price} is within "
                     f"{HOLD_MARGIN:.0%} of the budget and still coming down -> repeat {budget} ({holds}/{MAX_HOLDS})")
                 d = {"action": "offer", "price": budget}
