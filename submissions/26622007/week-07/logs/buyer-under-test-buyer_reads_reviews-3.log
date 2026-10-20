@@ -1,13 +1,15 @@
-[19:52:05] buyer order: lamp, budget 120; 2 shops; 8 trades in memory
-[19:52:09] buyer-choose claude -p --model haiku --json-schema(set) 3.4s -> {"shop": "Kit Shop South", "reason": "Kit Shop South has strong evidence: two of my own past lamp trades with it were completed at 100 and 120, within budget, and its reviews (average 4.7) say the receipts matched the agreed price, while Kit Shop North has multiple reviews reporting overcharged receipts."}
-[19:52:09] buyer [choose] http://127.0.0.1:59840: Kit Shop South - Kit Shop South has strong evidence: two of my own past lamp trades with it were completed at 100 and 120, within budget, and its reviews (average 4.7) say the receipts matched the agreed price, while Kit Shop North has multiple reviews reporting overcharged receipts.
-[19:52:09] buyer card 'Kit Shop South' -> http://127.0.0.1:59840/; item lamp, budget 120
-[19:52:09] buyer -> SendMessage 'I want to buy a lamp'
-[19:52:09] buyer <- TASK_STATE_INPUT_REQUIRED | lamp: asking 130. Send your offer as a number.
-[19:52:12] buyer-harness claude -p --model haiku --json-schema(set) 3.5s -> {"shop_price": 130, "action": "offer", "price": 100}
-[19:52:12] buyer shop price 130 (read by the harness)
-[19:52:12] buyer -> SendMessage '100' taskId=7b580d54
-[19:52:12] buyer <- TASK_STATE_COMPLETED | Deal: lamp at 100.
-[19:52:12] buyer DEAL {"task": "7b580d54-ad4b-44b2-ab7a-6b3e7f13472a", "item": "lamp", "shop": "Kit Shop South", "sig_seller": "XziENB/+Sd6t/FTRURgVECPR0pquCaqkWVL75lsVMVBzXP51LvSH1qQF8iUBhdX7c9pL8mLbmtHEEeUDcqdPAw==", "price": 100.0}
-[19:52:12] buyer memory: 9 trades saved to memory/buyer_memory.json
-{"shop": "http://127.0.0.1:59840", "receipt": {"task": "7b580d54-ad4b-44b2-ab7a-6b3e7f13472a", "item": "lamp", "shop": "Kit Shop South", "sig_seller": "XziENB/+Sd6t/FTRURgVECPR0pquCaqkWVL75lsVMVBzXP51LvSH1qQF8iUBhdX7c9pL8mLbmtHEEeUDcqdPAw==", "price": 100.0}, "stars": 5, "review": "lamp opened at 130, sold at 100 within my budget 120; receipt matched the deal."}
+[20:06:23] buyer order: lamp, budget 120; 2 shops; 19 trades in memory
+[20:06:24] buyer-choose wire model=openai/gpt-6-luna response_format=json_schema/strict=True provider={'only': ['openai'], 'allow_fallbacks': False, 'require_parameters': True} reasoning={'effort': 'low'} temperature_sent=False
+[20:06:25] buyer-choose openrouter openai/gpt-6-luna response_format=json_schema(strict) 1.8s -> {"shop": "Kit Shop South", "reason": "Kit Shop South has five successful past trades with you at or below your 120 budget and consistently positive reviews, while North has repeated reports of receipt overcharging."}
+[20:06:25] buyer [choose] http://127.0.0.1:62401: Kit Shop South - Kit Shop South has five successful past trades with you at or below your 120 budget and consistently positive reviews, while North has repeated reports of receipt overcharging.
+[20:06:25] buyer card 'Kit Shop South' -> http://127.0.0.1:62401/; item lamp, budget 120
+[20:06:25] buyer -> SendMessage 'I want to buy a lamp'
+[20:06:25] buyer <- TASK_STATE_INPUT_REQUIRED | lamp: asking 130. Send your offer as a number.
+[20:06:25] buyer-harness wire model=openai/gpt-6-luna response_format=json_schema/strict=True provider={'only': ['openai'], 'allow_fallbacks': False, 'require_parameters': True} reasoning={'effort': 'low'} temperature_sent=False
+[20:06:29] buyer-harness openrouter openai/gpt-6-luna response_format=json_schema(strict) 3.1s -> {"shop_price": 130, "action": "offer", "price": 100}
+[20:06:29] buyer shop price 130 (read by the harness)
+[20:06:29] buyer -> SendMessage '100' taskId=8d07c230
+[20:06:29] buyer <- TASK_STATE_COMPLETED | Deal: lamp at 100.
+[20:06:29] buyer DEAL {"sig_seller": "TQz6XJIlIYBmdjg/lcIribKmCNnuKMKOTSRoswQzJHMVIo0zB/3JeWucxwshTqzlIU3eGijEztWWpwR8iQ9jDw==", "shop": "Kit Shop South", "task": "8d07c230-7cba-4c7a-ad93-f53532cfa6b4", "price": 100.0, "item": "lamp"}
+[20:06:29] buyer memory: 20 trades saved to memory/buyer_memory.json
+{"shop": "http://127.0.0.1:62401", "receipt": {"sig_seller": "TQz6XJIlIYBmdjg/lcIribKmCNnuKMKOTSRoswQzJHMVIo0zB/3JeWucxwshTqzlIU3eGijEztWWpwR8iQ9jDw==", "shop": "Kit Shop South", "task": "8d07c230-7cba-4c7a-ad93-f53532cfa6b4", "price": 100.0, "item": "lamp"}, "stars": 5, "review": "lamp opened at 130, sold at 100 within my budget 120; receipt matched the deal."}

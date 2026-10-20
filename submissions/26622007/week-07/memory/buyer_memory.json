@@ -120,6 +120,145 @@
     130
    ],
    "problems": []
+  },
+  {
+   "time": "2026-10-20T20:01:06",
+   "shop": "Kit Shop",
+   "item": "lamp",
+   "budget": 120,
+   "result": "deal",
+   "price": 110.0,
+   "asks": [
+    130
+   ],
+   "problems": []
+  },
+  {
+   "time": "2026-10-20T20:01:14",
+   "shop": "Kit Shop",
+   "item": "lamp",
+   "budget": 120,
+   "result": "error connecterror",
+   "price": null,
+   "asks": [],
+   "problems": []
+  },
+  {
+   "time": "2026-10-20T20:04:53",
+   "shop": "Kit Shop",
+   "item": "lamp",
+   "budget": 120,
+   "result": "deal",
+   "price": 100.0,
+   "asks": [
+    130
+   ],
+   "problems": []
+  },
+  {
+   "time": "2026-10-20T20:05:00",
+   "shop": "Kit Shop",
+   "item": "lamp",
+   "budget": 120,
+   "result": "deal",
+   "price": 100.0,
+   "asks": [
+    130
+   ],
+   "problems": []
+  },
+  {
+   "time": "2026-10-20T20:05:07",
+   "shop": "Kit Shop",
+   "item": "lamp",
+   "budget": 120,
+   "result": "deal",
+   "price": 100.0,
+   "asks": [
+    130
+   ],
+   "problems": []
+  },
+  {
+   "time": "2026-10-20T20:05:28",
+   "shop": "Kit Shop",
+   "item": "bookshelf",
+   "budget": 230,
+   "result": "canceled",
+   "price": null,
+   "asks": [
+    338,
+    260,
+    260,
+    260
+   ],
+   "problems": []
+  },
+  {
+   "time": "2026-10-20T20:05:49",
+   "shop": "Kit Shop",
+   "item": "bookshelf",
+   "budget": 230,
+   "result": "canceled",
+   "price": null,
+   "asks": [
+    338,
+    264,
+    260,
+    260
+   ],
+   "problems": []
+  },
+  {
+   "time": "2026-10-20T20:06:06",
+   "shop": "Kit Shop",
+   "item": "bookshelf",
+   "budget": 230,
+   "result": "canceled",
+   "price": null,
+   "asks": [
+    338,
+    264,
+    260,
+    260
+   ],
+   "problems": []
+  },
+  {
+   "time": "2026-10-20T20:06:15",
+   "shop": "Kit Shop South",
+   "item": "lamp",
+   "budget": 120,
+   "result": "deal",
+   "price": 110.0,
+   "asks": [
+    130
+   ],
+   "problems": []
+  },
+  {
+   "time": "2026-10-20T20:06:22",
+   "shop": "Kit Shop South",
+   "item": "lamp",
+   "budget": 120,
+   "result": "deal",
+   "price": 105.0,
+   "asks": [
+    130
+   ],
+   "problems": []
+  },
+  {
+   "time": "2026-10-20T20:06:29",
+   "shop": "Kit Shop South",
+   "item": "lamp",
+   "budget": 120,
+   "result": "deal",
+   "price": 100.0,
+   "asks": [
+    130
+   ],
+   "problems": []
   }
  ]
 }

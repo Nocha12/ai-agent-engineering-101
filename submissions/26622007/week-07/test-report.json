@@ -1,16 +1,16 @@
 {
   "kit_version": "1",
   "kit_sha256": "d610bc15448f5960d0b9b6bb9f181b38829bfb2ee863ab6c2a96abb9cb78f04d",
-  "started": "2026-10-20T10:36:37+00:00",
-  "harness": "Claude Code 2.1.296, claude -p --model haiku --tools \"\" --setting-sources \"\" --no-session-persistence --output-format json --json-schema",
+  "started": "2026-10-20T11:02:12+00:00",
+  "harness": "seller: Claude Code 2.1.296, claude -p --model haiku --json-schema; buyer and market_buyer: HARNESS=openrouter, openai/gpt-6-luna on OpenRouter, response_format json_schema strict (OPENROUTER_API_KEY from the environment)",
   "seller_cmd": "python seller.py --port {port}",
-  "market_buyer_cmd": "python market_buyer.py --shops {shops} --item {item} --budget {budget}",
+  "market_buyer_cmd": "HARNESS=openrouter python market_buyer.py --shops {shops} --item {item} --budget {budget}",
   "seller_card": {
     "name": "Nocha Furniture",
-    "description": "Furniture shop with 2993 items. Describe what you need, then negotiate the price.",
+    "description": "Nocha Furniture: handpicked lamps, chairs and bookshelves, from cozy reading lamps to solid oak shelves. Every price is open to a friendly negotiation, and every deal comes with an Ed25519-signed receipt for the exact price we agreed.",
     "supportedInterfaces": [
       {
-        "url": "http://127.0.0.1:57341/",
+        "url": "http://127.0.0.1:61523/",
         "protocolBinding": "JSONRPC",
         "protocolVersion": "1.0"
       }
@@ -30,41 +30,20 @@
       {
         "id": "negotiate",
         "name": "Negotiate a purchase",
-        "description": "Sells: armchair, bed frame, bookshelf, cabinet, chair, chest of drawers, coat rack, coffee table, cube shelf, desk, desk lamp, dining chair, dining table, floor lamp, lamp, mirror, nightstand, office chair, pendant lamp, rug, shoe rack, sofa, stool, tv stand, wardrobe. Name or describe an item, then send offers as numbers. Each answer ends with the shop's current price, or closes the deal with a receipt artifact (data part with a numeric price).",
+        "description": "Sells: bookshelf, chair, lamp (12 pieces). Name an item or describe the look you want, then send offers as numbers on the same task. Each answer ends with the shop's current price, or closes the deal with a signed receipt artifact {shop, item, price, task, sig_seller}.",
         "tags": [
           "shopping",
           "negotiation",
           "furniture",
-          "armchair",
-          "bed frame",
           "bookshelf",
-          "cabinet",
           "chair",
-          "chest of drawers",
-          "coat rack",
-          "coffee table",
-          "cube shelf",
-          "desk",
-          "desk lamp",
-          "dining chair",
-          "dining table",
-          "floor lamp",
-          "lamp",
-          "mirror",
-          "nightstand",
-          "office chair",
-          "pendant lamp",
-          "rug",
-          "shoe rack",
-          "sofa",
-          "stool",
-          "tv stand",
-          "wardrobe"
+          "lamp"
         ],
         "examples": [
           "I want to buy a lamp",
-          "something wooden to keep about 40 books, not taller than my desk",
-          "90"
+          "a warm reading lamp for my bedside",
+          "a low wooden shelf that fits under a window",
+          "120"
         ]
       }
     ]
@@ -80,13 +59,13 @@
       "test": "seller_opens",
       "run": 1,
       "pass": true,
-      "detail": "first message -> TASK_STATE_INPUT_REQUIRED, ask 160"
+      "detail": "first message -> TASK_STATE_INPUT_REQUIRED, ask 150"
     },
     {
       "test": "seller_deal",
       "run": 1,
       "pass": true,
-      "detail": "TASK_STATE_COMPLETED, receipt price 120.0, asks [160, 140, 120]"
+      "detail": "TASK_STATE_COMPLETED, receipt price 115.0, asks [150, 130, 115]"
     },
     {
       "test": "seller_signed_receipt",
@@ -128,19 +107,19 @@
       "test": "seller_holds_reserve",
       "run": 1,
       "pass": true,
-      "detail": "TASK_STATE_INPUT_REQUIRED, asks [340, 320, 300, 280, 265, 262, 260, 260, 260]"
+      "detail": "TASK_STATE_REJECTED, asks [320, 300, 285, 270, 265, 260, 260]"
     },
     {
       "test": "seller_holds_reserve",
       "run": 2,
       "pass": true,
-      "detail": "TASK_STATE_REJECTED, asks [340, 320, 300, 280, 265, 260, 260]"
+      "detail": "TASK_STATE_REJECTED, asks [340, 320, 290, 270, 265, 260, 260, 260]"
     },
     {
       "test": "seller_holds_reserve",
       "run": 3,
       "pass": true,
-      "detail": "TASK_STATE_REJECTED, asks [340, 320, 300, 280, 265, 262, 260]"
+      "detail": "TASK_STATE_REJECTED, asks [340, 320, 300, 280, 265, 262]"
     },
     {
       "test": "buyer_deal",
@@ -182,37 +161,37 @@
       "test": "buyer_holds_budget",
       "run": 1,
       "pass": true,
-      "detail": "offers [170, 200, 220, 225, 230], stars 3, receipt null"
+      "detail": "offers [180, 220, 230], stars 3, receipt null"
     },
     {
       "test": "buyer_protocol_holds_budget",
       "run": 1,
       "pass": true,
-      "detail": "posts 6, without A2A-Version 1.0 0, follow-ups with taskId 5"
+      "detail": "posts 5, without A2A-Version 1.0 0, follow-ups with taskId 3"
     },
     {
       "test": "buyer_holds_budget",
       "run": 2,
       "pass": true,
-      "detail": "offers [160, 200, 220, 225, 230], stars 3, receipt null"
+      "detail": "offers [190, 220, 230], stars 3, receipt null"
     },
     {
       "test": "buyer_protocol_holds_budget",
       "run": 2,
       "pass": true,
-      "detail": "posts 6, without A2A-Version 1.0 0, follow-ups with taskId 5"
+      "detail": "posts 5, without A2A-Version 1.0 0, follow-ups with taskId 3"
     },
     {
       "test": "buyer_holds_budget",
       "run": 3,
       "pass": true,
-      "detail": "offers [170, 200, 220, 230], stars 3, receipt null"
+      "detail": "offers [190, 215, 230], stars 3, receipt null"
     },
     {
       "test": "buyer_protocol_holds_budget",
       "run": 3,
       "pass": true,
-      "detail": "posts 6, without A2A-Version 1.0 0, follow-ups with taskId 4"
+      "detail": "posts 5, without A2A-Version 1.0 0, follow-ups with taskId 3"
     },
     {
       "test": "buyer_reads_reviews",
