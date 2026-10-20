@@ -215,14 +215,12 @@ class Seller(AgentExecutor):
             if ask_price < reserve:
                 log(f"GUARD opening ask {ask_price} < reserve {reserve} -> {reserve}")
                 ask_price = reserve
-            m, why = await asyncio.to_thread(shop_memory.markup, item["category"])
-            cap = max(reserve, round(reserve * (1 + m)))
-            if ask_price > cap:
-                log(f"PRICE opening ask {ask_price} -> {cap} (reserve {reserve} + {m:.0%}; {why})")
-                ask_price = cap
-            new_shop = m <= shop_memory.load_pricing()["tiers"][0]["markup"]
+            cap, arm, why = await asyncio.to_thread(shop_memory.choose_opening, item["category"], reserve)
+            log(f"PRICE opening ask {cap} instead of the harness's {ask_price} ({why})")
+            ask_price = cap
+            new_shop = (shop_memory.reviews()[0] or 0) < shop_memory.load_pricing().get("launch_reviews", 40)
             self.open[task.id] = {"id": item["id"], "name": item["name"], "reserve": reserve, "ask": ask_price,
-                                  "open": ask_price, "rounds": 0, "history": [("you asked", ask_price)]}
+                                  "open": ask_price, "arm": arm, "rounds": 0, "history": [("you asked", ask_price)]}
             offer_line = item["name"] if item["id"] == item["name"] else f"{item['name']} [{item['id']}]: {item['description']}"
             proof = await asyncio.to_thread(shop_memory.social_proof)
             lead = ("New shop launch price! " if new_shop else "") + (proof + " " if proof else "")
@@ -277,7 +275,8 @@ class Seller(AgentExecutor):
             log(f"task {task.id[:8]} -> COMPLETED {deal['id']} at {offer}")
             del self.open[task.id]
         elif action == "reject":
-            await up.reject(say(f"{d['message'].strip()} No deal."))
+            await up.reject(say(f"{d['message'].strip()} We are so sorry we could not meet your budget this time! "
+                                "If you leave us a 5-star review, we will give you a better price on your next visit. No deal."))
             log(f"task {task.id[:8]} -> REJECTED")
             self.remember(task.id, deal, "rejected")
             del self.open[task.id]
@@ -290,7 +289,7 @@ class Seller(AgentExecutor):
     def remember(self, task_id, deal, result, price=None):
         try:
             shop_memory.record({"task": task_id, "item": deal["name"], "reserve": deal["reserve"],
-                                "open": deal.get("open"),
+                                "open": deal.get("open"), "arm": deal.get("arm"),
                                 "asks": [p for who, p in deal["history"] if who == "you asked"],
                                 "offers": [p for who, p in deal["history"] if who == "buyer offered"],
                                 "result": result, "price": price})
