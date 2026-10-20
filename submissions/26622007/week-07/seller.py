@@ -283,7 +283,8 @@ class Seller(AgentExecutor):
         else:
             deal["ask"] = price
             deal["history"].append(("you asked", price))
-            await up.requires_input(say(f"{d['message'].strip()} My price: {price}.", price))
+            final = " This is our final price." if price <= reserve else ""
+            await up.requires_input(say(f"{d['message'].strip()}{final} My price: {price}.", price))
             log(f"task {task.id[:8]} -> INPUT_REQUIRED ask {price}")
 
     def remember(self, task_id, deal, result, price=None):

@@ -704,6 +704,84 @@
    ],
    "result": "rejected",
    "price": null
+  },
+  {
+   "time": "2026-10-21T06:27:47",
+   "task": "2050560e-1d8c-4b20-9a6d-c791a21d5e0c",
+   "item": "lamp",
+   "reserve": 100,
+   "open": 103,
+   "arm": 0.03,
+   "asks": [
+    103
+   ],
+   "offers": [
+    103
+   ],
+   "result": "deal",
+   "price": 103
+  },
+  {
+   "time": "2026-10-21T06:27:54",
+   "task": "1541d562-324c-419b-b5aa-2f9519d7e83a",
+   "item": "lamp",
+   "reserve": 100,
+   "open": 103,
+   "arm": 0.03,
+   "asks": [
+    103
+   ],
+   "offers": [
+    103
+   ],
+   "result": "deal",
+   "price": 103
+  },
+  {
+   "time": "2026-10-21T06:28:01",
+   "task": "81daa34b-e632-4855-999b-8cb84fc8b1d2",
+   "item": "lamp",
+   "reserve": 100,
+   "open": 103,
+   "arm": 0.03,
+   "asks": [
+    103
+   ],
+   "offers": [
+    103
+   ],
+   "result": "deal",
+   "price": 103
+  },
+  {
+   "time": "2026-10-21T06:29:53",
+   "task": "f9c065cc-77ae-4868-89f7-dbc38ae6f2a6",
+   "item": "bookshelf",
+   "reserve": 260,
+   "open": 263,
+   "arm": 0.01,
+   "asks": [
+    263,
+    260,
+    260,
+    260,
+    260,
+    260,
+    260,
+    260
+   ],
+   "offers": [
+    140,
+    170,
+    200,
+    230,
+    230,
+    230,
+    230,
+    230
+   ],
+   "result": "rejected",
+   "price": null
   }
  ]
 }
