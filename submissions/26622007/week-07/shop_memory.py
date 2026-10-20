@@ -32,7 +32,8 @@ DEFAULT_PRICING = {
 }
 
 _lock = threading.Lock()
-_reviews = {"at": 0.0, "count": None, "stars": None}
+_reviews = {"at": 0.0, "count": None, "stars": None, "recent": []}
+PROOF_MIN = 3          # five-star reviews among the latest ones needed before the shop says so
 
 
 def load_pricing():
@@ -76,6 +77,7 @@ def reviews():
             me = next((s for s in shops if s.get("name") == NAME), None)
             if me is not None:
                 stars = [r["stars"] for r in me.get("reviews") or [] if isinstance(r.get("stars"), (int, float))]
+                _reviews["recent"] = stars
                 board = httpx.get(f"{MARKET}/api/board", timeout=5).json()
                 row = next((s for s in board.get("shops", []) if s.get("name") == NAME), {})
                 _reviews["count"] = row.get("reviews", len(stars))
@@ -120,3 +122,14 @@ def note(item):
     if r["conversion"] is not None:
         parts.append(f"{r['deals']} of your last {r['finished']} negotiations ended in a deal")
     return "; ".join(parts)
+
+
+def social_proof():
+    """A sentence without digits about real recent reviews, or "" when they do not back it up.
+
+    Digits are left out on purpose: other buyers read prices from the shop's text."""
+    reviews()
+    fives = sum(1 for x in _reviews["recent"] if x >= 5)
+    if fives >= PROOF_MIN:
+        return "Recent buyers gave us five stars for fair prices and receipts that match the agreed price."
+    return ""

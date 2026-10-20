@@ -224,7 +224,8 @@ class Seller(AgentExecutor):
             self.open[task.id] = {"id": item["id"], "name": item["name"], "reserve": reserve, "ask": ask_price,
                                   "open": ask_price, "rounds": 0, "history": [("you asked", ask_price)]}
             offer_line = item["name"] if item["id"] == item["name"] else f"{item['name']} [{item['id']}]: {item['description']}"
-            lead = "New shop launch price! " if new_shop else ""
+            proof = await asyncio.to_thread(shop_memory.social_proof)
+            lead = ("New shop launch price! " if new_shop else "") + (proof + " " if proof else "")
             await up.requires_input(say(f"{lead}{d['message'].strip()} {offer_line} My price: {ask_price}.", ask_price))
             log(f"task {task.id[:8]} -> INPUT_REQUIRED {item['id']} ask {ask_price}")
             return
