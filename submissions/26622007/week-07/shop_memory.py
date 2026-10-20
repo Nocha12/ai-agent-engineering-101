@@ -32,7 +32,7 @@ DEFAULT_PRICING = {
 }
 
 _lock = threading.Lock()
-_reviews = {"at": 0.0, "count": None, "stars": None, "recent": []}
+_reviews = {"at": 0.0, "count": None, "stars": None, "recent": [], "share": None}
 PROOF_MIN = 3          # five-star reviews among the latest ones needed before the shop says so
 
 
@@ -81,6 +81,7 @@ def reviews():
                 board = httpx.get(f"{MARKET}/api/board", timeout=5).json()
                 row = next((s for s in board.get("shops", []) if s.get("name") == NAME), {})
                 _reviews["count"] = row.get("reviews", len(stars))
+                _reviews["share"] = row.get("share")
                 _reviews["stars"] = row.get("stars") or (sum(stars) / len(stars) if stars else None)
         except (httpx.HTTPError, ValueError, KeyError):
             pass
@@ -96,8 +97,11 @@ def recent(item=None):
             "conversion": (len(deals) / len(last)) if last else None, "item_prices": same}
 
 
-def markup():
-    """(markup, why) for the opening cap."""
+def markup(item=None):
+    """(markup, why) for the opening cap of this item.
+
+    review tier (gradual) -> share discount (below the target share) -> conversion step-down
+    -> per-item ceiling. Never below min_markup; the reserve itself never moves."""
     p = load_pricing()
     count, stars = reviews()
     tier = p["tiers"][0]
@@ -105,12 +109,25 @@ def markup():
         if (count or 0) >= t.get("min_reviews", 0) and (stars or 0) >= t.get("min_stars", 0):
             tier = t
     m = tier["markup"]
-    why = f"tier {tier.get('min_reviews', 0)}+ reviews ({count} reviews, {stars if stars is None else round(stars, 2)} stars)"
+    why = [f"tier {tier.get('min_reviews', 0)}+ reviews ({count} reviews, "
+           f"{stars if stars is None else round(stars, 2)} stars) {m:.0%}"]
+    share, sp = _reviews.get("share"), p.get("share", {})
+    if share is not None and sp:
+        target = sp.get("target", 0.10)
+        cut = sp.get("cut_far", 0.05) if share < target / 2 else sp.get("cut_near", 0.03) if share < target else 0.0
+        if cut:
+            m -= cut
+            why.append(f"share {share:.1%} < target {target:.0%} -> -{cut:.0%}")
     r = recent()
     if r["conversion"] is not None and r["finished"] >= 5 and r["conversion"] < p["low_conversion"]:
-        m = max(p["min_markup"], m - p["step_down"])
-        why += f", conversion {r['deals']}/{r['finished']} low -> step down"
-    return m, why
+        m -= p["step_down"]
+        why.append(f"conversion {r['deals']}/{r['finished']} low -> -{p['step_down']:.0%}")
+    ceiling = (p.get("item_max_markup") or {}).get(item)
+    if ceiling is not None and m > ceiling:
+        m = ceiling
+        why.append(f"{item} ceiling {ceiling:.0%}")
+    m = max(p["min_markup"], m)
+    return m, "; ".join(why)
 
 
 def note(item):

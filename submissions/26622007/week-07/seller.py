@@ -215,7 +215,7 @@ class Seller(AgentExecutor):
             if ask_price < reserve:
                 log(f"GUARD opening ask {ask_price} < reserve {reserve} -> {reserve}")
                 ask_price = reserve
-            m, why = await asyncio.to_thread(shop_memory.markup)
+            m, why = await asyncio.to_thread(shop_memory.markup, item["category"])
             cap = max(reserve, round(reserve * (1 + m)))
             if ask_price > cap:
                 log(f"PRICE opening ask {ask_price} -> {cap} (reserve {reserve} + {m:.0%}; {why})")
