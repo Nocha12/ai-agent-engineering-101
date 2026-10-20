@@ -50,7 +50,12 @@ def pick_schema(names):
             "properties": {"shop": {"type": "string", "enum": names}, "reason": {"type": "string"}}}
 
 
-# --- memory: {"trades": [{"time", "shop", "item", "budget", "result", "price", "asks", "problems"}]}
+# --- memory: {"trades": [{"time", "shop", "item", "budget", "result", "price", "asks", "holds",
+#                           "problems", "warnings", "why"}]}
+# problems: the shop cheated (price not as agreed, over budget, another task's receipt); never again.
+# warnings: the receipt broke a market rule without costing me (item named differently); shown, not banned.
+# why: for a trade without a deal, "budget" (the shop's lowest ask stayed far above my budget,
+#      so the order was hopeless there) or "shop" (the shop ended it with the ask within reach).
 
 def load_memory():
     try:
@@ -85,6 +90,13 @@ def item_stats(trades, item):
     return deals, (min(asks) if asks else None)
 
 
+def no_deal_reason(asks, budget):
+    """Whose side a no-deal was on: "budget" when the lowest ask stayed over 10% above the budget."""
+    if not asks:
+        return "shop"
+    return "budget" if min(asks) > budget * 1.10 else "shop"
+
+
 def history_line(trades, item=None):
     if not trades:
         return "no trades with you yet"
@@ -101,9 +113,20 @@ def history_line(trades, item=None):
     held = [t for t in deals if t.get("holds")]
     if held:
         parts.append(f"{len(held)} deal(s) closed after you held at your budget")
-    fails = [t["result"] for t in trades if t["result"] != "deal"]
-    if fails:
-        parts.append("no deal: " + ", ".join(fails[-4:]))
+    fails = [t for t in trades if t["result"] != "deal"]
+    hopeless = [t for t in fails if t.get("why") == "budget"]
+    on_shop = [t for t in fails if t.get("why") != "budget"]
+    if hopeless:
+        parts.append(f"{len(hopeless)} no-deal(s) because your budget was too low "
+                     f"(e.g. {hopeless[-1]['item']} budget {hopeless[-1]['budget']}, lowest ask "
+                     f"{min(hopeless[-1]['asks'])}); not the shop's fault")
+    if on_shop:
+        parts.append("no deal on the shop's side: " + ", ".join(
+            f"{t['result']}" + (f" (lowest ask {min(t['asks'])}, budget {t['budget']})" if t.get("asks") else "")
+            for t in on_shop[-3:]))
+    warns = [w for t in trades for w in t.get("warnings") or []]
+    if warns:
+        parts.append(f"receipt warnings: {warns[-1]}")
     return "; ".join(parts)
 
 
@@ -173,29 +196,33 @@ def choose(shops, memory, item, budget):
 # --- after the trade
 
 def check_receipt(rec, out, item, budget):
-    """What does not match between the receipt and the deal we made. Empty list when it all fits."""
-    problems = []
+    """(problems, warnings) between the receipt and the deal we made.
+
+    problems cost me money or reuse another trade (cheating); warnings break a market rule only."""
+    problems, warnings = [], []
     price = rec.get("price")
     if not isinstance(price, (int, float)) or isinstance(price, bool):
-        return ["receipt has no numeric price"]
+        return ["receipt has no numeric price"], []
     if out["agreed"] is not None and round(price) != out["agreed"]:
         problems.append(f"agreed {out['agreed']}, receipt says {price:g}")
     if round(price) > budget:
         problems.append(f"receipt price {price:g} is over my budget {budget}")
     if str(rec.get("item", "")).strip().lower() != item.strip().lower():
-        problems.append(f"receipt item {rec.get('item')!r} is not {item!r}")
+        warnings.append(f"receipt item {rec.get('item')!r} is not {item!r}")
     if rec.get("task") is not None and rec.get("task") != out["task"]:
         problems.append(f"receipt task {rec.get('task')!r} is not the A2A task {out['task']!r}")
-    return problems
+    return problems, warnings
 
 
-def rate(out, problems, item, budget):
+def rate(out, problems, item, budget, warnings=()):
     """Stars and review from the facts of the trade."""
     asks = [p for who, p in out["history"] if who == "shop asked"]
     if out["state"] == "TASK_STATE_COMPLETED":
         price = out["receipt"].get("price")
         if problems:
             return 1, f"Do not trust the receipt: {'; '.join(problems)}."
+        if warnings:
+            return 2, f"{item} at {price:g} as agreed, but the receipt is off: {'; '.join(warnings)}."
         saved = (budget - round(price)) / budget if budget else 0
         stars = 5 if saved >= 0.15 else 4 if saved >= 0.05 else 3
         opened = f"opened at {asks[0]}, " if asks else ""
@@ -250,21 +277,26 @@ def main():
                "holds": 0}
 
     rec = out["receipt"] if out["state"] == "TASK_STATE_COMPLETED" else None
-    problems = check_receipt(rec, out, args.item, args.budget) if rec is not None else []
+    problems, warnings = check_receipt(rec, out, args.item, args.budget) if rec is not None else ([], [])
     if out["state"] == "TASK_STATE_COMPLETED" and rec is None:
         problems = ["completed without a receipt"]
         out["state"] = "COMPLETED_NO_RECEIPT"
     for p in problems:
         log(f"[receipt] PROBLEM {shop['name']}: {p}")
-    stars, review = rate(out, problems, args.item, args.budget) if rec is not None or not problems \
+    for w in warnings:
+        log(f"[receipt] WARNING {shop['name']}: {w}")
+    asks = [p for who, p in out["history"] if who == "shop asked"]
+    why = None if rec is not None else no_deal_reason(asks, args.budget)
+    if why:
+        log(f"[memory] no deal, on the {why} side" + (f" (lowest ask {min(asks)}, budget {args.budget})" if asks else ""))
+    stars, review = rate(out, problems, args.item, args.budget, warnings) if rec is not None or not problems \
         else (1, f"Said the deal was done but sent no receipt for {args.item}.")
 
     memory["trades"].append({
         "time": time.strftime("%Y-%m-%dT%H:%M:%S"), "shop": shop["name"], "item": args.item, "budget": args.budget,
         "result": "deal" if rec is not None else (out["state"] or "error").replace("TASK_STATE_", "").lower(),
         "price": rec.get("price") if rec else None,
-        "asks": [p for who, p in out["history"] if who == "shop asked"],
-        "holds": out.get("holds", 0), "problems": problems})
+        "asks": asks, "holds": out.get("holds", 0), "problems": problems, "warnings": warnings, "why": why})
     save_memory(memory)
     log(f"memory: {len(memory['trades'])} trades saved to {MEMORY}")
 
