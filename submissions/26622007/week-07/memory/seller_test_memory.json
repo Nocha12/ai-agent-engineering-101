@@ -230,6 +230,134 @@
    ],
    "result": "rejected",
    "price": null
+  },
+  {
+   "time": "2026-10-20T21:18:43",
+   "task": "9712d301-bade-4578-a074-8dc6c996c114",
+   "item": "lamp",
+   "reserve": 100,
+   "open": 105,
+   "asks": [
+    105
+   ],
+   "offers": [
+    105
+   ],
+   "result": "deal",
+   "price": 105
+  },
+  {
+   "time": "2026-10-20T21:18:50",
+   "task": "7756e78c-a2ec-4c7f-bd76-91901ba9510e",
+   "item": "lamp",
+   "reserve": 100,
+   "open": 105,
+   "asks": [
+    105
+   ],
+   "offers": [
+    105
+   ],
+   "result": "deal",
+   "price": 105
+  },
+  {
+   "time": "2026-10-20T21:18:57",
+   "task": "3d50c609-a78d-4feb-832a-ac7b2c0646cb",
+   "item": "lamp",
+   "reserve": 100,
+   "open": 105,
+   "asks": [
+    105
+   ],
+   "offers": [
+    105
+   ],
+   "result": "deal",
+   "price": 105
+  },
+  {
+   "time": "2026-10-20T21:19:33",
+   "task": "6000492d-34fa-47f2-81e1-13f435a728c8",
+   "item": "bookshelf",
+   "reserve": 260,
+   "open": 286,
+   "asks": [
+    286,
+    272,
+    266,
+    262,
+    260,
+    260,
+    260
+   ],
+   "offers": [
+    140,
+    170,
+    200,
+    230,
+    230,
+    230,
+    230
+   ],
+   "result": "rejected",
+   "price": null
+  },
+  {
+   "time": "2026-10-20T21:20:17",
+   "task": "87660d27-314c-4b59-aeca-ee5ec68f18de",
+   "item": "bookshelf",
+   "reserve": 260,
+   "open": 286,
+   "asks": [
+    286,
+    272,
+    266,
+    262,
+    261,
+    260,
+    260,
+    260
+   ],
+   "offers": [
+    140,
+    170,
+    200,
+    230,
+    230,
+    230,
+    230,
+    230
+   ],
+   "result": "rejected",
+   "price": null
+  },
+  {
+   "time": "2026-10-20T21:20:54",
+   "task": "9264b2a9-f242-4817-b29d-768faf486815",
+   "item": "bookshelf",
+   "reserve": 260,
+   "open": 286,
+   "asks": [
+    286,
+    274,
+    268,
+    262,
+    260,
+    260,
+    260
+   ],
+   "offers": [
+    140,
+    170,
+    200,
+    230,
+    230,
+    230,
+    230
+   ],
+   "result": "rejected",
+   "price": null
   }
  ]
 }
