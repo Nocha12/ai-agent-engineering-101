@@ -109,7 +109,14 @@ def negotiate(card_url, item, budget):
     agreed is the last price we offered, which is what the shop accepted when the task completes.
     """
     out = {"state": "", "task": None, "receipt": None, "history": [], "agreed": None}
-    card = httpx.get(card_url.rstrip("/") + "/.well-known/agent-card.json", headers=HEADERS, timeout=30).json()
+    try:
+        r = httpx.get(card_url.rstrip("/") + "/.well-known/agent-card.json", headers=HEADERS, timeout=30)
+        card = r.json()
+    except (httpx.HTTPError, ValueError) as e:
+        status = getattr(locals().get("r"), "status_code", None)
+        log(f"no Agent Card at {card_url} (HTTP {status}, {type(e).__name__}); giving up")
+        out["state"] = "NO_CARD"
+        return out
     iface = next((i for i in card.get("supportedInterfaces", [])
                   if i.get("protocolBinding") == "JSONRPC" and str(i.get("protocolVersion")) == "1.0"), None)
     if iface is None:
@@ -188,7 +195,7 @@ def main():
     ap.add_argument("--budget", type=int, required=True)
     args = ap.parse_args()
     out = negotiate(args.url, args.item, args.budget)
-    return 1 if out["state"] in ("NO_INTERFACE", "ERROR") else 0
+    return 1 if out["state"] in ("NO_INTERFACE", "NO_CARD", "ERROR") else 0
 
 
 if __name__ == "__main__":
