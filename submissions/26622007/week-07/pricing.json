@@ -29,13 +29,14 @@
   "item_max_markup": {
     "lamp": 0.03,
     "chair": 0.03,
-    "bookshelf": 0.03
+    "bookshelf": 0.01
   },
   "low_conversion": 0.6,
   "step_down": 0.05,
   "min_markup": 0.03,
   "arms": [
     0.0,
+    0.01,
     0.03,
     0.06,
     0.1,
