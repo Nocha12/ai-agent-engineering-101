@@ -308,8 +308,11 @@ class Seller(AgentExecutor):
         else:
             deal["ask"] = price
             deal["history"].append(("you asked", price))
-            final = " This is our final price." if price <= reserve else ""
-            await up.requires_input(say(f"{d['message'].strip()}{final} My price: {price}.", price))
+            if price <= reserve:   # the harness may still write "I can come down a bit"; at the reserve that is untrue
+                text_out = "Sorry, this is already our lowest price and we cannot go lower. This is our final price."
+            else:
+                text_out = d["message"].strip()
+            await up.requires_input(say(f"{text_out} My price: {price}.", price))
             log(f"task {task.id[:8]} -> INPUT_REQUIRED ask {price}")
 
     def remember(self, task_id, deal, result, price=None):
