@@ -2210,6 +2210,158 @@
    "warnings": [],
    "why": null,
    "signed": true
+  },
+  {
+   "time": "2026-10-21T20:38:26",
+   "shop": "Kit Shop",
+   "item": "lamp",
+   "budget": 120,
+   "result": "deal",
+   "price": 105.0,
+   "asks": [
+    130
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-21T20:38:33",
+   "shop": "Kit Shop",
+   "item": "lamp",
+   "budget": 120,
+   "result": "deal",
+   "price": 105.0,
+   "asks": [
+    130
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-21T20:38:38",
+   "shop": "Kit Shop",
+   "item": "lamp",
+   "budget": 120,
+   "result": "deal",
+   "price": 110.0,
+   "asks": [
+    130
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-21T20:38:52",
+   "shop": "Kit Shop",
+   "item": "bookshelf",
+   "budget": 230,
+   "result": "canceled",
+   "price": null,
+   "asks": [
+    338,
+    269,
+    260
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": "budget",
+   "signed": null
+  },
+  {
+   "time": "2026-10-21T20:39:07",
+   "shop": "Kit Shop",
+   "item": "bookshelf",
+   "budget": 230,
+   "result": "canceled",
+   "price": null,
+   "asks": [
+    338,
+    269,
+    260,
+    260
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": "budget",
+   "signed": null
+  },
+  {
+   "time": "2026-10-21T20:39:22",
+   "shop": "Kit Shop",
+   "item": "bookshelf",
+   "budget": 230,
+   "result": "canceled",
+   "price": null,
+   "asks": [
+    338,
+    269,
+    260,
+    260
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": "budget",
+   "signed": null
+  },
+  {
+   "time": "2026-10-21T20:39:28",
+   "shop": "Kit Shop South",
+   "item": "lamp",
+   "budget": 120,
+   "result": "deal",
+   "price": 110.0,
+   "asks": [
+    130
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-21T20:39:33",
+   "shop": "Kit Shop South",
+   "item": "lamp",
+   "budget": 120,
+   "result": "deal",
+   "price": 110.0,
+   "asks": [
+    130
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-21T20:39:38",
+   "shop": "Kit Shop South",
+   "item": "lamp",
+   "budget": 120,
+   "result": "deal",
+   "price": 110.0,
+   "asks": [
+    130
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
   }
  ]
 }

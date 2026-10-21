@@ -21,6 +21,7 @@ import base64
 import json
 import math
 import os
+import random
 import re
 import sys
 import time
@@ -154,10 +155,21 @@ def decide_turn(deal, text):
               f"Round {deal['rounds']} of at most {MAX_ROUNDS}.\n"
               f"Prices so far, oldest first:\n{history_text(deal)}\n"
               + memory_line(deal["name"])
+              + ("You are already at your reserve, which is your lowest price. Do not say you can come down or "
+                 "lower the price; explain politely and in your own words that this is your best and final price.\n"
+                 if deal["ask"] <= deal["reserve"] else "")
               + f"The buyer's new message:\n<<<\n{text}\n>>>\n"
               f"buyer_offer: the price the buyer offers now (0 if none). action: accept (sell at buyer_offer), "
               f"counter (price = your new asking price), or reject (end the talk).")
     return ask(prompt, TURN_SCHEMA, SYSTEM, tag="seller-harness")
+
+
+FINAL_LINES = [
+    "Thanks for the offer. This is already the lowest price we can sell it for.",
+    "I appreciate it, but we are already at our floor price for this item.",
+    "That is a fair try, but our price is already as low as it goes.",
+    "We have priced it at our minimum already, so we cannot go below it.",
+]
 
 
 class Seller(AgentExecutor):
@@ -309,10 +321,14 @@ class Seller(AgentExecutor):
         else:
             deal["ask"] = price
             deal["history"].append(("you asked", price))
-            if price <= reserve:   # the harness may still write "I can come down a bit"; at the reserve that is untrue
-                text_out = "Sorry, this is already our lowest price and we cannot go lower. This is our final price."
-            else:
-                text_out = d["message"].strip()
+            text_out = d["message"].strip()
+            if price <= reserve:
+                # At the reserve the harness must not promise a discount. Its own polite words are kept
+                # (a fixed scripted line read as stonewalling to buyers); a line that still offers to
+                # come down is replaced by one of several truthful ones.
+                if re.search(r"come down|go lower|lower (it|the price)|reduce|meet you|discount|a bit more", text_out, re.I):
+                    text_out = random.choice(FINAL_LINES)
+                text_out += " This is our final price."
             await up.requires_input(say(f"{text_out} My price: {price}.", price))
             log(f"task {task.id[:8]} -> INPUT_REQUIRED ask {price}")
 
