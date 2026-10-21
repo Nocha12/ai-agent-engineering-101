@@ -19,6 +19,7 @@ import argparse
 import asyncio
 import base64
 import json
+import math
 import os
 import re
 import sys
@@ -248,6 +249,17 @@ class Seller(AgentExecutor):
         log(f"task {task.id[:8]} harness read the offer as {offer} from {sorted(written)}")
         deal["history"].append(("buyer offered", offer))
 
+        # concession schedule: half of the opening margin on the first counter, the reserve on the second.
+        # Buyers rate a visible discount highly and leave after slow talks; a lost talk also loses the
+        # buyer's next orders, so an offer at or above the reserve is taken from the second round on.
+        opened = deal.get("open", deal["ask"])
+        cap = max(reserve, math.ceil(opened - (opened - reserve) * min(1.0, deal["rounds"] / 2)))
+        if action == "counter" and price > cap:
+            log(f"SCHEDULE counter {price} -> {cap} (round {deal['rounds']}, opened {opened})")
+            price = cap
+        if action != "accept" and offer >= reserve and deal["rounds"] >= 2:
+            log(f"SCHEDULE offer {offer} >= reserve {reserve} in round {deal['rounds']} -> accept")
+            action = "accept"
         if action == "accept" and offer < reserve:
             log(f"GUARD accept at {offer} < reserve {reserve} -> counter at {max(price, reserve)}")
             action, price = "counter", max(price, reserve)

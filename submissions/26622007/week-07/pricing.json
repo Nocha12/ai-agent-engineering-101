@@ -29,7 +29,7 @@
   "item_max_markup": {
     "lamp": 0.03,
     "chair": 0.03,
-    "bookshelf": 0.01
+    "bookshelf": 0.06
   },
   "low_conversion": 0.6,
   "step_down": 0.05,
@@ -44,6 +44,6 @@
   ],
   "gamma": 0.97,
   "lambda": 0.3,
-  "lambda_low_share": 4.0,
+  "lambda_low_share": 1.0,
   "launch_reviews": 40
 }
