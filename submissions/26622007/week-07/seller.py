@@ -227,6 +227,7 @@ class Seller(AgentExecutor):
             lead = ("New shop launch price! " if new_shop else "") + (proof + " " if proof else "")
             fixed = (f" Fixed price, already our lowest: send {ask_price} to buy it now."
                      if ask_price <= reserve else "")
+            fixed += " Every deal comes with an Ed25519-signed receipt for the exact item and price."
             await up.requires_input(say(f"{lead}{d['message'].strip()} {offer_line}.{fixed} My price: {ask_price}.", ask_price))
             log(f"task {task.id[:8]} -> INPUT_REQUIRED {item['id']} ask {ask_price}")
             return
@@ -255,7 +256,7 @@ class Seller(AgentExecutor):
         # Buyers rate a visible discount highly and leave after slow talks; a lost talk also loses the
         # buyer's next orders, so an offer at or above the reserve is taken from the second round on.
         opened = deal.get("open", deal["ask"])
-        cap = max(reserve, math.ceil(opened - (opened - reserve) * min(1.0, deal["rounds"] / 2)))
+        cap = reserve   # first counter goes straight to the reserve: one visible discount, then a short close
         if action == "counter" and price > cap:
             log(f"SCHEDULE counter {price} -> {cap} (round {deal['rounds']}, opened {opened})")
             price = cap
