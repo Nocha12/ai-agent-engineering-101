@@ -1182,6 +1182,140 @@
    ],
    "result": "rejected",
    "price": null
+  },
+  {
+   "time": "2026-10-21T17:00:55",
+   "task": "208b0f4b-ada6-40bb-ac9c-c429a6129327",
+   "item": "lamp",
+   "reserve": 100,
+   "open": 100,
+   "arm": 0.0,
+   "asks": [
+    100
+   ],
+   "offers": [
+    100
+   ],
+   "result": "deal",
+   "price": 100
+  },
+  {
+   "time": "2026-10-21T17:01:02",
+   "task": "325bc13c-767c-462a-8677-db6ff3335a57",
+   "item": "lamp",
+   "reserve": 100,
+   "open": 100,
+   "arm": 0.0,
+   "asks": [
+    100
+   ],
+   "offers": [
+    100
+   ],
+   "result": "deal",
+   "price": 100
+  },
+  {
+   "time": "2026-10-21T17:01:09",
+   "task": "c8adde3e-537f-45e3-97db-23bc6f2bcb6e",
+   "item": "lamp",
+   "reserve": 100,
+   "open": 100,
+   "arm": 0.0,
+   "asks": [
+    100
+   ],
+   "offers": [
+    100
+   ],
+   "result": "deal",
+   "price": 100
+  },
+  {
+   "time": "2026-10-21T17:01:45",
+   "task": "bcda4bde-a326-4255-b9b1-998084c7390a",
+   "item": "bookshelf",
+   "reserve": 260,
+   "open": 260,
+   "arm": 0.0,
+   "asks": [
+    260,
+    260,
+    260,
+    260,
+    260,
+    260,
+    260
+   ],
+   "offers": [
+    140,
+    170,
+    200,
+    230,
+    230,
+    230,
+    230
+   ],
+   "result": "rejected",
+   "price": null
+  },
+  {
+   "time": "2026-10-21T17:02:22",
+   "task": "b65f7bb7-3143-4a81-8139-9084b35756c3",
+   "item": "bookshelf",
+   "reserve": 260,
+   "open": 260,
+   "arm": 0.0,
+   "asks": [
+    260,
+    260,
+    260,
+    260,
+    260,
+    260,
+    260,
+    260
+   ],
+   "offers": [
+    140,
+    170,
+    200,
+    230,
+    230,
+    230,
+    230,
+    230
+   ],
+   "result": "rejected",
+   "price": null
+  },
+  {
+   "time": "2026-10-21T17:02:53",
+   "task": "9aab1624-3552-4e4c-a6de-2d8ee762d6b9",
+   "item": "bookshelf",
+   "reserve": 260,
+   "open": 260,
+   "arm": 0.0,
+   "asks": [
+    260,
+    260,
+    260,
+    260,
+    260,
+    260,
+    260
+   ],
+   "offers": [
+    140,
+    170,
+    200,
+    230,
+    230,
+    230,
+    230
+   ],
+   "result": "rejected",
+   "price": null
   }
  ]
 }
