@@ -274,6 +274,9 @@ class Seller(AgentExecutor):
             action = "reject"
 
         if action == "accept":
+            if offer > deal["ask"]:   # never charge more than our own current ask
+                log(f"FAIR offer {offer} > our ask {deal['ask']} -> sell at {deal['ask']}")
+                offer = deal["ask"]
             receipt = {"shop": self.name, "item": deal["name"], "price": int(offer), "task": task.id}
             key = load_shop_key()   # read per deal: the market test creates shop_key.pem after we start
             if key is not None:
