@@ -273,10 +273,18 @@ class Seller(AgentExecutor):
             log(f"GUARD round limit {MAX_ROUNDS} -> reject")
             action = "reject"
 
+        if action == "accept" and offer > deal["ask"] and not deal.get("told_ask"):
+            # The buyer offers more than we ask. Selling at our lower ask makes the receipt differ from
+            # the price the buyer named (buyers read that as a receipt mismatch), so tell them our
+            # price instead and sell at whatever they then offer. Asked once: a buyer who repeats a
+            # higher offer has chosen it.
+            log(f"FAIR offer {offer} > our ask {deal['ask']} -> tell the buyer our price")
+            deal["told_ask"] = True
+            deal["history"].append(("you asked", deal["ask"]))
+            await up.requires_input(say(f"You offered more than our price. Our price is only {deal['ask']}; "
+                                        f"send it to close the deal. My price: {deal['ask']}.", deal["ask"]))
+            return
         if action == "accept":
-            if offer > deal["ask"]:   # never charge more than our own current ask
-                log(f"FAIR offer {offer} > our ask {deal['ask']} -> sell at {deal['ask']}")
-                offer = deal["ask"]
             receipt = {"shop": self.name, "item": deal["name"], "price": int(offer), "task": task.id}
             key = load_shop_key()   # read per deal: the market test creates shop_key.pem after we start
             if key is not None:
