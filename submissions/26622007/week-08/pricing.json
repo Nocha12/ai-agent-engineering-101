@@ -26,21 +26,20 @@
     "cut_near": 0.03,
     "cut_far": 0.05
   },
-  "item_max_markup": {
-    "lamp": 0.0,
-    "chair": 0.0,
-    "bookshelf": 0.0
-  },
+  "objective": "profit",
   "low_conversion": 0.6,
   "step_down": 0.05,
   "min_markup": 0.03,
   "arms": [
     0.0,
-    0.01,
-    0.03
+    0.03,
+    0.06,
+    0.1,
+    0.15,
+    0.2
   ],
   "gamma": 0.97,
-  "lambda": 0.3,
-  "lambda_low_share": 1.0,
+  "lambda": 0.0,
+  "lambda_low_share": 0.0,
   "launch_reviews": 40
 }

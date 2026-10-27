@@ -385,24 +385,27 @@ def build(url, catalog, name):
                      + create_jsonrpc_routes(handler, "/"))
 
 
-KITLOGS = ("market-kit.log", "market-kit.log.1")
+KITLOGS = {"market-kit.log": "logs/market-kit.log", "market-kit.log.1": "logs/market-kit.log.1",
+           "seller_memory.json": "memory/seller_memory.json", "market_memory.json": "memory/market_memory.json"}
 
 
 async def kitlog(req: Request):
-    """The kit's log from this machine (Render has no shell). Off unless KITLOG_TOKEN is set; send it as a Bearer token.
+    """The kit's log and the memories from this machine (Render has no shell, and a deploy resets its disk to the
+    repository). Off unless KITLOG_TOKEN is set; send it as a Bearer token.
 
-    GET /_kitlog                     logs/market-kit.log
-    GET /_kitlog?file=market-kit.log.1   the part the kit moved aside at 20 MB"""
+    GET /_kitlog                             logs/market-kit.log
+    GET /_kitlog?file=market-kit.log.1       the part the kit moved aside at 20 MB
+    GET /_kitlog?file=seller_memory.json     memory/seller_memory.json (also market_memory.json)"""
     token = os.environ.get("KITLOG_TOKEN")
     if not token:
         return JSONResponse({"error": "not found"}, status_code=404)
     if not hmac.compare_digest(req.headers.get("authorization", ""), f"Bearer {token}"):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
-    name = req.query_params.get("file", KITLOGS[0])
-    path = os.path.join("logs", name)
-    if name not in KITLOGS or not os.path.exists(path):
+    name = req.query_params.get("file", "market-kit.log")
+    path = KITLOGS.get(name)
+    if path is None or not os.path.exists(path):
         return JSONResponse({"error": f"no {name}"}, status_code=404)
-    return FileResponse(path, media_type="text/plain")
+    return FileResponse(path, media_type="application/json" if path.endswith(".json") else "text/plain")
 
 
 if __name__ == "__main__":

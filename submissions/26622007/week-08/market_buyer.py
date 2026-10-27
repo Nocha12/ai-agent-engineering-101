@@ -19,6 +19,8 @@ What the code does and what the harness does:
 - Code checks the receipt against the deal (price we agreed, item, A2A task id),
   writes the trade to memory, and writes the stars and review from those facts.
 - The last output line is the result JSON the kit sends to the market.
+- From Round 3 only settled deals count, and the kit can pay only a shop that serves /.well-known/acp.json.
+  Code checks the chosen shop for it and chooses again without that shop (up to ACP_TRIES times).
 """
 import argparse
 import json
@@ -26,6 +28,8 @@ import os
 import random
 import sys
 import time
+
+import httpx
 
 from buyer import log, negotiate
 from harness import HarnessError, ask
@@ -37,6 +41,23 @@ BAD_STARS = 2.5        # two or more reviews averaging below this: skipped in co
 OVERPRICED = 1.15      # lowest ask seen (2+ visits) this far above my own average deal price: skip for the item
 REVIEWS_SHOWN = 5      # newest reviews per shop that reach the prompt
 REVIEW_CHARS = 160     # characters per review that reach the prompt
+MARKET = os.environ.get("MARKET_URL", "https://market.ourolabs.ai")
+ACP_TRIES = 3          # Round 3: shops checked for an ACP checkout before trading anyway
+
+
+def market_round():
+    """The market's current round, or None if it does not answer."""
+    try:
+        return httpx.get(f"{MARKET}/api/stats", timeout=5).json()["round"]
+    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+        return None
+
+
+def serves_acp(url):
+    try:
+        return httpx.get(f"{url.rstrip('/')}/.well-known/acp.json", timeout=10).status_code == 200
+    except httpx.HTTPError:
+        return False
 
 PICK_SYSTEM = """You choose which shop to buy one item from in an open market of AI shops.
 Some shops are dishonest: their receipts charge more than the agreed price, or they never sell.
@@ -328,11 +349,18 @@ def main():
     memory = load_memory()
     log(f"order: {args.item}, budget {args.budget}; {len(shops)} shops; {len(memory['trades'])} trades in memory")
 
-    try:
-        shop, reason = choose(shops, memory, args.item, args.budget)
-    except HarnessError as e:
-        unknown = [s for s in shops if not caught_cheating(my_history(memory, s["name"]))] or shops
-        shop, reason = max(unknown, key=lambda s: len(s.get("reviews") or [])), f"harness failed ({e}); most reviewed"
+    rnd = market_round()
+    left = list(shops)
+    for attempt in range(ACP_TRIES):
+        try:
+            shop, reason = choose(left, memory, args.item, args.budget)
+        except HarnessError as e:
+            unknown = [s for s in left if not caught_cheating(my_history(memory, s["name"]))] or left
+            shop, reason = max(unknown, key=lambda s: len(s.get("reviews") or [])), f"harness failed ({e}); most reviewed"
+        if rnd is None or rnd < 3 or serves_acp(shop["url"]):
+            break
+        log(f"[choose] skip {shop['name']!r}: round {rnd} and no /.well-known/acp.json, so a deal there cannot settle")
+        left = [s for s in left if s["name"] != shop["name"]] or left
     log(f"[choose] {shop['url']}: {shop['name']} - {reason}")
 
     mine = my_history(memory, shop["name"])

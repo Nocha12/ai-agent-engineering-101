@@ -224,8 +224,12 @@ def choose_opening(item, reserve):
     if ceiling is not None:
         arms = [a for a in arms if a <= ceiling] or [min(arms)]
     stars = review_stars()
+    profit = p.get("objective") == "profit"
     a = {m: 1.0 for m in arms}
     b = {m: 1.0 for m in arms}
+    # profit: discounted sum of the realized margin (deal price - reserve) / reserve, and of the weights, over
+    # deals per arm. One pseudo-deal at the arm's own markup is the prior, so an untried arm is not ruled out.
+    gain = {m: [m, 1.0] for m in arms}
     def arm_of(n):                        # older records have no arm: take the nearest one to their opening
         if n.get("arm") in a:
             return n["arm"]
@@ -243,6 +247,10 @@ def choose_opening(item, reserve):
         s = 0.0
         if n["result"] == "deal":
             s = 0.5 if stars.get(n["task"], 5) <= 3 else 1.0
+            if n.get("price") is not None and n.get("reserve"):
+                g = gain[n["arm"]]
+                g[0] += weight * max(0, n["price"] - n["reserve"]) / n["reserve"]
+                g[1] += weight
         a[n["arm"]] += weight * s
         b[n["arm"]] += weight * (1 - s)
         weight *= gamma
@@ -255,10 +263,15 @@ def choose_opening(item, reserve):
         price = max(reserve, round(reserve * (1 + m)))
         theta = random.betavariate(a[m], b[m])
         over = max(0, price - mean) if mean else 0
-        scores[m] = theta * price - lam * over
+        if profit:                        # expected profit of one visit: P(deal) * margin the deals really closed at
+            scores[m] = theta * reserve * gain[m][0] / gain[m][1] - lam * over
+        else:                             # expected revenue of one visit (weeks 6-7)
+            scores[m] = theta * price - lam * over
     best = max(scores, key=scores.get)
     price = max(reserve, round(reserve * (1 + best)))
-    why = (f"arm +{best:.0%} of {[f'{m:.0%}' for m in arms]}, posterior "
-           f"{a[best]:.1f}/{b[best]:.1f}, market mean {mean and round(mean, 1)}, "
+    why = (f"{'profit' if profit else 'revenue'} arm +{best:.0%} of {[f'{m:.0%}' for m in arms]}, posterior "
+           f"{a[best]:.1f}/{b[best]:.1f}"
+           + (f", realized margin {gain[best][0] / gain[best][1]:.1%}" if profit else "")
+           + f", market mean {mean and round(mean, 1)}, "
            f"share {share if share is None else f'{share:.1%}'}{' (under target)' if low else ''}")
     return price, best, why

@@ -152,6 +152,9 @@ class KitlogTest(unittest.TestCase):
         self.assertIn("[kit] market_kit 3", r.text)
         self.assertEqual(self.client.get("/_kitlog?file=../agent.json",
                                          headers={"Authorization": "Bearer s3cret"}).status_code, 404)
+        r = self.client.get("/_kitlog?file=seller_memory.json", headers={"Authorization": "Bearer s3cret"})
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("negotiations", r.json())
 
 
 if __name__ == "__main__":
