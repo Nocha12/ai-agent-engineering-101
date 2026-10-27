@@ -153608,6 +153608,532 @@
    ],
    "result": "deal",
    "price": 180
+  },
+  {
+   "time": "2026-10-27T11:45:44",
+   "task": "42398d2b-b104-4510-a70d-032e1e24d194",
+   "item": "lamp",
+   "reserve": 100,
+   "open": 110,
+   "arm": 0.1,
+   "asks": [
+    110,
+    100
+   ],
+   "offers": [
+    95,
+    100
+   ],
+   "result": "deal",
+   "price": 100
+  },
+  {
+   "time": "2026-10-27T11:46:23",
+   "task": "a931dd97-01bf-48eb-a287-4169d80d9889",
+   "item": "chair",
+   "reserve": 180,
+   "open": 198,
+   "arm": 0.1,
+   "asks": [
+    198,
+    180,
+    180
+   ],
+   "offers": [
+    160,
+    170,
+    180
+   ],
+   "result": "deal",
+   "price": 180
+  },
+  {
+   "time": "2026-10-27T11:46:54",
+   "task": "ee093607-549e-4a9e-99b6-8462232dedf7",
+   "item": "lamp",
+   "reserve": 100,
+   "open": 115,
+   "arm": 0.15,
+   "asks": [
+    115,
+    100,
+    100,
+    100
+   ],
+   "offers": [
+    85,
+    95,
+    97,
+    100
+   ],
+   "result": "deal",
+   "price": 100
+  },
+  {
+   "time": "2026-10-27T11:47:48",
+   "task": "e7bca99f-e0e2-486f-93b7-2963ac1f7f69",
+   "item": "lamp",
+   "reserve": 100,
+   "open": 115,
+   "arm": 0.15,
+   "asks": [
+    115,
+    100
+   ],
+   "offers": [
+    95,
+    100
+   ],
+   "result": "deal",
+   "price": 100
+  },
+  {
+   "time": "2026-10-27T11:48:05",
+   "task": "a9733946-eaf9-4f9c-8d9d-db1f85b13f3b",
+   "item": "chair",
+   "reserve": 180,
+   "open": 216,
+   "arm": 0.2,
+   "asks": [
+    216
+   ],
+   "offers": [
+    216
+   ],
+   "result": "deal",
+   "price": 216
+  },
+  {
+   "time": "2026-10-27T11:48:25",
+   "task": "c767dab4-3acc-41cf-8e24-225ff92ccdfe",
+   "item": "chair",
+   "reserve": 180,
+   "open": 216,
+   "arm": 0.2,
+   "asks": [
+    216
+   ],
+   "offers": [
+    180
+   ],
+   "result": "deal",
+   "price": 180
+  },
+  {
+   "time": "2026-10-27T11:49:00",
+   "task": "d99e7db8-bed0-496a-a9cd-6e7514baf188",
+   "item": "lamp",
+   "reserve": 100,
+   "open": 120,
+   "arm": 0.2,
+   "asks": [
+    120,
+    100,
+    100,
+    100
+   ],
+   "offers": [
+    90,
+    95,
+    98,
+    100
+   ],
+   "result": "deal",
+   "price": 100
+  },
+  {
+   "time": "2026-10-27T11:49:14",
+   "task": "08849abe-d695-4de5-ae47-692d5a483a29",
+   "item": "chair",
+   "reserve": 180,
+   "open": 216,
+   "arm": 0.2,
+   "asks": [
+    216
+   ],
+   "offers": [
+    216
+   ],
+   "result": "deal",
+   "price": 216
+  },
+  {
+   "time": "2026-10-27T11:50:29",
+   "task": "e91b223d-6236-4581-9cc4-7613aad87390",
+   "item": "lamp",
+   "reserve": 100,
+   "open": 110,
+   "arm": 0.1,
+   "asks": [
+    110,
+    100
+   ],
+   "offers": [
+    95,
+    100
+   ],
+   "result": "deal",
+   "price": 100
+  },
+  {
+   "time": "2026-10-27T11:50:36",
+   "task": "27a70aa1-16fc-47ed-94b1-a413d5915129",
+   "item": "chair",
+   "reserve": 180,
+   "open": 216,
+   "arm": 0.2,
+   "asks": [
+    216,
+    180,
+    180
+   ],
+   "offers": [
+    150,
+    170,
+    180
+   ],
+   "result": "deal",
+   "price": 180
+  },
+  {
+   "time": "2026-10-27T11:51:35",
+   "task": "63e5f5e8-b9cf-42b9-a200-a1631b429d27",
+   "item": "lamp",
+   "reserve": 100,
+   "open": 120,
+   "arm": 0.2,
+   "asks": [
+    120,
+    100
+   ],
+   "offers": [
+    85,
+    100
+   ],
+   "result": "deal",
+   "price": 100
+  },
+  {
+   "time": "2026-10-27T11:53:58",
+   "task": "d7310ae7-a8eb-4835-8949-a80346be3377",
+   "item": "lamp",
+   "reserve": 100,
+   "open": 106,
+   "arm": 0.06,
+   "asks": [
+    106,
+    100
+   ],
+   "offers": [
+    92,
+    100
+   ],
+   "result": "deal",
+   "price": 100
+  },
+  {
+   "time": "2026-10-27T11:54:36",
+   "task": "76ef3ecf-66a7-485f-b174-f8d0816c6312",
+   "item": "lamp",
+   "reserve": 100,
+   "open": 115,
+   "arm": 0.15,
+   "asks": [
+    115,
+    100,
+    100,
+    100
+   ],
+   "offers": [
+    70,
+    85,
+    90
+   ],
+   "result": "canceled",
+   "price": null
+  },
+  {
+   "time": "2026-10-27T11:55:58",
+   "task": "b450ce63-5746-48c8-8ad4-2b6a5b685142",
+   "item": "lamp",
+   "reserve": 100,
+   "open": 115,
+   "arm": 0.15,
+   "asks": [
+    115,
+    100
+   ],
+   "offers": [
+    90,
+    100
+   ],
+   "result": "deal",
+   "price": 100
+  },
+  {
+   "time": "2026-10-27T11:56:12",
+   "task": "d6181494-ebca-4dbf-b1a1-c525e73b1f47",
+   "item": "chair",
+   "reserve": 180,
+   "open": 216,
+   "arm": 0.2,
+   "asks": [
+    216,
+    180,
+    180,
+    180,
+    180
+   ],
+   "offers": [
+    130,
+    150,
+    155,
+    160
+   ],
+   "result": "canceled",
+   "price": null
+  },
+  {
+   "time": "2026-10-27T11:56:32",
+   "task": "e5de4102-fb95-43ec-9c56-14cf90d39d6d",
+   "item": "lamp",
+   "reserve": 100,
+   "open": 120,
+   "arm": 0.2,
+   "asks": [
+    120,
+    100,
+    100
+   ],
+   "offers": [
+    90,
+    95,
+    100
+   ],
+   "result": "deal",
+   "price": 100
+  },
+  {
+   "time": "2026-10-27T11:57:13",
+   "task": "b7af8bbd-3d2c-48ef-a56c-101e00d6a2f2",
+   "item": "lamp",
+   "reserve": 100,
+   "open": 120,
+   "arm": 0.2,
+   "asks": [
+    120,
+    100,
+    100,
+    100
+   ],
+   "offers": [
+    70,
+    85,
+    90
+   ],
+   "result": "canceled",
+   "price": null
+  },
+  {
+   "time": "2026-10-27T11:57:22",
+   "task": "ef635dee-e9dd-4d3c-a938-93afb583b03e",
+   "item": "chair",
+   "reserve": 180,
+   "open": 216,
+   "arm": 0.2,
+   "asks": [
+    216,
+    180,
+    180,
+    180
+   ],
+   "offers": [
+    160,
+    170,
+    175,
+    180
+   ],
+   "result": "deal",
+   "price": 180
+  },
+  {
+   "time": "2026-10-27T11:58:40",
+   "task": "704629d0-59d2-4dda-8bea-af6bfbc7d2de",
+   "item": "chair",
+   "reserve": 180,
+   "open": 216,
+   "arm": 0.2,
+   "asks": [
+    216,
+    180,
+    180
+   ],
+   "offers": [
+    150,
+    170,
+    180
+   ],
+   "result": "deal",
+   "price": 180
+  },
+  {
+   "time": "2026-10-27T11:59:29",
+   "task": "7024b101-81a6-4998-a8de-f35551954237",
+   "item": "chair",
+   "reserve": 180,
+   "open": 207,
+   "arm": 0.15,
+   "asks": [
+    207,
+    180,
+    180,
+    180,
+    180,
+    180
+   ],
+   "offers": [
+    130,
+    150,
+    155,
+    160,
+    160
+   ],
+   "result": "canceled",
+   "price": null
+  },
+  {
+   "time": "2026-10-27T12:00:00",
+   "task": "02f4a81f-3f78-441b-8b1a-8a3325c4fbc3",
+   "item": "lamp",
+   "reserve": 100,
+   "open": 120,
+   "arm": 0.2,
+   "asks": [
+    120,
+    100
+   ],
+   "offers": [
+    90,
+    100
+   ],
+   "result": "deal",
+   "price": 100
+  },
+  {
+   "time": "2026-10-27T12:01:19",
+   "task": "9ca2c3ef-60a6-470b-9fce-cf19c676e026",
+   "item": "lamp",
+   "reserve": 100,
+   "open": 120,
+   "arm": 0.2,
+   "asks": [
+    120,
+    100
+   ],
+   "offers": [
+    85,
+    100
+   ],
+   "result": "deal",
+   "price": 100
+  },
+  {
+   "time": "2026-10-27T12:02:25",
+   "task": "1c69f605-9213-4dab-8978-82df124487fe",
+   "item": "lamp",
+   "reserve": 100,
+   "open": 120,
+   "arm": 0.2,
+   "asks": [
+    120,
+    100,
+    100,
+    100
+   ],
+   "offers": [
+    75,
+    85,
+    90
+   ],
+   "result": "canceled",
+   "price": null
+  },
+  {
+   "time": "2026-10-27T12:03:42",
+   "task": "080d92fc-a6a5-4cde-8a4e-b384f0ac1fb8",
+   "item": "lamp",
+   "reserve": 100,
+   "open": 115,
+   "arm": 0.15,
+   "asks": [
+    115,
+    100,
+    100
+   ],
+   "offers": [
+    95,
+    98,
+    100
+   ],
+   "result": "deal",
+   "price": 100
+  },
+  {
+   "time": "2026-10-27T12:05:10",
+   "task": "550c0c5f-bc72-4c09-b007-9b460b989f13",
+   "item": "lamp",
+   "reserve": 100,
+   "open": 120,
+   "arm": 0.2,
+   "asks": [
+    120,
+    100,
+    100,
+    100
+   ],
+   "offers": [
+    70,
+    85,
+    90
+   ],
+   "result": "canceled",
+   "price": null
+  },
+  {
+   "time": "2026-10-27T12:06:11",
+   "task": "cca7f8f4-f4c9-4e63-bbe0-950e771a9b93",
+   "item": "lamp",
+   "reserve": 100,
+   "open": 110,
+   "arm": 0.1,
+   "asks": [
+    110,
+    100,
+    100
+   ],
+   "offers": [
+    90,
+    95,
+    100
+   ],
+   "result": "deal",
+   "price": 100
+  },
+  {
+   "time": "2026-10-27T12:06:37",
+   "task": "7ec3db98-7fe7-4cb9-bb1f-1c649b111d43",
+   "item": "chair",
+   "reserve": 180,
+   "open": 207,
+   "arm": 0.15,
+   "asks": [
+    207
+   ],
+   "offers": [
+    185
+   ],
+   "result": "deal",
+   "price": 185
   }
  ]
 }

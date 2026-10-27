@@ -305751,6 +305751,864 @@
    "warnings": [],
    "why": null,
    "signed": true
+  },
+  {
+   "time": "2026-10-27T11:43:59",
+   "shop": "mjforge",
+   "item": "bookshelf",
+   "budget": 325,
+   "result": "deal",
+   "price": 260,
+   "asks": [
+    268
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:44:27",
+   "shop": "JangSeongWoong",
+   "item": "chair",
+   "budget": 185,
+   "result": "deal",
+   "price": 180.0,
+   "asks": [
+    185
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:44:45",
+   "shop": "mjforge",
+   "item": "bookshelf",
+   "budget": 295,
+   "result": "deal",
+   "price": 260,
+   "asks": [
+    268
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:45:17",
+   "shop": "mjforge",
+   "item": "bookshelf",
+   "budget": 360,
+   "result": "deal",
+   "price": 260,
+   "asks": [
+    268,
+    260,
+    260
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:45:40",
+   "shop": "myeonggi",
+   "item": "lamp",
+   "budget": 110,
+   "result": "deal",
+   "price": 100.0,
+   "asks": [
+    100
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:46:06",
+   "shop": "mjforge",
+   "item": "bookshelf",
+   "budget": 325,
+   "result": "deal",
+   "price": 260,
+   "asks": [
+    268,
+    260,
+    260
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:46:35",
+   "shop": "myeonggi",
+   "item": "lamp",
+   "budget": 110,
+   "result": "deal",
+   "price": 100.0,
+   "asks": [
+    100
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:47:03",
+   "shop": "mjforge",
+   "item": "bookshelf",
+   "budget": 230,
+   "result": "canceled",
+   "price": null,
+   "asks": [
+    268,
+    260,
+    260,
+    260
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": "budget",
+   "signed": null
+  },
+  {
+   "time": "2026-10-27T11:47:16",
+   "shop": "mjforge",
+   "item": "bookshelf",
+   "budget": 295,
+   "result": "deal",
+   "price": 260,
+   "asks": [
+    268
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:47:49",
+   "shop": "myeonggi",
+   "item": "lamp",
+   "budget": 140,
+   "result": "deal",
+   "price": 100.0,
+   "asks": [
+    100
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:48:28",
+   "shop": "JangSeongWoong",
+   "item": "chair",
+   "budget": 225,
+   "result": "deal",
+   "price": 180.0,
+   "asks": [
+    185,
+    180,
+    180
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:49:06",
+   "shop": "myeonggi",
+   "item": "lamp",
+   "budget": 90,
+   "result": "rejected",
+   "price": null,
+   "asks": [
+    100,
+    100
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": "budget",
+   "signed": null
+  },
+  {
+   "time": "2026-10-27T11:49:26",
+   "shop": "myeonggi",
+   "item": "lamp",
+   "budget": 140,
+   "result": "deal",
+   "price": 100.0,
+   "asks": [
+    100
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:49:50",
+   "shop": "JangSeongWoong",
+   "item": "chair",
+   "budget": 185,
+   "result": "deal",
+   "price": 180.0,
+   "asks": [
+    185
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:50:24",
+   "shop": "JangSeongWoong",
+   "item": "chair",
+   "budget": 185,
+   "result": "deal",
+   "price": 180.0,
+   "asks": [
+    185
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:50:52",
+   "shop": "myeonggi",
+   "item": "bookshelf",
+   "budget": 325,
+   "result": "deal",
+   "price": 260.0,
+   "asks": [
+    260
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:51:20",
+   "shop": "myeonggi",
+   "item": "bookshelf",
+   "budget": 360,
+   "result": "deal",
+   "price": 260.0,
+   "asks": [
+    260
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:52:01",
+   "shop": "myeonggi",
+   "item": "bookshelf",
+   "budget": 270,
+   "result": "deal",
+   "price": 260.0,
+   "asks": [
+    260
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:52:26",
+   "shop": "JangSeongWoong",
+   "item": "chair",
+   "budget": 225,
+   "result": "deal",
+   "price": 180.0,
+   "asks": [
+    185
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:52:48",
+   "shop": "JangSeongWoong",
+   "item": "chair",
+   "budget": 250,
+   "result": "deal",
+   "price": 180.0,
+   "asks": [
+    185
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:53:04",
+   "shop": "11im",
+   "item": "lamp",
+   "budget": 105,
+   "result": "deal",
+   "price": 100.0,
+   "asks": [
+    110
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:53:28",
+   "shop": "myeonggi",
+   "item": "lamp",
+   "budget": 140,
+   "result": "deal",
+   "price": 100.0,
+   "asks": [
+    100
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:54:00",
+   "shop": "mjforge",
+   "item": "bookshelf",
+   "budget": 230,
+   "result": "canceled",
+   "price": null,
+   "asks": [
+    260,
+    260,
+    260
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": "budget",
+   "signed": null
+  },
+  {
+   "time": "2026-10-27T11:54:48",
+   "shop": "JangSeongWoong",
+   "item": "chair",
+   "budget": 225,
+   "result": "deal",
+   "price": 180.0,
+   "asks": [
+    185,
+    180,
+    180,
+    180
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:54:59",
+   "shop": "mjforge",
+   "item": "bookshelf",
+   "budget": 270,
+   "result": "deal",
+   "price": 260,
+   "asks": [
+    268
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:55:35",
+   "shop": "JangSeongWoong",
+   "item": "chair",
+   "budget": 205,
+   "result": "deal",
+   "price": 180.0,
+   "asks": [
+    185
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:55:54",
+   "shop": "mjforge",
+   "item": "bookshelf",
+   "budget": 295,
+   "result": "deal",
+   "price": 260,
+   "asks": [
+    268
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:56:25",
+   "shop": "JangSeongWoong",
+   "item": "chair",
+   "budget": 250,
+   "result": "deal",
+   "price": 180.0,
+   "asks": [
+    185
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:56:53",
+   "shop": "myeonggi",
+   "item": "bookshelf",
+   "budget": 325,
+   "result": "deal",
+   "price": 260.0,
+   "asks": [
+    260
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:57:14",
+   "shop": "JangSeongWoong",
+   "item": "chair",
+   "budget": 185,
+   "result": "deal",
+   "price": 180.0,
+   "asks": [
+    185
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:57:48",
+   "shop": "JangSeongWoong",
+   "item": "chair",
+   "budget": 250,
+   "result": "deal",
+   "price": 180.0,
+   "asks": [
+    185,
+    180
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:58:25",
+   "shop": "mjforge",
+   "item": "bookshelf",
+   "budget": 325,
+   "result": "deal",
+   "price": 260,
+   "asks": [
+    260,
+    260,
+    260,
+    260,
+    260
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:58:44",
+   "shop": "11im",
+   "item": "bookshelf",
+   "budget": 230,
+   "result": "input_required",
+   "price": null,
+   "asks": [
+    290
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": "budget",
+   "signed": null
+  },
+  {
+   "time": "2026-10-27T11:59:01",
+   "shop": "11im",
+   "item": "lamp",
+   "budget": 125,
+   "result": "deal",
+   "price": 100.0,
+   "asks": [
+    110
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T11:59:29",
+   "shop": "mjforge",
+   "item": "lamp",
+   "budget": 90,
+   "result": "canceled",
+   "price": null,
+   "asks": [
+    100,
+    100,
+    100
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": "budget",
+   "signed": null
+  },
+  {
+   "time": "2026-10-27T12:00:05",
+   "shop": "myeonggi",
+   "item": "lamp",
+   "budget": 90,
+   "result": "rejected",
+   "price": null,
+   "asks": [
+    100,
+    100
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": "budget",
+   "signed": null
+  },
+  {
+   "time": "2026-10-27T12:00:56",
+   "shop": "JangSeongWoong",
+   "item": "chair",
+   "budget": 160,
+   "result": "canceled",
+   "price": null,
+   "asks": [
+    185,
+    180,
+    180
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": "budget",
+   "signed": null
+  },
+  {
+   "time": "2026-10-27T12:01:26",
+   "shop": "11im",
+   "item": "lamp",
+   "budget": 105,
+   "result": "input_required",
+   "price": null,
+   "asks": [
+    110
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": "shop",
+   "signed": null
+  },
+  {
+   "time": "2026-10-27T12:01:43",
+   "shop": "11im",
+   "item": "lamp",
+   "budget": 105,
+   "result": "deal",
+   "price": 100.0,
+   "asks": [
+    110
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T12:01:59",
+   "shop": "11im",
+   "item": "lamp",
+   "budget": 140,
+   "result": "deal",
+   "price": 100.0,
+   "asks": [
+    110
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T12:02:33",
+   "shop": "JangSeongWoong",
+   "item": "chair",
+   "budget": 250,
+   "result": "deal",
+   "price": 180.0,
+   "asks": [
+    185
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T12:02:50",
+   "shop": "11im",
+   "item": "lamp",
+   "budget": 125,
+   "result": "input_required",
+   "price": null,
+   "asks": [
+    110
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": "shop",
+   "signed": null
+  },
+  {
+   "time": "2026-10-27T12:03:15",
+   "shop": "Afford Shop",
+   "item": "lamp",
+   "budget": 90,
+   "result": "input_required",
+   "price": null,
+   "asks": [
+    115
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": "budget",
+   "signed": null
+  },
+  {
+   "time": "2026-10-27T12:03:37",
+   "shop": "JangSeongWoong",
+   "item": "chair",
+   "budget": 185,
+   "result": "deal",
+   "price": 180.0,
+   "asks": [
+    185
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T12:03:53",
+   "shop": "11im",
+   "item": "bookshelf",
+   "budget": 270,
+   "result": "input_required",
+   "price": null,
+   "asks": [
+    290
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": "shop",
+   "signed": null
+  },
+  {
+   "time": "2026-10-27T12:04:23",
+   "shop": "JangSeongWoong",
+   "item": "chair",
+   "budget": 250,
+   "result": "deal",
+   "price": 180.0,
+   "asks": [
+    185
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T12:04:41",
+   "shop": "11im",
+   "item": "lamp",
+   "budget": 105,
+   "result": "input_required",
+   "price": null,
+   "asks": [
+    110
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": "shop",
+   "signed": null
+  },
+  {
+   "time": "2026-10-27T12:04:59",
+   "shop": "11im",
+   "item": "lamp",
+   "budget": 110,
+   "result": "input_required",
+   "price": null,
+   "asks": [
+    110
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": "shop",
+   "signed": null
+  },
+  {
+   "time": "2026-10-27T12:05:26",
+   "shop": "mjforge",
+   "item": "bookshelf",
+   "budget": 295,
+   "result": "deal",
+   "price": 260,
+   "asks": [
+    268,
+    260
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T12:05:53",
+   "shop": "11im",
+   "item": "lamp",
+   "budget": 125,
+   "result": "input_required",
+   "price": null,
+   "asks": [
+    110
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": "shop",
+   "signed": null
+  },
+  {
+   "time": "2026-10-27T12:06:17",
+   "shop": "mjforge",
+   "item": "bookshelf",
+   "budget": 295,
+   "result": "deal",
+   "price": 268,
+   "asks": [
+    268
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
+  },
+  {
+   "time": "2026-10-27T12:06:40",
+   "shop": "mjforge",
+   "item": "bookshelf",
+   "budget": 270,
+   "result": "deal",
+   "price": 260,
+   "asks": [
+    268
+   ],
+   "holds": 0,
+   "problems": [],
+   "warnings": [],
+   "why": null,
+   "signed": true
   }
  ]
 }

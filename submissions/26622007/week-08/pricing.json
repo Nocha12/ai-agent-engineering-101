@@ -27,6 +27,11 @@
     "cut_far": 0.05
   },
   "objective": "profit",
+  "concession": [
+    0.6,
+    0.3,
+    0.0
+  ],
   "low_conversion": 0.6,
   "step_down": 0.05,
   "min_markup": 0.03,

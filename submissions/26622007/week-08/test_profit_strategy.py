@@ -74,6 +74,33 @@ class OpeningTest(unittest.TestCase):
         self.assertGreater(sum(v for k, v in picks.items() if k > 0), 250, picks)
 
 
+class ConcessionTest(unittest.TestCase):
+    def floors(self, concession, opened, reserve, rounds=4):
+        with tempfile.TemporaryDirectory() as d:
+            pricing = os.path.join(d, "p.json")
+            with open(pricing, "w") as f:
+                json.dump({} if concession is None else {"concession": concession}, f)
+            with mock.patch.object(shop_memory, "PRICING", pricing):
+                return [shop_memory.concession_floor(opened, reserve, r) for r in range(1, rounds + 1)]
+
+    def test_steps_down_to_the_reserve(self):
+        self.assertEqual(self.floors([0.6, 0.3, 0.0], 120, 100), [112, 106, 100, 100])
+        self.assertEqual(self.floors([0.6, 0.3, 0.0], 216, 180), [202, 191, 180, 180])
+
+    def test_default_is_the_weeks_6_7_schedule(self):
+        self.assertEqual(self.floors(None, 120, 100), [100, 100, 100, 100])
+
+    def test_never_below_the_reserve(self):
+        self.assertEqual(self.floors([0.5], 100, 100), [100, 100, 100, 100])
+
+    def test_the_seller_uses_it(self):
+        src = open(os.path.join(HERE, "seller.py"), encoding="utf-8").read()
+        self.assertIn("shop_memory.concession_floor(opened, reserve, deal[\"rounds\"])", src)
+        self.assertNotIn("cap = reserve   # first counter goes straight to the reserve", src)
+        with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["concession"], [0.6, 0.3, 0.0])
+
+
 class AcpChoiceTest(unittest.TestCase):
     SHOPS = [{"name": "no-acp", "url": "https://a.example"}, {"name": "has-acp", "url": "https://b.example"}]
 

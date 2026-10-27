@@ -214,6 +214,16 @@ def review_stars():
     return _ledger["stars"]
 
 
+def concession_floor(opened, reserve, rounds):
+    """The lowest price the shop takes in this round of a talk that opened at `opened`.
+
+    pricing.json "concession" lists, per counter round, the share of the opening margin the shop keeps;
+    the last entry repeats. [0.0] (the default, weeks 6-7) goes to the reserve at once."""
+    keep = load_pricing().get("concession") or [0.0]
+    share = keep[min(max(rounds, 1), len(keep)) - 1]
+    return max(reserve, reserve + round((opened - reserve) * share))
+
+
 def choose_opening(item, reserve):
     """(opening ask, arm, why). Never below the reserve."""
     reviews()                             # refreshes the share used below

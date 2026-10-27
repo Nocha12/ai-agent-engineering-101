@@ -269,17 +269,21 @@ class Seller(AgentExecutor):
         log(f"task {task.id[:8]} harness read the offer as {offer} from {sorted(written)}")
         deal["history"].append(("buyer offered", offer))
 
-        # concession schedule: half of the opening margin on the first counter, the reserve on the second.
-        # Buyers rate a visible discount highly and leave after slow talks; a lost talk also loses the
-        # buyer's next orders, so an offer at or above the reserve is taken from the second round on.
+        # concession schedule (week 8, profit): each counter keeps a share of the opening margin
+        # (pricing.json "concession"), so a high opening is not given away on the first counter.
+        # The counter never rises above our last ask; an offer at or above this round's floor is taken.
         opened = deal.get("open", deal["ask"])
-        cap = reserve   # first counter goes straight to the reserve: one visible discount, then a short close
-        if action == "counter" and price > cap:
-            log(f"SCHEDULE counter {price} -> {cap} (round {deal['rounds']}, opened {opened})")
-            price = cap
-        if action != "accept" and offer >= reserve and deal["rounds"] >= 2:
-            log(f"SCHEDULE offer {offer} >= reserve {reserve} in round {deal['rounds']} -> accept")
+        floor = shop_memory.concession_floor(opened, reserve, deal["rounds"])
+        if action == "counter" and not floor <= price <= deal["ask"]:
+            new = min(max(price, floor), deal["ask"])
+            log(f"SCHEDULE counter {price} -> {new} (round {deal['rounds']}, opened {opened}, floor {floor})")
+            price = new
+        if action != "accept" and offer >= floor:
+            log(f"SCHEDULE offer {offer} >= floor {floor} in round {deal['rounds']} -> accept")
             action = "accept"
+        if action == "accept" and reserve <= offer < floor:
+            log(f"SCHEDULE accept at {offer} < floor {floor} in round {deal['rounds']} -> counter at {floor}")
+            action, price = "counter", floor
         if action == "accept" and offer < reserve:
             log(f"GUARD accept at {offer} < reserve {reserve} -> counter at {max(price, reserve)}")
             action, price = "counter", max(price, reserve)
