@@ -18,6 +18,7 @@ one item from that list and opens with a price.
 import argparse
 import asyncio
 import base64
+import hmac
 import json
 import math
 import os
@@ -28,6 +29,9 @@ import time
 
 import uvicorn
 from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import FileResponse, JSONResponse
+from starlette.routing import Route
 
 from a2a.helpers import get_message_text, new_data_part, new_task_from_user_message, new_text_part
 from a2a.server.agent_execution import AgentExecutor, RequestContext
@@ -38,6 +42,7 @@ from a2a.server.tasks import InMemoryTaskStore, TaskUpdater
 from a2a.types import AgentCapabilities, AgentCard, AgentInterface, AgentSkill
 from cryptography.hazmat.primitives import serialization
 
+from acp_shop import AcpCheckout
 from catalog import NUMERIC, Catalog
 from harness import HarnessError, ask
 import shop_memory
@@ -375,7 +380,29 @@ def build(url, catalog, name):
     )
     handler = DefaultRequestHandler(agent_executor=Seller(catalog, name), task_store=InMemoryTaskStore(),
                                     agent_card=card)
-    return Starlette(routes=create_agent_card_routes(card) + create_jsonrpc_routes(handler, "/"))
+    acp = AcpCheckout(url, load_shop_key, log)
+    return Starlette(routes=create_agent_card_routes(card) + acp.routes() + [Route("/_kitlog", kitlog)]
+                     + create_jsonrpc_routes(handler, "/"))
+
+
+KITLOGS = ("market-kit.log", "market-kit.log.1")
+
+
+async def kitlog(req: Request):
+    """The kit's log from this machine (Render has no shell). Off unless KITLOG_TOKEN is set; send it as a Bearer token.
+
+    GET /_kitlog                     logs/market-kit.log
+    GET /_kitlog?file=market-kit.log.1   the part the kit moved aside at 20 MB"""
+    token = os.environ.get("KITLOG_TOKEN")
+    if not token:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if not hmac.compare_digest(req.headers.get("authorization", ""), f"Bearer {token}"):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    name = req.query_params.get("file", KITLOGS[0])
+    path = os.path.join("logs", name)
+    if name not in KITLOGS or not os.path.exists(path):
+        return JSONResponse({"error": f"no {name}"}, status_code=404)
+    return FileResponse(path, media_type="text/plain")
 
 
 if __name__ == "__main__":
