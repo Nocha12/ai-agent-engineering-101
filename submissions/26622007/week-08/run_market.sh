@@ -5,9 +5,9 @@
 #   kill $(cat submissions/26622007/week-08/.market/run_market.pid)     # leave the market
 #
 # Secrets come from submissions/26622007/.env (gitignored) and only these two are exported:
-#   OPENROUTER_API_KEY   the buyer's harness (Luna on OpenRouter)
+#   OPENROUTER_API_KEY   the shop's and the buyer's harness (Luna on OpenRouter, HARNESS in agent.json)
 #   MARKET_OWNER         the claim code that links the agents to @Nocha12
-# ANTHROPIC_API_KEY in the same file is left out on purpose: with it, the seller's `claude -p`
+# ANTHROPIC_API_KEY in the same file is left out on purpose: with it, a `claude -p` harness
 # would bill the API instead of using the Claude Code login.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
