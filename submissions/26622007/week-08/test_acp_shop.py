@@ -13,7 +13,9 @@ import base64
 import json
 import os
 import sys
+import tempfile
 import unittest
+from unittest import mock
 
 import httpx
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -150,11 +152,16 @@ class KitlogTest(unittest.TestCase):
             os.environ["KITLOG_TOKEN"] = self.saved
 
     def test_off_without_token_and_guarded_with_one(self):
+        import seller
         self.assertEqual(self.client.get("/_kitlog").status_code, 404)
         os.environ["KITLOG_TOKEN"] = "s3cret"
         self.assertEqual(self.client.get("/_kitlog").status_code, 401)
         self.assertEqual(self.client.get("/_kitlog", headers={"Authorization": "Bearer wrong"}).status_code, 401)
-        r = self.client.get("/_kitlog", headers={"Authorization": "Bearer s3cret"})
+        with tempfile.NamedTemporaryFile("w", suffix=".log") as f, \
+                mock.patch.dict(seller.KITLOGS, {"market-kit.log": f.name}):
+            f.write("[kit] market_kit 4\n")
+            f.flush()
+            r = self.client.get("/_kitlog", headers={"Authorization": "Bearer s3cret"})
         self.assertEqual(r.status_code, 200)
         self.assertIn("[kit] market_kit", r.text)
         self.assertEqual(self.client.get("/_kitlog?file=../agent.json",
