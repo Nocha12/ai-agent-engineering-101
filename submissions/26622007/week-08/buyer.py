@@ -83,7 +83,7 @@ def metadata_ask(t):
 
 
 def numbers(text):
-    return {round(float(n)) for n in re.findall(r"\d+(?:\.\d+)?", text)}
+    return {round(float(n)) for n in re.findall(r"\d+(?:\.\d+)?", re.sub(r"(?<=\d),(?=\d)", "", text))}
 
 
 def receipt(t):
@@ -106,10 +106,11 @@ def decide(item, budget, history, text, meta_ask, turn, note=""):
     return ask(prompt, SCHEMA, SYSTEM, tag="buyer-harness")
 
 
-def negotiate(card_url, item, budget, note=""):
+def negotiate(card_url, item, budget, note="", request=None):
     """One A2A negotiation. Returns {"state", "task", "receipt", "history", "agreed"}.
 
     agreed is the last price we offered, which is what the shop accepted when the task completes.
+    request is the first message; Round 3 names the name and SKU the shop has.
     """
     out = {"state": "", "task": None, "receipt": None, "history": [], "agreed": None, "holds": 0}
     try:
@@ -129,7 +130,7 @@ def negotiate(card_url, item, budget, note=""):
     url = iface["url"]
     log(f"card {card.get('name')!r} -> {url}; item {item}, budget {budget}")
 
-    t = send(url, f"I want to buy a {item}")
+    t = send(url, request or f"I want to buy a {item}")
     if t is None:
         out["state"] = "ERROR"
         return out

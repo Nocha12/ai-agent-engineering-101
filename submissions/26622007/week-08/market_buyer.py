@@ -1,6 +1,6 @@
 """The market buyer: picks a shop from the market's list, trades with it over A2A, remembers it.
 
-    python market_buyer.py --shops .market/shops.json --item lamp --budget 120
+    python market_buyer.py --shops .market/shops.json --item lamp --budget 120 --order .market/order.json
 
 What the code does and what the harness does:
 - Code reads {shops} (name, card URL, newest-first reviews) and my memory file, and turns
@@ -21,6 +21,10 @@ What the code does and what the harness does:
 - The last output line is the result JSON the kit sends to the market.
 - From Round 3 only settled deals count, and the kit can pay only a shop that serves /.well-known/acp.json.
   Code checks the chosen shop for it and chooses again without that shop (up to ACP_TRIES times).
+- Round 3 orders name a category and its acceptable SKUs ({order}). Code keeps only shops that have one
+  that fits (offers), asks for the SKU worth the most within the budget, never pays over its list price (a
+  buyer's value), and tells the kit to pay only for food that will last (accept). Memory is by SKU there.
+  A receipt that does not hold up is not passed to the kit, because the kit would pay it.
 """
 import argparse
 import json
@@ -43,6 +47,7 @@ REVIEWS_SHOWN = 5      # newest reviews per shop that reach the prompt
 REVIEW_CHARS = 160     # characters per review that reach the prompt
 MARKET = os.environ.get("MARKET_URL", "https://market.ourolabs.ai")
 ACP_TRIES = 3          # Round 3: shops checked for an ACP checkout before trading anyway
+SHELF_MARGIN = 0.1     # hours of shelf life asked for beyond use_within_hours: the deal settles after the check
 
 
 def market_round():
@@ -172,7 +177,7 @@ def avg_stars(shop):
 def unreachable(trades):
     """The shop did not answer my last two visits (dead tunnel, crashed seller)."""
     last = trades[-2:]
-    return len(last) == 2 and all(t["result"].startswith(("error", "no_card", "no_interface")) for t in last)
+    return len(last) == 2 and all(t["result"].startswith(("error", "no_card", "no_interface", "unpaid")) for t in last)
 
 
 def shop_summary(shop, trades, item=None):
@@ -285,13 +290,80 @@ def choose(shops, memory, item, budget):
     return by_name[d["shop"]], f"{mode}: {d['reason']}"
 
 
+# --- Round 3: the order, the catalog, what the kit did with the last payments
+
+def load_json(path, default):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError, TypeError):
+        return default
+
+
+def usable_offers(shop, order, catalog):
+    """The shop's offers that fit this order: in stock, acceptable, and food whose shelf life can last at all."""
+    fit = []
+    for o in shop.get("offers") or []:
+        x = catalog.get(o.get("sku")) or {}
+        if o.get("qty") and o.get("sku") in order["acceptable"] and x.get("list_price") \
+                and (x.get("shelf_hours") or float("inf")) >= (order.get("use_within_hours") or 0):
+            fit.append(dict(o, list_price=x["list_price"]))
+    return fit
+
+
+def pick_offer(offers, budget):
+    """The SKU worth the most that the budget can cover at its list price, else the cheapest."""
+    within = [o for o in offers if o["list_price"] <= budget]
+    return max(within, key=lambda o: o["list_price"]) if within else min(offers, key=lambda o: o["list_price"])
+
+
+def accept_policy(order):
+    """What the kit checks before paying. A food unit that does not last is worth 0, so it needs the proof."""
+    if order.get("kind") == "food" and order.get("use_within_hours"):
+        return {"cert": True, "min_hours_left": order["use_within_hours"] + SHELF_MARGIN}
+    return None
+
+
+def sync_payments(memory, path):
+    """The kit pays after this program exits: mark what it did (.market/payments.jsonl) on the trades in memory.
+    A deal the kit did not pay is no deal: it does not count as a good shop, and it is not my deal."""
+    open_trades = {t["order"]: t for t in memory["trades"] if t.get("order") and t["result"] == "deal" and "paid" not in t}
+    if not open_trades:
+        return
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.readlines()
+    except OSError:
+        return
+    for line in lines:
+        try:
+            p = json.loads(line)
+        except ValueError:
+            continue
+        t = open_trades.get(p.get("order"))
+        if t is not None:
+            t["paid"] = bool(p.get("paid"))
+            if not t["paid"]:
+                t["result"], t["unpaid_reason"] = "unpaid", p.get("reason")
+                log(f"[payments] {t['shop']}: {t['item']} not paid: {p.get('reason')}")
+
+
 # --- after the trade
 
-def check_receipt(rec, out, item, budget):
+def check_receipt(rec, out, item, budget, order=None, catalog=None):
     """(problems, warnings) between the receipt and the deal we made.
 
     problems cost me money or reuse another trade (cheating); warnings break a market rule only."""
     problems, warnings = [], []
+    if order and order.get("acceptable"):
+        got = rec.get("item")
+        value = (catalog or {}).get(got, {}).get("list_price")
+        if got != order.get("item") and got not in order["acceptable"]:
+            problems.append(f"receipt item {got!r} does not fit the order")
+        elif value and isinstance(rec.get("price"), (int, float)) and rec["price"] > value:
+            problems.append(f"receipt price {rec['price']:g} is over the list price {value} of {got}")
+        elif out.get("asked") and got != out["asked"]:
+            warnings.append(f"asked for {out['asked']}, the receipt names {got}")
     price = rec.get("price")
     if not isinstance(price, (int, float)) or isinstance(price, bool):
         return ["receipt has no numeric price"], []
@@ -299,7 +371,7 @@ def check_receipt(rec, out, item, budget):
         problems.append(f"agreed {out['agreed']}, receipt says {price:g}")
     if round(price) > budget:
         problems.append(f"receipt price {price:g} is over my budget {budget}")
-    if str(rec.get("item", "")).strip().lower() != item.strip().lower():
+    if not (order and order.get("acceptable")) and str(rec.get("item", "")).strip().lower() != item.strip().lower():
         warnings.append(f"receipt item {rec.get('item')!r} is not {item!r}")
     if not rec.get("sig_seller"):
         warnings.append("receipt has no sig_seller, so the deal does not count in Round 2")
@@ -334,6 +406,7 @@ def main():
     ap.add_argument("--shops", required=True)
     ap.add_argument("--item", required=True)
     ap.add_argument("--budget", type=int, required=True)
+    ap.add_argument("--order", help="order.json from the kit; Round 3 orders carry the acceptable SKUs")
     args = ap.parse_args()
 
     global MEMORY
@@ -342,11 +415,21 @@ def main():
         MEMORY = "memory/test_memory.json" if test else "memory/market_memory.json"
     with open(args.shops, encoding="utf-8") as f:
         shops = [s for s in json.load(f) if s.get("url") and s.get("name")]
+    order = load_json(args.order, {}) if args.order else {}
+    r3 = isinstance(order, dict) and bool(order.get("acceptable"))
+    md = os.path.dirname(args.shops) or "."
+    catalog = load_json(os.path.join(md, "catalog.json"), {}) if r3 else {}
+    if r3:
+        for s in shops:
+            s["usable"] = usable_offers(s, order, catalog)
+        shops = [s for s in shops if s["usable"]]
     if not shops:
-        log("[choose] no shops in the list")
-        print(json.dumps({"shop": "", "receipt": None, "stars": 1, "review": "No shops to trade with."}))
+        log("[choose] no shops with this order in stock" if r3 else "[choose] no shops in the list")
+        print(json.dumps({"shop": "", "receipt": None, **({} if r3 else {"stars": 1, "review": "No shops to trade with."})}))
         return 0
     memory = load_memory()
+    if r3:
+        sync_payments(memory, os.path.join(md, "payments.jsonl"))
     log(f"order: {args.item}, budget {args.budget}; {len(shops)} shops; {len(memory['trades'])} trades in memory")
 
     rnd = market_round()
@@ -363,22 +446,29 @@ def main():
         left = [s for s in left if s["name"] != shop["name"]] or left
     log(f"[choose] {shop['url']}: {shop['name']} - {reason}")
 
+    offer = pick_offer(shop["usable"], args.budget) if r3 else None
+    key = offer["sku"] if r3 else args.item     # prices are comparable within a SKU, not within a category
+    label = offer["name"] if r3 else args.item
+    limit = min(args.budget, offer["list_price"]) if r3 else args.budget
     mine = my_history(memory, shop["name"])
-    deals, low = item_stats(mine, args.item)
+    deals, low = item_stats(mine, key)
     note = "; ".join(x for x in (
-        f"it sold {args.item} to you at {', '.join(map(str, deals[-3:]))}" if deals else "",
-        f"its lowest ask for {args.item} so far was {low}" if low is not None else "") if x)
+        f"it sold {label} to you at {', '.join(map(str, deals[-3:]))}" if deals else "",
+        f"its lowest ask for {label} so far was {low}" if low is not None else "") if x)
     if note:
         log(f"memory note for the harness: {note}")
+    if r3:
+        log(f"[offer] {offer['sku']} {offer['name']}: list {offer['list_price']}, limit {limit}, {len(shop['usable'])} fit")
     try:
-        out = negotiate(shop["url"], args.item, args.budget, note)
+        out = negotiate(shop["url"], label, limit, note, f"I want to buy {label} ({key})" if r3 else None)
+        out["asked"] = key if r3 else None
     except Exception as e:  # network errors from a shop that went away
         log(f"trade failed: {type(e).__name__}: {e}")
         out = {"state": f"ERROR {type(e).__name__}", "task": None, "receipt": None, "history": [], "agreed": None,
                "holds": 0}
 
     rec = out["receipt"] if out["state"] == "TASK_STATE_COMPLETED" else None
-    problems, warnings = check_receipt(rec, out, args.item, args.budget) if rec is not None else ([], [])
+    problems, warnings = check_receipt(rec, out, args.item, args.budget, order, catalog) if rec is not None else ([], [])
     if out["state"] == "TASK_STATE_COMPLETED" and rec is None:
         problems = ["completed without a receipt"]
         out["state"] = "COMPLETED_NO_RECEIPT"
@@ -387,14 +477,15 @@ def main():
     for w in warnings:
         log(f"[receipt] WARNING {shop['name']}: {w}")
     asks = [p for who, p in out["history"] if who == "shop asked"]
-    why = None if rec is not None else no_deal_reason(asks, args.budget)
+    why = None if rec is not None else no_deal_reason(asks, limit)
     if why:
-        log(f"[memory] no deal, on the {why} side" + (f" (lowest ask {min(asks)}, budget {args.budget})" if asks else ""))
+        log(f"[memory] no deal, on the {why} side" + (f" (lowest ask {min(asks)}, limit {limit})" if asks else ""))
     stars, review = rate(out, problems, args.item, args.budget, warnings) if rec is not None or not problems \
         else (1, f"Said the deal was done but sent no receipt for {args.item}.")
 
     memory["trades"].append({
-        "time": time.strftime("%Y-%m-%dT%H:%M:%S"), "shop": shop["name"], "item": args.item, "budget": args.budget,
+        "time": time.strftime("%Y-%m-%dT%H:%M:%S"), "shop": shop["name"], "item": key, "budget": args.budget,
+        **({"order": order.get("order"), "category": args.item, "list_price": offer["list_price"]} if r3 else {}),
         "result": "deal" if rec is not None else (out["state"] or "error").replace("TASK_STATE_", "").lower(),
         "price": rec.get("price") if rec else None,
         "asks": asks, "holds": out.get("holds", 0), "problems": problems, "warnings": warnings, "why": why,
@@ -402,8 +493,13 @@ def main():
     save_memory(memory)
     log(f"memory: {len(memory['trades'])} trades saved to {MEMORY}")
 
-    print(json.dumps({"shop": shop["url"], "receipt": rec, "stars": stars, "review": review}, ensure_ascii=False),
-          flush=True)
+    result = {"shop": shop["url"], "receipt": rec, "stars": stars, "review": review}
+    if r3:
+        if problems:
+            result["receipt"] = None            # the kit pays any receipt that verifies: this one does not go through
+        if accept_policy(order):
+            result["accept"] = accept_policy(order)
+    print(json.dumps(result, ensure_ascii=False), flush=True)
     return 0
 
 
