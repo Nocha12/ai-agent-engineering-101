@@ -189,13 +189,8 @@ def review_stars():
     mine = {n["task"] for n in load()["negotiations"] if n.get("result") == "deal"}
     try:
         after = _ledger["seq"]
-        if after is None:   # start a few thousand entries back instead of from the beginning
-            after = 0
-            for guess in (20000, 15000, 12000, 9000, 6000, 3000, 0):
-                page = httpx.get(f"{MARKET}/api/ledger", params={"after": guess}, timeout=5).json()
-                if page:
-                    after = guess
-                    break
+        if after is None:   # the newest entries, not the 1.6 million from the beginning
+            after = -500
         for _ in range(20):
             page = httpx.get(f"{MARKET}/api/ledger", params={"after": after}, timeout=10).json()
             if not page:
@@ -224,11 +219,15 @@ def concession_floor(opened, reserve, rounds):
     return max(reserve, reserve + round((opened - reserve) * share))
 
 
-def choose_opening(item, reserve):
-    """(opening ask, arm, why). Never below the reserve."""
+def choose_opening(item, reserve, list_price=None):
+    """(opening ask, arm, why). Never below the reserve.
+
+    Round 3 passes the SKU's list price: the arms are then shares of the list price ("list_arms"), because a
+    buyer's value is the list price and the reserve (the unit's cost) changes from unit to unit."""
     reviews()                             # refreshes the share used below
     p = load_pricing()
-    arms = p.get("arms", [0.0, 0.03, 0.06, 0.10, 0.15])
+    arms = p.get("list_arms", [0.7, 0.8, 0.9, 1.0]) if list_price else p.get("arms", [0.0, 0.03, 0.06, 0.10, 0.15])
+    price_of = lambda m: max(reserve, round(list_price * m if list_price else reserve * (1 + m)))
     gamma = p.get("gamma", 0.97)
     ceiling = (p.get("item_max_markup") or {}).get(item)
     if ceiling is not None:
@@ -239,11 +238,11 @@ def choose_opening(item, reserve):
     b = {m: 1.0 for m in arms}
     # profit: discounted sum of the realized margin (deal price - reserve) / reserve, and of the weights, over
     # deals per arm. One pseudo-deal at the arm's own markup is the prior, so an untried arm is not ruled out.
-    gain = {m: [m, 1.0] for m in arms}
+    gain = {m: [(price_of(m) - reserve) / reserve if list_price else m, 1.0] for m in arms}
     def arm_of(n):                        # older records have no arm: take the nearest one to their opening
         if n.get("arm") in a:
             return n["arm"]
-        if not n.get("open") or not n.get("reserve"):
+        if list_price or not n.get("open") or not n.get("reserve"):
             return None
         return min(arms, key=lambda m: abs(n["open"] - n["reserve"] * (1 + m)))
 
@@ -270,7 +269,7 @@ def choose_opening(item, reserve):
     lam = p.get("lambda_low_share", 2.0) if low else p.get("lambda", 0.3)
     scores = {}
     for m in arms:
-        price = max(reserve, round(reserve * (1 + m)))
+        price = price_of(m)
         theta = random.betavariate(a[m], b[m])
         over = max(0, price - mean) if mean else 0
         if profit:                        # expected profit of one visit: P(deal) * margin the deals really closed at
@@ -278,8 +277,8 @@ def choose_opening(item, reserve):
         else:                             # expected revenue of one visit (weeks 6-7)
             scores[m] = theta * price - lam * over
     best = max(scores, key=scores.get)
-    price = max(reserve, round(reserve * (1 + best)))
-    why = (f"{'profit' if profit else 'revenue'} arm +{best:.0%} of {[f'{m:.0%}' for m in arms]}, posterior "
+    price = price_of(best)
+    why = (f"{'profit' if profit else 'revenue'} arm {'list x ' if list_price else '+'}{best:.0%} of {[f'{m:.0%}' for m in arms]}, posterior "
            f"{a[best]:.1f}/{b[best]:.1f}"
            + (f", realized margin {gain[best][0] / gain[best][1]:.1%}" if profit else "")
            + f", market mean {mean and round(mean, 1)}, "

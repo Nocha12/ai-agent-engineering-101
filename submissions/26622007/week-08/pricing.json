@@ -46,5 +46,19 @@
   "gamma": 0.97,
   "lambda": 0.0,
   "lambda_low_share": 0.0,
-  "launch_reviews": 40
+  "launch_reviews": 40,
+  "list_arms": [
+    0.7,
+    0.8,
+    0.9,
+    1.0
+  ],
+  "warranty_hours": 0,
+  "restock": {
+    "keep_cash": 1500000,
+    "target_per_category": 2,
+    "min_shelf_hours": 720,
+    "goods_max_price": 50000,
+    "max_lines": 10
+  }
 }

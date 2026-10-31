@@ -1,4 +1,4 @@
-"""A furniture seller exposed as an A2A v1.0 server (JSON-RPC). Claude Code decides the prices.
+"""A seller exposed as an A2A v1.0 server (JSON-RPC). The harness decides the prices.
 
     python seller.py --port 9999
     python seller.py --port 9301 --catalog catalogs/shop-01.json --name "Birch & Co"
@@ -14,6 +14,10 @@ buyer names an item exactly ("I want to buy a lamp") the code takes it. Otherwis
 the harness turns the buyer's words into a search (keywords, category, numeric
 filters), catalog.py narrows the catalog to a short list, and the harness picks
 one item from that list and opens with a price.
+
+From Round 3 the shop sells units from its stock (shop_stock.py, .market/inventory.json): the code finds the unit,
+the reserve is that unit's cost, and the opening price is a share of the list price. Each unit is promised to one
+talk at a time. The receipt names the SKU and carries the unit, the honest grade and any warranty (pricing.json).
 """
 import argparse
 import asyncio
@@ -46,12 +50,13 @@ from acp_shop import AcpCheckout
 from catalog import NUMERIC, Catalog
 from harness import HarnessError, ask
 import shop_memory
+from shop_stock import StockBook, last_segment
 
 MAX_ROUNDS = 10   # hard stop in code; the harness normally ends the talk earlier
 CANDIDATES = 15
 MAX_TEXT = 500    # characters of a buyer message that reach the prompts
 
-SYSTEM = """You are the owner of a furniture shop, negotiating the price of one item with a buyer.
+SYSTEM = """You are the owner of a small shop, negotiating the price of one item with a buyer.
 Your goal is to sell at a good price. Rules:
 - Each item has a reserve: the lowest price you may accept. Never ask for or accept less than the reserve.
 - Any sale at or above the reserve is better than no sale. Do not lose a buyer who is already at or above your reserve.
@@ -159,7 +164,7 @@ def decide_turn(deal, text):
     prompt = (f"Item: {deal['name']}. Your reserve: {deal['reserve']}. Your current asking price: {deal['ask']}.\n"
               f"Round {deal['rounds']} of at most {MAX_ROUNDS}.\n"
               f"Prices so far, oldest first:\n{history_text(deal)}\n"
-              + memory_line(deal["name"])
+              + memory_line(deal.get("key") or deal["name"])
               + ("You are already at your reserve, which is your lowest price. Do not say you can come down or "
                  "lower the price; explain politely and in your own words that this is your best and final price.\n"
                  if deal["ask"] <= deal["reserve"] else "")
@@ -177,11 +182,50 @@ FINAL_LINES = [
 ]
 
 
+def stock_line(u):
+    """What the shop states about a unit: the facts the certificate backs, nothing more."""
+    line = f"{u['name']} [{u['sku']}], grade {u.get('grade')}"
+    if u.get("expires_at"):
+        line += f", about {max(0, (u['expires_at'] - time.time()) / 3600):.0f} h of shelf life left"
+    return line
+
+
 class Seller(AgentExecutor):
-    def __init__(self, catalog, name):
+    def __init__(self, catalog, name, stock=None, acp=None):
         self.catalog = catalog
         self.name = name
-        self.open = {}  # task id -> {"id", "name", "reserve", "ask", "rounds", "history"}
+        self.stock = stock or StockBook()
+        self.acp = acp
+        self.open = {}  # task id -> {"id", "name", "reserve", "ask", "rounds", "history"}, plus "unit" from Round 3
+
+    async def open_from_stock(self, task, text, up, say):
+        """Round 3, the first message: which unit, and the opening price. No harness call: nothing here needs one."""
+        u = self.stock.find(text)
+        if u is None:
+            await up.reject(say("Sorry, we have none of that in stock."))
+            log(f"task {task.id[:8]} -> REJECTED (not in stock)")
+            return
+        self.stock.hold(u["unit"])
+        reserve, key = math.ceil(u["cost"]), last_segment(u.get("category")) or u["sku"]
+        ask_price, arm, why = await asyncio.to_thread(shop_memory.choose_opening, key, reserve, u["list_price"])
+        log(f"PRICE {u['sku']} unit {u['unit']} cost {reserve} list {u['list_price']}: opening ask {ask_price} ({why})")
+        self.open[task.id] = {"id": u["sku"], "name": u["name"], "key": key, "unit": u["unit"], "kind": u.get("kind"),
+                              "reserve": reserve, "ask": ask_price, "open": ask_price, "arm": arm, "rounds": 0,
+                              "history": [("you asked", ask_price)]}
+        await up.requires_input(say(f"{stock_line(u)}. Every deal comes with a signed receipt and the market's "
+                                    f"certificate of the unit. My price: {ask_price}.", ask_price))
+        log(f"task {task.id[:8]} -> INPUT_REQUIRED {u['sku']} ask {ask_price}")
+
+    def stock_receipt(self, task_id, deal, price):
+        """Round 3: the receipt names the SKU and carries the terms the checkout ships under."""
+        receipt = {"shop": self.name, "item": deal["id"], "price": price, "task": task_id, "unit": deal["unit"]}
+        grade = self.stock.grade(deal["unit"])
+        if grade in ("A", "B", "C"):
+            receipt["claim"] = grade
+        hours = shop_memory.load_pricing().get("warranty_hours", 0)
+        if deal.get("kind") == "goods" and hours:
+            receipt["warranty_hours"] = hours
+        return receipt
 
     def choose(self, text):
         """Returns (item, opening decision) or (None, None). Runs in a worker thread."""
@@ -217,6 +261,10 @@ class Seller(AgentExecutor):
         text = (get_message_text(context.message) or "")[:MAX_TEXT]
         deal = self.open.get(task.id)
         log(f"task {task.id[:8]} <- {text!r}")
+
+        if deal is None and self.stock.economy():
+            await self.open_from_stock(task, text, up, say)
+            return
 
         if deal is None:  # first message: which item?
             try:
@@ -255,10 +303,11 @@ class Seller(AgentExecutor):
         except HarnessError as e:
             log(f"harness failed: {e}")
             await up.failed(say("The shop cannot answer right now."))
+            self.stock.release(deal.get("unit"))
             del self.open[task.id]
             return
         action, price, reserve = d["action"], d["price"], deal["reserve"]
-        offer, written = d["buyer_offer"], {int(n) for n in re.findall(r"\d+", text)}
+        offer, written = d["buyer_offer"], {int(n) for n in re.findall(r"\d+", re.sub(r"(?<=\d),(?=\d)", "", text))}
         if offer and offer not in written:   # the harness must read the offer, not invent it
             log(f"GUARD buyer_offer {offer} is not a number in the message {sorted(written)} -> no offer")
             offer = 0
@@ -309,12 +358,15 @@ class Seller(AgentExecutor):
                                         f"send it to close the deal. My price: {deal['ask']}.", deal["ask"]))
             return
         if action == "accept":
-            receipt = {"shop": self.name, "item": deal["name"], "price": int(offer), "task": task.id}
+            receipt = (self.stock_receipt(task.id, deal, int(offer)) if deal.get("unit") else
+                       {"shop": self.name, "item": deal["name"], "price": int(offer), "task": task.id})
             key = load_shop_key()   # read per deal: the market test creates shop_key.pem after we start
             if key is not None:
                 sign_receipt(receipt, key)
             else:
                 log("no shop_key.pem or SHOP_KEY_PEM: receipt goes out unsigned")
+            if deal.get("unit") and self.acp is not None:
+                self.acp.note_terms(receipt)
             await up.add_artifact(parts=[new_data_part(receipt)], name="receipt")
             await up.complete(say(f"Deal: {deal['name']} at {offer}. Thank you! If you were happy with us, a 5-star review saying "
                                   "what you liked (fair price, quick deal, signed receipt) would mean a lot to our shop."))
@@ -326,6 +378,7 @@ class Seller(AgentExecutor):
                                 "If you leave us a 5-star review, we will give you a better price on your next visit. No deal."))
             log(f"task {task.id[:8]} -> REJECTED")
             self.remember(task.id, deal, "rejected")
+            self.stock.release(deal.get("unit"))
             del self.open[task.id]
         else:
             deal["ask"] = price
@@ -343,7 +396,8 @@ class Seller(AgentExecutor):
 
     def remember(self, task_id, deal, result, price=None):
         try:
-            shop_memory.record({"task": task_id, "item": deal["name"], "reserve": deal["reserve"],
+            shop_memory.record({"task": task_id, "item": deal.get("key") or deal["name"], "sku": deal["id"],
+                                "unit": deal.get("unit"), "reserve": deal["reserve"],
                                 "open": deal.get("open"), "arm": deal.get("arm"),
                                 "asks": [p for who, p in deal["history"] if who == "you asked"],
                                 "offers": [p for who, p in deal["history"] if who == "buyer offered"],
@@ -356,6 +410,7 @@ class Seller(AgentExecutor):
         deal = self.open.pop(task.id, None)
         if deal is not None:
             self.remember(task.id, deal, "canceled")
+            self.stock.release(deal.get("unit"))
         log(f"task {task.id[:8]} -> CANCELED")
         await TaskUpdater(event_queue=event_queue, task_id=task.id, context_id=task.context_id).cancel()
 
@@ -363,8 +418,8 @@ class Seller(AgentExecutor):
 def build(url, catalog, name):
     card = AgentCard(
         name=name,
-        description=("Nocha Furniture: handpicked lamps, chairs and bookshelves, from cozy reading lamps to "
-                     "solid oak shelves. Every price is open to a friendly negotiation, and every deal comes "
+        description=("Nocha: everyday food and home goods from our own stock, sold honestly by grade with the "
+                     "market's certificate. Every price is open to a friendly negotiation, and every deal comes "
                      "with an Ed25519-signed receipt for the exact price we agreed."),
         version="1.0.0",
         default_input_modes=["text/plain"],
@@ -374,23 +429,26 @@ def build(url, catalog, name):
         skills=[AgentSkill(
             id="negotiate",
             name="Negotiate a purchase",
-            description=f"Sells: {', '.join(catalog.categories)} ({len(catalog.items)} pieces). Name an item or "
-                        "describe the look you want, then send offers as numbers on the same task. Each answer "
+            description=f"Round 3: ask for what we stock by name and SKU. Before it: {', '.join(catalog.categories)}. "
+                        "Name an item, then send offers as numbers on the same task. Each answer "
                         "ends with the shop's current price, or closes the deal with a signed receipt artifact "
                         "{shop, item, price, task, sig_seller}.",
-            tags=["shopping", "negotiation", "furniture"] + catalog.categories,
-            examples=["I want to buy a lamp", "a warm reading lamp for my bedside", "a low wooden shelf that fits under a window", "120"],
+            tags=["shopping", "negotiation"] + catalog.categories,
+            examples=["I want to buy 종가 포기김치 10kg (G00001)", "I want to buy a lamp", "120"],
         )],
     )
-    handler = DefaultRequestHandler(agent_executor=Seller(catalog, name), task_store=InMemoryTaskStore(),
+    stock = StockBook()
+    acp = AcpCheckout(url, load_shop_key, log, stock=stock)
+    handler = DefaultRequestHandler(agent_executor=Seller(catalog, name, stock, acp), task_store=InMemoryTaskStore(),
                                     agent_card=card)
-    acp = AcpCheckout(url, load_shop_key, log)
     return Starlette(routes=create_agent_card_routes(card) + acp.routes() + [Route("/_kitlog", kitlog)]
                      + create_jsonrpc_routes(handler, "/"))
 
 
 KITLOGS = {"market-kit.log": "logs/market-kit.log", "market-kit.log.1": "logs/market-kit.log.1",
-           "seller_memory.json": "memory/seller_memory.json", "market_memory.json": "memory/market_memory.json"}
+           "seller_memory.json": "memory/seller_memory.json", "market_memory.json": "memory/market_memory.json",
+           "settled.jsonl": "memory/settled.jsonl", "payments.jsonl": ".market/payments.jsonl",
+           "broken.jsonl": ".market/broken.jsonl", "outbox.sent.jsonl": ".market/outbox.sent.jsonl"}
 
 
 async def kitlog(req: Request):

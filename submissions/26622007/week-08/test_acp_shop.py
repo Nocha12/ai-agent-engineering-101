@@ -35,6 +35,13 @@ def receipt(key, item="lamp", price=100, task="t-1", shop="Nocha Furniture"):
     return r
 
 
+class RoundTwoMarket:
+    """Kit v4 asks the market for the inventory; before Round 3 there are no units."""
+
+    def call(self, method, path, role="buyer", **kw):
+        return httpx.Response(200, json={"round": 2, "units": []})
+
+
 class AcpShopTest(unittest.TestCase):
     def setUp(self):
         self.key = Ed25519PrivateKey.generate()
@@ -65,8 +72,8 @@ class AcpShopTest(unittest.TestCase):
         r = self.create(rec)
         self.assertEqual(r.status_code, 201)
         mine = r.json()
-        ref = json.loads(kit.AcpShop(self.key, None).create({"line_items": [{"id": "lamp", "quantity": 1}],
-                                                             "receipt": rec}, PUBLIC).body)
+        ref = json.loads(asyncio.run(kit.AcpShop(self.key, RoundTwoMarket()).create(
+            {"line_items": [{"id": "lamp", "quantity": 1}], "receipt": rec}, PUBLIC)).body)
         self.assertEqual(set(mine), set(ref))
         for k in ("status", "task", "line_items", "totals", "capabilities"):
             self.assertEqual(mine[k], ref[k], k)
@@ -149,7 +156,7 @@ class KitlogTest(unittest.TestCase):
         self.assertEqual(self.client.get("/_kitlog", headers={"Authorization": "Bearer wrong"}).status_code, 401)
         r = self.client.get("/_kitlog", headers={"Authorization": "Bearer s3cret"})
         self.assertEqual(r.status_code, 200)
-        self.assertIn("[kit] market_kit 3", r.text)
+        self.assertIn("[kit] market_kit", r.text)
         self.assertEqual(self.client.get("/_kitlog?file=../agent.json",
                                          headers={"Authorization": "Bearer s3cret"}).status_code, 404)
         r = self.client.get("/_kitlog?file=seller_memory.json", headers={"Authorization": "Bearer s3cret"})
