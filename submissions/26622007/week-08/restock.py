@@ -169,7 +169,7 @@ def note_sent(md, buy, catalog, now=None):
 def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
     """The lines that keep to the settings, whoever proposed them (formula, opening, next_window, the agent): food per line,
     goods that break too often, and totals over the stock held + lines still on their way (waiting, see pending()) + these
-    new lines: units per SKU (max_units_per_sku; one for goods listed above high_price_goods), the cost of all stock
+    new lines: units per SKU (max_units_per_sku; high_price_max_units for goods listed above high_price_goods), the cost of all stock
     (max_stock_cost) and of food (food_max_stock_cost), the cash kept, and hard_limits' line above bankruptcy. New and
     waiting lines count at worst cost (0.75 x list). A line that does not fit is shrunk or dropped."""
     balance, units = inv.get("balance") or 0, inv.get("units") or []
@@ -209,7 +209,8 @@ def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
         qty = min(capped, int(limit // unit) if unit < float("inf") else 0)
         if qty < asked:     # which limits cut the line, so a stock-out can be traced to a cap or the cash
             why = (["units per SKU"] if capped < asked else []) + ([
-                "cash kept" if limit == spare else "stock cost" if limit == room else "food stock cost"] if qty < capped else [])
+                "no list price" if unit == float("inf") else "cash kept" if limit == spare else "stock cost" if limit == room
+                else "food stock cost"] if qty < capped else [])
             print(f"[restock] guard: {b['sku']} {asked} -> {max(qty, 0)} ({', '.join(why)})", file=sys.stderr)
         if qty < 1:
             continue

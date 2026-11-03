@@ -70,8 +70,9 @@ Every cycle, in this order:
    Widen max_stock_cost 2,000,000 -> 2,700,000 (one step per cycle; 900,000 -> 1,350,000 was taken 11/04 00:20 when
    the shop held 6 units in 5 categories, visits 81 against the leader's 533) only when all hold, quoted: 10+ of the
    shop's own paid settles; eligible stock-outs repeated on 2+ SKUs; contribution of units sold, after refund risk and
-   storage, above 0; 50%+ of recent supply cost recovered as net sales. Goods widen only on matured (6 h past) warranty
-   data. The food 300,000 and cash 2,500,000 lines stay. Otherwise keep 2,000,000 or narrow. restock.wanted ranks lines by
+   storage, above 0; 50%+ of recent supply cost recovered as net sales. Goods widen further only on matured (6 h past) warranty
+   data (the 02:3x step to 2 mattresses was a person's decision taken before it; keep it unless its narrow-back
+   condition above holds). The food 300,000 and cash 2,500,000 lines stay. Otherwise keep 2,000,000 or narrow. restock.wanted ranks lines by
    profit per hour per won of stock, so the cap buys breadth (buyers see only shops stocking the ordered category).
    The shop started cautious; when the data shows caution is costing sales, revenue or surplus, widen boldly within the
    limits. When it shows losses (stock thrown away, refunds, a falling balance), narrow.
