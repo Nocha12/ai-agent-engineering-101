@@ -169,6 +169,25 @@ class PriceTest(unittest.TestCase):
         self.assertEqual(profit_price.opening(7000, 10000, kind="food")[0], 7434)            # no median: 70.8% of list
         self.assertEqual(profit_price.opening(7000, 10000, median=8000, paid=[9500])[0], 9500)  # a price we were paid stays
 
+    def test_scarce_ask_is_a_fixed_candidate_that_does_not_climb_with_the_median(self):
+        pricing = {"price": {"scarce_asks": {"M": 262996}}}
+        m = {"sku": "M", "kind": "goods", "cost": 150000, "list_price": 265050}
+        other = {**m, "sku": "N"}
+        self.assertEqual(profit_price.quote(other, median=238772, pricing=pricing)["open"], 250711)
+        q = profit_price.quote(m, median=238772, pricing=pricing)
+        self.assertEqual((q["open"], q["why"]), (262996, "scarce ask 262996"))
+        self.assertEqual(profit_price.quote(m, median=245000, pricing=pricing)["open"], 262996)    # a higher median: same ask
+        self.assertEqual(profit_price.quote(m, median=252500, pricing=pricing)["open"], 265050)    # median above it wins, list caps
+        self.assertEqual(profit_price.quote(m, median=200000, paid=[264000], pricing=pricing)["open"], 264000)
+        self.assertEqual(profit_price.quote(m, pricing=pricing)["open"], 262996)                   # no median: kind ratio path
+        high = {"price": {"scarce_asks": {"M": 900000}}}
+        self.assertEqual(profit_price.quote(m, median=238772, pricing=high)["open"], 265050)       # never above list
+        for bad in (None, "x", True, -5, [1]):
+            self.assertEqual(profit_price.quote(m, median=238772, pricing={"price": {"scarce_asks": {"M": bad}}})["open"], 250711)
+        self.assertEqual(profit_price.quote(m, median=238772, pricing={"price": {"scarce_asks": [1]}})["open"], 250711)
+        held = {**m, "cost": 260000}                                         # floor above the scarce ask: floor wins
+        self.assertEqual(profit_price.quote(held, median=238772, pricing=pricing)["open"], profit_price.quote(held)["floor"])
+
     def test_goods_above_the_warranty_limit_are_refused_and_the_ledger_rate_counts(self):
         g = {"kind": "goods", "cost": 6000, "list_price": 10000}
         self.assertTrue(profit_price.quote(g, measured=0.3)["refuse"])
@@ -183,8 +202,11 @@ class PriceTest(unittest.TestCase):
         r = p["restock"]
         self.assertEqual((r["max_stock_cost"], r["max_units_per_sku"], r["cover_hours"], r["keep_cash"],
                           r["food_max_stock_cost"], r["high_price_goods"], r["high_price_max_units"]),
-                         (2000000, 4, 3, 2500000, 300000, 100000, 2))
-        self.assertEqual(r["max_sku_share"], 0.15)
+                         (4000000, 4, 3, 2500000, 450000, 100000, 2))
+        self.assertEqual(r["max_sku_share"], 0.2)
+        proven = ["G1515d951", "G0f415407", "G9c02e68e"]           # G6b9db161 broke at 03:20 (#2226787): stays at 2
+        self.assertEqual((r["high_price_proven_max_units"], r["high_price_proven_skus"]), (3, proven))
+        self.assertEqual(sorted(p["price"]["scarce_asks"]), sorted(proven + ["G6b9db161"]))
         first = p["next_window"]["done_plans"][0]["targets"]          # the review's table: 10 SKUs, 13 units
         self.assertEqual((len(first), sum(first.values())), (10, 13))
         self.assertNotIn("G07ec17d5", first)
@@ -222,6 +244,17 @@ class GuardTest(unittest.TestCase):
                              [{"sku": "BIG", "qty": 1}])                    # 300,000 worst each
         self.assertIn("BIG 3 -> 2 (units per SKU)", err.getvalue())
         self.assertIn("BIG 3 -> 1 (units per SKU, stock cost)", err.getvalue())
+
+    def test_three_units_only_for_proven_expensive_goods(self):
+        inv = {"balance": 5000000, "units": []}
+        cat = {**CAT, "BIG2": {"kind": "goods", "list_price": 400000}}
+        cfg = {**CFG, "max_stock_cost": 4000000, "high_price_max_units": 2, "high_price_proven_max_units": 3,
+               "high_price_proven_skus": ["BIG"]}
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(restock.guard([{"sku": "BIG", "qty": 4}, {"sku": "BIG2", "qty": 4}], inv, cat, cfg),
+                             [{"sku": "BIG", "qty": 3}, {"sku": "BIG2", "qty": 2}])
+            no_key = {k: v for k, v in cfg.items() if k != "high_price_proven_max_units"}   # falls back to the plain cap
+            self.assertEqual(restock.guard([{"sku": "BIG", "qty": 4}], inv, cat, no_key), [{"sku": "BIG", "qty": 2}])
 
     def test_food_cost_cap_counts_what_is_held(self):
         inv = {"balance": 5000000, "units": self.held("F2", 3, cost=50000, kind="food")}       # 150,000 of food

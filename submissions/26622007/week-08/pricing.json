@@ -68,7 +68,7 @@
     "max_lines": 10,
     "cover_hours": 3,
     "max_units_per_sku": 4,
-    "max_sku_share": 0.15,
+    "max_sku_share": 0.2,
     "explore_lines": 2,
     "min_expected": 1.0,
     "half_life_hours": 24,
@@ -82,7 +82,7 @@
     "end_cover": 0.5,
     "agent_every_minutes": 20,
     "agent_max_lines": 30,
-    "max_stock_cost": 2000000,
+    "max_stock_cost": 4000000,
     "food_explore_qty": 1,
     "food_max_qty": 3,
     "max_break": 0.15,
@@ -92,7 +92,13 @@
     "prior_break": 0.15,
     "high_price_goods": 100000,
     "high_price_max_units": 2,
-    "food_max_stock_cost": 300000,
+    "high_price_proven_max_units": 3,
+    "high_price_proven_skus": [
+      "G1515d951",
+      "G0f415407",
+      "G9c02e68e"
+    ],
+    "food_max_stock_cost": 450000,
     "skip_skus": [
       "G07ec17d5"
     ]
@@ -187,7 +193,14 @@
     "kind_ratio": {
       "food": 0.708,
       "goods": 0.755
-    }
+    },
+    "scarce_asks": {
+      "G1515d951": 380911,
+      "G6b9db161": 392986,
+      "G0f415407": 262996,
+      "G9c02e68e": 120520
+    },
+    "scarce_source": "review/ax-overnight-20261103/0300/gpt-pro-answer.md B-2: both units of these SKUs sold within minutes of the 02:40 and 03:01 windows; each ask is 1.05 x the first ask the seller logged at 03:2x (G1515d951 1.05 x 362,772, G6b9db161 1.05 x 374,272, G0f415407 1.05 x 250,472, G9c02e68e 1.05 x 114,781), fixed so our own sales do not raise it further"
   },
   "next_window": {
     "id": "pro-20261103-2213b",

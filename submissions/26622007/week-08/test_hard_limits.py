@@ -32,6 +32,7 @@ class HardLimitsTest(unittest.TestCase):
 
     def test_one_bounded_step_per_cycle(self):
         old = self.pricing()
+        old["restock"]["max_stock_cost"] = 2000000     # the shipped value may sit at the upper bound; the step rule needs room
         new = json.loads(json.dumps(old))
         new["restock"]["max_stock_cost"] = old["restock"]["max_stock_cost"] * 1.4
         self.assertEqual(hl.check_policy_change(old, new), [])

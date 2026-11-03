@@ -59,20 +59,35 @@ Every cycle, in this order:
    The opening (three windows, review/W-20261103-2025) is over. The shop now follows the GPT Pro profit review
    (review/W-20261103-2120/gpt-pro-answer1.md): stock on SKUs the ledger shows selling (pricing.json "next_window" was a
    one-off buy of them), reserve = floor F and first ask P0 (profit_price.py), at most 4 units per SKU and 2 of goods
-   listed above 100,000, max_stock_cost 2,000,000, food stock cost 300,000, cash 2,500,000 kept, all over stock held +
+   listed above 100,000 (3 of the proven mattresses), max_stock_cost 4,000,000, food stock cost 450,000, cash 2,500,000 kept, all over stock held +
    lines on their way + new lines (restock.guard). Judge each SKU by its expected net per unit (restock.wanted) against
    the sales it made while in stock. Only paid sales count: seller_memory_r3 result "deal" (an "agreed" receipt is unpaid).
    Goods above 100,000 went 1 -> 2 units and max_stock_cost 1,350,000 -> 2,000,000 at 11/04 02:3x (overnight GPT Pro
    review, review/ax-overnight-20261103/0200): the three mattresses (G1515d951, G6b9db161, G0f415407) made 69% of gross
    profit, every unit bought sold, each within minutes of its window, and they sat at 0 for 49-85% of the time; the
-   restock agent asked 2 each and the cap cut it to 1. Narrow back to 1 unit / 1,350,000 when a second unit is still
-   unsold at the next window twice for one SKU, or a mattress breaks within its 6 h warranty.
+   restock agent asked 2 each and the cap cut it to 1. Narrow a SKU back to 1 unit when its second unit is still
+   unsold at the next window twice. Breaks are judged by rate, not one event: the floor already prices b = 15%
+   (profit_price.py), so narrow a mattress SKU (proven list first, then to 1 unit) when our own breaks on it within 6 h
+   exceed 15% of its sales whose 6 h has passed, or two of it break within one hour; narrow all mattresses to 1 unit /
+   1,350,000 when our mattress breaks overall exceed 15% of matured mattress sales. (11/04 03:20 G6b9db161 broke 2.73 h
+   after a 350,000 sale, #2226787: our first mattress break in ~50 mattress sales, market 4 of ~49 on that SKU, so that
+   SKU stays at 2 and is not on the proven list.)
+   At 11/04 03:3x (review/ax-overnight-20261103/0300, a person's decision) three mattresses whose 2 units both sold
+   within minutes of the 02:40 and 03:01 windows (pricing.json restock.high_price_proven_skus: G1515d951,
+   G0f415407, G9c02e68e) may hold 3 (high_price_proven_max_units); other goods above 100,000 stay at 2. max_stock_cost
+   went 2,000,000 -> 4,000,000 (the bound) and food_max_stock_cost 300,000 -> 450,000, because 8 mattresses at the
+   guard's 0.75 x list took ~1,850,000 of 2,000,000 and cut food and bedding lines; max_sku_share 0.15 -> 0.2 so
+   restock.wanted still asks 3 at a lower balance. Their first ask is at least price.scarce_asks (a fixed number, 1.05 x
+   the first ask logged at 03:2x; fixed because our own sales feed the median). Take a SKU off high_price_proven_skus when
+   its third unit is still unsold at the next window twice; take it off scarce_asks when its paid prices after 03:3x fall
+   below the ones before or its units stop selling before the next window; breaks follow the rate rule above.
+   (max_stock_cost is now at its hard_limits bound; the widening conditions below are kept as the bar for keeping it.)
    Widen max_stock_cost 2,000,000 -> 2,700,000 (one step per cycle; 900,000 -> 1,350,000 was taken 11/04 00:20 when
    the shop held 6 units in 5 categories, visits 81 against the leader's 533) only when all hold, quoted: 10+ of the
    shop's own paid settles; eligible stock-outs repeated on 2+ SKUs; contribution of units sold, after refund risk and
    storage, above 0; 50%+ of recent supply cost recovered as net sales. Goods widen further only on matured (6 h past) warranty
    data (the 02:3x step to 2 mattresses was a person's decision taken before it; keep it unless its narrow-back
-   condition above holds). The food 300,000 and cash 2,500,000 lines stay. Otherwise keep 2,000,000 or narrow. restock.wanted ranks lines by
+   condition above holds). The cash 2,500,000 line stays. Otherwise keep the current cap or narrow. restock.wanted ranks lines by
    profit per hour per won of stock, so the cap buys breadth (buyers see only shops stocking the ordered category).
    The shop started cautious; when the data shows caution is costing sales, revenue or surplus, widen boldly within the
    limits. When it shows losses (stock thrown away, refunds, a falling balance), narrow.

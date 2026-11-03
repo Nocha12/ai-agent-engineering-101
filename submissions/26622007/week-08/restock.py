@@ -169,7 +169,8 @@ def note_sent(md, buy, catalog, now=None):
 def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
     """The lines that keep to the settings, whoever proposed them (formula, opening, next_window, the agent): food per line,
     goods that break too often, and totals over the stock held + lines still on their way (waiting, see pending()) + these
-    new lines: units per SKU (max_units_per_sku; high_price_max_units for goods listed above high_price_goods), the cost of all stock
+    new lines: units per SKU (max_units_per_sku; high_price_max_units for goods listed above high_price_goods, high_price_proven_max_units for the
+    high_price_proven_skus whose extra units sold out between supply windows), the cost of all stock
     (max_stock_cost) and of food (food_max_stock_cost), the cash kept, and hard_limits' line above bankruptcy. New and
     waiting lines count at worst cost (0.75 x list). A line that does not fit is shrunk or dropped."""
     balance, units = inv.get("balance") or 0, inv.get("units") or []
@@ -202,7 +203,9 @@ def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
                 continue
         cap = cfg.get("max_units_per_sku", MAX_LOT)
         if x.get("kind") == "goods" and (x.get("list_price") or 0) > cfg.get("high_price_goods", float("inf")):
-            cap = min(cap, cfg.get("high_price_max_units", 1))
+            proven = b["sku"] in (cfg.get("high_price_proven_skus") or ())
+            cap = min(cap, cfg.get("high_price_proven_max_units", cfg.get("high_price_max_units", 1)) if proven
+                      else cfg.get("high_price_max_units", 1))
         asked, capped = qty, min(qty, cap - count[b["sku"]])
         unit = (x.get("list_price") or float("inf")) * WORST_COST
         limit = min(spare, room, food_room if x.get("kind") == "food" else float("inf"))

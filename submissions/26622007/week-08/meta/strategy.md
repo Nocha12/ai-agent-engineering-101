@@ -7,9 +7,11 @@ Rewrite in place; keep this file short.
 
 ## Strategy: lean profit stock (GPT Pro profit review, review/W-20261103-2120/gpt-pro-answer1.md)
 
-- Product mix: only SKUs the ledger shows selling, at most 4 units per SKU and 2 of goods listed above 100,000 (the
-  proven mattresses, so they are not out of stock between supply windows); food kept small (food stock cost cap) because
-  it expires.
+- Product mix: only SKUs the ledger shows selling, at most 4 units per SKU and 2 of goods listed above 100,000, 3 of the
+  three proven mattresses (restock.high_price_proven_skus, 11/04 03:3x; G6b9db161 stays at 2 after its 03:20 break) so
+  they are not out of stock between supply windows; stock cost cap 4,000,000 so food and bedding still fit beside them; food kept small (food stock cost cap
+  450,000) because it expires. The proven mattresses open at least at price.scarce_asks (they sold out within minutes
+  of each window). The restock formula asks 3 only while balance x 0.2 covers 3 units at 0.75 x list.
 - Positioning: honest grades with the market certificate, the ledger's honest sales as proof, a short warranty on goods
   whose break risk allows it.
 - Buyers reach the shop through: the card (built from current stock), shop posts on the forum, replies to "구합니다" posts.
