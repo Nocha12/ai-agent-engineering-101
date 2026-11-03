@@ -188,6 +188,25 @@ class PriceTest(unittest.TestCase):
         held = {**m, "cost": 260000}                                         # floor above the scarce ask: floor wins
         self.assertEqual(profit_price.quote(held, median=238772, pricing=pricing)["open"], profit_price.quote(held)["floor"])
 
+    def test_ask_cap_lowers_the_first_ask_per_grade_but_never_under_the_floor(self):
+        caps = {"price": {"scarce_asks": {"S": 392986}, "ask_caps": {"S": {"A": 350000, "C": 279000}, "W": {"*": 80000}}}}
+        c = {"sku": "S", "kind": "goods", "grade": "C", "cost": 131904, "list_price": 420000}
+        a = {**c, "grade": "A", "cost": 273599}
+        q = profit_price.quote(c, median=330000, pricing=caps)                 # the scarce ask 392,986 loses to the cap
+        self.assertEqual((q["open"], q["floor"]), (279000, 170393))
+        self.assertTrue(q["why"].startswith("ask cap 279000 for grade C"))
+        self.assertEqual(profit_price.quote(a, median=330000, pricing=caps)["open"], 350000)
+        self.assertEqual(profit_price.quote({**a, "grade": "B"}, median=330000, pricing=caps)["open"], 392986)  # no B cap
+        w = {"sku": "W", "kind": "goods", "grade": "A", "cost": 72637, "list_price": 96900}
+        self.assertEqual(profit_price.quote(w, median=86555, pricing=caps)["open"], 89089)   # floor 89,089 above the cap
+        self.assertEqual(profit_price.quote({**w, "cost": 55025}, median=86555, pricing=caps)["open"], 80000)
+        low = {"price": {"ask_caps": {"W": {"*": 99000}}}}                     # a cap above the ask changes nothing
+        self.assertEqual(profit_price.quote(w, median=86555, pricing=low)["open"], profit_price.quote(w, median=86555)["open"])
+        for bad in (None, "x", True, -5, 0, [1]):
+            self.assertEqual(profit_price.quote(w, median=86555, pricing={"price": {"ask_caps": {"W": {"*": bad}}}})["open"], 90883)
+        self.assertEqual(profit_price.quote(w, median=86555, pricing={"price": {"ask_caps": [1]}})["open"], 90883)
+        self.assertEqual(profit_price.quote(w, median=86555, pricing={"price": {"ask_caps": {"W": 5}}})["open"], 90883)
+
     def test_goods_above_the_warranty_limit_are_refused_and_the_ledger_rate_counts(self):
         g = {"kind": "goods", "cost": 6000, "list_price": 10000}
         self.assertTrue(profit_price.quote(g, measured=0.3)["refuse"])
@@ -207,10 +226,13 @@ class PriceTest(unittest.TestCase):
         proven = ["G1515d951", "G6b9db161"]           # each sold out before the next window (G1515d951 3 in 6 min, twice;
         # G6b9db161 2 per window 04:03-04:44); G0f415407 and G9c02e68e left extra units unsold twice: no more buying
         self.assertEqual((r["high_price_proven_max_units"], r["high_price_proven_skus"]), (4, proven))
-        self.assertEqual((r["priority_skus"], r["sku_target_units"]), (["G75f11c19"], {"G6b9db161": 3, "G75f11c19": 1}))
+        self.assertEqual((r["priority_skus"], r["sku_target_units"]),
+                         (["G75f11c19"], {"G1515d951": 4, "G6b9db161": 2, "G75f11c19": 1}))
         self.assertTrue(r["high_price_listed_only"])
         self.assertTrue({"G054ff120", "G0f415407", "G9c02e68e", "Gf0293c0e", "G9c1a6eee", "Gbb0cbbff"} <= set(r["skip_skus"]))
-        self.assertEqual(sorted(p["price"]["scarce_asks"]), sorted(proven))
+        self.assertIn("G6b9db161", r["skip_skus"])      # 0600: held until its 2 units sell at the capped asks
+        self.assertEqual(p["price"]["scarce_asks"], {"G1515d951": 380911})
+        self.assertEqual(p["price"]["ask_caps"]["G6b9db161"], {"A": 350000, "C": 279000})
         first = p["next_window"]["done_plans"][0]["targets"]          # the review's table: 10 SKUs, 13 units
         self.assertEqual((len(first), sum(first.values())), (10, 13))
         self.assertNotIn("G07ec17d5", first)

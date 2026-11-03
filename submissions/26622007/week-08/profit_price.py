@@ -6,6 +6,7 @@
 - first ask P0 = max(F, min(L, 1.05 M)), M the median the ledger shows for this SKU (or the kind's share of list price
   when the SKU has too few deals); a price this shop was already paid for the SKU stays a candidate. For SKUs in
   price.scarce_asks (units sold out within minutes of each supply window) that fixed ask is a candidate as well.
+  price.ask_caps then caps P0 per SKU and grade for slow stock, never below F.
 - goods whose break chance is above warranty.max_break (0.25) are not sold at all: no sale without the warranty.
 - each unit is also checked at b = 0.25 (stress) and the log says when the first ask would lose money there.
 pricing.json "price" holds the numbers.
@@ -55,6 +56,20 @@ def opening(f, list_price, median=None, kind=None, paid=(), cfg=None, scarce=Non
     return max(f, round(p)), why
 
 
+def ask_cap(cfg, u):
+    """price.ask_caps {sku: {grade or "*": price}}: the highest first ask for a slow unit, so the median, our own best paid
+    price or a scarce ask cannot keep it above what buyers offer (0600: G6b9db161 at its scarce ask 392,986 sold 0 of 2
+    in 38 min; the slow goods were not bought at 1.05 x median). None when the SKU/grade has no valid cap."""
+    caps = cfg.get("ask_caps")
+    row = caps.get(u.get("sku")) if isinstance(caps, dict) else None
+    if not isinstance(row, dict):
+        return None
+    cap = row.get(u.get("grade"), row.get("*"))
+    if isinstance(cap, bool) or not isinstance(cap, (int, float)) or cap <= 0:
+        return None         # a bad setting never stops a sale
+    return round(cap)
+
+
 def quote(u, median=None, measured=None, paid=(), pricing=None):
     """Everything a unit's price rests on: {floor, open, b, stress_floor, refuse, why}."""
     cfg = cfg_of(pricing)
@@ -66,6 +81,9 @@ def quote(u, median=None, measured=None, paid=(), pricing=None):
     if isinstance(scarce, bool) or not isinstance(scarce, (int, float)) or scarce <= 0:
         scarce = None       # a bad setting never stops a sale; the list price still caps a good one
     p0, why = opening(f, lp, median, kind, paid, cfg, scarce)
+    cap = ask_cap(cfg, u)
+    if cap is not None and cap < p0:     # never under this unit's floor F
+        p0, why = max(f, cap), f"ask cap {cap} for grade {u.get('grade')} (was {p0}, {why})"
     stress = floor(cost, lp, kind, cfg["stress_break"], cfg) if kind == "goods" else f
     return {"floor": f, "open": p0, "b": b, "stress_floor": stress, "why": why,
             "refuse": kind == "goods" and b > max_break, "stress_loss": kind == "goods" and p0 < stress}

@@ -101,7 +101,8 @@
       "G75f11c19"
     ],
     "sku_target_units": {
-      "G6b9db161": 3,
+      "G1515d951": 4,
+      "G6b9db161": 2,
       "G75f11c19": 1
     },
     "high_price_listed_only": true,
@@ -113,7 +114,8 @@
       "G9c1a6eee",
       "Gbb0cbbff",
       "G9c02e68e",
-      "G0f415407"
+      "G0f415407",
+      "G6b9db161"
     ]
   },
   "markdown": {
@@ -208,10 +210,40 @@
       "goods": 0.755
     },
     "scarce_asks": {
-      "G1515d951": 380911,
-      "G6b9db161": 392986
+      "G1515d951": 380911
     },
-    "scarce_source": "review/ax-overnight-20261103/0300/gpt-pro-answer.md B-2: both units of these SKUs sold within minutes of the 02:40 and 03:01 windows; each ask is 1.05 x the first ask the seller logged at 03:2x (G1515d951 1.05 x 362,772, G6b9db161 1.05 x 374,272, G0f415407 1.05 x 250,472, G9c02e68e 1.05 x 114,781), fixed so our own sales do not raise it further"
+    "scarce_source": "review/ax-overnight-20261103/0300/gpt-pro-answer.md B-2: both units of these SKUs sold within minutes of the 02:40 and 03:01 windows; each ask is 1.05 x the first ask the seller logged at 03:2x (G1515d951 1.05 x 362,772, G6b9db161 1.05 x 374,272, G0f415407 1.05 x 250,472, G9c02e68e 1.05 x 114,781), fixed so our own sales do not raise it further",
+    "ask_caps": {
+      "G6b9db161": {
+        "A": 350000,
+        "C": 279000
+      },
+      "G0f415407": {
+        "A": 225000,
+        "B": 215000
+      },
+      "Gbb0cbbff": {
+        "A": 80000
+      },
+      "Gf0293c0e": {
+        "A": 150000
+      },
+      "G9c02e68e": {
+        "A": 105000,
+        "C": 85000
+      },
+      "G9c1a6eee": {
+        "C": 150000
+      },
+      "G4de4eb5e": {
+        "A": 175000,
+        "C": 125000
+      },
+      "G57045dfb": {
+        "C": 160000
+      }
+    },
+    "ask_caps_source": "review/ax-overnight-20261103/0600/gpt-pro-answer.md B2-B3: slow goods held since 04:4x-05:26 sold 0 at 1.05 x median / our own paid price; G6b9db161 2 units unsold 05:23-06:01 at scarce ask 392,986. Caps are the review's per-grade asks; each unit's floor F (b 0.15) still bounds them"
   },
   "next_window": {
     "id": "pro-20261103-2213b",
