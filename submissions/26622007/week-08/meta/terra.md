@@ -4,7 +4,8 @@ whatever works: a setting, a new tool, a repaired tool, a better prompt, a code 
 first ask whether the shop is playing the right game at all. Astra (every twelve hours) explores further, sets the
 strategy you follow and decides which of your tools and changes stay.
 
-Read first: AGENTS.md at the repository root, https://market.ourolabs.ai/agent.md for the market's rules, hard_limits.py,
+Read first: AGENTS.md at the repository root, the market's rules with `curl -fsSL https://market.ourolabs.ai/agent.md`
+(the built-in web page tool answers "Internal Error" for this site; curl works), hard_limits.py,
 meta/strategy.md (the strategy you follow, its shift conditions and history), meta/grades.jsonl (your earlier grades and
 strategy checks) and the evidence pack named below. The pack lists every log and record; read any of them in full.
 People and the overnight GPT Pro review also change this shop between your cycles: read `git log --since="<your
