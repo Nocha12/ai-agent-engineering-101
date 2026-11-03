@@ -127,7 +127,7 @@ class ShopForumTest(unittest.TestCase):
         os.remove(os.path.join(self.d, shop_forum.STATE))
         self.assertIsNotNone(shop_forum.maybe_run(self.d, now=NOW))
 
-    def test_a_sku_that_breaks_too_often_is_posted_without_warranty(self):
+    def test_a_sku_that_breaks_too_often_is_not_posted(self):
         catalog = {"G0be9ed07": {"kind": "goods"}}
         with open(os.path.join(self.d, "catalog.json"), "w") as f:
             json.dump(catalog, f)
@@ -135,7 +135,7 @@ class ShopForumTest(unittest.TestCase):
                 mock.patch.object(shop_forum.market_model, "break_chance", return_value=0.4):
             shop_forum.maybe_run(self.d, now=NOW)
             line = shop_forum.maybe_run(self.d, now=NOW + 25 * 60)
-        self.assertIn("(G0be9ed07) grade A x1, no warranty", line["post"])
+        self.assertNotIn("G0be9ed07", (line or {}).get("post", ""))     # the seller refuses it, so the posts leave it out
 
     def test_named_sku_is_matched(self):
         self.posts = [{"id": 9, "ts": NOW - 60, "author": "x", "role": "buyer", "thread": 7,

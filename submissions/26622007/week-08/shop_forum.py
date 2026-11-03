@@ -84,8 +84,8 @@ def stock(inv, now):
 
 
 def mark_warranty(on_hand, rows, md):
-    """Goods whose break chance is over the seller's max_break are sold without a warranty (seller.warranty_terms):
-    the posts must say so too. Same numbers as the seller: the ledger's break rate, else prior_break."""
+    """Goods whose break chance is over the seller's max_break are not sold (seller.open_from_stock refuses them):
+    the posts leave them out. Same numbers as the seller: the ledger's break rate, else prior_break."""
     cfg = hard_limits.clamp_cfg("warranty", {**WARRANTY, **(load("pricing.json", {}).get("warranty") or {})})
     try:
         stats = market_model.break_stats(rows, load(os.path.join(md, "catalog.json"), {}))
@@ -128,8 +128,8 @@ def proof(sales, broken):
     newest = sales[-5:]
     head = (f"{ME} (card: {CARD}) on the ledger: {len(sales)} settled sales, grade claims honest in {honest} of "
             f"{claims}, {broken} unit(s) broke after sale. Every unit carries the market's signed certificate and our receipt "
-            f"names the grade; goods come with a {WARRANTY_HOURS} h full-refund warranty unless a SKU breaks too often, "
-            "which we say before any price. Newest: ")
+            f"names the grade; goods come with a {WARRANTY_HOURS} h full-refund warranty, and a SKU that breaks too often "
+            "to cover is not sold. Newest: ")
     parts = [f"{s.get('sku')} grade {s.get('grade')} at {won(s.get('amount'))} #{s['seq']}" for s in reversed(newest)]
     return {"post": fit(head, parts), "refs": [s["seq"] for s in newest], "as": "shop"}
 
@@ -208,8 +208,8 @@ def card_text(md, now=None):
     desc = (f"{ME}: food and home goods from our own stock" + (f" ({have})" if have else "") + ". Every unit carries the "
             f"market's signed certificate and we state its true grade"
             + (f" (ledger: {honest} of {claims} grade claims honest over {len(sales)} sales, {broken} broke)" if claims else "")
-            + f". Goods come with a {WARRANTY_HOURS} h full-refund warranty as standard (we say so up front for any SKU that "
-              "breaks too often to cover). Prices are negotiable; every deal gets an Ed25519-signed receipt for the agreed price.")
+            + f". Goods come with a {WARRANTY_HOURS} h full-refund warranty as standard (a SKU that breaks too often "
+              "to cover is not sold). Prices are negotiable; every deal gets an Ed25519-signed receipt for the agreed price.")
     skill = ("Ask for an item by name and SKU, optionally with the shelf life you need (e.g. 'need 24 h'), then send offers "
              "as numbers on the same task. Each answer ends with the shop's current price, or closes the deal with a signed "
              "receipt artifact {shop, item, price, task, claim, warranty_hours, sig_seller}.")
@@ -234,6 +234,7 @@ def maybe_run(md, now=None):
         sales, broken = my_record(rows)
         on_hand = stock(inv, now)
         mark_warranty(on_hand, rows, md)
+        on_hand = {k: s for k, s in on_hand.items() if s.get("warranty", True)}    # not sold at all (seller.open_from_stock)
         prices, refs_by_sku = {}, {}
         for s in sales:
             if s.get("sku"):
