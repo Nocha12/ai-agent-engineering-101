@@ -35,6 +35,7 @@ import restock                     # noqa: E402
 import review                      # noqa: E402
 import seller                      # noqa: E402
 import shop_memory                 # noqa: E402
+import shop_stock                  # noqa: E402
 from catalog import Catalog        # noqa: E402
 from shop_stock import StockBook, markdown   # noqa: E402
 
@@ -191,9 +192,13 @@ class EndToEnd(unittest.TestCase):
             time.sleep(0.05)
         self.addCleanup(setattr, self.server, "should_exit", True)
 
+    refuse = False
+
     def market(self, request):
         body = json.loads(request.content)
         co = kit.jwt_payload(body["checkout_jwt"], kit.pub_b64(self.key))
+        if self.refuse:
+            return httpx.Response(400, json={"settled": False, "checks": {"payment_mandate": False}})
         self.settled.append(co)
         return httpx.Response(200, json={"settled": True, "ledger": 7, "mandate_receipt": {
             "ledger": 7, "unit": co.get("unit"), "name": "x", "grade": "A", "claim": co.get("claim"), "claim_honest": True}})
@@ -274,11 +279,12 @@ class EndToEnd(unittest.TestCase):
         self.assertGreaterEqual(int(rec["price"]), 6667)      # cost 6000 / (1 - 0.1)
         self.assertEqual(shop_memory.load()["negotiations"][-1]["warranty"], 6)
 
-    def test_warranty_is_declined_when_the_sku_breaks_too_often(self):
+    def test_goods_that_break_too_often_are_not_sold_without_a_warranty(self):
         with mock.patch.object(seller, "break_chance", lambda sku: 0.5):
             out = buyer.negotiate(self.url, "청소기", 10000, "", "I want to buy (G2) with a warranty")
-        self.assertEqual(out["state"], "TASK_STATE_COMPLETED")
-        self.assertNotIn("warranty_hours", out["receipt"])
+        self.assertEqual(out["state"], "TASK_STATE_REJECTED")        # GPT Pro §2-c: refuse the deal, never drop the warranty
+        self.assertIsNone(out["receipt"])
+        self.assertEqual(self.stock.find("G2")["unit"], "u-goods")    # the unit was never promised
 
     def test_goods_get_six_hours_by_default_and_food_none(self):
         with mock.patch.object(seller, "break_chance", lambda sku: 0.1):
@@ -316,6 +322,56 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual((got["cost"], got["arm"]), (6000, None))
         self.assertLess(got["reserve"], 6000)
 
+    def results(self):
+        return [(n["result"], n.get("price")) for n in shop_memory.load()["negotiations"]]
+
+    def pay(self, rec, acceptable=("G1",)):
+        return kit.acp_pay(self.order(list(acceptable)), self.url, kit.pub_b64(self.key), rec, Ed25519PrivateKey.generate())
+
+    def test_a_deal_is_learned_only_once_it_is_paid(self):
+        rec = self.deal("G1")["receipt"]
+        self.assertEqual(self.results(), [("agreed", rec["price"])])
+        self.assertIsNotNone(self.pay(rec))
+        self.assertEqual(self.results()[-1], ("deal", rec["price"]))
+        self.assertEqual(shop_memory.paid_prices("G1"), [rec["price"]])
+
+    def test_a_payment_the_market_refuses_frees_the_unit(self):
+        self.refuse = True
+        rec = self.deal("G1")["receipt"]
+        self.assertIsNone(self.pay(rec))
+        self.assertEqual(self.stock.find("G1")["unit"], "u-food")
+        self.assertEqual(self.results()[-1][0], "unpaid")
+
+    def test_a_receipt_never_paid_frees_the_unit_after_the_wait(self):
+        self.deal("G1")
+        self.assertIsNone(self.stock.find("G1"))
+        self.stock.held["u-food"] -= shop_stock.PAY_SECONDS + 1
+        self.assertEqual(self.stock.find("G1")["unit"], "u-food")
+        self.assertEqual([r for r, _ in self.results()], ["agreed", "unpaid"])
+
+    def test_the_kits_checkout_shows_as_the_unit_leaving_the_stock(self):
+        rec = self.deal("G1")["receipt"]
+        self.units.pop(0)                         # the kit settled it and refreshed inventory.json
+        self.stock.units()
+        self.assertEqual(self.results()[-1], ("deal", rec["price"]))
+
+    def test_only_a_unit_that_lasts_long_enough_is_offered(self):
+        self.units[:1] = [unit("u-short", "G1", hours=60), unit("u-food", "G1", hours=500)]
+        out = buyer.negotiate(self.url, "포기김치", 10000, "", "I want to buy (G1). I need at least 72 hours of shelf life.")
+        self.assertEqual(out["receipt"]["unit"], "u-food")
+        self.units[:2] = [unit("u-short", "G1", hours=60)]
+        out = buyer.negotiate(self.url, "포기김치", 10000, "", "I want to buy (G1). I need at least 72 hours of shelf life.")
+        self.assertEqual(out["state"], "TASK_STATE_REJECTED")
+
+    def test_reserve_is_the_floor_and_the_first_ask_is_p0(self):
+        self.deal("G1")                           # food cost 6000, list 10000, no ledger median
+        n = shop_memory.load()["negotiations"][-1]
+        self.assertEqual((n["reserve"], n["open"]), (7015, 7434))
+        with mock.patch.object(seller, "break_chance", lambda sku: 0.1):
+            buyer.negotiate(self.url, "청소기", 10000, "", "I want to buy (G2)")
+        n = shop_memory.load()["negotiations"][-1]
+        self.assertEqual((n["reserve"], n["open"], n["warranty"]), (8253, 8253, 6))   # (6000+15+1000)/0.85
+
     def test_unit_is_not_promised_twice_and_out_of_stock_is_refused(self):
         self.deal("G1")
         self.assertEqual(self.deal("G1")["state"], "TASK_STATE_REJECTED")
@@ -351,7 +407,13 @@ class RoundTwoStillWorks(EndToEnd):
     test_kit_refuses_food_that_will_not_last_and_the_unit_comes_back = None
     test_warranty_only_on_goods_and_only_when_configured = None
     test_warranty_on_request_is_granted_with_the_break_chance_priced_in = None
-    test_warranty_is_declined_when_the_sku_breaks_too_often = None
+    test_goods_that_break_too_often_are_not_sold_without_a_warranty = None
+    test_a_deal_is_learned_only_once_it_is_paid = None
+    test_a_payment_the_market_refuses_frees_the_unit = None
+    test_a_receipt_never_paid_frees_the_unit_after_the_wait = None
+    test_the_kits_checkout_shows_as_the_unit_leaving_the_stock = None
+    test_only_a_unit_that_lasts_long_enough_is_offered = None
+    test_reserve_is_the_floor_and_the_first_ask_is_p0 = None
     test_food_never_gets_a_warranty = None
     test_goods_get_six_hours_by_default_and_food_none = None
     test_a_quote_promises_nothing_the_loser_is_cancelled_the_winner_goes_on = None

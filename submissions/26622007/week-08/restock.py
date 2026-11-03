@@ -36,7 +36,9 @@ import hard_limits
 import loss_watch
 import market_model
 import opening
+import profit_price
 import shop_forum
+import shop_memory
 import tool_forge
 from harness import HarnessError
 
@@ -85,7 +87,7 @@ def wanted(model, catalog, have_sku, balance, cfg, hours_left=float("inf")):
     return sorted(out, reverse=True)
 
 
-def plan(inv, catalog, demand, cfg, model=None, breaks=None):
+def plan(inv, catalog, demand, cfg, model=None, breaks=None, waiting=()):
     """The hook's answer for this state."""
     balance, units = inv.get("balance") or 0, inv.get("units") or []
     if balance < inv.get("bankrupt_line", 0) and not units and (inv.get("bankruptcies_left") or 0) > 0:
@@ -121,21 +123,65 @@ def plan(inv, catalog, demand, cfg, model=None, breaks=None):
                 qty = min(qty, cfg["food_explore_qty"])
             if qty > 0:
                 picks.append((0, sku, qty))
-    return {"buy": guard([{"sku": sku, "qty": qty} for _, sku, qty in picks], inv, catalog, cfg, breaks)}
+    return {"buy": guard([{"sku": sku, "qty": qty} for _, sku, qty in picks], inv, catalog, cfg, breaks, waiting)}
 
 
-def guard(buy, inv, catalog, cfg, breaks=None):
-    """The lines that keep to the settings, whoever proposed them: food per line, goods that break too often, the cost of
-    the stock held, the cash kept, and hard_limits' line above bankruptcy. A line that does not fit is shrunk or dropped."""
+PENDING_SECONDS = 240      # a line sent this recently whose units have not shown up yet still counts as bought
+SENT = "restock_sent.json"
+
+
+def pending(md, inv, now=None):
+    """[{sku, qty, worst}] sent by this hook in the last PENDING_SECONDS and not yet in inventory.json (the file can lag
+    the supply): counted as stock already bought, so the next run does not buy it again."""
+    now = now or time.time()
+    out = []
+    for s in load(os.path.join(md, SENT), []) if md else []:
+        if now - s.get("at", 0) >= PENDING_SECONDS:
+            continue
+        came = sum(1 for u in inv.get("units") or [] if u.get("sku") == s["sku"] and (u.get("supplied_at") or 0) >= s["at"] - 5)
+        if s["qty"] > came:
+            out.append({"sku": s["sku"], "qty": s["qty"] - came, "worst": s.get("worst", 0)})
+    return out
+
+
+def note_sent(md, buy, catalog, now=None):
+    now = now or time.time()
+    keep = [s for s in load(os.path.join(md, SENT), []) if now - s.get("at", 0) < PENDING_SECONDS]
+    keep += [{"at": now, "sku": b["sku"], "qty": b["qty"],
+              "worst": ((catalog.get(b["sku"]) or {}).get("list_price") or 0) * WORST_COST} for b in buy]
+    tmp = os.path.join(md, SENT + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(keep, f)
+    os.replace(tmp, os.path.join(md, SENT))
+
+
+def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
+    """The lines that keep to the settings, whoever proposed them (formula, opening, next_window, the agent): food per line,
+    goods that break too often, and totals over the stock held + lines still on their way (waiting, see pending()) + these
+    new lines: units per SKU (max_units_per_sku; one for goods listed above high_price_goods), the cost of all stock
+    (max_stock_cost) and of food (food_max_stock_cost), the cash kept, and hard_limits' line above bankruptcy. New and
+    waiting lines count at worst cost (0.75 x list). A line that does not fit is shrunk or dropped."""
     balance, units = inv.get("balance") or 0, inv.get("units") or []
     now = time.time()
-    held = sum(u.get("cost") or 0 for u in units if not (u.get("expires_at") and u["expires_at"] <= now))
+    live = [u for u in units if not (u.get("expires_at") and u["expires_at"] <= now)]
+    kind = lambda sku: (catalog.get(sku) or {}).get("kind")
+    count = collections.Counter(u.get("sku") for u in live)
+    held = sum(u.get("cost") or 0 for u in live)
+    food = sum(u.get("cost") or 0 for u in live if u.get("kind") == "food")
+    for w in waiting:
+        count[w["sku"]] += w["qty"]
+        held += w["worst"] * w["qty"]
+        food += w["worst"] * w["qty"] if kind(w["sku"]) == "food" else 0
     room = cfg.get("max_stock_cost", float("inf")) - held
-    spare = min(balance - cfg["keep_cash"], hard_limits.spendable(balance))
+    food_room = cfg.get("food_max_stock_cost", float("inf")) - food
+    spare = min(balance - cfg["keep_cash"], hard_limits.spendable(balance)) - sum(w["worst"] * w["qty"] for w in waiting)
     out = []
     for b in buy:
         x = catalog.get(b["sku"]) or {}
         qty = min(b["qty"], MAX_LOT)
+        if b["sku"] in (cfg.get("skip_skus") or ()):
+            print(f"[restock] guard: {b['sku']} is in skip_skus, left out", file=sys.stderr)
+            continue
         if x.get("kind") == "food" and cfg.get("food_max_qty") is not None:
             qty = min(qty, cfg["food_max_qty"])
         if x.get("kind") == "goods" and breaks and cfg.get("max_break") is not None:
@@ -143,12 +189,20 @@ def guard(buy, inv, catalog, cfg, breaks=None):
             if chance is not None and chance > cfg["max_break"]:
                 print(f"[restock] guard: {b['sku']} breaks {chance:.0%} > {cfg['max_break']:.0%}, left out", file=sys.stderr)
                 continue
+        cap = cfg.get("max_units_per_sku", MAX_LOT)
+        if x.get("kind") == "goods" and (x.get("list_price") or 0) > cfg.get("high_price_goods", float("inf")):
+            cap = min(cap, cfg.get("high_price_max_units", 1))
+        qty = min(qty, cap - count[b["sku"]])
         unit = (x.get("list_price") or float("inf")) * WORST_COST
-        qty = min(qty, int(min(spare, room) // unit) if unit < float("inf") else 0)
+        limit = min(spare, room, food_room if x.get("kind") == "food" else float("inf"))
+        qty = min(qty, int(limit // unit) if unit < float("inf") else 0)
         if qty < 1:
             continue
         out.append({"sku": b["sku"], "qty": qty})
+        count[b["sku"]] += qty
         spare, room = spare - unit * qty, room - unit * qty
+        if x.get("kind") == "food":
+            food_room -= unit * qty
     return out
 
 
@@ -180,6 +234,80 @@ def read_model(state, catalog, cfg):
         json.dump({"at": int(time.time()), "skus": model["skus"]}, f, ensure_ascii=False)
     os.replace(tmp, os.path.join(state, "briefing.json"))
     return model
+
+
+NEXT_WINDOW_STATE = "next_window_state.json"
+
+
+def gone(u, now):
+    return u.get("grade") == "expired" or bool(u.get("expires_at") and u["expires_at"] <= now)
+
+
+def next_window(md, inv, catalog, cfg, waiting=(), keep=None, now=None):
+    """pricing.json "next_window": a one-off buy for the first supply window it meets (GPT Pro review §2-a). Each target is a
+    ceiling: what is in stock or still on its way is subtracted. (lines, why) while it runs, (None, why) once done, off or
+    expired; [] means wait for the window. It ends when the window it bought in has closed."""
+    now = now or time.time()
+    targets = cfg.get("targets") or {}
+    if not targets or not cfg.get("id"):
+        return None, "no next_window plan"
+    path = os.path.join(md, NEXT_WINDOW_STATE)
+    st = load(path, {})
+    if st.get("id") != cfg["id"]:
+        st = {"id": cfg["id"], "created": now, "sent": [], "done": False, "notes": []}
+    if st["done"]:
+        return None, f"next_window {cfg['id']} done"
+
+    def finish(why):
+        st["done"], st["notes"] = True, st["notes"] + [why]
+        opening.save(path, st)
+        return None, f"next_window {cfg['id']}: {why}"
+
+    if now - st["created"] > cfg.get("expires_hours", 2) * 3600:
+        return finish("expired before a window")
+    if st["sent"] and opening.window_closed(inv, now):
+        return finish(f"bought in the window of {time.strftime('%H:%M', time.localtime(st['sent'][0]['at']))}")
+    if opening.window_closed(inv, now, need=opening.SECONDS_PER_LINE * len(targets) + 15):
+        opening.save(path, st)
+        return [], f"next_window {cfg['id']} waits for the supply window"
+    have = collections.Counter(u.get("sku") for u in inv.get("units") or [] if not gone(u, now))
+    for w in waiting:
+        have[w["sku"]] += w["qty"]
+    want = [{"sku": sku, "qty": q - have[sku]} for sku, q in targets.items() if sku in catalog and q - have[sku] > 0]
+    out = keep(want) if keep and want else want
+    if not out:
+        if st["sent"]:
+            opening.save(path, st)
+            return None, f"next_window {cfg['id']}: all bought, waiting for the window to close"
+        return finish(f"nothing to buy (wanted {want}; stock and limits leave none)")
+    st["sent"].append({"at": now, "lines": out})
+    opening.save(path, st)
+    cut = {b["sku"]: b["qty"] for b in out}
+    notes = [f"{b['sku']} {b['qty']}->{cut.get(b['sku'], 0)}" for b in want if cut.get(b["sku"], 0) != b["qty"]]
+    return out, (f"next_window {cfg['id']}: {len(out)} lines, {sum(cut.values())} units"
+                 + (f" (guard: {', '.join(notes)})" if notes else ""))
+
+
+PRICE_LOG_STATE = "price_log_state.json"
+
+
+def log_prices(md, inv, breaks, pricing):
+    """A [price] line for each unit not logged before: its floor and first ask from its real cost, as the seller computes
+    them at the first message of a talk (profit_price)."""
+    path = os.path.join(md, PRICE_LOG_STATE)
+    seen = set(load(path, {}).get("seen", []))
+    units = inv.get("units") or []
+    briefing = load(os.path.join(md, "briefing.json"), {}).get("skus") or {}
+    memory = os.path.join("memory", "seller_memory_r3.json")
+    for u in units:
+        if u["unit"] in seen or not u.get("cost"):
+            continue
+        ratio = (briefing.get(u["sku"]) or {}).get("price_ratio")
+        median = ratio * u["list_price"] if ratio and u.get("list_price") else None
+        measured = market_model.break_chance(breaks, u["sku"]) if breaks and u.get("kind") == "goods" else None
+        q = profit_price.quote(u, median, measured, shop_memory.paid_prices(u["sku"], memory=memory), pricing)
+        print(f"[price] {profit_price.line(u, q)}", file=sys.stderr, flush=True)
+    opening.save(path, {"seen": [u["unit"] for u in units]})
 
 
 GOAL = """You decide what stock a shop buys now. Profit (balance at the end of the round, so unsold stock is a loss),
@@ -252,35 +380,49 @@ def main():
     ap.add_argument("--state", required=True)
     args = ap.parse_args()
     inv = load(os.path.join(args.state, "inventory.json"), {})
-    cfg = hard_limits.clamp_cfg("restock", {**DEFAULTS, **load("pricing.json", {}).get("restock", {})})
+    pricing = load("pricing.json", {})
+    cfg = hard_limits.clamp_cfg("restock", {**DEFAULTS, **pricing.get("restock", {})})
     catalog = load(os.path.join(args.state, "catalog.json"), {})
     demand, model = load(os.path.join(args.state, "demand.json"), []), read_model(args.state, catalog, cfg)
     loss_watch.check(args.state)           # after read_model: the ledger rows are fresh
     breaks = read_breaks(args.state, catalog)
-    out = plan(inv, catalog, demand, cfg, model, breaks)
-    ocfg = hard_limits.clamp_cfg("opening", {**opening.DEFAULTS, **load("pricing.json", {}).get("opening", {})})
+    waiting = pending(args.state, inv)     # sent lines not yet in inventory.json count as stock in every guard below
+    keep = lambda b: guard(b, inv, catalog, cfg, breaks, waiting)
+    out = plan(inv, catalog, demand, cfg, model, breaks, waiting)
+    ocfg = hard_limits.clamp_cfg("opening", {**opening.DEFAULTS, **pricing.get("opening", {})})
     first, why = None, "not Round 3"
     if inv.get("round", 0) >= market_model.ECON_ROUND and not out.get("bankrupt"):
         try:
-            first, why = opening.lines(args.state, inv, catalog, demand, market_model.load_rows(args.state), ocfg,
-                                       keep=lambda b: guard(b, inv, catalog, cfg, breaks))
+            first, why = opening.lines(args.state, inv, catalog, demand, market_model.load_rows(args.state), ocfg, keep=keep)
         except Exception as e:   # noqa: BLE001 - a broken opening leaves the usual plan, not an idle shop
             first, why = None, f"opening failed: {type(e).__name__}: {e}"
+        if first is None:
+            try:
+                first, more = next_window(args.state, inv, catalog, pricing.get("next_window") or {}, waiting, keep)
+            except Exception as e:   # noqa: BLE001 - the same: the usual plan goes on
+                first, more = None, f"next_window failed: {type(e).__name__}: {e}"
+            why = f"{why}; {more}"
+        try:
+            log_prices(args.state, inv, breaks, pricing)
+        except Exception as e:   # noqa: BLE001 - a price log never stops a restock
+            print(f"[restock] price log failed: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
     print(f"[restock] {why}", file=sys.stderr, flush=True)
-    if first is not None:                  # the opening decides this run (already guarded); the agent waits until it is done
+    if first is not None:                  # the opening or next_window decides this run (already guarded); the agent waits
         out = {"buy": first}
     elif opening.window_closed(inv) and not out.get("bankrupt"):
         out = {"buy": []}                  # nothing can be bought now; the agent's queue keeps its lines for the window
     elif os.environ.get("HARNESS") and not out.get("bankrupt"):
         lines = agent_turn(args.state, inv, catalog, demand, cfg, model)
         if lines is not None:
-            out = {"buy": guard(lines, inv, catalog, cfg, breaks)}
+            out = {"buy": keep(lines)}
     agent_memory.maybe_consolidate(args.state)
     if os.environ.get("HARNESS"):
         forum.maybe_run(args.state)     # the kit runs this hook once a minute in Round 3; forum.py keeps its own pace
         tool_forge.maybe_run(args.state)
     shop_forum.maybe_run(args.state)    # the shop's own posts, written by code from its ledger rows and stock
     out["buy"] = hard_limits.final_buy(out.get("buy"), inv.get("balance"), catalog)     # the last word, whatever came before
+    if out["buy"]:
+        note_sent(args.state, out["buy"][:10], catalog)        # the kit sends ten lines a run
     print(json.dumps(out, ensure_ascii=False), flush=True)
     return 0
 

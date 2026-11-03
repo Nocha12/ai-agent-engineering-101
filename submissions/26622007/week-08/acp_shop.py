@@ -120,7 +120,7 @@ class AcpCheckout:
             if problem:
                 self.log(f"[acp] checkout refused: {problem}")
                 return JSONResponse({"error": problem}, status_code=409)
-            self.stock.hold(u["unit"])
+            self.stock.hold(u["unit"], rec["task"])
         sid = "cs_" + os.urandom(8).hex()
         co = {"id": sid, "shop": rec["shop"], "shop_url": self.public, "item": u["sku"] if u else rec["item"],
               "price": rec["price"], "task": rec["task"], "currency": "credits", "iat": int(time.time())}
@@ -175,6 +175,10 @@ class AcpCheckout:
         amount = ((pay.get("payment_mandate") or {}).get("mandate") or {}).get("amount")
         if amount != total:                   # the market checks this too; refusing here saves a round trip
             return JSONResponse({"error": f"payment amount {amount} is not the checkout total {total}"}, status_code=400)
+        if self.stock is not None and s.get("unit"):
+            if self.stock.holder(s["unit"]) not in (None, s["task"]) or s["unit"] in self.stock.sold:
+                return JSONResponse({"error": f"unit {s['unit']} went to another buyer"}, status_code=409)
+            self.stock.hold(s["unit"])            # paying now: the unit stays promised while the market answers
         body = {"order": pay.get("order"), "checkout_jwt": s["checkout_jwt"],
                 "checkout_mandate": pay.get("checkout_mandate"), "payment_mandate": pay.get("payment_mandate")}
         try:
@@ -187,6 +191,8 @@ class AcpCheckout:
         if r.status_code != 200 or not res.get("mandate_receipt"):
             failed = [k for k, v in (res.get("checks") or {}).items() if not v]
             self.log(f"[acp] settle refused for {s['id']} ({s['line_items'][0]['id']} at {total}): {failed or res}")
+            if self.stock is not None and s.get("unit"):
+                self.stock.release(s["unit"])     # the payment failed: the unit is on sale again (a retry re-checks it)
             return JSONResponse({"error": "payment refused by the market", "market": res}, status_code=402)
         s["status"] = "completed"
         s["order"] = {"status": "confirmed", "mandate_receipt": res["mandate_receipt"]}

@@ -142,6 +142,21 @@ def markup(item=None):
     return m, "; ".join(why)
 
 
+def paid_prices(sku, last=5, memory=None):
+    """The prices buyers really paid this shop for this SKU (result "deal" is recorded at payment), newest last.
+    memory: a negotiations file to read instead of this process's own (restock.py reads the shop's)."""
+    if memory is not None:
+        try:
+            with open(memory, encoding="utf-8") as f:
+                rows = json.load(f).get("negotiations") or []
+        except (OSError, ValueError, AttributeError):
+            rows = []
+    else:
+        rows = load()["negotiations"]
+    return [n["price"] for n in rows
+            if n.get("result") == "deal" and n.get("sku") == sku and n.get("price") is not None][-last:]
+
+
 def note(item):
     """One line for the harness prompt: what this shop's own recent trades say."""
     r = recent(item)

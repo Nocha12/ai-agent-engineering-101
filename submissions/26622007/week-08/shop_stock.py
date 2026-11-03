@@ -7,11 +7,47 @@ The file can be 10 s old, so the book also remembers what it has promised and so
 import json
 import math
 import os
+import re
 import time
 from pathlib import Path
 
 ECON_ROUND = 3
-HOLD_SECONDS = 900     # a buyer who walks away without cancelling frees the unit after this long
+HOLD_SECONDS = 300      # a talk silent this long frees its unit (each message renews it); 900 s hid stock for most of a window
+PAY_SECONDS = 120       # after the deal: the unit waits this long for its payment (paid deals settle within seconds), then is on sale again
+PAY_MARGIN_HOURS = 0.1  # food must outlast the buyer's need by this much (time to pay), GPT Pro §3
+SKU = re.compile(r"\bG[0-9a-f]{8}\b")
+HOURS = re.compile(r"(\d+(?:\.\d+)?)\s*(?:h\b|hrs?\b|hours?\b|시간)", re.I)
+SHELF_WORDS = re.compile(r"shelf|last|expir|fresh|after payment|유통|소비|남", re.I)
+GRADES = re.compile(r"grades?\s*(?:of\s*|:\s*)?([ABC](?:\s*(?:,|/|or|and)\s*[ABC])*)\b|\b([ABC])\s*(?:등급|grade\b)")
+
+
+def needs(text):
+    """What the buyer's words ask of a unit: {"skus", "hours", "grades", "cert"}. SKUs named are the only acceptable ones;
+    hours is the shelf life asked for (food), grades the grades allowed. Words about a warranty's hours are not shelf life."""
+    t = text or ""
+    hours = [float(m.group(1)) for m in HOURS.finditer(t)
+             if SHELF_WORDS.search(t[max(0, m.start() - 40):m.end() + 25])
+             and not re.search(r"warrant|guarantee|보증", t[max(0, m.start() - 25):m.end() + 12], re.I)]
+    grades = set()
+    for m in GRADES.finditer(t):
+        grades |= set(re.findall(r"[ABC]", m.group(1) or m.group(2)))
+    return {"skus": set(SKU.findall(t)), "hours": max(hours) if hours else None, "grades": grades or None,
+            "cert": bool(re.search(r"certif|cert\s*=\s*true|인증서", t, re.I))}
+
+
+def unfit(u, need, now=None):
+    """Why this unit cannot serve this buyer, or None: SKU, shelf life left >= need + PAY_MARGIN_HOURS, grade, certificate."""
+    if need["skus"] and u["sku"] not in need["skus"]:
+        return f"{u['sku']} is not the SKU asked for"
+    if need["hours"] is not None and u.get("expires_at"):
+        left = (u["expires_at"] - (now or time.time())) / 3600
+        if left < need["hours"] + PAY_MARGIN_HOURS:
+            return f"{left:.1f} h of shelf life left, {need['hours']:g} h asked"
+    if need["grades"] and u.get("grade") not in need["grades"]:
+        return f"grade {u.get('grade')}, {'/'.join(sorted(need['grades']))} asked"
+    if need["cert"] and not u.get("cert"):
+        return "no certificate"
+    return None
 
 
 def market_dir():
@@ -66,10 +102,17 @@ def markdown(u, cfg=None, ends_at=None, now=None):
 
 
 class StockBook:
+    """A unit is free, promised to a talk (held, renewed by each message), agreed and waiting for its payment (held for
+    PAY_SECONDS), or sold. Payment shows as the unit leaving inventory.json (the kit's checkout) or mark_sold (ours):
+    on_paid(info) is called then, on_unpaid(info, why) when the wait runs out or the checkout is cancelled."""
+
     def __init__(self, load=load_inventory):
         self.load = load
-        self.held = {}      # unit -> time promised
+        self.held = {}      # unit -> time promised (renewed); a hold lasts HOLD_SECONDS, or PAY_SECONDS once agreed
+        self.owner = {}     # unit -> task that holds it
+        self.agreed = {}    # unit -> {"task", "at", "expires_at", ...} deals waiting for their payment
         self.sold = set()
+        self.on_paid = self.on_unpaid = None
 
     def economy(self):
         """True from Round 3 on. Before that the shop keeps selling from catalog.json."""
@@ -79,34 +122,94 @@ class StockBook:
         """The unit's grade now (a food unit's grade drops while it waits), or None if it is gone."""
         return next((u.get("grade") for u in self.load().get("units", []) if u["unit"] == unit), None)
 
+    def settle(self, inv_units=None, now=None):
+        """Agreed deals: paid when the unit left the stock (not by expiring), unpaid when the wait ran out."""
+        if not self.agreed:
+            return
+        now = now or time.time()
+        present = {u["unit"] for u in (inv_units if inv_units is not None else self.load().get("units", []))}
+        for unit, info in list(self.agreed.items()):
+            if unit not in present:
+                del self.agreed[unit]
+                self._drop(unit)
+                if info.get("expires_at") and info["expires_at"] <= now:
+                    self._call(self.on_unpaid, info, "expired before payment")
+                else:
+                    self.sold.add(unit)
+                    self._call(self.on_paid, info)
+            elif now - self.held.get(unit, info["at"]) >= PAY_SECONDS:     # a checkout being paid renews the hold
+                del self.agreed[unit]
+                self._drop(unit)
+                self._call(self.on_unpaid, info, f"not paid within {PAY_SECONDS} s")
+
+    @staticmethod
+    def _call(fn, *args):
+        if fn is not None:
+            fn(*args)
+
+    def _drop(self, unit):
+        self.held.pop(unit, None)
+        self.owner.pop(unit, None)
+
     def units(self):
         """Units free to promise: in stock, not expired, not promised, not sold since the file was written."""
         now = time.time()
-        self.held = {u: t for u, t in self.held.items() if now - t < HOLD_SECONDS}
-        return [u for u in self.load().get("units", [])
-                if not expired(u, now) and u["unit"] not in self.held and u["unit"] not in self.sold]
+        inv = self.load().get("units", [])
+        self.settle(inv, now)
+        for unit, t in list(self.held.items()):
+            if now - t >= (PAY_SECONDS if unit in self.agreed else HOLD_SECONDS):
+                self._drop(unit)
+        return [u for u in inv if not expired(u, now) and u["unit"] not in self.held and u["unit"] not in self.sold]
 
-    def find(self, text):
-        """The unit for what the buyer asked (SKU first, then name, then category) that expires first."""
-        want = text.lower()
+    def pick(self, text, now=None):
+        """(unit, None) for what the buyer asked (SKU first, then name, then category): among the units that fit the buyer's
+        needs (needs()/unfit()), the one that expires first. (None, why) when none does."""
+        want, need = text.lower(), needs(text)
         units = self.units()
         for matches in (lambda u: u["sku"].lower() in want,
                         lambda u: (u.get("name") or "\0").lower() in want,
                         lambda u: (last_segment(u.get("category")) or "\0") in want):
             fit = [u for u in units if matches(u)]
-            if fit:
-                return min(fit, key=lambda u: (u.get("expires_at") or float("inf"), u.get("supplied_at") or 0))
-        return None
+            if not fit:
+                continue
+            ok = [u for u in fit if unfit(u, need, now) is None]
+            if ok:
+                return min(ok, key=lambda u: (u.get("expires_at") or float("inf"), u.get("supplied_at") or 0)), None
+            return None, unfit(fit[0], need, now)
+        return None, "not in stock"
 
-    def hold(self, unit):
+    def find(self, text):
+        return self.pick(text)[0]
+
+    def hold(self, unit, task=None):
         self.held[unit] = time.time()
+        if task is not None:
+            self.owner[unit] = task
+
+    def holder(self, unit):
+        """The task holding this unit now, None when it is free (a run-out hold counts as free)."""
+        self.units()
+        return self.owner.get(unit) if unit in self.held else None
+
+    def agree(self, unit, info):
+        """The talk closed a deal on this unit: keep it for the payment."""
+        self.held[unit] = time.time()
+        self.agreed[unit] = {"at": time.time(), **info}
+        if info.get("task") is not None:
+            self.owner[unit] = info["task"]
 
     def release(self, unit):
-        self.held.pop(unit, None)
+        info = self.agreed.pop(unit, None)
+        self._drop(unit)
+        if info is not None:
+            self._call(self.on_unpaid, info, "checkout cancelled or refused")
 
     def mark_sold(self, unit):
-        self.held.pop(unit, None)
+        info = self.agreed.pop(unit, None)
+        self._drop(unit)
         self.sold.add(unit)
+        if info is not None:
+            self._call(self.on_paid, info)
 
     def ship(self, receipt, acceptable=None):
         """(unit dict, None) to ship for a receipt, or (None, reason). Same rule as the kit's AcpShop.pick_unit:

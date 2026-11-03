@@ -29,8 +29,8 @@
   "objective": "profit",
   "concession": [
     0.6,
-    0.3,
-    0.0
+    0.4,
+    0.2
   ],
   "low_conversion": 0.6,
   "step_down": 0.05,
@@ -66,8 +66,8 @@
     "min_shelf_hours": 720,
     "goods_max_price": 45000,
     "max_lines": 10,
-    "cover_hours": 6,
-    "max_units_per_sku": 5,
+    "cover_hours": 3,
+    "max_units_per_sku": 3,
     "max_sku_share": 0.1,
     "explore_lines": 2,
     "min_expected": 1.0,
@@ -82,14 +82,20 @@
     "end_cover": 0.5,
     "agent_every_minutes": 20,
     "agent_max_lines": 30,
-    "max_stock_cost": 1500000,
+    "max_stock_cost": 900000,
     "food_explore_qty": 1,
     "food_max_qty": 3,
     "max_break": 0.15,
     "food_max_price": 30000,
     "band_low": 0.8,
     "band_high": 1.2,
-    "prior_break": 0.15
+    "prior_break": 0.15,
+    "high_price_goods": 100000,
+    "high_price_max_units": 1,
+    "food_max_stock_cost": 200000,
+    "skip_skus": [
+      "G07ec17d5"
+    ]
   },
   "markdown": {
     "clear_hours": 24,
@@ -123,38 +129,7 @@
     "disable_min_calls": 5
   },
   "opening": {
-    "phases": [
-      [
-        "Gdf79cd07",
-        "G2108d9bc",
-        "G5f64d42a",
-        "G80435d53",
-        "G1831f2c0",
-        "Gea0b0c3f",
-        "G0be9ed07",
-        "G81ade83e",
-        "G6fb5422c",
-        "Gf7cda6c2"
-      ],
-      [
-        "G476cc094",
-        "G7ced7d9f",
-        "G28455a86",
-        "Gfbb10ae2",
-        "G0dfa250d",
-        "G35351812",
-        "Ge768ae9e",
-        "G618bd792",
-        "Gd315bfa2",
-        "G7f54d965"
-      ],
-      [
-        "G08eb3ca2",
-        "G8074a394",
-        "G247b3b0a",
-        "G20f14c21"
-      ]
-    ],
+    "phases": [],
     "source": "review/W-20261103-2025/gpt-pro-answer1.md §5.2",
     "phase_gap_minutes": 15,
     "judge_settles": 50,
@@ -164,6 +139,71 @@
     "goods_max_price": 45000,
     "band_low": 0.8,
     "band_high": 1.2,
-    "min_shelf_hours": 720
+    "min_shelf_hours": 720,
+    "retired_phases": {
+      "phases": [
+        [
+          "Gdf79cd07",
+          "G2108d9bc",
+          "G5f64d42a",
+          "G80435d53",
+          "G1831f2c0",
+          "Gea0b0c3f",
+          "G0be9ed07",
+          "G81ade83e",
+          "G6fb5422c",
+          "Gf7cda6c2"
+        ],
+        [
+          "G476cc094",
+          "G7ced7d9f",
+          "G28455a86",
+          "Gfbb10ae2",
+          "G0dfa250d",
+          "G35351812",
+          "Ge768ae9e",
+          "G618bd792",
+          "Gd315bfa2",
+          "G7f54d965"
+        ],
+        [
+          "G08eb3ca2",
+          "G8074a394",
+          "G247b3b0a",
+          "G20f14c21"
+        ]
+      ],
+      "why": "GPT Pro profit review 2026-11-03 22:10 (review/W-20261103-2120/gpt-pro-answer1.md 5): opening ended; all three phases were sent by 21:43, .market/opening_state.json keeps the record"
+    }
+  },
+  "price": {
+    "source": "review/W-20261103-2120/gpt-pro-answer1.md 2-b",
+    "min_profit": 1000,
+    "min_profit_share": 0.03,
+    "storage_share": 0.0025,
+    "goods_break": 0.15,
+    "stress_break": 0.25,
+    "median_up": 1.05,
+    "kind_ratio": {
+      "food": 0.708,
+      "goods": 0.755
+    }
+  },
+  "next_window": {
+    "id": "pro-20261103-2213",
+    "source": "review/W-20261103-2120/gpt-pro-answer1.md 2-a (G07ec17d5 left out)",
+    "expires_hours": 2,
+    "targets": {
+      "G1515d951": 1,
+      "G998b9322": 1,
+      "Ge62449c9": 1,
+      "G0be9ed07": 2,
+      "G06f2c594": 1,
+      "G200e39a3": 2,
+      "G32bf9a8e": 1,
+      "G80435d53": 2,
+      "Gdf79cd07": 1,
+      "G5f64d42a": 1
+    }
   }
 }

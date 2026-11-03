@@ -98,7 +98,7 @@ class ConcessionTest(unittest.TestCase):
         self.assertIn("shop_memory.concession_floor(opened, reserve, deal[\"rounds\"])", src)
         self.assertNotIn("cap = reserve   # first counter goes straight to the reserve", src)
         with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
-            self.assertEqual(json.load(f)["concession"], [0.6, 0.3, 0.0])
+            self.assertEqual(json.load(f)["concession"], [0.6, 0.4, 0.2])      # GPT Pro profit review §2-b: never down to F
 
 
 class AcpChoiceTest(unittest.TestCase):

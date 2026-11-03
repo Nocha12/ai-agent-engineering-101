@@ -53,6 +53,7 @@ from harness import HarnessError, ask
 import agent_memory
 import hard_limits
 import market_model
+import profit_price
 import shop_forum
 import shop_memory
 from shop_stock import StockBook, last_segment, markdown
@@ -161,6 +162,16 @@ def briefing_line(sku):
             f"{m['sellers']} other shops sell it.\n")
 
 
+def sku_median(sku, list_price):
+    """The median price buyers paid for this SKU in the ledger (briefing.json), or None when it is not there."""
+    try:
+        with open(os.path.join(os.environ.get("MARKET_DIR", ".market"), "briefing.json"), encoding="utf-8") as f:
+            ratio = (json.load(f)["skus"].get(sku) or {}).get("price_ratio")
+    except (OSError, ValueError, KeyError, AttributeError):
+        return None
+    return ratio * list_price if ratio and list_price else None
+
+
 def decide_open(item):
     prompt = (f"A buyer wants: {item['name']} ({item['description']}). Your reserve is {item['reserve']}.\n"
               + memory_line(item["name"]) + "Choose your opening asking price.")
@@ -241,28 +252,55 @@ class Seller(AgentExecutor):
         self.catalog = catalog
         self.name = name
         self.stock = stock or StockBook()
+        self.stock.on_paid, self.stock.on_unpaid = self.paid, self.unpaid
         self.acp = acp
         self.open = {}  # task id -> {"id", "name", "reserve", "ask", "rounds", "history"}, plus "unit" from Round 3
 
+    def free(self, task_id, deal):
+        """Let a talk's unit go, unless another talk holds it by now (this one's hold ran out)."""
+        if deal.get("unit") and self.stock.holder(deal["unit"]) in (None, task_id):
+            self.stock.release(deal["unit"])
+
+    def paid(self, info):
+        """The buyer paid for an agreed unit: only now is it a deal the shop learns from."""
+        self.remember(info["task"], info["deal"], "deal", info["price"])
+        log(f"PAID {info['deal']['id']} unit {info['deal']['unit']} at {info['price']} (task {info['task'][:8]})")
+
+    def unpaid(self, info, why):
+        self.remember(info["task"], info["deal"], "unpaid", info["price"])
+        log(f"UNPAID {info['deal']['id']} unit {info['deal']['unit']} at {info['price']}: {why}; the unit is on sale again")
+
     async def open_from_stock(self, task, text, up, say):
-        """Round 3, the first message: which unit, and the opening price. No harness call: nothing here needs one."""
-        u = self.stock.find(text)
+        """Round 3, the first message: which unit, and the opening price. No harness call: nothing here needs one.
+        Only a unit that fits the buyer's needs is offered (shop_stock.unfit); the price is profit_price's: the reserve is
+        the floor F, the first ask P0. Goods that break too often for the warranty are not sold."""
+        u, miss = self.stock.pick(text)
         if u is None:
-            await up.reject(say("Sorry, we have none of that in stock."))
-            log(f"task {task.id[:8]} -> REJECTED (not in stock)")
+            await up.reject(say("Sorry, we have none of that in stock." if miss == "not in stock" else
+                                f"Sorry, none of our units fits your order: {miss}."))
+            log(f"task {task.id[:8]} -> REJECTED ({miss})")
             return
-        self.stock.hold(u["unit"])
         cost, key = math.ceil(u["cost"]), last_segment(u.get("category")) or u["sku"]
-        ask_price, arm, why = await asyncio.to_thread(shop_memory.choose_opening, key, cost, u["list_price"])
         pricing = shop_memory.load_pricing()
-        reserve, keep, cause = markdown(u, hard_limits.clamp_cfg("markdown", pricing.get("markdown") or {}),
-                                        (pricing.get("restock") or {}).get("round_ends_at"))
-        if keep < 1:          # a clearance price says nothing about which opening sells: it stays out of the bandit
-            ask_price, arm = max(reserve, round(ask_price * keep)), None
-            log(f"MARKDOWN {u['sku']} unit {u['unit']}: {cause}, floor {reserve} instead of cost {cost}")
-        log(f"PRICE {u['sku']} unit {u['unit']} cost {cost} list {u['list_price']}: opening ask {ask_price} ({why})")
+        q = profit_price.quote(u, sku_median(u["sku"], u.get("list_price")),
+                               break_chance(u["sku"]) if u.get("kind") == "goods" else None,
+                               shop_memory.paid_prices(u["sku"]), {**pricing, "warranty": self.warranty_cfg()})
+        if q["refuse"]:
+            await up.reject(say("Sorry, we cannot sell this item with a fair warranty right now."))
+            log(f"task {task.id[:8]} -> REJECTED (break chance {q['b']:.0%} above the warranty limit; no sale without one)")
+            return
+        self.stock.hold(u["unit"], task.id)
+        ask_price, reserve, arm = q["open"], q["floor"], None
+        low, keep, cause = markdown(u, hard_limits.clamp_cfg("markdown", pricing.get("markdown") or {}),
+                                    (pricing.get("restock") or {}).get("round_ends_at"))
+        if keep < 1:          # clearance: what is already bought is sunk; selling now beats losing it
+            reserve = math.ceil(low / (1 - q["b"])) if u.get("kind") == "goods" else low
+            ask_price = max(reserve, round(ask_price * keep))
+            log(f"MARKDOWN {u['sku']} unit {u['unit']}: {cause}, floor {reserve} instead of {q['floor']}")
+        log(f"PRICE {profit_price.line(u, q)}")
         deal = self.open[task.id] = {"id": u["sku"], "name": u["name"], "key": key, "unit": u["unit"], "kind": u.get("kind"),
                                      "cost": cost, "reserve": reserve, "ask": ask_price, "open": ask_price, "arm": arm,
+                                     "break": q["b"], "expires_at": u.get("expires_at"),
                                      "rounds": 0, "history": [("you asked", ask_price)]}
         note = self.warranty_terms(deal, text)
         ask_price = deal["ask"]
@@ -275,27 +313,19 @@ class Seller(AgentExecutor):
         return hard_limits.clamp_cfg("warranty", {**WARRANTY, **(shop_memory.load_pricing().get("warranty") or {})})
 
     def warranty_terms(self, deal, text):
-        """Goods, at the first message: a warranty of hard_limits.SELLER_GOODS_WARRANTY_HOURS (buyers' kits refuse to pay
-        without one, the kit's example asks for 6 h), or longer if asked, with the reserve raised by the break chance; or
-        declined when the SKU breaks too often. Returns the sentence for the buyer, or None (food, already set, refused)."""
+        """Goods: a warranty of hard_limits.SELLER_GOODS_WARRANTY_HOURS (buyers' kits refuse to pay without one, the kit's
+        example asks for 6 h), or longer if asked. The break chance is already in the reserve (profit_price floor), and
+        goods that break too often were refused at the first message. Returns the sentence for the buyer, or None (food,
+        already set, not wanted)."""
         if deal.get("kind") != "goods" or "warranty" in deal \
                 or re.search(r"\b(no|without) (a )?(warranty|guarantee)|보증\s*(없이|필요\s*없)", text or "", re.I):
             return None
         cfg = self.warranty_cfg()
-        measured = break_chance(deal["id"])
-        chance = cfg["prior_break"] if measured is None else measured
-        if chance > cfg["max_break"]:
-            deal["warranty"] = 0
-            log(f"WARRANTY declined for {deal['id']}: break chance {chance:.1%} (max {cfg['max_break']:.0%})")
-            return "Sorry, this item is sold without a warranty."
         asked = [float(h) for h in WARRANTY_HOURS.findall(text or "")]
         hours = max(hard_limits.SELLER_GOODS_WARRANTY_HOURS, min(max(asked), cfg["max_hours"]) if asked else 0)
-        hours, before = (int(hours) if float(hours).is_integer() else hours), deal["reserve"]
+        hours = int(hours) if float(hours).is_integer() else hours
         deal["warranty"] = hours
-        deal["reserve"] = max(before, math.ceil(before / (1 - chance)))
-        deal["ask"] = max(deal["ask"], deal["reserve"])
-        log(f"WARRANTY {hours} h for {deal['id']}: break chance {chance:.1%}"
-            f" ({'ledger' if measured is not None else 'prior'}), reserve {before} -> {deal['reserve']}")
+        log(f"WARRANTY {hours} h for {deal['id']}: break chance {deal.get('break', cfg['prior_break']):.1%} is in the reserve {deal['reserve']}")
         return f"This unit comes with a {hours} h warranty: if it breaks within {hours} h, you get the full price back."
 
     def stock_receipt(self, task_id, deal, price):
@@ -380,6 +410,14 @@ class Seller(AgentExecutor):
             return
 
         deal["rounds"] += 1
+        if deal.get("unit"):
+            if self.stock.holder(deal["unit"]) not in (None, task.id):
+                await up.reject(say("Sorry, that unit has just been sold to another buyer."))
+                log(f"task {task.id[:8]} -> REJECTED (unit {deal['unit']} went to another talk while this one waited)")
+                self.remember(task.id, deal, "canceled")
+                del self.open[task.id]
+                return
+            self.stock.hold(deal["unit"], task.id)      # each message renews the promise
         note = self.warranty_terms(deal, text)
         if note:
             plain = say
@@ -389,7 +427,7 @@ class Seller(AgentExecutor):
         except HarnessError as e:
             log(f"harness failed: {e}")
             await up.failed(say("The shop cannot answer right now."))
-            self.stock.release(deal.get("unit"))
+            self.free(task.id, deal)
             del self.open[task.id]
             return
         action, price, reserve = d["action"], d["price"], deal["reserve"]
@@ -453,10 +491,13 @@ class Seller(AgentExecutor):
                 log("no shop_key.pem or SHOP_KEY_PEM: receipt goes out unsigned")
             if deal.get("unit") and self.acp is not None:
                 self.acp.note_terms(receipt)
+            if deal.get("unit"):      # a deal on a unit counts once it is paid (StockBook.settle -> self.paid)
+                self.stock.agree(deal["unit"], {"task": task.id, "deal": deal, "price": int(offer),
+                                                "expires_at": deal.get("expires_at")})
             await up.add_artifact(parts=[new_data_part(receipt)], name="receipt")
             await up.complete(say(f"Deal: {deal['name']} at {offer}. Thank you! If you were happy with us, a 5-star review saying "
                                   "what you liked (fair price, quick deal, signed receipt) would mean a lot to our shop."))
-            self.remember(task.id, deal, "deal", int(offer))
+            self.remember(task.id, deal, "agreed" if deal.get("unit") else "deal", int(offer))
             log(f"task {task.id[:8]} -> COMPLETED {deal['id']} at {offer}")
             del self.open[task.id]
         elif action == "reject":
@@ -464,7 +505,7 @@ class Seller(AgentExecutor):
                                 "If you leave us a 5-star review, we will give you a better price on your next visit. No deal."))
             log(f"task {task.id[:8]} -> REJECTED")
             self.remember(task.id, deal, "rejected")
-            self.stock.release(deal.get("unit"))
+            self.free(task.id, deal)
             del self.open[task.id]
         else:
             deal["ask"] = price
@@ -499,7 +540,7 @@ class Seller(AgentExecutor):
         deal = self.open.pop(task.id, None)
         if deal is not None:
             self.remember(task.id, deal, "canceled")
-            self.stock.release(deal.get("unit"))
+            self.free(task.id, deal)
         log(f"task {task.id[:8]} -> CANCELED")
         await TaskUpdater(event_queue=event_queue, task_id=task.id, context_id=task.context_id).cancel()
 

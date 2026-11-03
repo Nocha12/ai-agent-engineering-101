@@ -31,10 +31,16 @@ Every cycle, in this order:
    - prompt / code: seller.py, market_buyer.py, restock.py, forum.py, market_model.py, agent_memory.py: what the agents are
      told, what they are given, a formula that the ledger shows wrong. Tests must pass;
    - memory: memory/agent/MEMORY.md, strategies/*.md (one lesson per mistake, with triggers), daily/.
-   The opening stock follows the GPT Pro review (review/W-20261103-2025/gpt-pro-answer1.md, opening.py, pricing.json
-   "opening"): three supply windows of one unit per category near its median price, then the usual plan. After it, judge
-   each SKU by its expected net per unit (restock.wanted: price share x (1 - refund chance) - cost - storage) against the
-   sales it actually made while in stock; higher-priced categories may enter one unit at a time once that is positive.
+   The opening (three windows, review/W-20261103-2025) is over. The shop now follows the GPT Pro profit review
+   (review/W-20261103-2120/gpt-pro-answer1.md): stock on SKUs the ledger shows selling (pricing.json "next_window" was a
+   one-off buy of them), reserve = floor F and first ask P0 (profit_price.py), at most 3 units per SKU and 1 of goods
+   listed above 100,000, max_stock_cost 900,000, food stock cost 200,000, cash 2,500,000 kept, all over stock held +
+   lines on their way + new lines (restock.guard). Judge each SKU by its expected net per unit (restock.wanted) against
+   the sales it made while in stock. Only paid sales count: seller_memory_r3 result "deal" (an "agreed" receipt is unpaid).
+   Widen max_stock_cost 900,000 -> 1,350,000 -> 1,500,000 (one step per cycle) only when all hold, quoted: 10+ of the
+   shop's own paid settles; eligible stock-outs repeated on 2+ SKUs; contribution of units sold, after refund risk and
+   storage, above 0; 50%+ of recent supply cost recovered as net sales. Goods widen only on matured (6 h past) warranty
+   data. The food 200,000 and cash 2,500,000 lines stay. Otherwise keep 900,000 or narrow.
    The shop started cautious; when the data shows caution is costing sales, revenue or surplus, widen boldly within the
    limits. When it shows losses (stock thrown away, refunds, a falling balance), narrow.
 4. Judge your previous change from its own numbers in `since_last_cycle`: keep, fix or revert (`previous_verdict`). If you

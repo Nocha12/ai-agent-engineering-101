@@ -91,11 +91,13 @@ class OpeningTest(unittest.TestCase):
 
 
 class ShippedOpeningTest(unittest.TestCase):
-    def test_the_review_list_is_what_pricing_json_ships(self):
+    def test_the_opening_is_over_and_its_list_is_kept(self):
         with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
             o = json.load(f)["opening"]
-        self.assertEqual([len(p) for p in o["phases"]], [10, 10, 4])
-        self.assertEqual(o["phases"][0][:2], ["Gdf79cd07", "G2108d9bc"])
+        self.assertEqual(o["phases"], [])                       # GPT Pro profit review: no more opening phases
+        self.assertEqual([len(p) for p in o["retired_phases"]["phases"]], [10, 10, 4])
+        self.assertEqual(o["retired_phases"]["phases"][0][:2], ["Gdf79cd07", "G2108d9bc"])
+        self.assertEqual(opening.lines("/nonexistent", {}, {}, [], [], {**opening.DEFAULTS, **o}), (None, "no opening configured"))
 
     def test_restock_main_sends_the_opening_in_round_three_only(self):
         for rnd, expect in ((3, [{"sku": "F1", "qty": 1}]), (2, None)):
