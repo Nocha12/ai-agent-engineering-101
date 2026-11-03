@@ -1,78 +1,48 @@
 {
-  "changed": false,
-  "hypothesis": "G1515d951의 반복 파손은 현재 전략의 재고 축소 조건을 충족한다. 다만 검증 SKU 목록에서만 제거하면 일반 고가 상품 상한 2개가 적용되는 대신 발주 대상에서 제외될 수 있고, 현재 테스트 환경도 검증에 실패하므로 이번에는 변경하지 않았다.",
-  "change_summary": "파일을 변경하지 않았다. 이전 설정 변경은 테스트 실패로 거부됐다. 이번 테스트도 시스템 Python에 httpx가 없어 13개 테스트 모듈을 불러오지 못했다. 현재 설정에서는 해당 SKU가 검증 목록에만 있으므로, 2개 상한을 적용하면서 발주를 유지하려면 우선 SKU 처리까지 함께 검증해야 한다.",
-  "target_metric": "상점 순이익과 G1515d951의 파손 환불액",
-  "expected": "변경이 없으므로 개선 폭은 예측하지 않는다. 테스트 환경과 2개 상한 적용 경로를 확인한 뒤 축소를 재평가한다.",
+  "changed": true,
+  "hypothesis": "판매 협상 중 모델 호출 한도에 도달해도 명확한 숫자 제안을 기존 최저가와 양보 규칙으로 처리하면 놓치는 거래를 줄일 수 있다.",
+  "change_summary": "seller.py에서 협상 모델 호출이 실패했을 때 숫자만으로 된 제안에 한해 정해진 양보 일정으로 협상을 계속하도록 수정했다. 모호한 문장은 기존처럼 실패 처리한다. 전체 테스트 285개가 통과했다.",
+  "target_metric": "모델 호출 실패 중 판매 협상 지속 건수와 유료 판매 건수",
+  "expected": "다음 한 시간 동안 호출 한도에 걸린 숫자 제안 중 최소 5건의 협상이 실패 처리 대신 계속될 것으로 기대한다. 유료 판매 증가는 별도로 확인한다.",
   "evidence": [
     {
-      "ref": "meta/evidence/terra-1104-070114.json:20",
-      "excerpt": "      \"value\": 7180093",
-      "meaning": "현재 상점 순이익이다."
+      "ref": "meta/evidence/terra-1104-072946.json:669",
+      "excerpt": "   \"harness_failed\": 206,",
+      "meaning": "직전 집계 구간에 하네스 실패가 206건 발생했다."
     },
     {
-      "ref": "meta/evidence/terra-1104-070114.json:214",
-      "excerpt": "  \"profit_if_stock_sells_at_cost\": 9395271,",
-      "meaning": "현재 재고를 원가에 모두 회수할 때의 이익이다."
+      "ref": "logs/market-kit.log:130439",
+      "excerpt": "07:29:47 [seller] [07:29:47] seller task dd2d251c <- '146640'",
+      "meaning": "숫자만으로 된 판매 제안의 실제 사례다."
     },
     {
-      "ref": "meta/evidence/terra-1104-070114.json:646",
-      "excerpt": "   \"settled_as_shop\": 74,",
-      "meaning": "지난 시간 상점 유료 체결은 74건이다."
+      "ref": "logs/market-kit.log:130440",
+      "excerpt": "07:29:47 [seller] [07:29:47] seller harness failed: call cap reached: 300 OpenRouter calls in the last hour",
+      "meaning": "해당 제안 직후 모델 호출 상한으로 협상이 실패했다."
     },
     {
-      "ref": "meta/evidence/terra-1104-070114.json:653",
-      "excerpt": "   \"no_stock\": 20,",
-      "meaning": "지난 시간 품절은 20건이다."
+      "ref": "meta/evidence/terra-1104-072946.json:214",
+      "excerpt": "  \"profit_if_stock_sells_at_cost\": 9387971,",
+      "meaning": "재고를 원가에 회수한다는 가정의 현재 이익이다."
     },
     {
-      "ref": "logs/market-kit.log:42476",
-      "excerpt": "03:09:06 [buyer] [loss] break_refund 지누스 그린티 럭스S 하이브리드 매트리스 20cm Q 퀸 361302 sku G1515d951 buyer Kiro729 ledger #2222453 broke after 0.1 h, warranty 6.0 h",
-      "meaning": "축소 조건에 해당하는 첫 파손 환불이다."
-    },
-    {
-      "ref": "logs/market-kit.log:49921",
-      "excerpt": "03:35:47 [buyer] [loss] break_refund 지누스 그린티 럭스S 하이브리드 매트리스 20cm Q 퀸 330000 sku G1515d951 buyer Kiro729 ledger #2217285 broke after 0.8 h, warranty 6.0 h",
-      "meaning": "같은 SKU에서 한 시간 안에 발생한 두 번째 파손 환불이다."
-    },
-    {
-      "ref": "logs/market-kit.log:116106",
-      "excerpt": "06:47:33 [buyer] [loss] break_refund 지누스 그린티 럭스S 하이브리드 매트리스 20cm Q 퀸 344500 sku G1515d951 buyer mjforge ledger #2278093 broke after 0.2 h, warranty 6.0 h",
-      "meaning": "지난 시간 같은 SKU에서 환불 344,500이 추가됐다."
-    },
-    {
-      "ref": "restock.py:224",
-      "excerpt": "            print(f\"[restock] guard: {b['sku']} high price, not in high_price_proven_skus / priority_skus, left out\", file=sys.stderr)",
-      "meaning": "검증 목록에서만 제거하면 고가 SKU가 발주에서 제외될 수 있다."
-    },
-    {
-      "ref": "logs/meta.log:43",
-      "excerpt": "FAILED (failures=7)",
-      "meaning": "이전 축소 시도가 테스트 실패로 거부된 기록이다."
-    },
-    {
-      "ref": ".market/ledger_rows.jsonl:25971",
-      "excerpt": "{\"k\": \"settle\", \"seq\": 2187153, \"ts\": 1793721167.574, \"buyer\": \"buyer-01\", \"order\": \"o-28845e134987\", \"sku\": \"G0be9ed07\", \"amount\": 34337, \"grade\": \"A\", \"honest\": true, \"shop\": \"https://grove-enemies-boundary-reducing.trycloudflare.com\", \"warranty\": 6.0}",
-      "meaning": "경쟁점이 우리도 취급하는 소파패드를 buyer-01에게 34,337에 판매한 사례다."
-    },
-    {
-      "ref": "logs/market-kit.log:116915",
-      "excerpt": "06:49:37 [seller] [06:49:37] seller PRICE G1515d951 unit u-47d2ded4f524 cost 260464 list 423810: floor 322153 (b 15%), first ask 380911 (scarce ask 380911), floor at b 25% 365106",
-      "meaning": "최근 매트리스의 최초 호가와 위험 반영 최저가다."
+      "ref": "meta/evidence/terra-1104-072946.json:121",
+      "excerpt": "     \"profit\": 20919549,",
+      "meaning": "선두 상점의 이익으로 현재 상점 이익과 큰 격차가 있다."
     }
   ],
   "previous_verdict": "none",
-  "previous_reason": "직전 수용된 사이클에는 변경이 없었다. 그 전 G1515d951 축소 시도는 테스트 실패로 거부됐다.",
-  "grade_summary": "Players는 1.193→1.255다. 상점 ALL은 0.781이며 순이익 5,221,749→7,180,093으로 1,958,344 증가했다. 순이익 백분위는 0.860, 매출 37,193,529의 백분위는 0.814, 별점 4.64의 백분위는 0.535다. 잔액 12,180,093이고 재고 원가 회수 가정 이익은 9,395,271이다. 지난 시간 유료 체결은 74건이다.\n구매자 ALL은 0.474다. 잉여 5,988,630의 백분위는 0.571, 포럼 0.623의 백분위는 0.375, 거래 343건의 백분위는 0.381이다. 지난 시간 결제 23건, 결제 거절 8건, 체크아웃 거절 15건이다.\n품절 20건, 공급 거절 19건이다. 원가 미만 제안·보증 거절·포럼 게시 및 투표 거절은 누적 각 0건이며 전송 기록에서 400·429 응답은 확인되지 않았다. 24시간 초과 재고와 제외 도구는 0이다. 환불 손실은 344,500, 보관료는 1,469 증가했다. 등급 하락은 누적 3건·금액 0이며 폐기 손실은 기록되지 않았다.",
+  "previous_reason": "직전 수용된 Terra 사이클은 변경이 없었다. 이전 매트리스 축소 시도는 거부됐으며, 이후 사람의 전략 변경은 39판매 중 4파손과 환불 후 순이익 2,019,861을 근거로 4개 유지를 정했다. 현재 전략의 15% 축소 조건은 그 수치로 충족되지 않는다.",
+  "grade_summary": "Players는 1.255→1.239다. 상점 ALL 0.765: 순이익 7,180,093→5,401,471, 백분위 0.837; 매출 37,186,229는 0.814, 별점 4.64는 0.512다. 잔액 10,401,471이며 재고 원가 회수 가정 이익은 9,395,271→9,387,971이다. 보드의 거래·매출은 직전 스냅샷보다 되려 감소해 구간 판매량을 신뢰하기 어렵다.\n구매자 ALL 0.474: 잉여 6,474,556은 백분위 0.571, 포럼 0.622는 0.375, 거래 363건은 0.381이다. 지난 구간 구매자 결제 20건, 결제 거절 1건이다.\n누적 품절 264건, 원가 미만 제안·보증 거절·포럼 게시·투표 거절은 각 0건이다. 전송 기록에 status 400·429는 없다. 24시간 초과 미판매와 제외 도구는 각각 0이다. 환불 손실은 2,030,039→2,037,839, 보관료는 4,019→5,363이다. 등급 하락은 3건·금액 0이고 폐기 손실은 집계되지 않았다.",
   "weakest": [
     "상점 순이익",
-    "구매자 포럼"
+    "판매 협상 지속"
   ],
   "strategy_check": {
-    "current": "lean profit stock (GPT Pro profit review, review/W-20261103-2120/gpt-pro-answer1.md)",
-    "gap_cause": "unclear",
+    "current": "broad profit stock + proven mattresses",
+    "gap_cause": "bug",
     "keep_or_shift": "keep",
-    "reason": "우리는 492거래·1,060방문·매출 37,193,529·이익 7,180,093·환불 7건으로 이익 7위다. 선두 dae-yangkim은 407거래·2,115방문·매출 91,954,715·이익 19,808,798·환불 3건이며 정직한 등급과 인증을 내세운다. dragonash는 862거래·2,019방문·매출 91,451,259·이익 13,709,276·환불 12건이다. 경쟁점과 우리 모두 소파패드를 판매하며 우리는 식품·침구·매트리스도 취급한다. 우리 카드는 인증과 보증을 알리고 포럼 구매 요청에 재고를 답한다. 반복 고객의 유입 비중은 확인되지 않았다. 최근 G1515d951 최초 호가는 380,911, 최저가는 322,153이고 양보율은 0.6·0.4·0.2다. 지난 시간 유료 체결은 63→74건, 24시간 초과 재고는 0개, 순이익 증가는 1,958,344이며 환불은 344,500 늘었다. 선두의 거래당 수익과 방문이 높지만 다른 상품 전략이 지속적으로 더 낫다는 증거는 아직 부족하다. 현 전략을 유지하되 반복 파손 SKU의 축소 조건을 적용할 수 있도록 검증 경로를 먼저 해결해야 한다."
+    "reason": "식품·침구 등 폭넓은 재고와 검증된 매트리스를 취급하며 인증·정직한 등급과 최대 6시간 보증을 내세운다. 카드와 포럼 게시·구매 요청 답변으로 유입시키고 최초 호가와 최저가 사이를 0.6·0.4·0.2 일정으로 양보한다. 선두 dae-yangkim은 423거래·2,201방문·매출 97,057,092·이익 20,919,549·환불 3건이며 우리는 492거래·1,188방문·매출 37,186,229·이익 5,401,471이다. 선두도 인증과 정직한 등급을 홍보하며 경쟁 원장에는 우리도 취급하는 G0be9ed07 판매가 있다. 반복 고객 유입 비중은 확인되지 않았다. 24시간 초과 재고는 없지만 모델 호출 한도로 숫자 제안마저 처리하지 못한 실제 오류가 확인됐다. 현재 전략을 유지하며 협상 실행을 복구하고, 이후 유료 판매와 이익을 관찰한다."
   },
-  "action_kind": "none"
+  "action_kind": "code"
 }

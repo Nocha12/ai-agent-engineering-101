@@ -435,10 +435,20 @@ class Seller(AgentExecutor):
             d = await asyncio.to_thread(decide_turn, deal, text)
         except HarnessError as e:
             log(f"harness failed: {e}")
-            await up.failed(say("The shop cannot answer right now."))
-            self.free(task.id, deal)
-            del self.open[task.id]
-            return
+            # Only a bare number is unambiguous; keep the normal price guards below.
+            offer_text = text.strip()
+            if re.fullmatch(r"(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)", offer_text):
+                offer = int(offer_text.replace(",", ""))
+                fallback_floor = shop_memory.concession_floor(deal.get("open", deal["ask"]),
+                                                               deal["reserve"], deal["rounds"])
+                d = {"action": "counter", "price": min(deal["ask"], fallback_floor),
+                     "buyer_offer": offer, "message": "Thank you for your offer."}
+                log(f"fallback: unambiguous numeric offer {offer}")
+            else:
+                await up.failed(say("The shop cannot answer right now."))
+                self.free(task.id, deal)
+                del self.open[task.id]
+                return
         action, price, reserve = d["action"], d["price"], deal["reserve"]
         offer, written = d["buyer_offer"], {int(n) for n in re.findall(r"\d+", re.sub(r"(?<=\d),(?=\d)", "", text))}
         if offer and offer not in written:   # the harness must read the offer, not invent it
