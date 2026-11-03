@@ -60,7 +60,8 @@ SELLER_GOODS_WARRANTY_HOURS = 6
 # The cautious start, used when a bounded setting is missing a number.
 SAFE = {"restock": {"keep_cash": 3000000, "max_stock_cost": 1000000, "target_per_category": 1, "max_lines": 5,
                     "max_units_per_sku": 5, "cover_hours": 6, "food_explore_qty": 0, "food_max_qty": 2, "max_break": 0.15,
-                    "goods_max_price": 30000, "max_sku_share": 0.1},
+                    "goods_max_price": 30000, "max_sku_share": 0.1, "food_max_price": 30000, "band_low": 0.8,
+                    "band_high": 1.2, "prior_break": 0.15},
         "warranty": {"on_request_hours": 3, "max_hours": 6, "max_break": 0.25, "prior_break": 0.15},
         "buyer": {"max_price_share": 0.9, "max_spend_per_deal": 200000, "quote_shops": 3},
         "markdown": {"min_floor_share": 0.1, "below_cost": ["food_expiry"]},

@@ -39,13 +39,15 @@ PY
     echo '```'
     for pat in "\[restock\] (opening|supply window|phase)" "\[supply\]" "\[acp\] settled" "\[acp\] paid" "\[acp\] not paying|checkout refused|settle refused" "\[loss\]" "\[forum\]"; do
       echo
-      echo "## $(echo "$pat" | cut -c1-40) (처음 12줄, 전체 $(grep -E -c -- "$pat" "$LOG" 2>/dev/null || echo 0))"
+      n="$(grep -E -c -- "$pat" "$LOG" 2>/dev/null)"
+      echo "## $(echo "$pat" | cut -c1-40) (처음 12줄, 전체 ${n:-0})"
       echo '```'
       grep -E -m12 -- "$pat" "$LOG" 2>/dev/null | cut -c1-220
       echo '```'
     done
     echo
-    echo "- Traceback: $(grep -c Traceback "$LOG" 2>/dev/null || echo 0)건"
+    n="$(grep -c Traceback "$LOG" 2>/dev/null)"
+    echo "- Traceback: ${n:-0}건"
   } > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
 }
 

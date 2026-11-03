@@ -258,11 +258,16 @@ def main():
     breaks = read_breaks(args.state, catalog)
     out = plan(inv, catalog, demand, cfg, model, breaks)
     ocfg = hard_limits.clamp_cfg("opening", {**opening.DEFAULTS, **load("pricing.json", {}).get("opening", {})})
-    first, why = opening.lines(args.state, inv, catalog, demand, market_model.load_rows(args.state), ocfg) \
-        if inv.get("round", 0) >= market_model.ECON_ROUND and not out.get("bankrupt") else (None, "not Round 3")
+    first, why = None, "not Round 3"
+    if inv.get("round", 0) >= market_model.ECON_ROUND and not out.get("bankrupt"):
+        try:
+            first, why = opening.lines(args.state, inv, catalog, demand, market_model.load_rows(args.state), ocfg,
+                                       keep=lambda b: guard(b, inv, catalog, cfg, breaks))
+        except Exception as e:   # noqa: BLE001 - a broken opening leaves the usual plan, not an idle shop
+            first, why = None, f"opening failed: {type(e).__name__}: {e}"
     print(f"[restock] {why}", file=sys.stderr, flush=True)
-    if first is not None:                  # the opening decides this run; the agent waits until it is done
-        out = {"buy": guard(first, inv, catalog, cfg, breaks)}
+    if first is not None:                  # the opening decides this run (already guarded); the agent waits until it is done
+        out = {"buy": first}
     elif opening.window_closed(inv) and not out.get("bankrupt"):
         out = {"buy": []}                  # nothing can be bought now; the agent's queue keeps its lines for the window
     elif os.environ.get("HARNESS") and not out.get("bankrupt"):

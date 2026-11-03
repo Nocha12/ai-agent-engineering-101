@@ -64,6 +64,26 @@ class OpeningTest(unittest.TestCase):
         self.assertEqual(len(notes), 2)
         self.assertEqual(opening.revise(["F2"], rows[:10], CAT, {}, CFG)[0], ["F2"])   # too few settles to judge
 
+    def test_a_phase_nothing_of_which_arrives_is_skipped_after_two_sends(self):
+        self.run_it(NOW)
+        self.assertTrue(self.run_it(NOW + 400)[0])                     # second send
+        self.assertEqual(self.run_it(NOW + 800)[0], [])                # skipped; the gap to phase 2 starts again
+        with open(os.path.join(self.md, "opening_state.json")) as f:
+            self.assertTrue(json.load(f)["sent"]["1"]["skipped"])
+        self.assertEqual(self.run_it(NOW + 400 + 16 * 60)[0], [{"sku": "F2", "qty": 1}])
+
+    def test_a_window_about_to_close_waits_and_the_guard_decides_what_counts(self):
+        self.assertEqual(self.run_it(NOW, restock_info={"open": True, "closes_at": NOW + 30})[0], [])
+        inv = {"round": 3, "units": []}
+        out, _ = opening.lines(self.md, inv, CAT, DEMAND, [], CFG, now=NOW, keep=lambda b: b[:1])
+        self.assertEqual(out, [{"sku": "F1", "qty": 1}])
+        with open(os.path.join(self.md, "opening_state.json")) as f:
+            self.assertEqual(json.load(f)["sent"]["1"]["skus"], ["F1"])
+
+    def test_no_median_means_caps_only(self):
+        out, _ = opening.lines(self.md, {"round": 3, "units": []}, CAT, [], [], CFG, now=NOW)
+        self.assertEqual([b["sku"] for b in out], ["F1", "G1", "G2", "G3"])
+
     def test_the_exploration_budget(self):
         out, why = self.run_it(NOW, cfg={**CFG, "explore_budget_worst": 10000})
         self.assertEqual(out, [{"sku": "F1", "qty": 1}])

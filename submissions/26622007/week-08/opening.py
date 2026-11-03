@@ -29,6 +29,8 @@ def load(path, default):
 
 
 RETRY_AFTER = 300      # seconds after a phase is sent before "nothing arrived" means the window was missed
+MAX_TRIES = 2          # a phase nothing of which ever arrives is skipped after this many sends
+SECONDS_PER_LINE = 10  # the kit's pace between supply calls
 
 
 def save(path, st):
@@ -38,13 +40,17 @@ def save(path, st):
     os.replace(tmp, path)
 
 
-def window_closed(inv, now=None, lead=75):
-    """True when inventory.json says supply is closed and will not open within lead seconds."""
-    r = inv.get("restock")
-    if not isinstance(r, dict) or r.get("open") is not False:
+def window_closed(inv, now=None, lead=75, need=0):
+    """True when inventory.json says supply is closed and will not open within lead seconds, or is open but closes before
+    need more seconds of supply calls could finish."""
+    r, now = inv.get("restock"), now or time.time()
+    if not isinstance(r, dict):
         return False
+    if r.get("open") is not False:
+        closes = r.get("closes_at")
+        return bool(need) and isinstance(closes, (int, float)) and closes - now < need
     opens = r.get("opens_at")
-    return not isinstance(opens, (int, float)) or opens - (now or time.time()) > lead
+    return not isinstance(opens, (int, float)) or opens - now > lead
 
 
 def fits(sku, x, cfg, median):
@@ -56,7 +62,7 @@ def fits(sku, x, cfg, median):
             return False
     elif price > cfg["goods_max_price"]:
         return False
-    return bool(median) and cfg["band_low"] <= price / median <= cfg["band_high"]
+    return not median or cfg["band_low"] <= price / median <= cfg["band_high"]     # no median known: the caps alone
 
 
 def revise(candidates, rows, catalog, medians, cfg):
@@ -82,35 +88,43 @@ def revise(candidates, rows, catalog, medians, cfg):
     return out, notes
 
 
-def lines(md, inv, catalog, demand, rows, cfg, now=None):
+def lines(md, inv, catalog, demand, rows, cfg, now=None, keep=None):
     """(buy lines for this run, why) while the opening is under way, or (None, why) once it is done or not configured.
-    An empty list means: the opening wants this run to buy nothing (window closed, waiting for the next phase)."""
+    An empty list means: the opening wants this run to buy nothing (window closed, waiting for the next phase).
+    keep(lines) -> lines is the caller's guard: only what passes it is sent and counted as sent."""
     now = now or time.time()
     phases = cfg.get("phases") or []
     if not phases:
         return None, "no opening configured"
     path = os.path.join(md, "opening_state.json")
-    st = load(path, {"started": now, "sent": {}, "spent_worst": 0, "notes": []})
+    st = {"started": now, "sent": {}, "spent_worst": 0, "notes": [], "tries": {}, **load(path, {})}
     have = {u.get("sku") for u in inv.get("units") or []}
     last = st["sent"].get(str(len(st["sent"])))
     if last and not last.get("confirmed"):
         if have & set(last["skus"]) or not last["skus"]:
             last["confirmed"] = True
-        elif now - last["at"] > RETRY_AFTER:          # nothing arrived: the window was missed, send the phase again
-            st["notes"].append(f"phase {len(st['sent'])}: nothing arrived in {RETRY_AFTER // 60} min, sending again")
+        elif now - last["at"] > RETRY_AFTER:          # nothing arrived: the window was missed (or the market refused)
+            n = str(len(st["sent"]))
             st["spent_worst"] -= last.get("worst", 0)
-            del st["sent"][str(len(st["sent"]))]
+            if st["tries"].get(n, 1) >= MAX_TRIES:
+                last.update(confirmed=True, skipped=True, worst=0)
+                st["notes"].append(f"phase {n}: nothing arrived after {MAX_TRIES} sends, skipped")
+            else:
+                st["tries"][n] = st["tries"].get(n, 1) + 1
+                st["notes"].append(f"phase {n}: nothing arrived in {RETRY_AFTER // 60} min, sending again")
+                del st["sent"][n]
     if len(st["sent"]) >= len(phases):
         return None, "opening done"
     if now - st["started"] > cfg["explore_hours"] * 3600:
         return None, "opening time is over"
-    if window_closed(inv, now):
-        return [], "supply window closed"
     k = len(st["sent"])
+    if window_closed(inv, now, need=SECONDS_PER_LINE * len(phases[k]) + 15):
+        save(path, st)
+        return [], "supply window closed or closing"
     if k and (not st["sent"][str(k)].get("confirmed") or now - st["sent"][str(k)]["at"] < cfg["phase_gap_minutes"] * 60):
         save(path, st)
         return [], f"phase {k + 1} waits for the next window"
-    medians = {d["category"]: d.get("median_price") for d in demand}
+    medians = {d.get("category"): d.get("median_price") for d in demand}
     cand = [s for s in phases[k] if s in catalog]
     notes = []
     if k:
@@ -118,7 +132,7 @@ def lines(md, inv, catalog, demand, rows, cfg, now=None):
     out, budget = [], cfg["explore_budget_worst"] - st["spent_worst"]
     for sku in dict.fromkeys(cand):
         x = catalog[sku]
-        if sku in have or not fits(sku, x, cfg, medians.get(x["category"])):
+        if sku in have or not fits(sku, x, cfg, medians.get(x.get("category"))):
             continue
         worst = x["list_price"] * WORST_COST
         if worst > budget:
@@ -126,6 +140,9 @@ def lines(md, inv, catalog, demand, rows, cfg, now=None):
             continue
         out.append({"sku": sku, "qty": 1})
         budget -= worst
+    if keep and out:
+        out = keep(out)
+        budget = cfg["explore_budget_worst"] - st["spent_worst"] - sum(catalog[b["sku"]]["list_price"] * WORST_COST * b["qty"] for b in out)
     worst = cfg["explore_budget_worst"] - st["spent_worst"] - budget
     st["sent"][str(k + 1)] = {"at": now, "skus": [b["sku"] for b in out], "worst": worst, "confirmed": not out}
     st["spent_worst"] += worst
