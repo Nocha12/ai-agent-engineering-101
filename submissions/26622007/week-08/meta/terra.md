@@ -31,6 +31,10 @@ Every cycle, in this order:
    - prompt / code: seller.py, market_buyer.py, restock.py, forum.py, market_model.py, agent_memory.py: what the agents are
      told, what they are given, a formula that the ledger shows wrong. Tests must pass;
    - memory: memory/agent/MEMORY.md, strategies/*.md (one lesson per mistake, with triggers), daily/.
+   The opening stock follows the GPT Pro review (review/W-20261103-2025/gpt-pro-answer1.md, opening.py, pricing.json
+   "opening"): three supply windows of one unit per category near its median price, then the usual plan. After it, judge
+   each SKU by its expected net per unit (restock.wanted: price share x (1 - refund chance) - cost - storage) against the
+   sales it actually made while in stock; higher-priced categories may enter one unit at a time once that is positive.
    The shop started cautious; when the data shows caution is costing sales, revenue or surplus, widen boldly within the
    limits. When it shows losses (stock thrown away, refunds, a falling balance), narrow.
 4. Judge your previous change from its own numbers in `since_last_cycle`: keep, fix or revert (`previous_verdict`). If you

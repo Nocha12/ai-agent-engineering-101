@@ -33,6 +33,13 @@ BOUNDS = {
     "restock.food_max_qty": (0, 20),
     "restock.max_break": (0.0, 0.5),
     "restock.goods_max_price": (5000, 2000000),
+    "restock.food_max_price": (5000, 300000),
+    "restock.band_low": (0.3, 1.0),
+    "restock.band_high": (1.0, 3.0),
+    "restock.prior_break": (0.0, 0.5),
+    "opening.explore_budget_worst": (0, 1000000),
+    "opening.judge_settles": (10, 1000),
+    "opening.phase_gap_minutes": (5, 120),
     "restock.max_sku_share": (0.01, 0.3),
     "warranty.on_request_hours": (0, 6),
     "warranty.max_hours": (0, 6),
@@ -57,7 +64,8 @@ SAFE = {"restock": {"keep_cash": 3000000, "max_stock_cost": 1000000, "target_per
         "warranty": {"on_request_hours": 3, "max_hours": 6, "max_break": 0.25, "prior_break": 0.15},
         "buyer": {"max_price_share": 0.9, "max_spend_per_deal": 200000, "quote_shops": 3},
         "markdown": {"min_floor_share": 0.1, "below_cost": ["food_expiry"]},
-        "forum": {"max_votes": 5, "every_minutes": 15}}
+        "forum": {"max_votes": 5, "every_minutes": 15},
+        "opening": {"explore_budget_worst": 350000, "judge_settles": 50, "phase_gap_minutes": 15}}
 
 # What a tool may touch. Paths come from agent_tools.py at run time: {work} is a fresh folder for this one call, {reads}
 # the repository and Python's own folders. Denials repeat the operation they override (file-read-data): a broader

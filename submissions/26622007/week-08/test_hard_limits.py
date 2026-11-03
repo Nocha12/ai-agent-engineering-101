@@ -81,6 +81,7 @@ class GuardsStayHookedTest(unittest.TestCase):
             printed = []
             env = {k: v for k, v in os.environ.items() if k != "HARNESS"}
             with mock.patch.object(restock, "read_model", lambda *a: None), \
+                    mock.patch.object(restock.opening, "lines", lambda *a, **k: (None, "test")), \
                     mock.patch.object(restock, "plan", lambda *a, **k: {"buy": [{"sku": "H1", "qty": 20}]}), \
                     mock.patch.dict(os.environ, env, clear=True), mock.patch.object(sys, "argv", ["x", "--state", d]), \
                     mock.patch("builtins.print", lambda *a, **k: printed.append(a[0] if a else "")):

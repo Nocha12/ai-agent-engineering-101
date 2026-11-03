@@ -35,6 +35,7 @@ import forum
 import hard_limits
 import loss_watch
 import market_model
+import opening
 import tool_forge
 from harness import HarnessError
 
@@ -44,7 +45,8 @@ FOOD_SELL_WITHIN = 0.45                            # share of shelf life to sell
 MAX_LOT = 20                                       # the most one supply line can buy
 DEFAULTS = {"keep_cash": 1500000, "target_per_category": 2, "min_shelf_hours": 720, "goods_max_price": 50000,
             "max_lines": 10, "cover_hours": 12, "max_units_per_sku": 20, "max_sku_share": 0.1, "explore_lines": 2,
-            "min_expected": 1.0, "agent_every_minutes": 10, "agent_max_lines": 30, "round_ends_at": 1794927540, "no_explore_hours": 48, "end_cover": 0.5}
+            "min_expected": 1.0, "agent_every_minutes": 10, "agent_max_lines": 30, "round_ends_at": 1794927540, "no_explore_hours": 48, "end_cover": 0.5,
+            "band_low": 0, "band_high": float("inf"), "food_max_price": float("inf")}
 
 
 def load(path, default):
@@ -64,9 +66,13 @@ def wanted(model, catalog, have_sku, balance, cfg, hours_left=float("inf")):
         price = x.get("list_price")
         if not price:
             continue
-        margin = price * (m["price_ratio"] - EXPECTED_COST.get(x.get("kind"), EXPECTED_COST["goods"]))
         rate = m["rate"] * m["my_share"]
         cover = min(cfg["cover_hours"], hours_left * cfg["end_cover"])
+        # expected net per unit sold (GPT Pro §1.5): price x (1 - refund chance under my 6 h warranty) - cost - storage
+        cost = price * EXPECTED_COST.get(x.get("kind"), EXPECTED_COST["goods"])
+        refund = (cfg.get("prior_break") or 0) if x.get("kind") == "goods" else 0
+        storage = cost * 0.01 * cover / 24 if x.get("kind") == "goods" else 0
+        margin = price * m["price_ratio"] * (1 - refund) - cost - storage
         if x.get("kind") == "food" and x.get("shelf_hours"):
             cover = min(cover, x["shelf_hours"] * FOOD_SELL_WITHIN)
         if margin <= 0 or rate * cover < cfg["min_expected"]:
@@ -92,11 +98,11 @@ def plan(inv, catalog, demand, cfg, model=None, breaks=None):
     picks = wanted(model, catalog, have_sku, balance, cfg, hours_left)[:cfg["max_lines"] - cfg["explore_lines"]] if active else []
     picked = {sku for _, sku, _ in picks}
     skus = collections.defaultdict(list)
-    for sku, x in catalog.items():
-        if x.get("kind") == "food":
-            if (x.get("shelf_hours") or 0) >= cfg["min_shelf_hours"]:
-                skus[x["category"]].append((sku, x))
-        elif x.get("list_price", float("inf")) <= cfg["goods_max_price"]:
+    medians = {d["category"]: d.get("median_price") for d in demand}
+    for sku, x in catalog.items():          # GPT Pro §5.1: caps by kind, and near the category's median price
+        if opening.fits(sku, x, {**opening.DEFAULTS, **{k: cfg[k] for k in ("food_max_price", "goods_max_price", "band_low",
+                                                                               "band_high", "min_shelf_hours") if k in cfg}},
+                        medians.get(x.get("category"))):
             skus[x["category"]].append((sku, x))
     rows = [d for d in demand if skus.get(d["category"]) and have[d["category"]] < cfg["target_per_category"]]
     if active:      # demand is known: only categories that really sell and where I have nothing at all
@@ -251,7 +257,15 @@ def main():
     loss_watch.check(args.state)           # after read_model: the ledger rows are fresh
     breaks = read_breaks(args.state, catalog)
     out = plan(inv, catalog, demand, cfg, model, breaks)
-    if os.environ.get("HARNESS") and not out.get("bankrupt"):
+    ocfg = hard_limits.clamp_cfg("opening", {**opening.DEFAULTS, **load("pricing.json", {}).get("opening", {})})
+    first, why = opening.lines(args.state, inv, catalog, demand, market_model.load_rows(args.state), ocfg) \
+        if inv.get("round", 0) >= market_model.ECON_ROUND and not out.get("bankrupt") else (None, "not Round 3")
+    print(f"[restock] {why}", file=sys.stderr, flush=True)
+    if first is not None:                  # the opening decides this run; the agent waits until it is done
+        out = {"buy": guard(first, inv, catalog, cfg, breaks)}
+    elif opening.window_closed(inv) and not out.get("bankrupt"):
+        out = {"buy": []}                  # nothing can be bought now; the agent's queue keeps its lines for the window
+    elif os.environ.get("HARNESS") and not out.get("bankrupt"):
         lines = agent_turn(args.state, inv, catalog, demand, cfg, model)
         if lines is not None:
             out = {"buy": guard(lines, inv, catalog, cfg, breaks)}
