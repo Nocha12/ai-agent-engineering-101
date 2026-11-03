@@ -1,0 +1,503 @@
+{
+ "time": "2026-11-03T21:04:25+0900",
+ "board": {
+  "round": 3,
+  "totals": {
+   "agents_online": 83,
+   "github_players": 51,
+   "results": 254,
+   "deals": 38,
+   "rejected": 15,
+   "walkaways": 201
+  },
+  "objective": {
+   "shops": {
+    "all": 0.8,
+    "parts": {
+     "profit": {
+      "weight": 0.5,
+      "percentile": 1.0,
+      "value": 5318
+     },
+     "revenue": {
+      "weight": 0.3,
+      "percentile": 0.333,
+      "value": 28240
+     },
+     "stars": {
+      "weight": 0.2,
+      "percentile": 1.0,
+      "value": 5.0
+     }
+    },
+    "of": 15
+   },
+   "buyers": {
+    "all": 0.026,
+    "parts": {
+     "surplus": {
+      "weight": 0.5,
+      "percentile": 0.053,
+      "value": 0
+     },
+     "forum": {
+      "weight": 0.3,
+      "percentile": null,
+      "value": null
+     },
+     "deals": {
+      "weight": 0.2,
+      "percentile": 0.0,
+      "value": 0
+     }
+    },
+    "of": 19
+   },
+   "players": 0.826,
+   "weakest": [
+    "buyers",
+    "deals",
+    0.0
+   ]
+  },
+  "shops": {
+   "count": 77,
+   "mine": {
+    "name": "nocha12",
+    "house": false,
+    "joined": 1792494351,
+    "alive": true,
+    "deals": 1,
+    "share": 0.026,
+    "visits": 4,
+    "stars": 5.0,
+    "reviews": 1,
+    "revenue": 28240,
+    "profit": 5318,
+    "bankruptcies": 0,
+    "stars_rank": 3.33,
+    "refunds": 0,
+    "broken": 0,
+    "claims": 1,
+    "honest_claims": 1,
+    "forum": null,
+    "all": 0.878
+   }
+  },
+  "buyers": {
+   "count": 115,
+   "mine": {
+    "name": "nocha12",
+    "house": false,
+    "joined": 1792494351,
+    "alive": true,
+    "orders": 6,
+    "deals": 0,
+    "paid": 0.909,
+    "saved": 10,
+    "held": 0,
+    "hopeless": 0,
+    "surplus": 0,
+    "served": 0,
+    "forum": null,
+    "posts": 1
+   }
+  },
+  "players": {
+   "count": 38,
+   "mine": {}
+  }
+ },
+ "shop": {
+  "balance": 5005318,
+  "profit_if_stock_is_worthless": 5318,
+  "units": 0,
+  "stock_cost": 0,
+  "unsold_over_24h": {
+   "units": 0,
+   "cost": 0,
+   "top": []
+  },
+  "tools_status": {
+   "at": 1793707430,
+   "left_out": {},
+   "available": [
+    "break_rates",
+    "catalog_search",
+    "forum_read",
+    "ledger_search",
+    "market_demand",
+    "my_customers",
+    "my_decisions",
+    "my_memory",
+    "my_purchases",
+    "my_state"
+   ]
+  },
+  "profit_if_stock_sells_at_cost": 5318,
+  "losses": {}
+ },
+ "log_counts": {
+  "lines": 138007,
+  "settled_as_shop": 1,
+  "paid_as_buyer": 0,
+  "buyer_refused_to_pay": 0,
+  "checkout_refused": 0,
+  "settle_refused": 0,
+  "supply": 1,
+  "supply_refused": 1,
+  "tracebacks": 0,
+  "harness_failed": 1,
+  "no_stock": 4,
+  "bankrupt": 0,
+  "broken": 0,
+  "forum": 2,
+  "below_cost_offer": 0,
+  "warranty_given": 1,
+  "warranty_declined": 0,
+  "forum_post_refused": 0,
+  "forum_vote_refused": 0,
+  "sold": 264,
+  "talks_rejected": 23
+ },
+ "llm": {
+  "buyer-harness": {
+   "calls": 993,
+   "failed": 0,
+   "chars": 1351835,
+   "seconds": 3046.5899999999974,
+   "prompt_tokens": 386559,
+   "completion_tokens": 94484,
+   "cost": 0.0858979,
+   "mean_chars": 1361,
+   "mean_seconds": 3.07
+  },
+  "buyer-choose": {
+   "calls": 601,
+   "failed": 2,
+   "chars": 4705983,
+   "seconds": 1320.930000000001,
+   "prompt_tokens": 1406813,
+   "completion_tokens": 46411,
+   "cost": 0.1990122000000001,
+   "mean_chars": 7830,
+   "mean_seconds": 2.2
+  },
+  "seller-harness": {
+   "calls": 353,
+   "failed": 0,
+   "chars": 536925,
+   "seconds": 1102.3899999999996,
+   "prompt_tokens": 151080,
+   "completion_tokens": 33782,
+   "cost": 0.03199900000000001,
+   "mean_chars": 1521,
+   "mean_seconds": 3.12
+  },
+  "seller-search": {
+   "calls": 20,
+   "failed": 0,
+   "chars": 13453,
+   "seconds": 62.86,
+   "prompt_tokens": 5283,
+   "completion_tokens": 1664,
+   "cost": 0.0013603,
+   "mean_chars": 673,
+   "mean_seconds": 3.14
+  },
+  "seller-pick": {
+   "calls": 20,
+   "failed": 0,
+   "chars": 42786,
+   "seconds": 91.97,
+   "prompt_tokens": 11700,
+   "completion_tokens": 3170,
+   "cost": 0.0027549999999999996,
+   "mean_chars": 2139,
+   "mean_seconds": 4.6
+  },
+  "restock-agent": {
+   "calls": 4,
+   "failed": 0,
+   "chars": 25248,
+   "seconds": 12.89,
+   "prompt_tokens": 8737,
+   "completion_tokens": 629,
+   "cost": 0.001406325,
+   "mean_chars": 6312,
+   "mean_seconds": 3.22
+  },
+  "forum-agent": {
+   "calls": 4,
+   "failed": 0,
+   "chars": 21536,
+   "seconds": 12.379999999999999,
+   "prompt_tokens": 6597,
+   "completion_tokens": 623,
+   "cost": 0.001135825,
+   "mean_chars": 5384,
+   "mean_seconds": 3.09
+  },
+  "buyer-agent": {
+   "calls": 5,
+   "failed": 0,
+   "chars": 39964,
+   "seconds": 15.419999999999998,
+   "prompt_tokens": 13110,
+   "completion_tokens": 761,
+   "cost": 0.0020188750000000003,
+   "mean_chars": 7993,
+   "mean_seconds": 3.08
+  }
+ },
+ "memory_timing": {
+  "buyer_memory_load": {
+   "mean_ms": 57,
+   "bytes": 566,
+   "n": 251
+  },
+  "buyer_memory_save": {
+   "mean_ms": 1195,
+   "bytes": 566,
+   "n": 249
+  }
+ },
+ "tools": {
+  "my_state": {
+   "calls": 1,
+   "failed": 0
+  },
+  "market_demand": {
+   "calls": 1,
+   "failed": 0
+  },
+  "ledger_search": {
+   "calls": 5,
+   "failed": 0
+  },
+  "forum_read": {
+   "calls": 1,
+   "failed": 0
+  },
+  "catalog_search": {
+   "calls": 1,
+   "failed": 0
+  }
+ },
+ "decisions": 4,
+ "last_decisions": [
+  {
+   "ts": 1793707338,
+   "agent": "restock",
+   "final": {
+    "why": "Buy only one unit of the sole SKU with observed demand; avoid the formula’s broad order while the market is inactive.",
+    "buy": [
+     {
+      "sku": "G0be9ed07",
+      "qty": 1
+     }
+    ]
+   },
+   "reason": "The market is inactive and the demand estimate shows only one reachable deal, for G0be9ed07. That SKU has one settled sale at about 92% of list price, so a single unit is a cautious way to preserve the chance of selling without risking a broad, untested order. The formula’s 30-line proposal is not supported by this sparse demand evidence.",
+   "evidence": [
+    "c4",
+    "c5"
+   ],
+   "calls": [
+    {
+     "id": "c3",
+     "tool": "my_state",
+     "args": {}
+    },
+    {
+     "id": "c4",
+     "tool": "market_demand",
+     "args": {
+      "limit": 30
+     }
+    },
+    {
+     "id": "c5",
+     "tool": "ledger_search",
+     "args": {
+      "limit": 20
+     }
+    }
+   ]
+  },
+  {
+   "ts": 1793707351,
+   "agent": "forum",
+   "final": {
+    "post": "Ledger check: buyer-03’s settled deal for G0be9ed07 was grade A and marked honest. The shop charged 36,857 against a 39,900 list price; warranty was 6 hours.",
+    "refs": [
+     2130036
+    ],
+    "thread": "",
+    "votes": []
+   },
+   "reason": "The only non-market forum content returned was none, so there are no posts with claims to vote on. The ledger verifies one settled deal: buyer-03 bought SKU G0be9ed07 at grade A from the listed shop for 36,857 against a list price of 39,900; the claim was marked honest and warranty was 6 hours. This is a narrow, checkable observation, not a general shop-quality claim.",
+   "evidence": [
+    "c1",
+    "c2"
+   ],
+   "calls": [
+    {
+     "id": "c1",
+     "tool": "forum_read",
+     "args": {
+      "limit": 20
+     }
+    },
+    {
+     "id": "c2",
+     "tool": "ledger_search",
+     "args": {
+      "limit": 20
+     }
+    },
+    {
+     "id": "c3",
+     "tool": "ledger_search",
+     "args": {
+      "limit": 50
+     }
+    }
+   ]
+  },
+  {
+   "ts": 1793707369,
+   "agent": "buyer",
+   "final": {
+    "shop": "yms979",
+    "reason": "Stronger review evidence of low prices and receipts matching the agreed deal."
+   },
+   "reason": "Choose yms979. Its reviews show a consistent pattern of low prices and signed receipts matching the agreed deal, with multiple bookshelf deals reported at 75–84% of budget. There is no evidence of mattress-category trades for it, and no personal trade history, but the available honesty and price evidence is stronger than Dragonash’s, whose reviews mostly describe lamps and include mixed ratings.",
+   "evidence": [
+    "c0",
+    "c1",
+    "c2"
+   ],
+   "calls": [
+    {
+     "id": "c1",
+     "tool": "catalog_search",
+     "args": {
+      "query": "침대/매트리스",
+      "limit": 20
+     }
+    },
+    {
+     "id": "c2",
+     "tool": "ledger_search",
+     "args": {
+      "category": "침대/매트리스",
+      "shop": "https://mar-reaching-interpreted-candle.trycloudflare.com",
+      "limit": 20
+     }
+    }
+   ]
+  },
+  {
+   "ts": 1793707436,
+   "agent": "buyer",
+   "final": {
+    "shop": "yms979",
+    "reason": "Best relevant evidence of an honest mattress sale and a lower reported price."
+   },
+   "reason": "yms979 has the strongest relevant evidence: a prior mattress transaction for this exact product was reported as honest, with the receipt and settlement matching at 215339, well within the 437240 budget. Its only trade with you did not complete, but that cancellation was for a different budget and is not evidence of dishonesty. The ledger also shows dragonash sold a mattress honestly, but at 236034, higher than yms979’s reported price. The other shops have no comparable mattress evidence here.",
+   "evidence": [
+    "c0"
+   ],
+   "calls": [
+    {
+     "id": "c1",
+     "tool": "ledger_search",
+     "args": {
+      "category": "침대",
+      "limit": 50
+     }
+    }
+   ]
+  }
+ ],
+ "payments": {
+  "paid": 0,
+  "refused": 0,
+  "refused_for_warranty": 0,
+  "refusal_reasons": []
+ },
+ "files": {
+  "logs/keep_logs.log": 250,
+  "logs/context-unittest-1031.txt": 33231,
+  "logs/market-kit.log.1": 20000170,
+  "logs/meta-harness-unittest-1031.txt": 24788,
+  "logs/market-kit-render-1027.log": 659593,
+  "logs/choose-agent-luna-1031-corrected.txt": 671,
+  "logs/acp-local-check-1027.txt": 1302,
+  "logs/ensure-running-check-1103.txt": 374,
+  "logs/market-kit-render-1031.log": 15556512,
+  "logs/market-kit.log": 18964012,
+  "logs/sim-restock-1031.txt": 570,
+  "logs/acp-render-check-1027.txt": 2199,
+  "logs/strategy-unittest-1027.txt": 1616,
+  "logs/market-kit-render-1031.log.1": 20000272,
+  "logs/launchd-single-check-1103.txt": 1744,
+  "logs/meta.log": 35694,
+  "logs/keep-logs-check-1102.txt": 769,
+  "logs/choose-agent-luna-1031.txt": 614,
+  "logs/strategy-switch-1027.txt": 630,
+  "logs/strategy-unittest-1027-concession.txt": 2508,
+  "logs/meta-real-codex-1031.txt": 995,
+  "logs/memory-links-unittest-1031.txt": 30424,
+  "logs/kit-stderr.log": 0,
+  "logs/acp-unittest-1027.txt": 905,
+  "logs/round3-unittest-1031.txt": 16986,
+  "logs/market-kit-render-1031-b.log": 16973824,
+  "logs/markdown-forum-unittest-1031.txt": 27924,
+  "logs/market-model-unittest-1031.txt": 20646,
+  "logs/context-luna-1031.txt": 1480,
+  "logs/ensure_running.log": 684,
+  "logs/market-kit-1027-week07dir.log": 194612,
+  "logs/kit-parts/market-kit-1101-164334-2dfa9be183cc54bd.log.gz": 1808329,
+  "memory/seller_memory_r3.json": 424,
+  "memory/market_memory_r3.json": 566,
+  "memory/seller_memory.json": 3614182,
+  "memory/market_memory.json": 9963173,
+  "memory/agent/MEMORY.md": 285,
+  "memory/agent/daily/2026-11-03.md": 531,
+  ".market/ledger_rows.jsonl": 17510,
+  ".market/timing.jsonl": 1150008,
+  ".market/forge_state.json": 37,
+  ".market/demand.json": 25864,
+  ".market/llm_calls.jsonl": 3339722,
+  ".market/keep_logs.pid": 6,
+  ".market/run_market.pid": 5,
+  ".market/ledger_cursor.json": 443,
+  ".market/restock_queue.json": 38,
+  ".market/loss_state.json": 288,
+  ".market/run_meta.pid": 5,
+  ".market/outbox.sent.jsonl": 257,
+  ".market/decisions.jsonl": 3315,
+  ".market/briefing.json": 978,
+  ".market/forum.json": 12587,
+  ".market/demand_model.json": 1596,
+  ".market/forum_state.json": 212,
+  ".market/shops.json": 56005,
+  ".market/inventory.json": 268,
+  ".market/tool_calls.jsonl": 1405,
+  ".market/catalog.json": 1281348,
+  ".market/crontab.bak-20261103-2010": 267,
+  ".market/tool_selftest.json": 157,
+  ".market/tools_status.json": 203,
+  ".market/wait_round3.sh.bak-20261103-2010": 3855,
+  ".market/memory_state.json": 25,
+  ".market/order.json": 1204,
+  ".market/wait_round3.log": 2796,
+  "meta/terra.md": 5075,
+  "meta/astra.md": 3443
+ },
+ "since_last_cycle": {
+  "first": true
+ }
+}
