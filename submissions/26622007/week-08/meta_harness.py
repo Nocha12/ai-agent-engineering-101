@@ -16,6 +16,7 @@ the attempt stays in history. Models come from META_TERRA_MODEL and META_ASTRA_M
 says so and the shop goes on. The harness commits only under this folder and checks for secrets before each commit,
 because the repository's rules forbid both; pushes happen only with META_PUSH=1.
 """
+import datetime
 import json
 import os
 import re
@@ -40,13 +41,17 @@ ASTRA_EVERY = int(os.environ.get("META_ASTRA_EVERY", 12 * 3600))
 KIT_PATTERN = os.environ.get("META_KIT_PATTERN", "market_kit.py join")
 CHATGPT_CODEX = "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"
 ECON_ROUND = 3
+STARTED = time.time()             # Astra's clock when no cycle is recorded yet
 NOT_CODE = ("meta/evidence/", "meta/changes.jsonl", "meta/grades.jsonl", "meta/state.json", "meta/last-")
 LIVE = (":!logs", ":!memory")
 SELLER_FILES = ("seller.py", "shop_memory.py", "shop_stock.py", "harness.py", "catalog.py", "pricing.json", "acp_shop.py")
 EVIDENCE = {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["ref", "excerpt", "meaning"],
                                        "properties": {k: {"type": "string"} for k in ("ref", "excerpt", "meaning")}}}
 COMMON = {"changed": {"type": "boolean"}, "hypothesis": {"type": "string"}, "change_summary": {"type": "string"},
-          "target_metric": {"type": "string"}, "expected": {"type": "string"}, "evidence": EVIDENCE}
+          "target_metric": {"type": "string"}, "expected": {"type": "string"}, "evidence": EVIDENCE,
+          # "hard to tell" is not an answer: what is missing, the measurement taken for it this cycle, the line that judges it
+          "evidence_gap": {"type": "object", "additionalProperties": False, "required": ["missing", "measurement", "judge_line"],
+                           "properties": {k: {"type": "string"} for k in ("missing", "measurement", "judge_line")}}}
 STRATEGY = "meta/strategy.md"     # the strategy Terra follows: Astra sets it, Terra shifts it only on repeated evidence
 DOCS_ONLY = (STRATEGY,)           # a change of these alone needs no tests and no watch: nothing running reads them
 
@@ -343,7 +348,48 @@ def grade_log(rec):
                             "grade": a.get("grade_summary") or a.get("summary"), "weakest": a.get("weakest"),
                             "action": a.get("action_kind"), "verdict": a.get("previous_verdict"), "grades": a.get("grades"),
                             "keep_or_drop": a.get("keep_or_drop"), "strategy_check": a.get("strategy_check"),
-                            "strategy": a.get("strategy")}, ensure_ascii=False) + "\n")
+                            "strategy": a.get("strategy"), "evidence_gap": a.get("evidence_gap")}, ensure_ascii=False) + "\n")
+
+
+def gap_problems(answer, code):
+    """A cycle that changes nothing because evidence is missing must have planned how to get it: the measurement and the
+    line that will judge it next cycle. Overnight 11/03-04 Terra ended 8 cycles on "hard to tell" with neither."""
+    if not answer or code:
+        return []
+    gap = answer.get("evidence_gap") or {}
+    if (gap.get("missing") or "").strip() and not ((gap.get("measurement") or "").strip() and (gap.get("judge_line") or "").strip()):
+        return ["evidence is missing but no measurement or judge line was set (meta/terra.md 'When evidence is short')"]
+    return []
+
+
+def last_cycle_time(kind):
+    """When the last `kind` cycle began, from meta/grades.jsonl (any status), or None. The loop keeps its rhythm across
+    restarts with it: Astra had never run because each restart of the loop restarted its twelve hours."""
+    try:
+        with open(os.path.join(ROOT, "meta", "grades.jsonl"), encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return None
+    for line in (reversed(lines) if kind != "first" else lines):
+        try:
+            g = json.loads(line)
+            if kind == "first" or str(g.get("cycle", "")).startswith(f"{kind}-"):
+                return datetime.datetime.fromisoformat(g["time"]).timestamp()
+        except (ValueError, KeyError, TypeError):
+            continue
+    return None
+
+
+def due(kind, now=None):
+    """Seconds until the next `kind` cycle (0 or less: now). Terra an hour of trading after its last (recorded once the
+    model answered, before the ten-minute watch); Astra twelve hours after its last, or after the first cycle of the
+    round (or this loop's start) when it has not run yet."""
+    now = time.time() if now is None else now
+    if kind == "terra":
+        last = last_cycle_time("terra")
+        return (last + CANARY_SECONDS + RUN_SECONDS - now) if last else 0
+    last = last_cycle_time("astra") or last_cycle_time("first") or STARTED
+    return last + ASTRA_EVERY - now
 
 
 ACCEPTED = ("no_change", "running")     # cycles whose answer the harness took: a refused or failed one is no evidence
@@ -426,6 +472,7 @@ def cycle(kind):
     if answer is not None:
         problems += verify_evidence(answer.get("evidence"))
         problems += strategy_problems(kind, answer, code)
+        problems += gap_problems(answer, code)
     problems += limit_problems(code)
     moved = hard_limits.policy_diff(pricing_at_head(), pricing_now())
     if moved:
@@ -488,23 +535,26 @@ def market_round():
 def run():
     """Terra, then its hour of trading; Astra when twelve hours have passed. Nothing happens before Round 3: no data."""
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-    last_astra = time.time()
+    tried = {}                        # a cycle that crashed before recording still waits its turn
     while True:
         if (market_round() or 0) < ECON_ROUND:
             log("Round 3 has not opened, waiting")
             time.sleep(300)
             continue
+        every = {"terra": RUN_SECONDS, "astra": ASTRA_EVERY}
+        wait = lambda k: max(due(k), tried.get(k, 0) + every[k] - time.time())
         for kind in ("terra", "astra"):
-            if kind == "astra" and time.time() - last_astra < ASTRA_EVERY:
+            if wait(kind) > 0:
                 continue
+            tried[kind] = time.time()
             try:
                 cycle(kind)
             except Exception as e:   # noqa: BLE001 - the shop runs on regardless; the next cycle tries again
                 log(f"{kind} cycle failed: {type(e).__name__}: {e}")
-            if kind == "astra":
-                last_astra = time.time()
             push()
-        time.sleep(RUN_SECONDS)
+        nxt = {k: time.strftime("%m-%d %H:%M", time.localtime(time.time() + max(0, wait(k)))) for k in every}
+        log(f"next terra {nxt['terra']}, astra {nxt['astra']}")
+        time.sleep(min(RUN_SECONDS, max(60, min(wait("terra"), wait("astra")))))
 
 
 if __name__ == "__main__":

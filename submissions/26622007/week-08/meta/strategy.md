@@ -57,6 +57,11 @@ Rewrite in place; keep this file short.
 - Our visits rise but paid deals do not: the gap is negotiation or positioning, not stock; shift the levers there.
 - Losses (expired, break_refund, grade_drop, storage) exceed the hour's contribution: shift to a narrower, faster mix.
 
+## Options compared
+
+Not yet: Astra's first cycle (12 h after the round's first cycle, 11/04 ~09:0x) grades the 14 overnight commits and
+writes its comparison of two or three directions here.
+
 ## Experiment
 
 None running yet; Astra's next cycle designs the first one.

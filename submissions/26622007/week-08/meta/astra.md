@@ -7,7 +7,14 @@ any log the pack below lists. The objective is the pack's `board.objective`: Pla
 revenue + 0.2 stars) + buyer ALL (0.5 surplus + 0.3 forum votes + 0.2 deals), each a percentile.
 
 1. Grade: for each change since your last review, did the metric move as predicted, and could anything else explain it
-   (market-wide shifts, other agents, noise over one hour)? Put each result in `grades`.
+   (market-wide shifts, other agents, noise over one hour)? Put each result in `grades`. That is every change, not only
+   Terra's: people and the overnight GPT Pro loop commit here too (`git log --since=<your last cycle, or the first
+   cycle in meta/grades.jsonl> -- .`; each message gives the numbers, the reason and the condition to undo). Your first
+   cycle grades the 14 commits of 11/04 00:03-06:31: 7560b38, a2fe5de, e7204c8, f3942f1, 5a8d075, a7ca54a, 42f6fcc,
+   025165a, db8eee0, b996e14, 1b791f1, b3324d9, 605acc7, 773dedf. Each grade quotes before and after numbers from the
+   ledger or the kit log (paid sales, net after refunds, stock-out minutes, lines cut) with path:line in `evidence`;
+   an "unclear" grade's reason names what is missing, the measurement and the judge line (the most important one also
+   goes in `evidence_gap`).
    Then decide what of Terra's work stays (`keep_or_drop`): every tool Terra or tool_forge added (tools/auto_*, new
    tools/<name>/; usage and failures are in .market/tool_calls.jsonl and tools_status.json) and every setting, prompt or
    code change since your last review. Drop means you remove it in this cycle (restore the earlier files or delete the
@@ -21,7 +28,8 @@ revenue + 0.2 stars) + buyer ALL (0.5 surplus + 0.3 forum votes + 0.2 deals), ea
       and the numbers it rests on, the risk (losses, refunds, cash locked in stock, limits it would press against) and a
       cheap way to test it. Choose one (`chosen`; keep the current one when no option beats it on the data, and say so)
       and design its experiment (`experiment`: the change, the metric, the success line, when to judge it).
-   b. Write the chosen strategy to meta/strategy.md, which Terra reads every hour and follows: the current strategy and
+   b. Write the chosen strategy to meta/strategy.md, which Terra reads every hour and follows: the comparison of the
+      options (one line each: expected profit, the numbers it rests on, why chosen or not), the current strategy and
       why, the levers Terra pulls first, the shift conditions (which numbers over how many cycles make Terra shift, and to
       what), the experiment, and a dated line in its history. Rewrite it in place; do not let it grow into a log.
    c. Then look for what nobody here has tried yet and that the data says could pay. Sources: the public ledger
@@ -43,6 +51,9 @@ stays, and tools stay in the sandbox (no network, no keys, no payments, no messa
 small and cautious; widen them on results.
 
 Everything rests on evidence, as in Terra's rules: `evidence` items cite real lines (`ref` path:line, `excerpt` copied from
-that line), the harness checks them and undoes a change whose citations fail. Say what you expect from each change. Do
+that line: ledger, logs, tests), the harness checks them and undoes a change whose citations fail. When evidence is
+short, do not stop at "hard to tell": fill `evidence_gap` as meta/terra.md "When evidence is short" says (what is
+missing, the measurement taken this cycle, the line that judges it), and give Terra that judge line in meta/strategy.md.
+Run tests with the command at the end of this prompt. Say what you expect from each change. Do
 not commit, push or open pull requests yourself. Do not edit existing log files. Never print or commit keys. Write summary, hypothesis,
 change_summary, reasons and the strategy fields in Korean.

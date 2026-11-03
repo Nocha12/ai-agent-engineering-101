@@ -8,7 +8,9 @@ import stat
 import subprocess
 import sys
 import tempfile
+import datetime
 import textwrap
+import time
 import unittest
 from unittest import mock
 
@@ -204,7 +206,7 @@ if mode in ("watch", "shift", "shift-no-doc", "strategy-doc"):
         open("meta/strategy.md", "a").write("- shifted\\n")
     if mode == "strategy-doc":
         open("meta/strategy.md", "w").write("prompt\\n- shifted\\n")
-elif mode != "nothing" and mode != "nothing-false":
+elif mode not in ("nothing", "nothing-false", "unsure", "unsure-planned"):
     open("changed.py", "w").write({"broken": "raise SystemExit(1)\\n", "secret": "k = 'sk-or-v1-" + "a" * 30 + "'\\n",
                                    "env-secret": "k = 'value-from-env-file-1234'\\n"}.get(mode, "x = 1\\n"))
 if mode == "broken":
@@ -214,7 +216,10 @@ bad = [{"ref": "logs/market-kit.log:2", "excerpt": "never said this", "meaning":
 json.dump({"changed": True, "hypothesis": "h", "change_summary": "변경 요약", "target_metric": "profit", "expected": "up",
            "evidence": bad if mode in ("false-citation", "nothing-false") else [] if mode == "no-citation" else good,
            "previous_verdict": "none", "previous_reason": "", "strategy_check": check, "action_kind": action,
-           "strategy": {"options": [], "chosen": "lean", "experiment": "e"}}, open(out, "w"))
+           "strategy": {"options": [], "chosen": "lean", "experiment": "e"},
+           "evidence_gap": {"missing": "breaks before or after the widening" if mode.startswith("unsure") else "",
+                            "measurement": "ledger seq of each break vs the 02:30 commit" if mode == "unsure-planned" else "",
+                            "judge_line": "narrow if over 15% of 20+ sales" if mode == "unsure-planned" else ""}}, open(out, "w"))
 """
 
 
@@ -285,6 +290,29 @@ class HarnessCycleTest(unittest.TestCase):
             self.assertEqual(os.environ["SHOP_MARKET_NAME"], "nocha12")     # the harness's own environment is kept
         self.assertEqual(rec["status"], "running", rec.get("problems"))
         self.assertEqual(mh.test_env()["PATH"].split(os.pathsep)[0], os.path.dirname(sys.executable))
+
+    def test_hard_to_tell_without_a_measurement_is_not_accepted(self):
+        rec = self.go("unsure")
+        self.assertEqual(rec["status"], "no_change_unsupported")
+        self.assertIn("no measurement", rec["problems"][0])
+        rec = self.go("unsure-planned")
+        self.assertEqual(rec["status"], "no_change")
+        with open(os.path.join(self.root, "meta", "grades.jsonl"), encoding="utf-8") as f:
+            self.assertIn("15%", json.loads(f.read().splitlines()[-1])["evidence_gap"]["judge_line"])
+
+    def test_the_schedule_survives_a_restart(self):
+        grades = os.path.join(self.root, "meta", "grades.jsonl")
+        t = lambda s: datetime.datetime.fromisoformat(s + "+09:00").timestamp()
+        with open(grades, "w") as f:
+            for c, at in (("terra-a", "2026-11-03T21:05:09"), ("terra-b", "2026-11-04T07:29:46")):
+                f.write(json.dumps({"cycle": c, "time": at + "+0900", "status": "no_change"}) + "\n")
+        with mock.patch.object(mh, "RUN_SECONDS", 3600), mock.patch.object(mh, "ASTRA_EVERY", 12 * 3600), \
+                mock.patch.object(mh, "CANARY_SECONDS", 600):
+            self.assertAlmostEqual(mh.due("terra", t("2026-11-04T07:50:00")), 2986, delta=1)   # not at once
+            self.assertAlmostEqual(mh.due("astra", t("2026-11-04T07:50:00")), 4509, delta=1)   # 12 h after the first
+            with open(grades, "a") as f:
+                f.write(json.dumps({"cycle": "astra-c", "time": "2026-11-04T09:05:00+0900", "status": "running"}) + "\n")
+            self.assertAlmostEqual(mh.due("astra", t("2026-11-04T10:00:00")), 11 * 3600 + 300, delta=1)
 
     def test_a_failed_test_is_named_in_the_problem(self):
         rec = self.go("broken")

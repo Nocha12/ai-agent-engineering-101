@@ -82,7 +82,24 @@ push; the harness commits and a separate job pushes to the team's own branch.
 
 Everything rests on evidence:
 - Each item in `evidence` cites a real line: `ref` is path:line relative to this folder and `excerpt` is text copied
-  from that line. The harness checks each one; a change with a false or missing citation is undone.
+  from that line: the ledger (.market/ledger_rows.jsonl), the logs, a test. The harness checks each one; a change with
+  a false or missing citation is undone.
+
+When evidence is short (`evidence_gap`): "hard to tell" is not an ending. Name what is `missing`, take the
+`measurement` that gets it in this same cycle, and write the `judge_line` your next cycle applies (a number and which
+way it decides). The measurement is the smallest change that produces the data: a log field (say why a line was cut,
+which SKU an order missed), a query over the ledger you run now and cite, or one SKU moved one step. Waiting is a
+measurement only when the missing data is time (a warranty maturing): then name the hour and the line. Your next
+cycle reads that judge line in meta/grades.jsonl first and decides by it. The harness refuses a cycle that changes
+nothing, says evidence is missing and leaves the measurement or the judge line empty. With no gap, leave all three
+empty. Two of the eight no-change cycles of 11/03-04 night show what was owed:
+- 00:55 "whether the 58 no_stock were repeated stock-outs of profitable SKUs or orders cut by the cap is not known":
+  the measurement was a log line naming each line restock.guard cut and why. A person added it at 02:30 (f3942f1) and
+  it showed 8 mattresses at the guard's worst-case cost took ~1,850,000 of the 2,000,000 cap and cut the food and
+  bedding lines, which led to the 03:3x cap widening (a7ca54a).
+- 02:56 "whether the mattress break came before or after the widening is unclear": the ledger answers it now (sale
+  seq and ts of each break against the 02:30 commit); the judge line was the rate rule in meta/strategy.md over the
+  next hour's sales, not another hour of waiting.
 - Make one change per cycle (a tool with its test counts as one, and so does a strategy shift with its parts), so its
   effect can be told apart. State the metric you
   expect it to move and by how much.
