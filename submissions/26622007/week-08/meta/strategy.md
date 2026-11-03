@@ -7,7 +7,7 @@ Rewrite in place; keep this file short.
 
 ## Strategy: lean profit stock (GPT Pro profit review, review/W-20261103-2120/gpt-pro-answer1.md)
 
-- Product mix: only SKUs the ledger shows selling, at most 3 units per SKU and 1 of goods listed above 100,000; food kept
+- Product mix: only SKUs the ledger shows selling, at most 4 units per SKU and 1 of goods listed above 100,000; food kept
   small (food stock cost cap) because it expires.
 - Positioning: honest grades with the market certificate, the ledger's honest sales as proof, a short warranty on goods
   whose break risk allows it.

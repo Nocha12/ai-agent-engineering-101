@@ -246,6 +246,25 @@ class EndToEnd(unittest.TestCase):
         self.assertIn("u-food", self.stock.sold)
         self.assertIsNone(self.stock.find("G1"))
 
+    def test_a_buyer_who_asks_by_category_gets_a_receipt_naming_the_category(self):
+        # q00's buyer asks "I want to buy a 김치" and rates any receipt naming a SKU 1 star ("SCAM"); the unit still
+        # fixes what ships, and the kit's checkout accepts the order's item as well as an acceptable SKU
+        out = buyer.negotiate(self.url, "김치", 10000, "", "I want to buy a 김치")
+        self.assertEqual(out["state"], "TASK_STATE_COMPLETED")
+        rec = out["receipt"]
+        rec["price"] = int(rec["price"])
+        self.assertEqual((rec["item"], rec["unit"]), ("김치", "u-food"))
+        self.assertTrue(kit.verify_seller(kit.pub_b64(self.key), rec))
+        why = []
+        mr = kit.acp_pay(self.order(["G1"]), self.url, kit.pub_b64(self.key), rec, Ed25519PrivateKey.generate(),
+                         {"cert": True}, why)
+        self.assertEqual(why, [])
+        self.assertEqual(mr["ledger"], 7)
+        self.assertEqual((self.settled[0]["item"], self.settled[0]["unit"]), ("G1", "u-food"))
+
+    def test_a_buyer_who_names_the_sku_still_gets_the_sku(self):
+        self.assertEqual(self.deal("G1")["receipt"]["item"], "G1")
+
     def test_terms_come_from_the_seller_not_the_buyers_copy(self):
         rec = self.deal("G1")["receipt"]
         forged = dict(rec, unit="u-goods", claim="C", warranty_hours=99)
@@ -419,6 +438,8 @@ class RoundTwoStillWorks(EndToEnd):
     test_a_quote_promises_nothing_the_loser_is_cancelled_the_winner_goes_on = None
     test_unit_is_not_promised_twice_and_out_of_stock_is_refused = None
     test_a_unit_near_its_date_sells_below_cost_and_stays_out_of_the_bandit = None
+    test_a_buyer_who_asks_by_category_gets_a_receipt_naming_the_category = None
+    test_a_buyer_who_names_the_sku_still_gets_the_sku = None
 
 
 class BuyerTest(unittest.TestCase):

@@ -303,6 +303,12 @@ class Seller(AgentExecutor):
                                      "cost": cost, "reserve": reserve, "ask": ask_price, "open": ask_price, "arm": arm,
                                      "break": q["b"], "expires_at": u.get("expires_at"),
                                      "rounds": 0, "history": [("you asked", ask_price)]}
+        asked = (text or "").lower()
+        if u["sku"].lower() not in asked and (u.get("name") or "\0").lower() not in asked:
+            # asked for the category only ("I want to buy a 김치"): the receipt names the order's item, which the market
+            # accepts as well as the SKU. Such a buyer (q00) rated every receipt naming a SKU 1 star, "SCAM ... Never buy
+            # here" (62 of 62 in the Round 3 ledger), and that review then stands among the 10 every buyer is shown.
+            deal["receipt_item"] = (u.get("category") or "").split(">")[-1] or u["sku"]
         note = self.warranty_terms(deal, text)
         ask_price = deal["ask"]
         await up.requires_input(say(f"{stock_line(u)}. Every deal comes with a signed receipt and the market's "
@@ -330,8 +336,10 @@ class Seller(AgentExecutor):
         return f"This unit comes with a {hours} h warranty: if it breaks within {hours} h, you get the full price back."
 
     def stock_receipt(self, task_id, deal, price):
-        """Round 3: the receipt names the SKU and carries the terms the checkout ships under."""
-        receipt = {"shop": self.name, "item": deal["id"], "price": price, "task": task_id, "unit": deal["unit"]}
+        """Round 3: the receipt names the SKU (or the order's item when the buyer asked by category) and carries the terms
+        the checkout ships under: the unit fixes what ships either way."""
+        receipt = {"shop": self.name, "item": deal.get("receipt_item") or deal["id"], "price": price, "task": task_id,
+                   "unit": deal["unit"]}
         grade = self.stock.grade(deal["unit"])
         if grade in ("A", "B", "C"):
             receipt["claim"] = grade

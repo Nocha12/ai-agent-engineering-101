@@ -2,6 +2,7 @@
 
     python -m unittest test_market_model -v        (from submissions/26622007/week-08)
 """
+import collections
 import json
 import os
 import sys
@@ -189,6 +190,15 @@ class PlanWithModelTest(unittest.TestCase):
     def test_best_profit_first_within_the_line_limit(self):
         got = self.plan(model(F1={"rate": 2.0}, F2={"rate": 2.0}, H1={"rate": 0.5}), max_lines=2, explore_lines=0)
         self.assertEqual([b["sku"] for b in got], ["F2", "F1"])
+
+    def test_the_stock_cap_goes_to_what_each_won_earns_most(self):
+        # a sofa earns more per hour than a kimchi but ties up 53 times the cash: ranked per won, the kimchi comes first
+        m = model(F1={"rate": 0.5}, H2={"rate": 0.5})
+        got = self.plan(m, max_lines=1, explore_lines=0, max_sku_share=0.3)
+        self.assertEqual([b["sku"] for b in got], ["F1"])
+        rows = restock.wanted(m, CATALOG, collections.Counter(), 5000000, {**CFG, "max_sku_share": 0.3})
+        self.assertEqual([r[1] for r in rows], ["F1", "H2"])
+        self.assertGreater(rows[0][0], rows[1][0])
 
     def test_no_margin_no_stock(self):
         self.assertEqual(self.plan(model(F1={"price_ratio": 0.45}), explore_lines=0), [])

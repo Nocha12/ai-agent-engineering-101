@@ -61,8 +61,11 @@ def load(path, default):
 
 
 def wanted(model, catalog, have_sku, balance, cfg, hours_left=float("inf")):
-    """[(profit per hour, sku, qty)] the demand model asks for, best first. Near the end of the round it stocks only
-    what should sell in time: profit counts the balance, so a unit left on the last day is a loss."""
+    """[(profit per hour per won of stock, sku, qty)] the demand model asks for, best first. The stock-cost caps in guard()
+    are the binding limit, so lines are ranked by what each won tied up in stock earns: ranked by profit per hour alone,
+    three mattresses filled the whole cap and the shop held 6 units in 5 categories while buyers see only shops that
+    stock the ordered category (shops.json offers). Near the end of the round it stocks only what should sell in time:
+    profit counts the balance, so a unit left on the last day is a loss."""
     out = []
     for sku, m in model["skus"].items():
         x = catalog.get(sku) or {}
@@ -83,7 +86,7 @@ def wanted(model, catalog, have_sku, balance, cfg, hours_left=float("inf")):
         target = min(cfg["max_units_per_sku"], math.ceil(rate * cover),
                      int(balance * cfg["max_sku_share"] / (price * WORST_COST)))
         if target > have_sku[sku]:
-            out.append((rate * margin, sku, min(MAX_LOT, target - have_sku[sku])))
+            out.append((rate * margin / cost, sku, min(MAX_LOT, target - have_sku[sku])))
     return sorted(out, reverse=True)
 
 

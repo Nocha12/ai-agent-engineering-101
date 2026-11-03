@@ -67,7 +67,7 @@
     "goods_max_price": 45000,
     "max_lines": 10,
     "cover_hours": 3,
-    "max_units_per_sku": 3,
+    "max_units_per_sku": 4,
     "max_sku_share": 0.1,
     "explore_lines": 2,
     "min_expected": 1.0,
@@ -82,9 +82,9 @@
     "end_cover": 0.5,
     "agent_every_minutes": 20,
     "agent_max_lines": 30,
-    "max_stock_cost": 900000,
+    "max_stock_cost": 1350000,
     "food_explore_qty": 1,
-    "food_max_qty": 3,
+    "food_max_qty": 4,
     "max_break": 0.15,
     "food_max_price": 30000,
     "band_low": 0.8,
@@ -92,7 +92,7 @@
     "prior_break": 0.15,
     "high_price_goods": 100000,
     "high_price_max_units": 1,
-    "food_max_stock_cost": 200000,
+    "food_max_stock_cost": 300000,
     "skip_skus": [
       "G07ec17d5"
     ]
