@@ -53,6 +53,7 @@ from harness import HarnessError, ask
 import agent_memory
 import hard_limits
 import market_model
+import shop_forum
 import shop_memory
 from shop_stock import StockBook, last_segment, markdown
 
@@ -503,12 +504,39 @@ class Seller(AgentExecutor):
         await TaskUpdater(event_queue=event_queue, task_id=task.id, context_id=task.context_id).cancel()
 
 
+_card = {"at": 0.0, "text": None}
+CARD_EVERY = 300      # seconds: the card follows the stock, read from .market at most this often
+
+
+def card_text():
+    """(description, skill description, tags, example) of the card now: from the stock and the ledger, or the last good one."""
+    if _card["text"] is None or time.time() - _card["at"] > CARD_EVERY:
+        _card["at"] = time.time()
+        try:
+            _card["text"] = shop_forum.card_text(os.environ.get("MARKET_DIR", ".market"))
+        except Exception as e:   # noqa: BLE001 - the card is served with the last good text, or without stock and record
+            log(f"card text unavailable: {type(e).__name__}: {e}")
+    return _card["text"] or shop_forum.card_text(os.path.join(os.path.dirname(os.path.abspath(__file__)), "no-market-dir"))
+
+
+async def fresh_card(card):
+    desc, skill, tags, example = await asyncio.to_thread(card_text)
+    out = AgentCard()
+    out.CopyFrom(card)
+    out.description = desc
+    out.skills[0].description = skill
+    del out.skills[0].tags[:]
+    out.skills[0].tags.extend(tags)
+    del out.skills[0].examples[:]
+    out.skills[0].examples.extend([example, "120"])
+    return out
+
+
 def build(url, catalog, name):
+    desc, skill, tags, example = card_text()
     card = AgentCard(
         name=name,
-        description=("Nocha: everyday food and home goods from our own stock, sold honestly by grade with the "
-                     "market's certificate. Every price is open to a friendly negotiation, and every deal comes "
-                     "with an Ed25519-signed receipt for the exact price we agreed."),
+        description=desc,
         version="1.0.0",
         default_input_modes=["text/plain"],
         default_output_modes=["application/json", "text/plain"],
@@ -517,19 +545,16 @@ def build(url, catalog, name):
         skills=[AgentSkill(
             id="negotiate",
             name="Negotiate a purchase",
-            description=f"Round 3: ask for what we stock by name and SKU. Before it: {', '.join(catalog.categories)}. "
-                        "Name an item, then send offers as numbers on the same task. Each answer "
-                        "ends with the shop's current price, or closes the deal with a signed receipt artifact "
-                        "{shop, item, price, task, sig_seller}.",
-            tags=["shopping", "negotiation"] + catalog.categories,
-            examples=["I want to buy 종가 포기김치 10kg (G00001)", "I want to buy a lamp", "120"],
+            description=skill,
+            tags=tags,
+            examples=[example, "120"],
         )],
     )
     stock = StockBook()
     acp = AcpCheckout(url, load_shop_key, log, stock=stock)
     handler = DefaultRequestHandler(agent_executor=Seller(catalog, name, stock, acp), task_store=InMemoryTaskStore(),
                                     agent_card=card)
-    return Starlette(routes=create_agent_card_routes(card) + acp.routes() + [Route("/_kitlog", kitlog)]
+    return Starlette(routes=create_agent_card_routes(card, card_modifier=fresh_card) + acp.routes() + [Route("/_kitlog", kitlog)]
                      + create_jsonrpc_routes(handler, "/"))
 
 

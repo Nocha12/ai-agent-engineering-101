@@ -36,6 +36,7 @@ import hard_limits
 import loss_watch
 import market_model
 import opening
+import shop_forum
 import tool_forge
 from harness import HarnessError
 
@@ -278,6 +279,7 @@ def main():
     if os.environ.get("HARNESS"):
         forum.maybe_run(args.state)     # the kit runs this hook once a minute in Round 3; forum.py keeps its own pace
         tool_forge.maybe_run(args.state)
+    shop_forum.maybe_run(args.state)    # the shop's own posts, written by code from its ledger rows and stock
     out["buy"] = hard_limits.final_buy(out.get("buy"), inv.get("balance"), catalog)     # the last word, whatever came before
     print(json.dumps(out, ensure_ascii=False), flush=True)
     return 0
