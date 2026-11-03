@@ -308,7 +308,7 @@ class Seller(AgentExecutor):
             # asked for the category only ("I want to buy a 김치"): the receipt names the order's item, which the market
             # accepts as well as the SKU. Such a buyer (q00) rated every receipt naming a SKU 1 star, "SCAM ... Never buy
             # here" (62 of 62 in the Round 3 ledger), and that review then stands among the 10 every buyer is shown.
-            deal["receipt_item"] = (u.get("category") or "").split(">")[-1] or u["sku"]
+            deal["receipt_item"] = (u.get("category") or "").split(">")[-1].strip() or u["sku"]
         note = self.warranty_terms(deal, text)
         ask_price = deal["ask"]
         await up.requires_input(say(f"{stock_line(u)}. Every deal comes with a signed receipt and the market's "

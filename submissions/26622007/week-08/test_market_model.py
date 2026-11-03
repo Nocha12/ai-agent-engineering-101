@@ -200,6 +200,13 @@ class PlanWithModelTest(unittest.TestCase):
         self.assertEqual([r[1] for r in rows], ["F1", "H2"])
         self.assertGreater(rows[0][0], rows[1][0])
 
+    def test_a_line_the_food_cap_empties_goes_to_the_next_that_fits(self):
+        m = model(F1={"rate": 0.5}, H1={"rate": 0.5})
+        got = self.plan(m, max_lines=1, explore_lines=0, food_max_stock_cost=100000)
+        self.assertEqual([b["sku"] for b in got], ["F1"])
+        got = self.plan(m, max_lines=1, explore_lines=0, food_max_stock_cost=1000)
+        self.assertEqual([b["sku"] for b in got], ["H1"])
+
     def test_no_margin_no_stock(self):
         self.assertEqual(self.plan(model(F1={"price_ratio": 0.45}), explore_lines=0), [])
 

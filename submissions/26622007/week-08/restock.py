@@ -101,7 +101,11 @@ def plan(inv, catalog, demand, cfg, model=None, breaks=None, waiting=()):
     have_sku = collections.Counter(u.get("sku") for u in live)
     active = bool(model and model.get("active"))
     hours_left = (cfg["round_ends_at"] - now) / 3600 if cfg.get("round_ends_at") else float("inf")
-    picks = wanted(model, catalog, have_sku, balance, cfg, hours_left)[:cfg["max_lines"] - cfg["explore_lines"]] if active else []
+    picks = []
+    if active:      # the caps first, over the whole ranked list, then the line limit: a line the food cap empties is
+        ranked = wanted(model, catalog, have_sku, balance, cfg, hours_left)       # refilled by the next one that fits
+        fit = guard([{"sku": sku, "qty": qty} for _, sku, qty in ranked], inv, catalog, cfg, breaks, waiting)
+        picks = [(0, b["sku"], b["qty"]) for b in fit[:cfg["max_lines"] - cfg["explore_lines"]]]
     picked = {sku for _, sku, _ in picks}
     skus = collections.defaultdict(list)
     medians = {d["category"]: d.get("median_price") for d in demand}
