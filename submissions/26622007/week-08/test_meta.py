@@ -272,6 +272,25 @@ class HarnessCycleTest(unittest.TestCase):
         with open(os.path.join(self.root, "meta", "changes.jsonl"), encoding="utf-8") as f:
             self.assertEqual(json.loads(f.readline())["answer"]["evidence"][0]["excerpt"], "[acp] settled")
 
+    def test_tests_run_without_the_market_name_and_with_this_python(self):
+        # under SHOP_MARKET_NAME the shop's tests wrote into the live seller_memory_r3.json and 5 failed at any HEAD
+        with open(os.path.join(self.root, "test_env.py"), "w") as f:
+            f.write("import os, sys, unittest\nimport httpx\nclass T(unittest.TestCase):\n    def test(self):\n"
+                    "        self.assertNotIn('SHOP_MARKET_NAME', os.environ)\n"
+                    f"        self.assertEqual(sys.executable, {sys.executable!r})\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "env test")
+        with mock.patch.dict(os.environ, {"SHOP_MARKET_NAME": "nocha12"}):
+            rec = self.go("good")
+            self.assertEqual(os.environ["SHOP_MARKET_NAME"], "nocha12")     # the harness's own environment is kept
+        self.assertEqual(rec["status"], "running", rec.get("problems"))
+        self.assertEqual(mh.test_env()["PATH"].split(os.pathsep)[0], os.path.dirname(sys.executable))
+
+    def test_a_failed_test_is_named_in_the_problem(self):
+        rec = self.go("broken")
+        self.assertEqual(rec["status"], "rejected")
+        self.assertIn("FAIL: test (test_x.T.test)", rec["problems"][0])
+
     def test_a_false_citation_undoes_the_change_and_keeps_the_attempt(self):
         rec = self.go("false-citation")
         self.assertEqual(rec["status"], "rejected")

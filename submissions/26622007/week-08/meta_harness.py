@@ -146,10 +146,23 @@ def stage(with_logs=False):
     return git("diff", "--cached", "--name-only", "--relative").splitlines()
 
 
+LIVE_ENV = ("SHOP_MARKET_NAME",)    # run_meta.sh sets it; under it shop_memory and agent_memory use the live files
+
+
+def test_env():
+    """The environment for the tests and for Terra/Astra: without the market name, so a test writes its scratch memory
+    instead of memory/seller_memory_r3.json (11/04 22:06, 03:59 and 06:00 runs added 72 test talks there and failed 5
+    tests at any HEAD), and with this venv first on PATH (the system python3 has no httpx)."""
+    env = {k: v for k, v in os.environ.items() if k not in LIVE_ENV}
+    env["PATH"] = os.path.dirname(sys.executable) + os.pathsep + env.get("PATH", "")
+    return env
+
+
 def run_tests():
     p = subprocess.run([sys.executable, "-m", "unittest", "discover", "-p", "test_*.py"], cwd=ROOT, capture_output=True,
-                       text=True, timeout=900)
-    return p.returncode == 0, p.stderr[-1500:]
+                       text=True, timeout=900, env=test_env())
+    failed = [ln for ln in p.stderr.splitlines() if ln.startswith(("FAIL: ", "ERROR: "))]
+    return p.returncode == 0, "\n".join(failed[:20] + [p.stderr[-1200:]])
 
 
 def restart_seller(paths):
@@ -214,11 +227,13 @@ def call_model(kind, cycle, pack):
     with open(os.path.join(ROOT, "meta", f"{kind}.md"), encoding="utf-8") as f:
         prompt = f.read()
     prompt += f"\n\nCycle {cycle}. Evidence pack: {os.path.relpath(pack, ROOT)}. Past changes: meta/changes.jsonl.\n"
+    prompt += f"Tests: `{sys.executable} -m unittest discover -p 'test_*.py'` in this folder, the same command and " \
+              "environment the harness uses (the system python3 lacks httpx).\n"
     access = os.environ.get("META_CODEX_ACCESS", "--dangerously-bypass-approvals-and-sandbox").split()   # the Mac mini is its own
     cmd = [codex, "exec", "-m", MODELS[kind], *access, "--skip-git-repo-check", "--ephemeral",
            "-C", ROOT, "--output-schema", schema, "-o", out, "-"]
     try:
-        p = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=CODEX_TIMEOUT)
+        p = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=CODEX_TIMEOUT, env=test_env())
     except subprocess.TimeoutExpired:
         return None, f"no answer within {CODEX_TIMEOUT} s"
     with open(os.path.join(ROOT, "logs", "meta-codex.log"), "a", encoding="utf-8") as f:
@@ -419,7 +434,7 @@ def cycle(kind):
     if code and not problems and not docs_only:
         ok, output = run_tests()
         if not ok:
-            problems.append(f"tests failed: {output[-500:]}")
+            problems.append(f"tests failed: {output[:2500]}")       # the FAIL/ERROR names first, then the tail
     if err and not code:
         rec.update(status="model_error", reason=err)
         log(f"{cid}: {err}")
