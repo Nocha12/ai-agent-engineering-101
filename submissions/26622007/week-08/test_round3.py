@@ -489,6 +489,8 @@ class BuyerTest(unittest.TestCase):
         self.assertIsNone(short("asking 9000. 351.1 hours of shelf life left.", self.ORDER))
         self.assertIsNone(short("need a shelf life? say e.g. 'need 24h shelf life'. asking 9000", self.ORDER))
         self.assertIsNone(short("asking 9000. Very fresh, just in.", self.ORDER))
+        self.assertIsNone(short("grade A, about 48 h of shelf life left", self.ORDER))   # rounded from up to 48.5
+        self.assertTrue(short("grade A, about 47 h of shelf life left", self.ORDER))
         self.assertIsNone(short("12 h of shelf life left", {"kind": "goods"}))
         self.assertTrue(market_buyer.quote_refused("12 h of shelf life left", self.ORDER))
         self.assertTrue(market_buyer.quote_refused("warranty=3h", {"kind": "goods"}))

@@ -444,6 +444,7 @@ def shelf_refused(text, order):
     hours = [float(h) for h in re.findall(r"(\d+(?:\.\d+)?)\s*(?:h|hours?)\s+(?:of\s+)?shelf[ -]life\s+left", t, re.I)]
     hours += [float(h) for h in re.findall(r"shelf_(?:life_)?left\s*[=:]\s*(\d+(?:\.\d+)?)\s*h\b", t, re.I)]
     need = order["use_within_hours"] + SHELF_MARGIN
+    hours = [h + 0.5 if h.is_integer() else h for h in hours]    # "about 48 h" may be 48.4: rounded, not short
     if hours and max(hours) < need:
         return f"the shop's unit lasts {max(hours):g} h, the order needs {need:g} h"
     return None
@@ -496,14 +497,14 @@ def quote(shop, label, key, order, out, ctl=None):
 
 
 QUOTE_ROUNDS = 3       # batches of quote_shops shops asked while none so far had a unit for me (another buyer holds it)
-QUOTE_UNTIL = 150      # seconds into the run after which no further batch starts: the talk needs the rest of the 300 s
+QUOTE_UNTIL = 100      # seconds into the run by which a further batch must be done: the talk needs the rest of the 300 s
 
 
 def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOTE_WAIT, rounds=QUOTE_ROUNDS):
     """(shop, quotes): of the chosen shop and up to quote_shops - 1 others, the one whose opening ask leaves the most
     expected surplus (list price, less the chance of breaking, less the ask). Quotes run at once, each in its own thread.
     When no shop of a batch quotes a unit I could pay for (all out of stock, or held by other buyers' talks), the next
-    quote_shops shops of others are asked, up to rounds batches and while the run is young (QUOTE_UNTIL)."""
+    quote_shops shops of others are asked, up to rounds batches, each done by QUOTE_UNTIL into the run."""
     k = int(cfg.get("quote_shops", 1))
     if k < 2 or not others:
         return chosen, {}
@@ -530,7 +531,7 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
             th.start()
             threads.append(th)
         pool += batch
-        end = time.time() + wait
+        end = time.time() + wait if not r else min(time.time() + wait, STARTED + QUOTE_UNTIL)
         for th in threads:
             th.join(max(0.0, end - time.time()))
         if any(surplus(s) is not None for s in pool):
