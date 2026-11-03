@@ -190,20 +190,29 @@
     }
   },
   "next_window": {
-    "id": "pro-20261103-2213",
-    "source": "review/W-20261103-2120/gpt-pro-answer1.md 2-a (G07ec17d5 left out)",
+    "id": "pro-20261103-2213b",
+    "source": "review/W-20261103-2120/gpt-pro-answer1.md 2-a: the mattress line missed in the 22:44 window",
     "expires_hours": 2,
     "targets": {
-      "G1515d951": 1,
-      "G998b9322": 1,
-      "Ge62449c9": 1,
-      "G0be9ed07": 2,
-      "G06f2c594": 1,
-      "G200e39a3": 2,
-      "G32bf9a8e": 1,
-      "G80435d53": 2,
-      "Gdf79cd07": 1,
-      "G5f64d42a": 1
-    }
+      "G1515d951": 1
+    },
+    "done_plans": [
+      {
+        "id": "pro-20261103-2213",
+        "targets": {
+          "G1515d951": 1,
+          "G998b9322": 1,
+          "Ge62449c9": 1,
+          "G0be9ed07": 2,
+          "G06f2c594": 1,
+          "G200e39a3": 2,
+          "G32bf9a8e": 1,
+          "G80435d53": 2,
+          "Gdf79cd07": 1,
+          "G5f64d42a": 1
+        },
+        "result": "22:44 window: 8 lines supplied; G1515d951 refused 429 (sent before the window opened)"
+      }
+    ]
   }
 }

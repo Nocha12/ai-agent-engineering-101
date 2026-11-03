@@ -247,6 +247,18 @@ def gone(u, now):
     return u.get("grade") == "expired" or bool(u.get("expires_at") and u["expires_at"] <= now)
 
 
+def arrived(sku, at, inv, memory=os.path.join("memory", "seller_memory_r3.json")):
+    """True when a line for this SKU sent at `at` was supplied: a unit of it came in since, or the shop has sold or agreed
+    one since (a unit can sell within a minute of arriving)."""
+    if any(u.get("sku") == sku and (u.get("supplied_at") or 0) >= at - 5 for u in inv.get("units") or []):
+        return True
+    since = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(at - 5))
+    m = load(memory, {})
+    rows = m.get("negotiations") if isinstance(m, dict) else None
+    return any(isinstance(n, dict) and n.get("sku") == sku and str(n.get("time", "")) >= since
+               and n.get("result") in ("agreed", "deal") for n in rows or [])
+
+
 def next_window(md, inv, catalog, cfg, waiting=(), keep=None, now=None):
     """pricing.json "next_window": a one-off buy for the first supply window it meets (GPT Pro review §2-a). Each target is a
     ceiling: what is in stock or still on its way is subtracted. (lines, why) while it runs, (None, why) once done, off or
@@ -270,16 +282,25 @@ def next_window(md, inv, catalog, cfg, waiting=(), keep=None, now=None):
     if now - st["created"] > cfg.get("expires_hours", 2) * 3600:
         return finish("expired before a window")
     if st["sent"] and opening.window_closed(inv, now):
-        return finish(f"bought in the window of {time.strftime('%H:%M', time.localtime(st['sent'][0]['at']))}")
+        at = st["sent"][-1]["at"]
+        missed = [b["sku"] for b in st["sent"][-1]["lines"] if not arrived(b["sku"], at, inv)]
+        if missed and st.get("retries", 0) < 1:      # the market refused them (e.g. 429 at the window's edge): once more
+            st.update(retries=st.get("retries", 0) + 1, only=missed, sent=[], notes=st["notes"] + [f"missed {missed}"])
+            opening.save(path, st)
+            return [], f"next_window {cfg['id']}: {missed} never arrived, retried in the next window"
+        return finish(f"bought in the window of {time.strftime('%H:%M', time.localtime(at))}"
+                      + (f", never arrived: {missed}" if missed else ""))
     if st["sent"]:                           # sent once; the rest of this window is the plan's: nothing else is bought
         return [], f"next_window {cfg['id']}: sent, nothing else in this window"
-    if opening.window_closed(inv, now, need=opening.SECONDS_PER_LINE * len(targets) + 15):
-        opening.save(path, st)
+    if opening.window_closed(inv, now, lead=0, need=opening.SECONDS_PER_LINE * len(targets) + 15):
+        opening.save(path, st)               # lead 0: a line sent before the window opens is refused (429) and lost
         return [], f"next_window {cfg['id']} waits for the supply window"
     have = collections.Counter(u.get("sku") for u in inv.get("units") or [] if not gone(u, now))
     for w in waiting:
         have[w["sku"]] += w["qty"]
-    want = [{"sku": sku, "qty": q - have[sku]} for sku, q in targets.items() if sku in catalog and q - have[sku] > 0]
+    only = set(st.get("only") or targets)
+    want = [{"sku": sku, "qty": q - have[sku]} for sku, q in targets.items()
+            if sku in catalog and sku in only and q - have[sku] > 0]
     out = keep(want) if keep and want else want
     if not out:
         return finish(f"nothing to buy (wanted {want}; stock and limits leave none)")

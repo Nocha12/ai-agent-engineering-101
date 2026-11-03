@@ -182,8 +182,10 @@ class PriceTest(unittest.TestCase):
         self.assertEqual((r["max_stock_cost"], r["max_units_per_sku"], r["cover_hours"], r["keep_cash"],
                           r["food_max_stock_cost"], r["high_price_goods"], r["high_price_max_units"]),
                          (900000, 3, 3, 2500000, 200000, 100000, 1))
-        self.assertEqual(sum(p["next_window"]["targets"].values()), 13)
-        self.assertNotIn("G07ec17d5", p["next_window"]["targets"])
+        first = p["next_window"]["done_plans"][0]["targets"]          # the review's table: 10 SKUs, 13 units
+        self.assertEqual((len(first), sum(first.values())), (10, 13))
+        self.assertNotIn("G07ec17d5", first)
+        self.assertEqual(p["next_window"]["targets"], {"G1515d951": 1})     # the mattress line the 22:44 window refused
 
 
 CAT = {"F1": {"kind": "food", "list_price": 40000}, "F2": {"kind": "food", "list_price": 40000},
@@ -241,10 +243,10 @@ class PendingAndNextWindowTest(unittest.TestCase):
         keep = lambda b: restock.guard(b, inv, CAT, CFG, None, [{"sku": "H1", "qty": 1, "worst": 15000}])
         out, why = restock.next_window(self.md, inv, CAT, self.cfg, [{"sku": "H1", "qty": 1, "worst": 15000}], keep)
         self.assertEqual(out, [{"sku": "F1", "qty": 1}, {"sku": "BIG", "qty": 1}])
-        out, why = restock.next_window(self.md, dict(inv, units=inv["units"] + [unit("k2", sku="F1"), unit("b", sku="BIG", kind="goods")]),
-                                       CAT, self.cfg, [{"sku": "H1", "qty": 1, "worst": 15000}], keep)
+        came = inv["units"] + [unit("k2", sku="F1", supplied_ago=0), unit("b", sku="BIG", kind="goods", supplied_ago=0)]
+        out, why = restock.next_window(self.md, dict(inv, units=came), CAT, self.cfg, [{"sku": "H1", "qty": 1, "worst": 15000}], keep)
         self.assertEqual(out, [])                                # all there: nothing else is bought in this window
-        closed = dict(inv, restock={"open": False, "opens_at": time.time() + 900})
+        closed = dict(inv, units=came, restock={"open": False, "opens_at": time.time() + 900})
         self.assertIn("bought in the window", restock.next_window(self.md, closed, CAT, self.cfg)[1])
         self.assertIn("done", restock.next_window(self.md, self.open_inv, CAT, self.cfg)[1])
 
@@ -267,6 +269,23 @@ class PendingAndNextWindowTest(unittest.TestCase):
         out, _ = restock.next_window(self.md, self.open_inv, CAT, self.cfg)
         self.assertTrue(out)
         self.assertEqual(restock.next_window(self.md, self.open_inv, CAT, self.cfg)[0], [])     # units sold meanwhile: not rebought
+
+    def test_never_sends_before_the_window_opens(self):
+        soon = dict(self.open_inv, restock={"open": False, "opens_at": time.time() + 20, "closes_at": time.time() + 200})
+        self.assertEqual(restock.next_window(self.md, soon, CAT, self.cfg)[0], [])
+
+    def test_a_line_that_never_arrived_is_tried_once_more_alone(self):
+        out, _ = restock.next_window(self.md, self.open_inv, CAT, self.cfg)
+        self.assertEqual({b["sku"] for b in out}, {"F1", "H1", "BIG"})
+        came = [dict(unit("f1", sku="F1"), supplied_at=time.time()), dict(unit("f2", sku="F1"), supplied_at=time.time()),
+                dict(unit("h", sku="H1", kind="goods"), supplied_at=time.time())]
+        closed = dict(self.open_inv, units=came, restock={"open": False, "opens_at": time.time() + 900})
+        self.assertIn("retried", restock.next_window(self.md, closed, CAT, self.cfg)[1])
+        out, _ = restock.next_window(self.md, dict(self.open_inv, units=came), CAT, self.cfg)
+        self.assertEqual(out, [{"sku": "BIG", "qty": 1}])
+        why = restock.next_window(self.md, dict(closed), CAT, self.cfg)[1]
+        self.assertIn("never arrived: ['BIG']", why)                # once only
+        self.assertIn("done", restock.next_window(self.md, self.open_inv, CAT, self.cfg)[1])
 
     def test_off_without_a_plan(self):
         self.assertEqual(restock.next_window(self.md, self.open_inv, CAT, {}), (None, "no next_window plan"))
