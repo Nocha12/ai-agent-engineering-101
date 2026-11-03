@@ -280,6 +280,18 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(out["state"], "TASK_STATE_COMPLETED")
         self.assertNotIn("warranty_hours", out["receipt"])
 
+    def test_goods_get_six_hours_by_default_and_food_none(self):
+        with mock.patch.object(seller, "break_chance", lambda sku: 0.1):
+            out = buyer.negotiate(self.url, "청소기", 10000, "", "I want to buy (G2)")
+        self.assertEqual(out["receipt"]["warranty_hours"], 6)
+        self.assertGreaterEqual(int(out["receipt"]["price"]), 6667)
+
+    def test_a_quote_is_cancelled_and_the_unit_comes_back(self):
+        got = {}
+        market_buyer.quote({"name": "s", "url": self.url}, "청소기", "G2", {"kind": "goods"}, got)
+        self.assertIsInstance(got["s"]["ask"], (int, float))
+        self.assertIsNotNone(self.stock.find("G2"))                  # not held for a talk that was cancelled
+
     def test_food_never_gets_a_warranty(self):
         out = buyer.negotiate(self.url, "포기김치", 10000, "", "I want to buy (G1) with a warranty")
         self.assertNotIn("warranty_hours", out["receipt"])
@@ -330,6 +342,8 @@ class RoundTwoStillWorks(EndToEnd):
     test_warranty_on_request_is_granted_with_the_break_chance_priced_in = None
     test_warranty_is_declined_when_the_sku_breaks_too_often = None
     test_food_never_gets_a_warranty = None
+    test_goods_get_six_hours_by_default_and_food_none = None
+    test_a_quote_is_cancelled_and_the_unit_comes_back = None
     test_unit_is_not_promised_twice_and_out_of_stock_is_refused = None
     test_a_unit_near_its_date_sells_below_cost_and_stays_out_of_the_bandit = None
 
@@ -354,9 +368,28 @@ class BuyerTest(unittest.TestCase):
         self.assertEqual(market_buyer.pick_offer(fit, 12000)["sku"], "G1")
         self.assertEqual(market_buyer.pick_offer(fit, 5000)["sku"], "G1")
 
-    def test_accept_asks_proof_only_for_food(self):
+    def test_accept_asks_proof_for_food_and_a_full_warranty_for_goods(self):
         self.assertEqual(market_buyer.accept_policy(self.ORDER), {"cert": True, "min_hours_left": 48.1})
-        self.assertIsNone(market_buyer.accept_policy({"kind": "goods"}))
+        self.assertEqual(market_buyer.accept_policy({"kind": "goods"}), {"warranty_hours": 6})
+        self.assertIn("with a 6 h warranty", market_buyer.request_text("청소기", "H1", {"kind": "goods"}))
+        self.assertNotIn("warranty", market_buyer.request_text("김치", "F1", self.ORDER))
+        self.assertIsNone(market_buyer.warranty_short({"warranty_hours": 6}, {"kind": "goods"}))
+        self.assertIn("0 h", market_buyer.warranty_short({}, {"kind": "goods"}))
+        self.assertIsNone(market_buyer.warranty_short({}, self.ORDER))
+
+    def test_parallel_quotes_pick_the_most_surplus_and_promise_nothing(self):
+        shops = [{"name": n, "url": f"https://{n}.example", "usable": [{"sku": "H1", "name": "청소기", "list_price": 10000}]}
+                 for n in ("a", "b", "c")]
+        asks = {"a": 9000, "b": 7000, "c": None}
+
+        def fake_quote(shop, label, key, order, out, cancel=True):
+            if asks[shop["name"]] is not None:
+                out[shop["name"]] = {"ask": asks[shop["name"]], "text": ""}
+        with mock.patch.object(market_buyer, "quote", fake_quote), mock.patch.object(market_buyer, "log"):
+            best, got = market_buyer.best_quote(shops[0], shops[1:], {"kind": "goods"}, {}, 20000, lambda s: 0.1,
+                                                {"quote_shops": 3}, wait=5)
+            self.assertEqual((best["name"], sorted(got)), ("b", ["a", "b"]))
+            self.assertIs(market_buyer.best_quote(shops[0], shops[1:], {}, {}, 20000, lambda s: None, {"quote_shops": 1})[0], shops[0])
 
     def test_receipt_checks(self):
         out = {"agreed": 9000, "task": "t", "asked": "G1"}

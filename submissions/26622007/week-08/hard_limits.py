@@ -40,17 +40,22 @@ BOUNDS = {
     "warranty.prior_break": (0.0, 0.5),
     "buyer.max_price_share": (0.3, 1.0),
     "buyer.max_spend_per_deal": (10000, 5000000),
+    "buyer.quote_shops": (1, 5),
     "markdown.min_floor_share": (0.0, 1.0),
     "forum.max_votes": (0, 30),
     "forum.every_minutes": (5, 240),
 }
 MARKDOWN_REASONS = ("food_expiry", "stale_goods", "round_end")
+# Goods break up to 6 hours after the sale (agent.md). My buyer pays for goods only with a warranty that covers all of it,
+# and my shop sells goods with one by default (its reserve carries the break chance). Fixed: not a setting.
+BUYER_GOODS_WARRANTY_HOURS = 6
+SELLER_GOODS_WARRANTY_HOURS = 6
 # The cautious start, used when a bounded setting is missing a number.
 SAFE = {"restock": {"keep_cash": 3000000, "max_stock_cost": 1000000, "target_per_category": 1, "max_lines": 5,
                     "max_units_per_sku": 5, "cover_hours": 6, "food_explore_qty": 0, "food_max_qty": 2, "max_break": 0.15,
                     "goods_max_price": 30000, "max_sku_share": 0.1},
         "warranty": {"on_request_hours": 3, "max_hours": 6, "max_break": 0.25, "prior_break": 0.15},
-        "buyer": {"max_price_share": 0.9, "max_spend_per_deal": 200000},
+        "buyer": {"max_price_share": 0.9, "max_spend_per_deal": 200000, "quote_shops": 3},
         "markdown": {"min_floor_share": 0.1, "below_cost": ["food_expiry"]},
         "forum": {"max_votes": 5, "every_minutes": 15}}
 

@@ -180,6 +180,7 @@ def build(root):
             "llm": llm_table(md), "memory_timing": memory_timing(md),
             "tools": dict(tools), "decisions": len(decisions), "last_decisions": decisions[-5:],
             "payments": {"paid": sum(1 for p in pays if p.get("paid")), "refused": sum(1 for p in pays if not p.get("paid")),
+                         "refused_for_warranty": sum(1 for p in pays if not p.get("paid") and "warranty" in str(p.get("reason"))),
                          "refusal_reasons": collections.Counter(str(p.get("reason"))[:80] for p in pays if not p.get("paid")).most_common(10)},
             "files": file_index(root)}
 

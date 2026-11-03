@@ -10,6 +10,7 @@ logs/market-kit.log as "[buyer] ...") runs check() and prints:
     [loss] expired <name> <cost> ...                 a food unit passed its date in stock: its cost is gone
     [loss] grade_drop <name> 0 A->B ...              a food unit fell a grade while waiting (no money yet, a cheaper sale later)
     [loss] storage <n> goods units <amount>          storage for the last hour(s), at inventory.json's storage_per_day
+    [loss] checkout_refused_warranty <sku> 0 ...     my buyer's kit would not pay: the shop's warranty was too short
 
 Sources, all of them the market's own: inventory.json, the Round 3 ledger rows market_model keeps (kinds settle and
 broken), and the kit's own "[acp] settled ... ledger #N" lines, which say which settles were mine. A refund kind in the
@@ -119,6 +120,22 @@ def check(md, root=HERE, now=None, sold=None, emit=None):
                 loss("storage", f"{len(goods)} goods units", amount, f"{hours:.1f} h at {rate:.2%}/day")
             state["storage_at"] = now
 
+        pay = os.path.join(md, "payments.jsonl")        # my buyer's payments the kit refused for a short warranty
+        if os.path.exists(pay):
+            pos = state.get("pay_pos", 0)
+            pos = 0 if os.path.getsize(pay) < pos else pos
+            with open(pay, "rb") as f:
+                f.seek(pos)
+                data = f.read()
+            end = data.rfind(b"\n") + 1
+            for line in data[:end].decode("utf-8", errors="replace").splitlines():
+                try:
+                    p = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(p, dict) and not p.get("paid") and "warranty" in str(p.get("reason")):
+                    loss("checkout_refused_warranty", p.get("item"), 0, f"shop {p.get('shop')} price {p.get('price')}: {p.get('reason')}")
+            state["pay_pos"] = pos + end
         rows = market_model.load_rows(md)
         records = sold_records() if sold is None else sold
         for b, s in market_model.link_broken(rows):

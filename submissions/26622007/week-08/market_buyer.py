@@ -40,10 +40,13 @@ import time
 
 import httpx
 
+import threading
+
 import agent_loop
 import hard_limits
 import market_model
 from buyer import log, negotiate
+from buyer import message_text as buyer_message_text, metadata_ask as buyer_metadata_ask, rpc as buyer_rpc, send as buyer_send
 from harness import HarnessError, ask
 
 MEMORY = os.environ.get("BUYER_MEMORY")   # set in main() from the {shops} path unless given
@@ -395,10 +398,79 @@ def pick_offer(offers, budget):
 
 
 def accept_policy(order):
-    """What the kit checks before paying. A food unit that does not last is worth 0, so it needs the proof."""
+    """What the kit checks before paying. A food unit that does not last is worth 0, so it needs the proof; goods that
+    break are worth 0 too, so they need a warranty covering the whole six hours they can break in (hard_limits)."""
     if order.get("kind") == "food" and order.get("use_within_hours"):
         return {"cert": True, "min_hours_left": order["use_within_hours"] + SHELF_MARGIN}
+    if order.get("kind") == "goods":
+        return {"warranty_hours": hard_limits.BUYER_GOODS_WARRANTY_HOURS}
     return None
+
+
+def request_text(label, key, order):
+    """The first message to a shop: the SKU, and for goods the warranty I will not buy without."""
+    extra = f" with a {hard_limits.BUYER_GOODS_WARRANTY_HOURS} h warranty" if order.get("kind") == "goods" else ""
+    return f"I want to buy {label} ({key}){extra}"
+
+
+def warranty_short(rec, order):
+    """Why a goods receipt cannot be paid for: its warranty is shorter than I require. None when it is fine."""
+    if order.get("kind") != "goods" or not isinstance(rec, dict):
+        return None
+    w = rec.get("warranty_hours") if isinstance(rec.get("warranty_hours"), (int, float)) else 0
+    need = hard_limits.BUYER_GOODS_WARRANTY_HOURS
+    return None if w >= need else f"warranty {w} h, I buy goods only with {need} h"
+
+
+QUOTE_WAIT = 45        # seconds the quotes may take together; a shop slower than that is left out
+
+
+def quote(shop, label, key, order, out, cancel=True):
+    """Asks one shop its opening price for this SKU (no offer from me, so nothing is promised), then cancels the talk."""
+    try:
+        card = httpx.get(shop["url"].rstrip("/") + "/.well-known/agent-card.json", timeout=15).json()
+        iface = next(i for i in card.get("supportedInterfaces", []) if i.get("protocolBinding") == "JSONRPC")
+        t = buyer_send(iface["url"], request_text(label, key, order))
+        if t is None:
+            return
+        ask = buyer_metadata_ask(t)
+        out[shop["name"]] = {"ask": ask, "text": buyer_message_text(t)[:300]}
+        if cancel and t.get("id"):
+            buyer_rpc(iface["url"], "CancelTask", {"id": t["id"]})
+    except Exception as e:  # noqa: BLE001 - a shop that cannot quote is just not compared
+        log(f"[quote] {shop['name']}: {type(e).__name__}: {e}")
+
+
+def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOTE_WAIT):
+    """(shop, quotes): of the chosen shop and up to quote_shops - 1 others, the one whose opening ask leaves the most
+    expected surplus (list price, less the chance of breaking, less the ask). Quotes run at once, each in its own thread."""
+    k = int(cfg.get("quote_shops", 1))
+    pool = [chosen] + others[:max(0, k - 1)]
+    if len(pool) < 2:
+        return chosen, {}
+    got, threads = {}, []
+    for s in pool:
+        o = pick_offer(s["usable"], budget)
+        s["_offer"] = o
+        th = threading.Thread(target=quote, args=(s, o["name"], o["sku"], order, got), daemon=True)
+        th.start()
+        threads.append(th)
+    end = time.time() + wait
+    for th in threads:
+        th.join(max(0.0, end - time.time()))
+
+    def surplus(s):
+        q = got.get(s["name"]) or {}
+        if not isinstance(q.get("ask"), (int, float)):
+            return None
+        o = s["_offer"]
+        return o["list_price"] * (1 - (chance_of(o["sku"]) or 0)) - q["ask"]
+    scored = [(surplus(s), i, s) for i, s in enumerate(pool) if surplus(s) is not None]
+    if not scored:
+        return chosen, got
+    best = max(scored, key=lambda x: (x[0], -x[1]))[2]
+    log("[quote] " + ", ".join(f"{s['name']} {got[s['name']]['ask']}" for _, _, s in scored) + f" -> {best['name']}")
+    return best, got
 
 
 def sync_payments(memory, path):
@@ -609,6 +681,18 @@ def main():
         left = [s for s in left if s["name"] != shop["name"]] or left
     log(f"[choose] {shop['url']}: {shop['name']} - {reason}")
 
+    quotes = {}
+    if r3:
+        others = [s for s in left if s is not shop and not caught_cheating(my_history(memory, s["name"]))]
+        others.sort(key=lambda s: -len(s.get("reviews") or []))
+        stats = market_model.break_stats(market_model.load_rows(md), catalog) if order.get("kind") == "goods" else None
+        chance_of = (lambda sku: market_model.break_chance(stats, sku)) if stats else (lambda sku: None)
+        best, quotes = best_quote(shop, [s for s in others if serves_acp(s["url"])][:3], order, catalog, args.budget,
+                                  chance_of, buyer_cfg())
+        if best is not shop:
+            reason = f"best quote of {len(quotes)} ({quotes[best['name']]['ask']}); first choice was {shop['name']}"
+            shop = best
+            log(f"[choose] {shop['url']}: {shop['name']} - {reason}")
     offer = pick_offer(shop["usable"], args.budget) if r3 else None
     key = offer["sku"] if r3 else args.item     # prices are comparable within a SKU, not within a category
     label = offer["name"] if r3 else args.item
@@ -622,14 +706,15 @@ def main():
     note = "; ".join(x for x in (
         f"it sold {label} to you at {', '.join(map(str, deals[-3:]))}" if deals else "",
         f"its lowest ask for {label} so far was {low}" if low is not None else "",
-        pattern or "") if x)
+        pattern or "",
+        f"it quoted {quotes[shop['name']]['ask']} a minute ago" if shop["name"] in quotes else "") if x)
     if note:
         log(f"memory note for the harness: {note}")
     if r3:
         log(f"[offer] {offer['sku']} {offer['name']}: list {offer['list_price']}, limit {limit}, {len(shop['usable'])} fit"
             + (f", breaks {chance:.1%} of the time in the ledger" if chance else ""))
     try:
-        out = negotiate(shop["url"], label, limit, note, f"I want to buy {label} ({key})" if r3 else None)
+        out = negotiate(shop["url"], label, limit, note, request_text(label, key, order) if r3 else None)
         out["asked"] = key if r3 else None
     except Exception as e:  # network errors from a shop that went away
         log(f"trade failed: {type(e).__name__}: {e}")
@@ -641,6 +726,9 @@ def main():
     if out["state"] == "TASK_STATE_COMPLETED" and rec is None:
         problems = ["completed without a receipt"]
         out["state"] = "COMPLETED_NO_RECEIPT"
+    short = warranty_short(rec, order) if r3 and rec is not None else None    # not cheating: just not a deal I pay for
+    if short:
+        warnings.append(short)
     for p in problems:
         log(f"[receipt] PROBLEM {shop['name']}: {p}")
     for w in warnings:
@@ -655,7 +743,7 @@ def main():
     memory["trades"].append({
         "time": time.strftime("%Y-%m-%dT%H:%M:%S"), "shop": shop["name"], "item": key, "budget": args.budget,
         **({"order": order.get("order"), "category": args.item, "list_price": offer["list_price"]} if r3 else {}),
-        "result": "deal" if rec is not None else (out["state"] or "error").replace("TASK_STATE_", "").lower(),
+        "result": "no_warranty" if short else "deal" if rec is not None else (out["state"] or "error").replace("TASK_STATE_", "").lower(),
         "price": rec.get("price") if rec else None,
         "asks": asks, "holds": out.get("holds", 0), "problems": problems, "warnings": warnings, "why": why,
         "signed": bool(rec.get("sig_seller")) if rec else None})
@@ -664,7 +752,7 @@ def main():
 
     result = {"shop": shop["url"], "receipt": rec, "stars": stars, "review": review}
     if r3:
-        if problems:
+        if problems or short:
             result["receipt"] = None            # the kit pays any receipt that verifies: this one does not go through
         if accept_policy(order):
             result["accept"] = accept_policy(order)

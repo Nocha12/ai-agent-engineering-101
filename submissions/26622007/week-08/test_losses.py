@@ -102,6 +102,14 @@ class LossWatchTest(unittest.TestCase):
         out = self.run_it(NOW + 8000, sold=[{"unit": "a", "result": "deal", "warranty": 1}])
         self.assertEqual(sorted((x["kind"], x["amount"]) for x in out), [("break_no_warranty", 0), ("break_unknown_warranty", 20000)])
 
+    def test_a_payment_refused_for_the_warranty_is_noted_once(self):
+        self.inv([])
+        with open(os.path.join(self.md, "payments.jsonl"), "w") as f:
+            f.write(json.dumps({"order": "o", "shop": "s", "item": "H1", "price": 9000, "paid": False,
+                                "reason": "warranty 0 h, the policy asks for 6"}) + "\n")
+        self.assertEqual([x["kind"] for x in self.run_it(NOW)], ["checkout_refused_warranty"])
+        self.assertEqual(self.run_it(NOW + 60), [])
+
     def test_before_round_three_nothing(self):
         with open(os.path.join(self.md, "inventory.json"), "w") as f:
             json.dump({"round": 2, "units": []}, f)

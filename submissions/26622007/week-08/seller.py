@@ -264,8 +264,6 @@ class Seller(AgentExecutor):
                                      "cost": cost, "reserve": reserve, "ask": ask_price, "open": ask_price, "arm": arm,
                                      "rounds": 0, "history": [("you asked", ask_price)]}
         note = self.warranty_terms(deal, text)
-        if note is None and u.get("kind") == "goods" and self.warranty_cfg()["on_request_hours"] > 0:
-            note = f"A {self.warranty_cfg()['on_request_hours']} h warranty is available on request."
         ask_price = deal["ask"]
         await up.requires_input(say(f"{stock_line(u)}. Every deal comes with a signed receipt and the market's "
                                     f"certificate of the unit.{' ' + note if note else ''} My price: {ask_price}.", ask_price))
@@ -276,20 +274,21 @@ class Seller(AgentExecutor):
         return hard_limits.clamp_cfg("warranty", {**WARRANTY, **(shop_memory.load_pricing().get("warranty") or {})})
 
     def warranty_terms(self, deal, text):
-        """Goods, the first time the buyer asks for a warranty: grant it with the reserve raised by the break chance, or
-        decline when the SKU breaks too often. Returns the sentence for the buyer, or None when nothing was asked."""
-        if deal.get("kind") != "goods" or "warranty" in deal or not WARRANTY_WORDS.search(text or "") \
+        """Goods, at the first message: a warranty of hard_limits.SELLER_GOODS_WARRANTY_HOURS (buyers' kits refuse to pay
+        without one, the kit's example asks for 6 h), or longer if asked, with the reserve raised by the break chance; or
+        declined when the SKU breaks too often. Returns the sentence for the buyer, or None (food, already set, refused)."""
+        if deal.get("kind") != "goods" or "warranty" in deal \
                 or re.search(r"\b(no|without) (a )?(warranty|guarantee)|보증\s*(없이|필요\s*없)", text or "", re.I):
             return None
         cfg = self.warranty_cfg()
         measured = break_chance(deal["id"])
         chance = cfg["prior_break"] if measured is None else measured
-        if cfg["on_request_hours"] <= 0 or chance > cfg["max_break"]:
+        if chance > cfg["max_break"]:
             deal["warranty"] = 0
             log(f"WARRANTY declined for {deal['id']}: break chance {chance:.1%} (max {cfg['max_break']:.0%})")
             return "Sorry, this item is sold without a warranty."
         asked = [float(h) for h in WARRANTY_HOURS.findall(text or "")]
-        hours = min(max(asked), cfg["max_hours"]) if asked else cfg["on_request_hours"]
+        hours = max(hard_limits.SELLER_GOODS_WARRANTY_HOURS, min(max(asked), cfg["max_hours"]) if asked else 0)
         hours, before = (int(hours) if float(hours).is_integer() else hours), deal["reserve"]
         deal["warranty"] = hours
         deal["reserve"] = max(before, math.ceil(before / (1 - chance)))

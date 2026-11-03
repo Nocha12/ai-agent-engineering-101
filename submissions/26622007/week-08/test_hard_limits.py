@@ -104,6 +104,16 @@ class GuardsStayHookedTest(unittest.TestCase):
         self.assertIn("hard_limits.guard_problems", lim)
         self.assertIn('"discover"', inspect.getsource(meta_harness.run_tests))
 
+    def test_goods_warranty_rules_stay_fixed(self):
+        import market_buyer
+        import seller
+        self.assertGreaterEqual(hl.BUYER_GOODS_WARRANTY_HOURS, 6)
+        self.assertGreaterEqual(hl.SELLER_GOODS_WARRANTY_HOURS, 6)
+        self.assertEqual(market_buyer.accept_policy({"kind": "goods"}), {"warranty_hours": hl.BUYER_GOODS_WARRANTY_HOURS})
+        self.assertIsNotNone(market_buyer.warranty_short({"warranty_hours": 5}, {"kind": "goods"}))
+        self.assertIn("hard_limits.SELLER_GOODS_WARRANTY_HOURS", inspect.getsource(seller.Seller.warranty_terms))
+        self.assertIn("problems or short", inspect.getsource(market_buyer.main))
+
     def test_no_tool_runs_without_the_sandbox(self):
         with mock.patch.object(shutil, "which", lambda name: None):
             self.assertIn("error", agent_tools.execute("my_memory", {"query": "x"}, tempfile.gettempdir()))
