@@ -203,10 +203,14 @@ def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
         cap = cfg.get("max_units_per_sku", MAX_LOT)
         if x.get("kind") == "goods" and (x.get("list_price") or 0) > cfg.get("high_price_goods", float("inf")):
             cap = min(cap, cfg.get("high_price_max_units", 1))
-        qty = min(qty, cap - count[b["sku"]])
+        asked, capped = qty, min(qty, cap - count[b["sku"]])
         unit = (x.get("list_price") or float("inf")) * WORST_COST
         limit = min(spare, room, food_room if x.get("kind") == "food" else float("inf"))
-        qty = min(qty, int(limit // unit) if unit < float("inf") else 0)
+        qty = min(capped, int(limit // unit) if unit < float("inf") else 0)
+        if qty < asked:     # which limits cut the line, so a stock-out can be traced to a cap or the cash
+            why = (["units per SKU"] if capped < asked else []) + ([
+                "cash kept" if limit == spare else "stock cost" if limit == room else "food stock cost"] if qty < capped else [])
+            print(f"[restock] guard: {b['sku']} {asked} -> {max(qty, 0)} ({', '.join(why)})", file=sys.stderr)
         if qty < 1:
             continue
         out.append({"sku": b["sku"], "qty": qty})

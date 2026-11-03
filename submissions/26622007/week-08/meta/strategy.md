@@ -7,8 +7,9 @@ Rewrite in place; keep this file short.
 
 ## Strategy: lean profit stock (GPT Pro profit review, review/W-20261103-2120/gpt-pro-answer1.md)
 
-- Product mix: only SKUs the ledger shows selling, at most 4 units per SKU and 1 of goods listed above 100,000; food kept
-  small (food stock cost cap) because it expires.
+- Product mix: only SKUs the ledger shows selling, at most 4 units per SKU and 2 of goods listed above 100,000 (the
+  proven mattresses, so they are not out of stock between supply windows); food kept small (food stock cost cap) because
+  it expires.
 - Positioning: honest grades with the market certificate, the ledger's honest sales as proof, a short warranty on goods
   whose break risk allows it.
 - Buyers reach the shop through: the card (built from current stock), shop posts on the forum, replies to "구합니다" posts.
@@ -44,3 +45,6 @@ Profit rank 12 of 80 (87,988). First: dae-yangkim 4,079,126.
 ## History
 
 - 2026-11-03 22:40 set from the GPT Pro profit review (person). Strategy check added to Terra, strategy choice to Astra.
+- 2026-11-04 02:3x kept: repeat food + mattresses/bedding, now 2 units of each proven mattress (overnight GPT Pro review,
+  review/ax-overnight-20261103/0200). Measure in the next hour: second units sold before the next window, stock-out
+  minutes of the three mattresses, refunds after 05:04 (the first mattress sale's warranty end).

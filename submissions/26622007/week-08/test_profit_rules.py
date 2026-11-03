@@ -3,6 +3,8 @@ life of a unit's lock, the floor and first ask, the restock guard over held + wa
 
     python -m unittest test_profit_rules -v        (from submissions/26622007/week-08)
 """
+import contextlib
+import io
 import json
 import os
 import tempfile
@@ -181,7 +183,8 @@ class PriceTest(unittest.TestCase):
         r = p["restock"]
         self.assertEqual((r["max_stock_cost"], r["max_units_per_sku"], r["cover_hours"], r["keep_cash"],
                           r["food_max_stock_cost"], r["high_price_goods"], r["high_price_max_units"]),
-                         (1350000, 4, 3, 2500000, 300000, 100000, 1))
+                         (2000000, 4, 3, 2500000, 300000, 100000, 2))
+        self.assertEqual(r["max_sku_share"], 0.15)
         first = p["next_window"]["done_plans"][0]["targets"]          # the review's table: 10 SKUs, 13 units
         self.assertEqual((len(first), sum(first.values())), (10, 13))
         self.assertNotIn("G07ec17d5", first)
@@ -208,6 +211,17 @@ class GuardTest(unittest.TestCase):
         inv = {"balance": 5000000, "units": []}
         self.assertEqual(restock.guard([{"sku": "BIG", "qty": 2}, {"sku": "X", "qty": 1}], inv, CAT, CFG), [{"sku": "BIG", "qty": 1}])
         self.assertEqual(restock.guard([{"sku": "BIG", "qty": 1}], {"balance": 5000000, "units": self.held("BIG", 1)}, CAT, CFG), [])
+
+    def test_two_units_of_expensive_goods_and_the_cut_is_logged(self):
+        inv = {"balance": 5000000, "units": []}
+        two = {**CFG, "high_price_max_units": 2}
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(restock.guard([{"sku": "BIG", "qty": 3}], inv, CAT, two), [{"sku": "BIG", "qty": 2}])
+            self.assertEqual(restock.guard([{"sku": "BIG", "qty": 3}], inv, CAT, {**two, "max_stock_cost": 400000}),
+                             [{"sku": "BIG", "qty": 1}])                    # 300,000 worst each
+        self.assertIn("BIG 3 -> 2 (units per SKU)", err.getvalue())
+        self.assertIn("BIG 3 -> 1 (units per SKU, stock cost)", err.getvalue())
 
     def test_food_cost_cap_counts_what_is_held(self):
         inv = {"balance": 5000000, "units": self.held("F2", 3, cost=50000, kind="food")}       # 150,000 of food
