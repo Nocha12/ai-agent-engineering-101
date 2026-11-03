@@ -207,6 +207,15 @@ class PlanWithModelTest(unittest.TestCase):
         got = self.plan(m, max_lines=1, explore_lines=0, food_max_stock_cost=1000)
         self.assertEqual([b["sku"] for b in got], ["H1"])
 
+    def test_proven_and_priority_skus_come_before_the_line_limit_and_the_stock_cap(self):
+        m = model(F1={"rate": 0.5}, H2={"rate": 0.5})
+        got = self.plan(m, max_lines=1, explore_lines=0, max_sku_share=0.3, priority_skus=["H2"])
+        self.assertEqual([b["sku"] for b in got], ["H2"])                  # per won F1 ranks first, the list puts H2 first
+        got = self.plan(m, max_lines=2, explore_lines=0, max_sku_share=0.3, high_price_proven_skus=["H2"], priority_skus=["F1"])
+        self.assertEqual([b["sku"] for b in got], ["H2", "F1"])
+        got = self.plan(m, max_lines=2, explore_lines=0, max_sku_share=0.3, priority_skus=["NOPE", 3])
+        self.assertEqual([b["sku"] for b in got], ["F1", "H2"])            # unknown / non-string entries change nothing
+
     def test_the_formula_fills_what_the_agent_leaves(self):
         keep = lambda lines: [b for b in lines if b["sku"] != "X"]       # stands in for guard: X does not fit
         agent = [{"sku": "H1", "qty": 1}]

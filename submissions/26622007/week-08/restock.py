@@ -104,6 +104,11 @@ def plan(inv, catalog, demand, cfg, model=None, breaks=None, waiting=()):
     picks = []
     if active:      # the caps first, over the whole ranked list, then the line limit: a line the food cap empties is
         ranked = wanted(model, catalog, have_sku, balance, cfg, hours_left)       # refilled by the next one that fits
+        # proven / priority SKUs first, so the guard gives them the stock-cost room and the line limit cannot cut them:
+        # ranked per won a mattress came below the cut (04:59 run left out G1515d951 that the guard allowed 3 of, and
+        # G75f11c19 got 0 room in every run 04:44-05:02), and proven_first() only sees the lines plan() returns
+        first = [s for s in list(cfg.get("high_price_proven_skus") or ()) + list(cfg.get("priority_skus") or ()) if isinstance(s, str)]
+        ranked.sort(key=lambda r: first.index(r[1]) if r[1] in first else len(first))     # stable: the rest keep their order
         fit = guard([{"sku": sku, "qty": qty} for _, sku, qty in ranked], inv, catalog, cfg, breaks, waiting)
         picks = [(0, b["sku"], b["qty"]) for b in fit[:cfg["max_lines"] - cfg["explore_lines"]]]
     picked = {sku for _, sku, _ in picks}
