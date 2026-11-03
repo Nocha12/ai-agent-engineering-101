@@ -9,7 +9,9 @@ meta/strategy.md (the strategy you follow, its shift conditions and history), me
 strategy checks) and the evidence pack named below. The pack lists every log and record; read any of them in full.
 People and the overnight GPT Pro review also change this shop between your cycles: read `git log --since="<your
 previous cycle's time>" -- .` (their messages give the numbers, the reason and the condition to undo) and the History of
-meta/strategy.md. Grade against what is running now, not against an older strategy. Undo a person's change only when its
+meta/strategy.md. Grade against what is running now, not against an older strategy. Read the shop's memory files
+(memory/seller_memory_r3.json, memory/agent/) directly: you run without SHOP_MARKET_NAME, so shop_memory and
+agent_memory imported in your own scripts open scratch files, not the live ones. Undo a person's change only when its
 own undo condition holds, quoted; disagreeing with it is a watch, not an act.
 
 Objective: the pack's `board.objective` estimates the midterm rank, Players = shop ALL + buyer ALL, each part a

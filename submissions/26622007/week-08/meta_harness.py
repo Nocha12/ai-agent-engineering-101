@@ -146,7 +146,7 @@ def stage(with_logs=False):
     return git("diff", "--cached", "--name-only", "--relative").splitlines()
 
 
-LIVE_ENV = ("SHOP_MARKET_NAME",)    # run_meta.sh sets it; under it shop_memory and agent_memory use the live files
+LIVE_ENV = ("SHOP_MARKET_NAME", "SHOP_MEMORY", "AGENT_MEMORY_DIR")    # these point shop_memory/agent_memory at live files
 
 
 def test_env():

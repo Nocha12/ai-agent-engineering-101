@@ -20,8 +20,8 @@ Rewrite in place; keep this file short.
     buy batch. Other goods above 100,000 only from those lists (high_price_listed_only), 2 units at most. Slow goods
     and SKUs whose extra unit stayed unsold twice are in restock.skip_skus (G0f415407, G9c02e68e, pillows G054ff120);
     G6b9db161 is skipped until its 2 held units sell at the capped asks.
-- Positioning: honest grades with the market certificate, the ledger's honest sales as proof, a 6 h warranty on goods
-  whose break risk allows it.
+- Positioning: honest grades with the market certificate, the ledger's honest sales as proof, a warranty of up to 6 h
+  (pricing.json warranty) on goods whose break risk allows it.
 - Buyers reach the shop through: the card (built from current stock), shop posts on the forum, replies to "구합니다" posts.
 - Negotiation: reserve = floor F and first ask P0 (profit_price.py, b = 15% priced into the floor), concessions
   [.6, .4, .2]; price.scarce_asks fixes G1515d951's first ask at 380,911; price.ask_caps caps the first ask of slow
