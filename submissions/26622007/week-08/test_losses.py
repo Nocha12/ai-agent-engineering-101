@@ -56,6 +56,16 @@ class LossWatchTest(unittest.TestCase):
         self.inv([])
         self.assertEqual(self.run_it(NOW + 60), [])
 
+    def test_food_sold_just_before_its_date_is_no_loss(self):
+        self.inv([{"unit": "u1", "sku": "F1", "kind": "food", "grade": "C", "cost": 9000, "expires_at": NOW + 60}])
+        self.run_it(NOW)
+        with open(os.path.join(self.tmp, "logs", "market-kit.log"), "w") as f:
+            f.write("[acp] settled 김치 at 5000, ledger #3, unit u1 grade C\n[acp] settled half a li")
+        self.inv([])
+        self.assertEqual(self.run_it(NOW + 120), [])
+        with open(os.path.join(self.md, "loss_state.json")) as f:
+            self.assertEqual(list(json.load(f)["mine"]), ["3"])          # the unfinished line waits
+
     def test_storage_once_an_hour(self):
         self.inv([{"unit": "g1", "sku": "H1", "kind": "goods", "grade": "A", "cost": 240000}], storage_per_day=0.01)
         self.run_it(NOW)

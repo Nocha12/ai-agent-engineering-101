@@ -495,7 +495,7 @@ def shop_pattern(rows, url, catalog, min_deals=SHOP_PATTERN_MIN):
         return None
     mid, low = ratios[len(ratios) // 2], ratios[len(ratios) // 4]
     return (f"in the public ledger other buyers paid this shop a median {mid:.0%} of list price (a quarter of deals at "
-            f"{low:.0%} or less) over {len(ratios)} deals: open well under that and do not pay more than that median")
+            f"{low:.0%} or less) over {len(ratios)} deals, all products and grades mixed: a reference for where to open")
 
 
 def value_limit(offer, budget, chance, cfg=None):

@@ -50,13 +50,15 @@ def scan_kit_log(root, state):
     pos = state.get("log_pos", 0)
     if size < pos:
         pos = 0
-    with open(path, encoding="utf-8", errors="replace") as f:
+    with open(path, "rb") as f:
         f.seek(pos)
-        for line in f:
-            m = SETTLED.search(line)
-            if m:
-                state["mine"][m.group(3)] = {"name": m.group(1), "amount": int(m.group(2)), "unit": m.group(4)}
-        state["log_pos"] = f.tell()
+        data = f.read()
+    end = data.rfind(b"\n") + 1                       # a line still being written waits for the next run
+    for line in data[:end].decode("utf-8", errors="replace").splitlines():
+        m = SETTLED.search(line)
+        if m:
+            state["mine"][m.group(3)] = {"name": m.group(1), "amount": int(m.group(2)), "unit": m.group(4)}
+    state["log_pos"] = pos + end
 
 
 def warranty_of(unit, sold_memory):
@@ -86,6 +88,8 @@ def check(md, root=HERE, now=None, sold=None, emit=None):
         state = {"units": {}, "mine": {}, "breaks_seen": [], "expired_seen": [], "storage_at": now, "totals": {}, **load(path, {})}
         out = []
         cur = {u["unit"]: u for u in inv.get("units") or [] if u.get("unit")}
+        scan_kit_log(root, state)
+        sold_units = {m.get("unit") for m in state["mine"].values() if m.get("unit")}
 
         def loss(kind, name, amount, detail=""):
             out.append({"ts": int(now), "kind": kind, "name": name, "amount": round(amount), "detail": detail})
@@ -96,11 +100,12 @@ def check(md, root=HERE, now=None, sold=None, emit=None):
                 state["expired_seen"].append(uid)
                 loss("expired", u.get("name") or u.get("sku"), u.get("cost") or 0, f"sku {u.get('sku')} unit {uid}")
             was = state["units"].get(uid)
-            if was and u.get("kind") == "food" and not gone and was.get("grade") in "ABC" and u.get("grade") in "ABC" \
-                    and u["grade"] > was["grade"]:
+            if was and u.get("kind") == "food" and not gone and was.get("grade") in ("A", "B", "C") \
+                    and u.get("grade") in ("A", "B", "C") and u["grade"] > was["grade"]:
                 loss("grade_drop", u.get("name") or u.get("sku"), 0, f"{was['grade']}->{u['grade']} sku {u.get('sku')} unit {uid}")
         for uid, was in state["units"].items():       # gone between two runs: expired at the market, or sold
-            if uid not in cur and was.get("expires_at") and was["expires_at"] <= now + 120 and uid not in state["expired_seen"]:
+            if uid not in cur and uid not in sold_units and was.get("expires_at") and was["expires_at"] <= now + 120 \
+                    and uid not in state["expired_seen"]:
                 state["expired_seen"].append(uid)
                 loss("expired", was.get("name") or was.get("sku"), was.get("cost") or 0, f"sku {was.get('sku')} unit {uid}")
 
@@ -114,7 +119,6 @@ def check(md, root=HERE, now=None, sold=None, emit=None):
                 loss("storage", f"{len(goods)} goods units", amount, f"{hours:.1f} h at {rate:.2%}/day")
             state["storage_at"] = now
 
-        scan_kit_log(root, state)
         rows = market_model.load_rows(md)
         records = sold_records() if sold is None else sold
         for b, s in market_model.link_broken(rows):
