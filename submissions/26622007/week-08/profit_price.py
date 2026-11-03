@@ -65,7 +65,7 @@ def ask_cap(cfg, u):
     if not isinstance(row, dict):
         return None
     cap = row.get(u.get("grade"), row.get("*"))
-    if isinstance(cap, bool) or not isinstance(cap, (int, float)) or cap <= 0:
+    if isinstance(cap, bool) or not isinstance(cap, (int, float)) or not math.isfinite(cap) or cap <= 0:
         return None         # a bad setting never stops a sale
     return round(cap)
 

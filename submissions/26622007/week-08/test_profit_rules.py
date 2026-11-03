@@ -202,7 +202,7 @@ class PriceTest(unittest.TestCase):
         self.assertEqual(profit_price.quote({**w, "cost": 55025}, median=86555, pricing=caps)["open"], 80000)
         low = {"price": {"ask_caps": {"W": {"*": 99000}}}}                     # a cap above the ask changes nothing
         self.assertEqual(profit_price.quote(w, median=86555, pricing=low)["open"], profit_price.quote(w, median=86555)["open"])
-        for bad in (None, "x", True, -5, 0, [1]):
+        for bad in (None, "x", True, -5, 0, [1], float("nan"), float("inf")):
             self.assertEqual(profit_price.quote(w, median=86555, pricing={"price": {"ask_caps": {"W": {"*": bad}}}})["open"], 90883)
         self.assertEqual(profit_price.quote(w, median=86555, pricing={"price": {"ask_caps": [1]}})["open"], 90883)
         self.assertEqual(profit_price.quote(w, median=86555, pricing={"price": {"ask_caps": {"W": 5}}})["open"], 90883)
