@@ -345,7 +345,9 @@ GOAL = """You decide what stock a shop buys now. Profit (balance at the end of t
 revenue and stars are what count. Round ends at unix time {ends}, now is {now}. A unit costs 25-75% of list price by grade;
 food past its date is thrown away at cost; goods in stock cost 1% of cost per day. A shop with no stock cannot sell at all,
 and other shops' deals show in the ledger whether you stock or not. Up to {lines} lines, qty 1-20 each.
-c0 is the formula's proposal for this state; follow it, change it or ignore it, as the evidence says. c1 is how your own earlier
+c0 is the formula's proposal for this state; follow it, change it or ignore it, as the evidence says. Your lines go
+first; the code then fills the room the limits leave with the formula's lines, because buyers only see shops that stock
+the ordered category and a shop's visits follow how much it stocks. c1 is how your own earlier
 stock decisions turned out: what sold, what is left, what is gone unsold. Learn from it: a judgment that failed should not repeat.
 c2 is the shop's own memory: long-term notes, lessons from earlier mistakes that match this state, and recent days. The
 code keeps every line inside the shop's current limits (pricing.json), which start cautious and widen as results earn it."""
@@ -406,6 +408,14 @@ def agent_turn(state, inv, catalog, demand, cfg, model, decide=agent_loop.decide
     return now
 
 
+def with_formula(agent_lines, formula_lines, keep, limit):
+    """The agent's lines first, then the formula's for the room the limits leave. Buyers see only shops that stock the
+    ordered category (shops.json offers), and over Round 3's first three hours units stocked and visits ranked together
+    (Spearman 0.80, 42 shops): the agent alone bought 2-3 lines a window and nothing between its decisions."""
+    mine = {b["sku"] for b in agent_lines}
+    return keep(list(agent_lines) + [b for b in formula_lines if b["sku"] not in mine])[:limit]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--state", required=True)
@@ -449,7 +459,9 @@ def main():
     elif os.environ.get("HARNESS") and not out.get("bankrupt"):
         lines = agent_turn(args.state, inv, catalog, demand, cfg, model)
         if lines is not None:
-            out = {"buy": keep(lines)}
+            queued = load(os.path.join(args.state, "restock_queue.json"), {}).get("lines") or []
+            # the formula fills only once the agent's queue is sent: its later lines must not meet a cap the formula used
+            out = {"buy": keep(lines) if queued else with_formula(lines, out["buy"], keep, cfg["max_lines"])}
     agent_memory.maybe_consolidate(args.state)
     if os.environ.get("HARNESS"):
         forum.maybe_run(args.state)     # the kit runs this hook once a minute in Round 3; forum.py keeps its own pace

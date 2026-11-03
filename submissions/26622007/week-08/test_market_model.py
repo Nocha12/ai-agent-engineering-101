@@ -207,6 +207,14 @@ class PlanWithModelTest(unittest.TestCase):
         got = self.plan(m, max_lines=1, explore_lines=0, food_max_stock_cost=1000)
         self.assertEqual([b["sku"] for b in got], ["H1"])
 
+    def test_the_formula_fills_what_the_agent_leaves(self):
+        keep = lambda lines: [b for b in lines if b["sku"] != "X"]       # stands in for guard: X does not fit
+        agent = [{"sku": "H1", "qty": 1}]
+        formula = [{"sku": "H1", "qty": 3}, {"sku": "X", "qty": 1}, {"sku": "F1", "qty": 2}, {"sku": "F2", "qty": 2}]
+        self.assertEqual(restock.with_formula(agent, formula, keep, 2), [{"sku": "H1", "qty": 1}, {"sku": "F1", "qty": 2}])
+        self.assertEqual(restock.with_formula([], formula, keep, 10), [{"sku": "H1", "qty": 3}, {"sku": "F1", "qty": 2},
+                                                                      {"sku": "F2", "qty": 2}])
+
     def test_no_margin_no_stock(self):
         self.assertEqual(self.plan(model(F1={"price_ratio": 0.45}), explore_lines=0), [])
 
