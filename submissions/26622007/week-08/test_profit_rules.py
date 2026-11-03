@@ -202,13 +202,15 @@ class PriceTest(unittest.TestCase):
         r = p["restock"]
         self.assertEqual((r["max_stock_cost"], r["max_units_per_sku"], r["cover_hours"], r["keep_cash"],
                           r["food_max_stock_cost"], r["high_price_goods"], r["high_price_max_units"]),
-                         (4000000, 4, 3, 2500000, 450000, 100000, 2))
+                         (4000000, 4, 3, 4500000, 450000, 100000, 2))   # keep_cash: 21.9M open warranties at 05:00
         self.assertEqual(r["max_sku_share"], 0.2)
-        proven = ["G1515d951", "G0f415407"]           # G6b9db161 broke at 03:20 (#2226787): stays at 2; G9c02e68e's
-        # third unit stayed unsold until the next window twice (04:22, 04:42): back to 2
-        self.assertEqual((r["high_price_proven_max_units"], r["high_price_proven_skus"]), (3, proven))
-        self.assertEqual(r["priority_skus"], ["G6b9db161", "G75f11c19"])
-        self.assertEqual(sorted(p["price"]["scarce_asks"]), sorted(proven + ["G6b9db161", "G9c02e68e"]))
+        proven = ["G1515d951", "G6b9db161"]           # each sold out before the next window (G1515d951 3 in 6 min, twice;
+        # G6b9db161 2 per window 04:03-04:44); G0f415407 and G9c02e68e left extra units unsold twice: no more buying
+        self.assertEqual((r["high_price_proven_max_units"], r["high_price_proven_skus"]), (4, proven))
+        self.assertEqual((r["priority_skus"], r["sku_target_units"]), (["G75f11c19"], {"G6b9db161": 3, "G75f11c19": 1}))
+        self.assertTrue(r["high_price_listed_only"])
+        self.assertTrue({"G054ff120", "G0f415407", "G9c02e68e", "Gf0293c0e", "G9c1a6eee", "Gbb0cbbff"} <= set(r["skip_skus"]))
+        self.assertEqual(sorted(p["price"]["scarce_asks"]), sorted(proven))
         first = p["next_window"]["done_plans"][0]["targets"]          # the review's table: 10 SKUs, 13 units
         self.assertEqual((len(first), sum(first.values())), (10, 13))
         self.assertNotIn("G07ec17d5", first)

@@ -54,6 +54,23 @@ class RestockCautionTest(unittest.TestCase):
                             CATALOG, shipped(), breaks)
         self.assertEqual(out, [{"sku": "H2", "qty": 1}])
 
+    def test_high_price_goods_only_from_the_lists_and_per_sku_targets(self):
+        cat = {**CATALOG, "M1": {"kind": "goods", "category": "가구>매트리스", "list_price": 400000},
+               "M2": {"kind": "goods", "category": "가구>매트리스", "list_price": 400000},
+               "M3": {"kind": "goods", "category": "가구>매트리스", "list_price": 400000}}
+        cfg = {**shipped(), "keep_cash": 0, "max_stock_cost": float("inf"), "high_price_goods": 100000,
+               "high_price_max_units": 2, "high_price_proven_max_units": 4, "high_price_proven_skus": ["M1", "M2"],
+               "priority_skus": [], "sku_target_units": {"M2": 3, "H1": 1}, "high_price_listed_only": True, "skip_skus": []}
+        inv = {"balance": 9000000, "units": [{"unit": "u1", "sku": "M2", "cost": 300000}]}
+        buy = [{"sku": s, "qty": 4} for s in ("M1", "M2", "M3", "H1")]
+        self.assertEqual(restock.guard(buy, inv, cat, cfg),
+                         [{"sku": "M1", "qty": 4}, {"sku": "M2", "qty": 2}, {"sku": "H1", "qty": 1}])   # M3 on no list
+        self.assertEqual([b["sku"] for b in restock.guard(buy, inv, cat, {**cfg, "high_price_listed_only": False})],
+                         ["M1", "M2", "M3", "H1"])
+        bad = {**cfg, "sku_target_units": [1], "high_price_proven_skus": "M1", "high_price_listed_only": False}
+        self.assertEqual(restock.guard(buy, inv, cat, bad)[0], {"sku": "M1", "qty": 2})    # malformed: no target, not proven
+        self.assertEqual(restock.listed({"high_price_proven_skus": 5, "priority_skus": ["Q", 3, "Q"]}), ["Q"])
+
 
 class MarkdownCautionTest(unittest.TestCase):
     NOW = 1800000000.0

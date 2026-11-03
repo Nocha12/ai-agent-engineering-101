@@ -90,6 +90,17 @@ def wanted(model, catalog, have_sku, balance, cfg, hours_left=float("inf")):
     return sorted(out, reverse=True)
 
 
+def listed(cfg):
+    """high_price_proven_skus then priority_skus, in order, strings only (a malformed setting lists nothing, never fails)."""
+    out = []
+    for key in ("high_price_proven_skus", "priority_skus"):
+        v = cfg.get(key)
+        for s in v if isinstance(v, (list, tuple)) else ():
+            if isinstance(s, str) and s not in out:
+                out.append(s)
+    return out
+
+
 def plan(inv, catalog, demand, cfg, model=None, breaks=None, waiting=()):
     """The hook's answer for this state."""
     balance, units = inv.get("balance") or 0, inv.get("units") or []
@@ -107,7 +118,7 @@ def plan(inv, catalog, demand, cfg, model=None, breaks=None, waiting=()):
         # proven / priority SKUs first, so the guard gives them the stock-cost room and the line limit cannot cut them:
         # ranked per won a mattress came below the cut (04:59 run left out G1515d951 that the guard allowed 3 of, and
         # G75f11c19 got 0 room in every run 04:44-05:02), and proven_first() only sees the lines plan() returns
-        first = [s for s in list(cfg.get("high_price_proven_skus") or ()) + list(cfg.get("priority_skus") or ()) if isinstance(s, str)]
+        first = listed(cfg)
         ranked.sort(key=lambda r: first.index(r[1]) if r[1] in first else len(first))     # stable: the rest keep their order
         fit = guard([{"sku": sku, "qty": qty} for _, sku, qty in ranked], inv, catalog, cfg, breaks, waiting)
         picks = [(0, b["sku"], b["qty"]) for b in fit[:cfg["max_lines"] - cfg["explore_lines"]]]
@@ -207,8 +218,16 @@ def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
                 print(f"[restock] guard: {b['sku']} breaks {chance:.0%} > {cfg['max_break']:.0%}, left out", file=sys.stderr)
                 continue
         cap = cfg.get("max_units_per_sku", MAX_LOT)
-        if x.get("kind") == "goods" and (x.get("list_price") or 0) > cfg.get("high_price_goods", float("inf")):
-            proven = b["sku"] in (cfg.get("high_price_proven_skus") or ())
+        high = x.get("kind") == "goods" and (x.get("list_price") or 0) > cfg.get("high_price_goods", float("inf"))
+        if high and cfg.get("high_price_listed_only") is True and b["sku"] not in listed(cfg):
+            # 04:43-04:45 the agent bought 2 jacquard mattresses, 2 bed frames, 4 toppers no list had: unsold at 05:00
+            print(f"[restock] guard: {b['sku']} high price, not in high_price_proven_skus / priority_skus, left out", file=sys.stderr)
+            continue
+        target = (cfg.get("sku_target_units") or {}).get(b["sku"]) if isinstance(cfg.get("sku_target_units"), dict) else None
+        if isinstance(target, int) and not isinstance(target, bool):
+            cap = min(cap, target)          # a per-SKU target under the shared caps (G6b9db161 3 while proven ones get 4)
+        if high:
+            proven = b["sku"] in listed({"high_price_proven_skus": cfg.get("high_price_proven_skus")})
             cap = min(cap, cfg.get("high_price_proven_max_units", cfg.get("high_price_max_units", 1)) if proven
                       else cfg.get("high_price_max_units", 1))
         asked, capped = qty, min(qty, cap - count[b["sku"]])

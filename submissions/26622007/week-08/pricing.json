@@ -61,7 +61,7 @@
     "max_break": 0.25
   },
   "restock": {
-    "keep_cash": 2500000,
+    "keep_cash": 4500000,
     "target_per_category": 1,
     "min_shelf_hours": 720,
     "goods_max_price": 45000,
@@ -92,18 +92,28 @@
     "prior_break": 0.15,
     "high_price_goods": 100000,
     "high_price_max_units": 2,
-    "high_price_proven_max_units": 3,
+    "high_price_proven_max_units": 4,
     "high_price_proven_skus": [
       "G1515d951",
-      "G0f415407"
+      "G6b9db161"
     ],
     "priority_skus": [
-      "G6b9db161",
       "G75f11c19"
     ],
+    "sku_target_units": {
+      "G6b9db161": 3,
+      "G75f11c19": 1
+    },
+    "high_price_listed_only": true,
     "food_max_stock_cost": 450000,
     "skip_skus": [
-      "G07ec17d5"
+      "G07ec17d5",
+      "G054ff120",
+      "Gf0293c0e",
+      "G9c1a6eee",
+      "Gbb0cbbff",
+      "G9c02e68e",
+      "G0f415407"
     ]
   },
   "markdown": {
@@ -199,9 +209,7 @@
     },
     "scarce_asks": {
       "G1515d951": 380911,
-      "G6b9db161": 392986,
-      "G0f415407": 262996,
-      "G9c02e68e": 120520
+      "G6b9db161": 392986
     },
     "scarce_source": "review/ax-overnight-20261103/0300/gpt-pro-answer.md B-2: both units of these SKUs sold within minutes of the 02:40 and 03:01 windows; each ask is 1.05 x the first ask the seller logged at 03:2x (G1515d951 1.05 x 362,772, G6b9db161 1.05 x 374,272, G0f415407 1.05 x 250,472, G9c02e68e 1.05 x 114,781), fixed so our own sales do not raise it further"
   },
