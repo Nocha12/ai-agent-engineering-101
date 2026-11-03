@@ -224,6 +224,10 @@ class TerraGradingTest(unittest.TestCase):
                     json.dump({"log_counts": {"no_stock": 2, "sold": 5}}, f)
                 d = meta_harness.since_last({"log_counts": {"no_stock": 7, "sold": 5}})
                 self.assertEqual(d["log_counts"], {"no_stock": 5})
+                with open(os.path.join(tmp, "meta", "evidence", "terra-1.json"), "w") as f:
+                    json.dump({"log_counts": {"lines": 900, "sold": 50}}, f)
+                r = meta_harness.since_last({"log_counts": {"lines": 10, "sold": 3}})
+                self.assertEqual((r["log_rotated"], r["log_counts"]["sold"]), (True, 3))
                 meta_harness.grade_log({"cycle": "terra-2", "time": "t", "status": "running",
                                         "answer": {"grade_summary": "재고 부족 5건", "weakest": ["revenue"], "action_kind": "tool_new"}})
                 with open(os.path.join(tmp, "meta", "grades.jsonl")) as f:
@@ -237,7 +241,7 @@ class TerraGradingTest(unittest.TestCase):
         for settled, ok in ((10, False), (50, True)):
             with mock.patch.object(meta_harness, "pricing_at_head", lambda: old), mock.patch.object(meta_harness, "pricing_now", lambda: new), \
                     mock.patch.object(meta_harness, "git", lambda *a, **k: ""), \
-                    mock.patch.object(meta_harness.scorecard, "log_counts", lambda root: {"settled_as_shop": settled, "paid_as_buyer": 0}):
+                    mock.patch.dict(meta_harness.SAMPLE, {"settled": settled}):
                 self.assertEqual(meta_harness.limit_problems(["pricing.json"]) == [], ok)
 
     def test_no_pull_request_path_anywhere(self):

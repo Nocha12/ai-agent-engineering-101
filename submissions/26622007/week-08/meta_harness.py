@@ -38,7 +38,7 @@ ASTRA_EVERY = int(os.environ.get("META_ASTRA_EVERY", 12 * 3600))
 KIT_PATTERN = os.environ.get("META_KIT_PATTERN", "market_kit.py join")
 CHATGPT_CODEX = "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"
 ECON_ROUND = 3
-NOT_CODE = ("meta/evidence/", "meta/changes.jsonl", "meta/state.json", "meta/last-")
+NOT_CODE = ("meta/evidence/", "meta/changes.jsonl", "meta/grades.jsonl", "meta/state.json", "meta/last-")
 LIVE = (":!logs", ":!memory")
 SELLER_FILES = ("seller.py", "shop_memory.py", "shop_stock.py", "harness.py", "catalog.py", "pricing.json", "acp_shop.py")
 EVIDENCE = {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["ref", "excerpt", "meaning"],
@@ -264,13 +264,15 @@ def pricing_now():
         return {"_unreadable": str(e)}
 
 
+SAMPLE = {"settled": 0}      # counted before the model runs, so nothing it writes into the log can widen its own step
+
+
 def limit_problems(code):
     """What hard_limits says about the staged change: settings out of bounds or moved too far, protected files."""
     new = pricing_now()
     if "_unreadable" in new:
         return [f"pricing.json is not valid JSON: {new['_unreadable']}"]
-    counts = scorecard.log_counts(ROOT)
-    strong = counts.get("settled_as_shop", 0) + counts.get("paid_as_buyer", 0) >= hard_limits.STRONG_SAMPLE
+    strong = SAMPLE["settled"] >= hard_limits.STRONG_SAMPLE
     step = hard_limits.MAX_STEP_STRONG if strong else hard_limits.MAX_STEP
     return hard_limits.check_policy_change(pricing_at_head(), new, step) + \
         hard_limits.guard_problems(code, git("diff", "--cached", "--no-color", "--", *code) if code else "")
@@ -296,7 +298,9 @@ def since_last(card):
         return {"first": True}
     a, b = prev.get("log_counts") or {}, card.get("log_counts") or {}
     obj = lambda c: ((c.get("board") or {}).get("objective") or {})
-    return {"previous": packs[-1], "log_counts": {k: b[k] - a.get(k, 0) for k in b if isinstance(b[k], int) and b[k] - a.get(k, 0)},
+    rotated = b.get("lines", 0) < a.get("lines", 0)        # the kit moved its log to .log.1: counts start again
+    delta = {k: (b[k] if rotated else b[k] - a.get(k, 0)) for k in b if isinstance(b[k], int)}
+    return {"previous": packs[-1], "log_rotated": rotated, "log_counts": {k: v for k, v in delta.items() if v},
             "players": [obj(prev).get("players"), obj(card).get("players")], "shop": [prev.get("shop"), card.get("shop")]}
 
 
@@ -316,6 +320,8 @@ def cycle(kind):
     pack = os.path.join(ROOT, "meta", "evidence", f"{cid}.json")
     card = scorecard.build(ROOT)
     card["since_last_cycle"] = since_last(card)
+    lc = card.get("log_counts") or {}
+    SAMPLE["settled"] = lc.get("settled_as_shop", 0) + lc.get("paid_as_buyer", 0)
     with open(pack, "w", encoding="utf-8") as f:
         json.dump(card, f, ensure_ascii=False, indent=1, default=str)
     log(f"{cid}: asking {MODELS[kind]}")
