@@ -225,7 +225,7 @@ def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
             continue
         target = (cfg.get("sku_target_units") or {}).get(b["sku"]) if isinstance(cfg.get("sku_target_units"), dict) else None
         if isinstance(target, int) and not isinstance(target, bool):
-            cap = min(cap, target)          # a per-SKU target under the shared caps (G6b9db161 3 while proven ones get 4)
+            cap = min(cap, target)          # units held + waiting + new <= target (G6b9db161 3 while proven ones get 4)
         if high:
             proven = b["sku"] in listed({"high_price_proven_skus": cfg.get("high_price_proven_skus")})
             cap = min(cap, cfg.get("high_price_proven_max_units", cfg.get("high_price_max_units", 1)) if proven
