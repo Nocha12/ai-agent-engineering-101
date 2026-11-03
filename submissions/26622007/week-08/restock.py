@@ -246,7 +246,7 @@ def gone(u, now):
 def next_window(md, inv, catalog, cfg, waiting=(), keep=None, now=None):
     """pricing.json "next_window": a one-off buy for the first supply window it meets (GPT Pro review §2-a). Each target is a
     ceiling: what is in stock or still on its way is subtracted. (lines, why) while it runs, (None, why) once done, off or
-    expired; [] means wait for the window. It ends when the window it bought in has closed."""
+    expired; [] means buy nothing now (no window yet, or the plan's window is done). It ends when its window has closed."""
     now = now or time.time()
     targets = cfg.get("targets") or {}
     if not targets or not cfg.get("id"):
@@ -276,9 +276,9 @@ def next_window(md, inv, catalog, cfg, waiting=(), keep=None, now=None):
     want = [{"sku": sku, "qty": q - have[sku]} for sku, q in targets.items() if sku in catalog and q - have[sku] > 0]
     out = keep(want) if keep and want else want
     if not out:
-        if st["sent"]:
+        if st["sent"]:                       # this window is the plan's: nothing else is bought in it
             opening.save(path, st)
-            return None, f"next_window {cfg['id']}: all bought, waiting for the window to close"
+            return [], f"next_window {cfg['id']}: all bought, nothing else in this window"
         return finish(f"nothing to buy (wanted {want}; stock and limits leave none)")
     st["sent"].append({"at": now, "lines": out})
     opening.save(path, st)

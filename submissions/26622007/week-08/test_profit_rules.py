@@ -203,7 +203,7 @@ class PendingAndNextWindowTest(unittest.TestCase):
         self.assertEqual(out, [{"sku": "F1", "qty": 1}, {"sku": "BIG", "qty": 1}])
         out, why = restock.next_window(self.md, dict(inv, units=inv["units"] + [unit("k2", sku="F1"), unit("b", sku="BIG", kind="goods")]),
                                        CAT, self.cfg, [{"sku": "H1", "qty": 1, "worst": 15000}], keep)
-        self.assertIsNone(out)                                   # all there: the usual plan may run
+        self.assertEqual(out, [])                                # all there: nothing else is bought in this window
         closed = dict(inv, restock={"open": False, "opens_at": time.time() + 900})
         self.assertIn("bought in the window", restock.next_window(self.md, closed, CAT, self.cfg)[1])
         self.assertIn("done", restock.next_window(self.md, self.open_inv, CAT, self.cfg)[1])
