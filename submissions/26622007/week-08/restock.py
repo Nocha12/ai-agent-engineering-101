@@ -135,8 +135,10 @@ def pending(md, inv, now=None):
     the supply): counted as stock already bought, so the next run does not buy it again."""
     now = now or time.time()
     out = []
-    for s in load(os.path.join(md, SENT), []) if md else []:
-        if now - s.get("at", 0) >= PENDING_SECONDS:
+    sent = load(os.path.join(md, SENT), []) if md else []
+    for s in sent if isinstance(sent, list) else []:      # a damaged file counts as nothing sent
+        if not (isinstance(s, dict) and s.get("sku") and isinstance(s.get("qty"), int)
+                and isinstance(s.get("at"), (int, float)) and now - s["at"] < PENDING_SECONDS):
             continue
         came = sum(1 for u in inv.get("units") or [] if u.get("sku") == s["sku"] and (u.get("supplied_at") or 0) >= s["at"] - 5)
         if s["qty"] > came:
@@ -146,7 +148,9 @@ def pending(md, inv, now=None):
 
 def note_sent(md, buy, catalog, now=None):
     now = now or time.time()
-    keep = [s for s in load(os.path.join(md, SENT), []) if now - s.get("at", 0) < PENDING_SECONDS]
+    old = load(os.path.join(md, SENT), [])
+    keep = [s for s in old if isinstance(s, dict) and isinstance(s.get("at"), (int, float))
+            and now - s["at"] < PENDING_SECONDS] if isinstance(old, list) else []
     keep += [{"at": now, "sku": b["sku"], "qty": b["qty"],
               "worst": ((catalog.get(b["sku"]) or {}).get("list_price") or 0) * WORST_COST} for b in buy]
     tmp = os.path.join(md, SENT + ".tmp")
@@ -267,6 +271,8 @@ def next_window(md, inv, catalog, cfg, waiting=(), keep=None, now=None):
         return finish("expired before a window")
     if st["sent"] and opening.window_closed(inv, now):
         return finish(f"bought in the window of {time.strftime('%H:%M', time.localtime(st['sent'][0]['at']))}")
+    if st["sent"]:                           # sent once; the rest of this window is the plan's: nothing else is bought
+        return [], f"next_window {cfg['id']}: sent, nothing else in this window"
     if opening.window_closed(inv, now, need=opening.SECONDS_PER_LINE * len(targets) + 15):
         opening.save(path, st)
         return [], f"next_window {cfg['id']} waits for the supply window"
@@ -276,9 +282,6 @@ def next_window(md, inv, catalog, cfg, waiting=(), keep=None, now=None):
     want = [{"sku": sku, "qty": q - have[sku]} for sku, q in targets.items() if sku in catalog and q - have[sku] > 0]
     out = keep(want) if keep and want else want
     if not out:
-        if st["sent"]:                       # this window is the plan's: nothing else is bought in it
-            opening.save(path, st)
-            return [], f"next_window {cfg['id']}: all bought, nothing else in this window"
         return finish(f"nothing to buy (wanted {want}; stock and limits leave none)")
     st["sent"].append({"at": now, "lines": out})
     opening.save(path, st)
@@ -386,7 +389,11 @@ def main():
     demand, model = load(os.path.join(args.state, "demand.json"), []), read_model(args.state, catalog, cfg)
     loss_watch.check(args.state)           # after read_model: the ledger rows are fresh
     breaks = read_breaks(args.state, catalog)
-    waiting = pending(args.state, inv)     # sent lines not yet in inventory.json count as stock in every guard below
+    try:
+        waiting = pending(args.state, inv)     # sent lines not yet in inventory.json count as stock in every guard below
+    except Exception as e:   # noqa: BLE001 - an unreadable record of sent lines must not stop the restock
+        print(f"[restock] pending lines unreadable: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        waiting = []
     keep = lambda b: guard(b, inv, catalog, cfg, breaks, waiting)
     out = plan(inv, catalog, demand, cfg, model, breaks, waiting)
     ocfg = hard_limits.clamp_cfg("opening", {**opening.DEFAULTS, **pricing.get("opening", {})})
@@ -422,7 +429,10 @@ def main():
     shop_forum.maybe_run(args.state)    # the shop's own posts, written by code from its ledger rows and stock
     out["buy"] = hard_limits.final_buy(out.get("buy"), inv.get("balance"), catalog)     # the last word, whatever came before
     if out["buy"]:
-        note_sent(args.state, out["buy"][:10], catalog)        # the kit sends ten lines a run
+        try:
+            note_sent(args.state, out["buy"][:10], catalog)    # the kit sends ten lines a run
+        except OSError as e:
+            print(f"[restock] could not note the lines sent: {e}", file=sys.stderr, flush=True)
     print(json.dumps(out, ensure_ascii=False), flush=True)
     return 0
 

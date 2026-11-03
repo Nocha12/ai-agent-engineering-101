@@ -38,6 +38,9 @@ class NeedsTest(unittest.TestCase):
         self.assertIsNone(n["hours"])
         self.assertIsNone(n["grades"])
         self.assertEqual(needs("grade A or B only")["grades"], {"A", "B"})
+        self.assertEqual(needs("grade b or better")["grades"], {"A", "B"})
+        self.assertEqual(needs("B등급 이상")["grades"], {"A", "B"})
+        self.assertIsNone(needs("Quote price, a grade and warranty")["grades"])
 
 
 class EligibleFirstTest(unittest.TestCase):
@@ -102,6 +105,43 @@ class LockTest(unittest.TestCase):
         self.b.units()
         self.assertEqual(self.paid, [])
         self.assertEqual(self.unpaid[0][1], "expired before payment")
+
+    def test_a_unit_sold_while_a_talk_was_silent_is_not_promised_again(self):
+        self.b.hold("a", "t1")
+        self.b.held["a"] -= shop_stock.HOLD_SECONDS               # t1 went quiet
+        self.assertEqual(self.b.find("G1")["unit"], "a")
+        self.b.hold("a", "t2")
+        self.b.agree("a", {"task": "t2", "price": 9000})
+        self.units.pop(0)                                       # t2 paid
+        self.assertFalse(self.b.available("a", "t1"))
+        self.assertEqual([p["task"] for p in self.paid], ["t2"])
+        self.assertTrue(self.b.available("b", "t1"))
+
+    def test_a_payment_after_the_wait_is_still_credited_in_kit_mode(self):
+        self.b.agree("a", {"task": "t1", "price": 9000})
+        self.b.held["a"] -= shop_stock.PAY_SECONDS + 1
+        self.assertEqual(self.b.find("G1")["unit"], "a")          # on sale again
+        self.units.pop(0)                                       # the slow buyer paid
+        self.b.units()
+        self.assertEqual([(p["task"], p["late"]) for p in self.paid], [("t1", True)])
+
+    def test_a_newer_deal_on_the_unit_wins_over_the_late_one(self):
+        self.b.agree("a", {"task": "t1", "price": 9000})
+        self.b.held["a"] -= shop_stock.PAY_SECONDS + 1
+        self.b.units()
+        self.b.agree("a", {"task": "t2", "price": 9500})
+        self.units.pop(0)
+        self.b.units()
+        self.assertEqual([p["task"] for p in self.paid], ["t2"])
+
+    def test_paid_food_checked_after_its_date_is_still_a_sale(self):
+        self.units[0] = dict(self.units[0], expires_at=time.time() + 100)
+        self.b.agree("a", {"task": "t1", "price": 9000, "expires_at": time.time() + 100})
+        self.b.units()                                          # seen in stock, still good
+        self.units.pop(0)
+        self.b.agreed["a"].update(seen=time.time() - 200, expires_at=time.time() - 100)   # last seen good, looked at after its date
+        self.b.units()
+        self.assertEqual([p["task"] for p in self.paid], ["t1"])
 
     def test_a_silent_talk_lets_go_sooner_than_before(self):
         self.assertLessEqual(shop_stock.HOLD_SECONDS, 300)
@@ -215,6 +255,18 @@ class PendingAndNextWindowTest(unittest.TestCase):
         out, why = restock.next_window(self.md, self.open_inv, CAT, self.cfg, now=later)
         self.assertIsNone(out)
         self.assertIn("expired", why)
+
+    def test_a_damaged_record_of_sent_lines_counts_as_nothing(self):
+        for junk in ({"a": 1}, [1, {"sku": "H1"}, {"sku": "H1", "qty": "2", "at": time.time()}]):
+            with open(os.path.join(self.md, restock.SENT), "w") as f:
+                json.dump(junk, f)
+            self.assertEqual(restock.pending(self.md, {"units": []}), [])
+            restock.note_sent(self.md, [{"sku": "H1", "qty": 1}], CAT)
+
+    def test_sends_once_per_plan(self):
+        out, _ = restock.next_window(self.md, self.open_inv, CAT, self.cfg)
+        self.assertTrue(out)
+        self.assertEqual(restock.next_window(self.md, self.open_inv, CAT, self.cfg)[0], [])     # units sold meanwhile: not rebought
 
     def test_off_without_a_plan(self):
         self.assertEqual(restock.next_window(self.md, self.open_inv, CAT, {}), (None, "no next_window plan"))

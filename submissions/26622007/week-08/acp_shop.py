@@ -176,7 +176,7 @@ class AcpCheckout:
         if amount != total:                   # the market checks this too; refusing here saves a round trip
             return JSONResponse({"error": f"payment amount {amount} is not the checkout total {total}"}, status_code=400)
         if self.stock is not None and s.get("unit"):
-            if self.stock.holder(s["unit"]) not in (None, s["task"]) or s["unit"] in self.stock.sold:
+            if not self.stock.available(s["unit"], s["task"]):
                 return JSONResponse({"error": f"unit {s['unit']} went to another buyer"}, status_code=409)
             self.stock.hold(s["unit"])            # paying now: the unit stays promised while the market answers
         body = {"order": pay.get("order"), "checkout_jwt": s["checkout_jwt"],

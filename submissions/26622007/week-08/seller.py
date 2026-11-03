@@ -264,7 +264,8 @@ class Seller(AgentExecutor):
     def paid(self, info):
         """The buyer paid for an agreed unit: only now is it a deal the shop learns from."""
         self.remember(info["task"], info["deal"], "deal", info["price"])
-        log(f"PAID {info['deal']['id']} unit {info['deal']['unit']} at {info['price']} (task {info['task'][:8]})")
+        log(f"PAID {info['deal']['id']} unit {info['deal']['unit']} at {info['price']} (task {info['task'][:8]})"
+            + (", after the wait" if info.get("late") else ""))
 
     def unpaid(self, info, why):
         self.remember(info["task"], info["deal"], "unpaid", info["price"])
@@ -411,9 +412,9 @@ class Seller(AgentExecutor):
 
         deal["rounds"] += 1
         if deal.get("unit"):
-            if self.stock.holder(deal["unit"]) not in (None, task.id):
+            if not self.stock.available(deal["unit"], task.id):
                 await up.reject(say("Sorry, that unit has just been sold to another buyer."))
-                log(f"task {task.id[:8]} -> REJECTED (unit {deal['unit']} went to another talk while this one waited)")
+                log(f"task {task.id[:8]} -> REJECTED (unit {deal['unit']} is gone or went to another talk while this one waited)")
                 self.remember(task.id, deal, "canceled")
                 del self.open[task.id]
                 return

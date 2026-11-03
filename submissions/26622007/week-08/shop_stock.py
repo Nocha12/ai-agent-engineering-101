@@ -14,11 +14,13 @@ from pathlib import Path
 ECON_ROUND = 3
 HOLD_SECONDS = 300      # a talk silent this long frees its unit (each message renews it); 900 s hid stock for most of a window
 PAY_SECONDS = 120       # after the deal: the unit waits this long for its payment (paid deals settle within seconds), then is on sale again
+LATE_SECONDS = 900      # ... and is still credited if its unit leaves the stock this long after the wait
 PAY_MARGIN_HOURS = 0.1  # food must outlast the buyer's need by this much (time to pay), GPT Pro §3
 SKU = re.compile(r"\bG[0-9a-f]{8}\b")
 HOURS = re.compile(r"(\d+(?:\.\d+)?)\s*(?:h\b|hrs?\b|hours?\b|시간)", re.I)
 SHELF_WORDS = re.compile(r"shelf|last|expir|fresh|after payment|유통|소비|남", re.I)
-GRADES = re.compile(r"grades?\s*(?:of\s*|:\s*)?([ABC](?:\s*(?:,|/|or|and)\s*[ABC])*)\b|\b([ABC])\s*(?:등급|grade\b)")
+GRADES = re.compile(r"\bgrades?\s*(?:of\s*|:\s*)?([ABC](?:\s*(?:,|/|or|and)\s*[ABC])*)\b(\s*(?:or (?:better|above|higher)|이상))?"
+                    r"|\b((?-i:[ABC]))\s*(?:등급|grade\b)(\s*(?:or (?:better|above|higher)|이상))?", re.I)
 
 
 def needs(text):
@@ -30,7 +32,10 @@ def needs(text):
              and not re.search(r"warrant|guarantee|보증", t[max(0, m.start() - 25):m.end() + 12], re.I)]
     grades = set()
     for m in GRADES.finditer(t):
-        grades |= set(re.findall(r"[ABC]", m.group(1) or m.group(2)))
+        got = set(re.findall(r"[ABC]", (m.group(1) or m.group(3)).upper()))
+        if m.group(2) or m.group(4):          # "grade B or better": B and every grade above it
+            got |= {g for g in "ABC" if g <= max(got)}
+        grades |= got
     return {"skus": set(SKU.findall(t)), "hours": max(hours) if hours else None, "grades": grades or None,
             "cert": bool(re.search(r"certif|cert\s*=\s*true|인증서", t, re.I))}
 
@@ -111,6 +116,7 @@ class StockBook:
         self.held = {}      # unit -> time promised (renewed); a hold lasts HOLD_SECONDS, or PAY_SECONDS once agreed
         self.owner = {}     # unit -> task that holds it
         self.agreed = {}    # unit -> {"task", "at", "expires_at", ...} deals waiting for their payment
+        self.late = {}      # unit -> a deal whose wait ran out, still watched for a late payment
         self.sold = set()
         self.on_paid = self.on_unpaid = None
 
@@ -123,24 +129,54 @@ class StockBook:
         return next((u.get("grade") for u in self.load().get("units", []) if u["unit"] == unit), None)
 
     def settle(self, inv_units=None, now=None):
-        """Agreed deals: paid when the unit left the stock (not by expiring), unpaid when the wait ran out."""
-        if not self.agreed:
+        """Agreed deals: paid when the unit left the stock while it was still good, unpaid when the wait ran out. A deal
+        whose wait ran out stays watched for LATE_SECONDS (the kit's checkout tells this process nothing, and a slow buyer
+        may still pay): its unit is on sale again, and if it leaves the stock unclaimed by a newer deal, it was paid."""
+        if not self.agreed and not self.late:
             return
         now = now or time.time()
-        present = {u["unit"] for u in (inv_units if inv_units is not None else self.load().get("units", []))}
+        present = {u["unit"]: u for u in (inv_units if inv_units is not None else self.load().get("units", []))}
+
+        def gone(unit, info):
+            u = present.get(unit)
+            if u is not None:
+                info["seen"], info["bad"] = now, expired(u, now)
+                return False
+            return True
+
+        def paid_or_not(unit, info, late=False):
+            if info.get("bad") or (info.get("expires_at") and info["expires_at"] <= info.get("seen", info["at"])):
+                self._call(self.on_unpaid, info, "expired before payment")
+            else:
+                self.sold.add(unit)
+                self._call(self.on_paid, dict(info, late=late))
+
         for unit, info in list(self.agreed.items()):
-            if unit not in present:
+            if gone(unit, info):
                 del self.agreed[unit]
                 self._drop(unit)
-                if info.get("expires_at") and info["expires_at"] <= now:
-                    self._call(self.on_unpaid, info, "expired before payment")
-                else:
-                    self.sold.add(unit)
-                    self._call(self.on_paid, info)
+                self.late.pop(unit, None)               # the newer deal on this unit is the one that was paid
+                paid_or_not(unit, info)
             elif now - self.held.get(unit, info["at"]) >= PAY_SECONDS:     # a checkout being paid renews the hold
                 del self.agreed[unit]
                 self._drop(unit)
-                self._call(self.on_unpaid, info, f"not paid within {PAY_SECONDS} s")
+                self.late[unit] = dict(info, lapsed=now)
+                self._call(self.on_unpaid, info, f"not paid within {PAY_SECONDS} s (watched {LATE_SECONDS // 60} min more)")
+        for unit, info in list(self.late.items()):
+            if now - info["lapsed"] > LATE_SECONDS:
+                del self.late[unit]
+            elif gone(unit, info) and unit not in self.agreed:
+                del self.late[unit]
+                self._drop(unit)
+                paid_or_not(unit, info, late=True)
+
+    def available(self, unit, task):
+        """True when this talk may still sell this unit: in stock, good, not sold, not promised or agreed to another talk."""
+        self.units()                                    # settles payments and lets run-out holds go first
+        u = next((u for u in self.load().get("units", []) if u["unit"] == unit), None)
+        if u is None or expired(u, time.time()) or unit in self.sold:
+            return False
+        return unit not in self.held or self.owner.get(unit) in (None, task)
 
     @staticmethod
     def _call(fn, *args):
@@ -205,7 +241,7 @@ class StockBook:
             self._call(self.on_unpaid, info, "checkout cancelled or refused")
 
     def mark_sold(self, unit):
-        info = self.agreed.pop(unit, None)
+        info = self.agreed.pop(unit, None) or self.late.pop(unit, None)
         self._drop(unit)
         self.sold.add(unit)
         if info is not None:
