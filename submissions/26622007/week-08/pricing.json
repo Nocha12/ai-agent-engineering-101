@@ -135,7 +135,7 @@
   },
   "buyer": {
     "max_price_share": 0.9,
-    "max_spend_per_deal": 200000,
+    "max_spend_per_deal": 400000,
     "quote_shops": 3
   },
   "memory": {

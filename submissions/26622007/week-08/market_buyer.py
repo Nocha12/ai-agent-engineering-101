@@ -412,8 +412,13 @@ def accept_policy(order):
 
 
 def request_text(label, key, order):
-    """The first message to a shop: the SKU, and for goods the warranty I will not buy without."""
-    extra = f" with a {hard_limits.BUYER_GOODS_WARRANTY_HOURS} h warranty" if order.get("kind") == "goods" else ""
+    """The first message to a shop: the SKU, for goods the warranty I will not buy without, and for food the shelf life
+    the kit will check before paying (a shop that picks units by it then sends one that lasts)."""
+    extra = ""
+    if order.get("kind") == "goods":
+        extra = f" with a {hard_limits.BUYER_GOODS_WARRANTY_HOURS} h warranty"
+    elif order.get("kind") == "food" and order.get("use_within_hours"):
+        extra = f". Must last at least {order['use_within_hours'] + SHELF_MARGIN:g} hours"
     return f"I want to buy {label} ({key}){extra}"
 
 
@@ -424,9 +429,29 @@ def warranty_refused(text, order):
     if re.search(r"without (a |any )?warranty|no warranty|warranty is not|cannot offer a warranty", text or "", re.I):
         return "the shop sells it without a warranty"
     hours = [float(h) for h in re.findall(r"(\d+(?:\.\d+)?)\s*(?:h|hours?|시간)\s*warranty", text or "", re.I)]
+    hours += [float(h) for h in re.findall(r"warranty\s*[=:]\s*(\d+(?:\.\d+)?)\s*h\b", text or "", re.I)]
     if hours and max(hours) < hard_limits.BUYER_GOODS_WARRANTY_HOURS:
         return f"the shop offers only a {max(hours):g} h warranty"
     return None
+
+
+def shelf_refused(text, order):
+    """The shop says, before any offer, how long this food unit lasts, and it is less than the kit asks before paying
+    (accept_policy): a deal there would end unpaid. Only "... shelf life left" counts, not a shop's own example."""
+    if order.get("kind") != "food" or not order.get("use_within_hours"):
+        return None
+    t = text or ""
+    hours = [float(h) for h in re.findall(r"(\d+(?:\.\d+)?)\s*(?:h|hours?)\s+(?:of\s+)?shelf[ -]life\s+left", t, re.I)]
+    hours += [float(h) for h in re.findall(r"shelf_(?:life_)?left\s*[=:]\s*(\d+(?:\.\d+)?)\s*h\b", t, re.I)]
+    need = order["use_within_hours"] + SHELF_MARGIN
+    if hours and max(hours) < need:
+        return f"the shop's unit lasts {max(hours):g} h, the order needs {need:g} h"
+    return None
+
+
+def quote_refused(text, order):
+    """Why the shop's first answer already rules out a deal I would pay for (warranty or shelf life), else None."""
+    return warranty_refused(text, order) or shelf_refused(text, order)
 
 
 def warranty_short(rec, order):
@@ -463,30 +488,27 @@ def quote(shop, label, key, order, out, ctl=None):
             return
         ask = buyer_metadata_ask(t) if t.get("status", {}).get("state") == "TASK_STATE_INPUT_REQUIRED" else None
         out[shop["name"]] = q = {"ask": ask, "text": buyer_message_text(t)[:300], "url": iface["url"], "task": t,
-                                 "refused": warranty_refused(buyer_message_text(t), order)}
+                                 "refused": quote_refused(buyer_message_text(t), order)}
         if ctl is not None and ctl.get("done") and ctl.get("winner") != shop["name"]:
             cancel_quote(q, shop["name"])
     except Exception as e:  # noqa: BLE001 - a shop that cannot quote is just not compared
         log(f"[quote] {shop['name']}: {type(e).__name__}: {e}")
 
 
-def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOTE_WAIT):
+QUOTE_ROUNDS = 3       # batches of quote_shops shops asked while none so far had a unit for me (another buyer holds it)
+QUOTE_UNTIL = 150      # seconds into the run after which no further batch starts: the talk needs the rest of the 300 s
+
+
+def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOTE_WAIT, rounds=QUOTE_ROUNDS):
     """(shop, quotes): of the chosen shop and up to quote_shops - 1 others, the one whose opening ask leaves the most
-    expected surplus (list price, less the chance of breaking, less the ask). Quotes run at once, each in its own thread."""
+    expected surplus (list price, less the chance of breaking, less the ask). Quotes run at once, each in its own thread.
+    When no shop of a batch quotes a unit I could pay for (all out of stock, or held by other buyers' talks), the next
+    quote_shops shops of others are asked, up to rounds batches and while the run is young (QUOTE_UNTIL)."""
     k = int(cfg.get("quote_shops", 1))
-    pool = [chosen] + others[:max(0, k - 1)]
-    if len(pool) < 2:
+    if k < 2 or not others:
         return chosen, {}
-    got, threads, ctl = {}, [], {"done": False, "winner": None}
-    for s in pool:
-        o = pick_offer(s["usable"], budget)
-        s["_offer"] = o
-        th = threading.Thread(target=quote, args=(s, o["name"], o["sku"], order, got, ctl), daemon=True)
-        th.start()
-        threads.append(th)
-    end = time.time() + wait
-    for th in threads:
-        th.join(max(0.0, end - time.time()))
+    got, pool, ctl = {}, [], {"done": False, "winner": None}
+    rest = [chosen] + list(others)
 
     def surplus(s):
         q = got.get(s["name"]) or {}
@@ -494,6 +516,25 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
             return None
         o = s["_offer"]
         return o["list_price"] * (1 - (chance_of(o["sku"]) or 0)) - q["ask"]
+    for r in range(rounds):
+        batch, rest = rest[:k], rest[k:]
+        if not batch or (r and time.time() - STARTED > QUOTE_UNTIL):
+            break
+        if r:
+            log(f"[quote] none of {len(pool)} shops quoted a unit I could pay for; asking {len(batch)} more")
+        threads = []
+        for s in batch:
+            o = pick_offer(s["usable"], budget)
+            s["_offer"] = o
+            th = threading.Thread(target=quote, args=(s, o["name"], o["sku"], order, got, ctl), daemon=True)
+            th.start()
+            threads.append(th)
+        pool += batch
+        end = time.time() + wait
+        for th in threads:
+            th.join(max(0.0, end - time.time()))
+        if any(surplus(s) is not None for s in pool):
+            break
     scored = [(surplus(s), i, s) for i, s in enumerate(pool) if surplus(s) is not None]
     best = max(scored, key=lambda x: (x[0], -x[1]))[2] if scored else None
     ctl.update(done=True, winner=best["name"] if best else None)
@@ -720,7 +761,7 @@ def main():
         others.sort(key=lambda s: -len(s.get("reviews") or []))
         stats = market_model.break_stats(market_model.load_rows(md), catalog) if order.get("kind") == "goods" else None
         chance_of = (lambda sku: market_model.break_chance(stats, sku)) if stats else (lambda sku: None)
-        best, quotes = best_quote(shop, others[:3], order, catalog, args.budget, chance_of, buyer_cfg()) \
+        best, quotes = best_quote(shop, others, order, catalog, args.budget, chance_of, buyer_cfg()) \
             if time.time() - STARTED < 60 else (shop, {})
         if best is not shop:
             reason = f"best quote of {len(quotes)} ({quotes[best['name']]['ask']}); first choice was {shop['name']}"
@@ -752,7 +793,7 @@ def main():
         resume = (q["url"], q["task"]) if r3 and q.get("task") and not q.get("refused") and q["task"].get("status", {}).get(
             "state") == "TASK_STATE_INPUT_REQUIRED" else None
         out = negotiate(shop["url"], label, limit, note, request_text(label, key, order) if r3 else None, resume=resume,
-                        stop_if=(lambda text: warranty_refused(text, order)) if r3 else None)
+                        stop_if=(lambda text: quote_refused(text, order)) if r3 else None)
         out["asked"] = key if r3 else None
     except Exception as e:  # network errors from a shop that went away
         log(f"trade failed: {type(e).__name__}: {e}")

@@ -475,6 +475,52 @@ class BuyerTest(unittest.TestCase):
         self.assertTrue(market_buyer.warranty_refused("It comes with a 3 h warranty. My price: 9000.", g))
         self.assertIsNone(market_buyer.warranty_refused("This unit comes with a 6 h warranty: if it breaks", g))
         self.assertIsNone(market_buyer.warranty_refused("no warranty", self.ORDER))
+        self.assertTrue(market_buyer.warranty_refused("unit=u-1 grade=C | warranty=3h, full refund if it breaks", g))
+        self.assertIsNone(market_buyer.warranty_refused("warranty=6h, full refund if it breaks", g))
+
+    def test_food_asks_for_its_shelf_life_and_a_short_unit_is_refused_before_any_offer(self):
+        self.assertIn("Must last at least 48.1 hours", market_buyer.request_text("김치", "F1", self.ORDER))
+        short = market_buyer.shelf_refused
+        self.assertIn("20.3 h", short("asking 9000. 20.3 hours of shelf life left. Send your offer", self.ORDER))
+        self.assertTrue(short("grade A, 12 h of shelf life left, certificate attached", self.ORDER))
+        self.assertTrue(short("| 30.5 h shelf life left | no warranty |", self.ORDER))
+        self.assertTrue(short("grade=C cert=market-signed shelf_left=7h | list=10000", self.ORDER))
+        self.assertTrue(short("(sku=G1, grade=C, shelf_life_left=40.2h): asking price 4050", self.ORDER))
+        self.assertIsNone(short("asking 9000. 351.1 hours of shelf life left.", self.ORDER))
+        self.assertIsNone(short("need a shelf life? say e.g. 'need 24h shelf life'. asking 9000", self.ORDER))
+        self.assertIsNone(short("asking 9000. Very fresh, just in.", self.ORDER))
+        self.assertIsNone(short("12 h of shelf life left", {"kind": "goods"}))
+        self.assertTrue(market_buyer.quote_refused("12 h of shelf life left", self.ORDER))
+        self.assertTrue(market_buyer.quote_refused("warranty=3h", {"kind": "goods"}))
+
+    def test_when_no_shop_quotes_a_unit_the_next_shops_are_asked(self):
+        shops = [{"name": n, "url": f"https://{n}.example", "usable": [{"sku": "H1", "name": "청소기", "list_price": 10000}]}
+                 for n in "abcdefgh"]
+        asks = {"e": 9000, "f": 8000}
+        seen = []
+
+        def fake_quote(shop, label, key, order, out, ctl=None):
+            seen.append(shop["name"])
+            if shop["name"] in asks:
+                out[shop["name"]] = {"ask": asks[shop["name"]], "text": ""}
+        with mock.patch.object(market_buyer, "quote", fake_quote), mock.patch.object(market_buyer, "log"), \
+                mock.patch.object(market_buyer, "STARTED", time.time()):
+            best, got = market_buyer.best_quote(shops[0], shops[1:], {"kind": "goods"}, {}, 20000, lambda s: None,
+                                                {"quote_shops": 3}, wait=5)
+            self.assertEqual(best["name"], "f")                    # the second batch d, e, f quoted
+            self.assertEqual(sorted(seen), list("abcdef"))         # g, h were not asked
+            seen.clear()
+            asks.clear()
+            best, got = market_buyer.best_quote(shops[0], shops[1:], {"kind": "goods"}, {}, 20000, lambda s: None,
+                                                {"quote_shops": 3}, wait=5)
+            self.assertIs(best, shops[0])                          # nobody quoted: the first choice, as before
+            self.assertEqual(len(seen), len(shops))                # all eight, within QUOTE_ROUNDS batches of three
+        with mock.patch.object(market_buyer, "quote", fake_quote), mock.patch.object(market_buyer, "log"), \
+                mock.patch.object(market_buyer, "STARTED", time.time() - market_buyer.QUOTE_UNTIL - 1):
+            seen.clear()
+            market_buyer.best_quote(shops[0], shops[1:], {"kind": "goods"}, {}, 20000, lambda s: None,
+                                    {"quote_shops": 3}, wait=5)
+            self.assertEqual(seen, list("abc"))                    # late in the run: one batch only
 
     def test_parallel_quotes_pick_the_most_surplus_and_promise_nothing(self):
         shops = [{"name": n, "url": f"https://{n}.example", "usable": [{"sku": "H1", "name": "청소기", "list_price": 10000}]}
