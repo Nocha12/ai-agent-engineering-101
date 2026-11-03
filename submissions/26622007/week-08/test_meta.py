@@ -195,7 +195,16 @@ if mode == "refused":
 if mode == "edit-then-die":
     open("changed.py", "w").write("x = 1\\n")
     sys.exit(2)
-if mode != "nothing" and mode != "nothing-false":
+check = {"current": "lean", "gap_cause": "unclear", "keep_or_shift": "keep", "reason": "r"}
+action = "code"
+if mode in ("watch", "shift", "shift-no-doc", "strategy-doc"):
+    check["keep_or_shift"] = {"watch": "watch", "strategy-doc": "keep"}.get(mode, "shift")
+    action = "strategy_shift" if mode.startswith("shift") else "none"
+    if mode == "shift":
+        open("meta/strategy.md", "a").write("- shifted\\n")
+    if mode == "strategy-doc":
+        open("meta/strategy.md", "w").write("prompt\\n- shifted\\n")
+elif mode != "nothing" and mode != "nothing-false":
     open("changed.py", "w").write({"broken": "raise SystemExit(1)\\n", "secret": "k = 'sk-or-v1-" + "a" * 30 + "'\\n",
                                    "env-secret": "k = 'value-from-env-file-1234'\\n"}.get(mode, "x = 1\\n"))
 if mode == "broken":
@@ -204,7 +213,8 @@ good = [{"ref": "logs/market-kit.log:2", "excerpt": "[acp] settled", "meaning": 
 bad = [{"ref": "logs/market-kit.log:2", "excerpt": "never said this", "meaning": "m"}]
 json.dump({"changed": True, "hypothesis": "h", "change_summary": "변경 요약", "target_metric": "profit", "expected": "up",
            "evidence": bad if mode in ("false-citation", "nothing-false") else [] if mode == "no-citation" else good,
-           "previous_verdict": "none", "previous_reason": ""}, open(out, "w"))
+           "previous_verdict": "none", "previous_reason": "", "strategy_check": check, "action_kind": action,
+           "strategy": {"options": [], "chosen": "lean", "experiment": "e"}}, open(out, "w"))
 """
 
 
@@ -218,9 +228,9 @@ class HarnessCycleTest(unittest.TestCase):
         os.makedirs(os.path.join(self.root, "meta"))
         with open(os.path.join(self.root, "logs", "market-kit.log"), "w") as f:
             f.write("10:00:00 [kit] market_kit 4\n10:00:01 [acp] settled x at 5\n")
-        for name in ("terra", "astra"):
+        for name in ("terra", "astra", "strategy"):
             with open(os.path.join(self.root, "meta", f"{name}.md"), "w") as f:
-                f.write("prompt")
+                f.write("prompt\n")
         with open(os.path.join(self.root, ".gitignore"), "w") as f:
             f.write("__pycache__/\n.market/\n")
         with open(os.path.join(self.root, "test_ok.py"), "w") as f:
@@ -322,6 +332,78 @@ class HarnessCycleTest(unittest.TestCase):
             mh.cycle("astra")
         self.assertEqual(self.git("status", "--short", "logs/market-kit.log"), "")
         self.assertTrue(any(n.startswith("market-kit-rotated-") for n in os.listdir(os.path.join(self.root, "logs"))))
+
+    def grades(self):
+        with open(os.path.join(self.root, "meta", "grades.jsonl"), encoding="utf-8") as f:
+            return [json.loads(x) for x in f]
+
+    def strategy(self):
+        with open(os.path.join(self.root, "meta", "strategy.md"), encoding="utf-8") as f:
+            return f.read()
+
+    def test_the_strategy_check_is_kept_in_grades_and_changes(self):
+        self.go("good")
+        self.assertEqual(self.grades()[-1]["strategy_check"]["keep_or_shift"], "keep")
+        with open(os.path.join(self.root, "meta", "changes.jsonl"), encoding="utf-8") as f:
+            self.assertEqual(json.loads(f.readline())["answer"]["strategy_check"]["current"], "lean")
+
+    def test_a_shift_on_one_hour_alone_is_undone(self):
+        rec = self.go("shift")
+        self.assertEqual(rec["status"], "rejected")
+        self.assertIn("previous accepted Terra cycle", " ".join(rec["problems"]))
+        self.assertNotIn("shifted", self.strategy())
+
+    def test_a_shift_after_a_watch_is_applied_without_tests_or_watch(self):
+        with open(os.path.join(self.root, "test_bad.py"), "w") as f:
+            f.write("import unittest\nclass T(unittest.TestCase):\n    def test(self):\n        self.fail('old')\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "a failing test from elsewhere")
+        self.assertEqual(self.go("watch")["status"], "no_change")
+        with mock.patch.object(mh, "canary", lambda: ["tracebacks +5"]):
+            rec = self.go("shift")
+        self.assertEqual(rec["status"], "running", rec.get("problems"))
+        self.assertIn("shifted", self.strategy())
+        self.assertEqual(self.grades()[-1]["action"], "strategy_shift")
+
+    def test_a_shift_must_write_the_strategy_down(self):
+        self.go("watch")
+        rec = self.go("shift-no-doc")
+        self.assertIn(f"a strategy shift must rewrite {mh.STRATEGY}", rec["problems"])
+
+    def test_a_refused_shift_is_no_evidence_for_the_next(self):
+        self.assertEqual(self.go("shift")["status"], "rejected")
+        self.assertEqual(self.go("shift")["status"], "rejected")
+        self.assertNotIn("shifted", self.strategy())
+
+    def test_a_shift_stands_before_the_next(self):
+        self.go("watch")
+        self.assertEqual(self.go("shift")["status"], "running")
+        self.go("watch")
+        rec = self.go("shift")
+        self.assertEqual(rec["status"], "rejected")
+        self.assertIn("stands", " ".join(rec["problems"]))
+
+    def test_terra_does_not_rewrite_the_strategy_without_a_shift(self):
+        rec = self.go("strategy-doc")
+        self.assertEqual(rec["status"], "rejected")
+        self.assertNotIn("shifted", self.strategy())
+
+    def test_astra_sets_the_strategy_without_tests_or_watch(self):
+        with open(os.path.join(self.root, "test_bad.py"), "w") as f:
+            f.write("import unittest\nclass T(unittest.TestCase):\n    def test(self):\n        self.fail('old')\n")
+        with open(os.path.join(self.root, "meta", "strategy.md"), "w") as f:
+            f.write("prompt\nkeep inside hard_limits\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "a failing test from elsewhere")
+        with mock.patch.object(mh, "canary", lambda: ["tracebacks +5"]):
+            rec = self.go("strategy-doc", kind="astra")
+        self.assertEqual((rec["status"], rec["files"]), ("running", [mh.STRATEGY]), rec.get("problems"))
+        self.assertIn("shifted", self.strategy())
+
+    def test_astra_records_its_chosen_strategy(self):
+        with mock.patch.dict(os.environ, {"FAKE_MODE": "nothing"}), mock.patch("builtins.print"):
+            mh.cycle("astra")
+        self.assertEqual(self.grades()[-1]["strategy"]["chosen"], "lean")
 
     def test_only_this_folder_is_staged(self):
         sub = os.path.join(self.outer, "mono")
@@ -439,6 +521,17 @@ class EvidenceTest(unittest.TestCase):
                         {"ref": "../a.log:1", "excerpt": "first"}, {"ref": "a.log:1", "excerpt": "a"}):
                 self.assertTrue(mh.verify_evidence([bad], d), bad)
             self.assertTrue(mh.verify_evidence([], d))
+
+
+class RivalsTest(unittest.TestCase):
+    def test_the_shops_ahead_in_profit_and_my_rank(self):
+        rows = [{"name": "a", "profit": 10, "deals": 3, "card": {"description": "x" * 500}, "owner": {"login": "a"}},
+                {"name": mh.scorecard.ME, "profit": 5}, {"name": "b", "profit": 20, "card": "odd"}, {"name": "c"}]
+        r = mh.scorecard.rivals(rows, top=2)
+        self.assertEqual((r["my_profit_rank"], r["of"]), (3, 3))
+        self.assertEqual([x["name"] for x in r["top"]], ["b", "a"])
+        self.assertEqual((len(r["top"][1]["card"]), r["top"][0]["card"]), (240, ""))
+        self.assertNotIn("owner", r["top"][1])
 
 
 if __name__ == "__main__":

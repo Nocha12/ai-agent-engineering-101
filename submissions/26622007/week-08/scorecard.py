@@ -75,7 +75,22 @@ def board():
         rows = b.get(k) or []
         mine = next((r for r in rows if r.get("name") == ME or (r.get("login") or "").lower() == "nocha12"), None)
         out[k] = {"count": len(rows), "mine": {x: v for x, v in (mine or {}).items() if x not in ("card", "owner")}}
+    out["rivals"] = rivals(b.get("shops") or [])
     return out
+
+
+RIVAL_FIELDS = ("name", "deals", "visits", "share", "revenue", "profit", "stars", "refunds", "broken", "honest_claims", "claims")
+
+
+def rivals(rows, top=5):
+    """The shops ahead in profit and how they present themselves: the strategy check compares mine with theirs."""
+    ranked = sorted((r for r in rows if isinstance(r.get("profit"), (int, float)) and not isinstance(r.get("profit"), bool)),
+                    key=lambda r: -r["profit"])
+    me = next((i for i, r in enumerate(ranked, 1)
+               if r.get("name") == ME or ((r.get("owner") or {}).get("login") or "").lower() == "nocha12"), None)
+    card = lambda r: str((r.get("card") or {}).get("description") or "")[:240] if isinstance(r.get("card"), dict) else ""
+    return {"my_profit_rank": me, "of": len(ranked),
+            "top": [{**{f: r.get(f) for f in RIVAL_FIELDS}, "card": card(r)} for r in ranked[:top]]}
 
 
 def file_index(root):

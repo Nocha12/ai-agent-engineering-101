@@ -2,7 +2,9 @@
 
 Terra adjusts: pricing.json's settings a bounded step at a time, the shop's memory (memory/agent/), broken tools, and the
 numbers against the Players objective. Astra explores: new strategies, tools and data sources (ledger, forum, own sales)
-as hypotheses with small experiments, and grades what Terra did. Both answer to hard_limits.py: a change that moves a
+as hypotheses with small experiments, and grades what Terra did. Strategy comes before dials: Astra compares two or three
+directions and writes the chosen one in meta/strategy.md; Terra checks each hour whether it still leads to first place in
+profit and shifts it only after two cycles point the same way. Both answer to hard_limits.py: a change that moves a
 setting out of its bounds or by more than one step, touches a protected file or drops a hard_limits line is undone.
 
     python meta_harness.py terra | astra     one cycle
@@ -45,11 +47,25 @@ EVIDENCE = {"type": "array", "items": {"type": "object", "additionalProperties":
                                        "properties": {k: {"type": "string"} for k in ("ref", "excerpt", "meaning")}}}
 COMMON = {"changed": {"type": "boolean"}, "hypothesis": {"type": "string"}, "change_summary": {"type": "string"},
           "target_metric": {"type": "string"}, "expected": {"type": "string"}, "evidence": EVIDENCE}
+STRATEGY = "meta/strategy.md"     # the strategy Terra follows: Astra sets it, Terra shifts it only on repeated evidence
+DOCS_ONLY = (STRATEGY,)           # a change of these alone needs no tests and no watch: nothing running reads them
+
+
+def strict(props):
+    return {"type": "object", "additionalProperties": False, "required": sorted(props), "properties": props}
+
+
+S = {"type": "string"}
 SCHEMAS = {
-    "terra": {"previous_verdict": {"type": "string", "enum": ["none", "keep", "fix", "revert"]}, "previous_reason": {"type": "string"},
-              "grade_summary": {"type": "string"}, "weakest": {"type": "array", "items": {"type": "string"}},
-              "action_kind": {"type": "string", "enum": ["none", "settings", "tool_new", "tool_fix", "prompt", "code", "memory"]}},
-    "astra": {"summary": {"type": "string"},
+    "terra": {"previous_verdict": {"type": "string", "enum": ["none", "keep", "fix", "revert"]}, "previous_reason": S,
+              "grade_summary": S, "weakest": {"type": "array", "items": S},
+              "strategy_check": strict({"current": S, "gap_cause": {"type": "string", "enum": ["dials", "strategy", "bug", "unclear"]},
+                                        "keep_or_shift": {"type": "string", "enum": ["keep", "watch", "shift"]}, "reason": S}),
+              "action_kind": {"type": "string", "enum": ["none", "settings", "tool_new", "tool_fix", "prompt", "code", "memory",
+                                                         "strategy_shift"]}},
+    "astra": {"summary": S,
+              "strategy": strict({"options": {"type": "array", "items": strict({"direction": S, "expected_profit": S, "risk": S, "test": S})},
+                                  "chosen": S, "experiment": S}),
               "grades": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["change", "grade", "reason"],
                                                     "properties": {"change": {"type": "string"}, "reason": {"type": "string"},
                                                                    "grade": {"type": "string", "enum": ["worked", "no_effect", "harmful", "unclear"]}}}},
@@ -60,8 +76,7 @@ SCHEMAS = {
 
 
 def schema_for(kind):
-    props = {**COMMON, **SCHEMAS[kind]}
-    return {"type": "object", "additionalProperties": False, "required": sorted(props), "properties": props}
+    return strict({**COMMON, **SCHEMAS[kind]})
 
 
 def log(msg):
@@ -272,10 +287,11 @@ def limit_problems(code):
     new = pricing_now()
     if "_unreadable" in new:
         return [f"pricing.json is not valid JSON: {new['_unreadable']}"]
+    guarded = [p for p in code if p not in DOCS_ONLY]     # prose rewritten in place may drop a line naming the module
     strong = SAMPLE["settled"] >= hard_limits.STRONG_SAMPLE
     step = hard_limits.MAX_STEP_STRONG if strong else hard_limits.MAX_STEP
     return hard_limits.check_policy_change(pricing_at_head(), new, step) + \
-        hard_limits.guard_problems(code, git("diff", "--cached", "--no-color", "--", *code) if code else "")
+        hard_limits.guard_problems(code, git("diff", "--cached", "--no-color", "--", *guarded) if guarded else "")
 
 
 def push():
@@ -311,7 +327,55 @@ def grade_log(rec):
         f.write(json.dumps({"cycle": rec["cycle"], "time": rec["time"], "status": rec.get("status"),
                             "grade": a.get("grade_summary") or a.get("summary"), "weakest": a.get("weakest"),
                             "action": a.get("action_kind"), "verdict": a.get("previous_verdict"), "grades": a.get("grades"),
-                            "keep_or_drop": a.get("keep_or_drop")}, ensure_ascii=False) + "\n")
+                            "keep_or_drop": a.get("keep_or_drop"), "strategy_check": a.get("strategy_check"),
+                            "strategy": a.get("strategy")}, ensure_ascii=False) + "\n")
+
+
+ACCEPTED = ("no_change", "running")     # cycles whose answer the harness took: a refused or failed one is no evidence
+SHIFT_GAP = 3                          # Terra cycles a shift stands before the next one
+
+
+def recent_strategy_checks(n=SHIFT_GAP):
+    """The strategy checks of Terra's last n accepted cycles in meta/grades.jsonl, oldest first."""
+    try:
+        with open(os.path.join(ROOT, "meta", "grades.jsonl"), encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return []
+    out = []
+    for line in reversed(lines):
+        try:
+            g = json.loads(line)
+        except ValueError:
+            continue
+        if str(g.get("cycle", "")).startswith("terra-") and g.get("status") in ACCEPTED and isinstance(g.get("strategy_check"), dict):
+            out.append(g["strategy_check"])
+            if len(out) == n:
+                break
+    return out[::-1]
+
+
+def strategy_problems(kind, answer, paths):
+    """Terra shifts the strategy only when its previous accepted cycle said watch, no shift stood in its last three cycles,
+    and the new strategy is written in meta/strategy.md; it touches that file only to shift. So one noisy hour cannot turn
+    the shop around, and a shift is not undone by the next."""
+    if kind != "terra" or not answer:
+        return []
+    check = answer.get("strategy_check") or {}
+    shifting = check.get("keep_or_shift") == "shift" or answer.get("action_kind") == "strategy_shift"
+    if not shifting:
+        return [f"Terra rewrites {STRATEGY} only with a strategy shift"] if STRATEGY in paths else []
+    out = []
+    if check.get("keep_or_shift") != "shift":
+        out.append("action_kind strategy_shift needs strategy_check.keep_or_shift = shift")
+    recent = recent_strategy_checks()
+    if not recent or recent[-1].get("keep_or_shift") != "watch":
+        out.append("a strategy shift needs the previous accepted Terra cycle to have said watch (two cycles of evidence)")
+    if any(c.get("keep_or_shift") == "shift" for c in recent):
+        out.append(f"a strategy shift stands {SHIFT_GAP} Terra cycles before the next")
+    if STRATEGY not in paths:
+        out.append(f"a strategy shift must rewrite {STRATEGY}")
+    return out
 
 
 def cycle(kind):
@@ -346,11 +410,13 @@ def cycle(kind):
     problems = [err] if err else []
     if answer is not None:
         problems += verify_evidence(answer.get("evidence"))
+        problems += strategy_problems(kind, answer, code)
     problems += limit_problems(code)
     moved = hard_limits.policy_diff(pricing_at_head(), pricing_now())
     if moved:
         log(f"{cid}: settings moved: {'; '.join(moved)}")
-    if code and not problems:
+    docs_only = bool(code) and all(p in DOCS_ONLY for p in code)
+    if code and not problems and not docs_only:
         ok, output = run_tests()
         if not ok:
             problems.append(f"tests failed: {output[-500:]}")
@@ -379,6 +445,11 @@ def cycle(kind):
     sha = commit(f"feat(week-08): [{cid}] {title}"[:300] + (f"\n\n{body}" if body else ""))
     rec.update(commit=sha, files=code, settings=moved)
     log(f"{cid}: applied {sha[:8]}: {title}")
+    if docs_only:
+        rec.update(status="running")
+        log(f"{cid}: strategy document only, nothing to watch")
+        record(rec)
+        return rec
     restart_seller(code)
     bad = canary()
     if bad:
