@@ -1,0 +1,52 @@
+{
+  "changed": true,
+  "hypothesis": "잘 팔리고 기대 순이익이 양수인 식품의 보충 상한을 넓히면 품절 시간을 줄여 매출과 순이익을 높일 수 있다. 다만 보충 에이전트가 실제 수량을 선택하므로 효과는 보장되지 않는다.",
+  "change_summary": "pricing.json의 restock.food_max_qty를 3에서 6으로 변경했다. 41건의 상점 체결·구매자 결제로 강한 표본 기준 40건을 충족하며, hard_limits 정책 검사에 통과했다. 시스템 Python에는 httpx가 없어 test_hard_limits 전체 실행은 실패했다. 시장 규칙 URL은 접근 오류로 읽지 못했다.",
+  "target_metric": "상점 매출과 순이익, 식품 재고 부족",
+  "expected": "다음 한 시간에 매출이 기준 302,143보다 최소 30,000 증가하고, 해당 식품의 추가 판매가 순이익에 기여하기를 기대한다.",
+  "evidence": [
+    {
+      "ref": "meta/evidence/terra-1103-220510.json:25",
+      "excerpt": "      \"value\": 302143",
+      "meaning": "상점 매출은 302,143이고 백분위는 0.25다."
+    },
+    {
+      "ref": "meta/evidence/terra-1103-220510.json:138",
+      "excerpt": "  \"profit_if_stock_sells_at_cost\": 100227,",
+      "meaning": "재고를 원가에 회수하면 이익은 100,227로, 현재 잔액 기준 손실과 차이가 재고 원가에 묶여 있다."
+    },
+    {
+      "ref": "meta/evidence/terra-1103-220510.json:157",
+      "excerpt": "  \"no_stock\": 26,",
+      "meaning": "재고 부족 거절이 26건 기록됐다."
+    },
+    {
+      "ref": "logs/market-kit.log:2939",
+      "excerpt": "21:45:20 [buyer] {\"buy\": [{\"sku\": \"G200e39a3\", \"qty\": 3}, {\"sku\": \"G0be9ed07\", \"qty\": 2}, {\"sku\": \"G80435d53\", \"qty\": 2}]}",
+      "meaning": "첫 보충에서 해당 식품을 기존 상한인 3개 주문했다."
+    },
+    {
+      "ref": "logs/market-kit.log:4507",
+      "excerpt": "22:05:33 [buyer] [22:05:33] restock-agent openrouter openai/gpt-6-luna response_format=json_schema(strict) 3.8s -> {\"reason\": \"The prior decision sold 6 of 8 units quickly, with no unsold losses, and G200e39a3 sold all 3 units with a strong margin. Check current stock and fresh demand before choosing another order.\", \"evidence\": [\"c1\"], \"action\": \"call_tool\", \"tool\": \"my_state\", \"args_json\": \"{\\\"limit\\\":20}\", \"final\": null}",
+      "meaning": "에이전트의 이전 결정 평가에 따르면 해당 식품 3개가 높은 마진으로 모두 팔렸다."
+    },
+    {
+      "ref": "logs/market-kit.log:4287",
+      "excerpt": "22:02:12 [buyer] [loss] storage 5 goods units 34 1.0 h at 1.00%/day",
+      "meaning": "기록된 손실은 상품 보관료 34다."
+    },
+    {
+      "ref": "meta/evidence/terra-1103-220510.json:148",
+      "excerpt": "  \"settled_as_shop\": 12,",
+      "meaning": "상점 체결 12건과 구매자 결제 29건으로 강한 표본 기준을 넘는다."
+    }
+  ],
+  "previous_verdict": "none",
+  "previous_reason": "직전 제안은 근거 로그의 행을 찾지 못해 거부됐고 설정도 200,000으로 남아 있다. 이번 팩의 since_last_cycle은 첫 사이클로 표시되어 적용된 이전 변경의 효과를 판정할 수 없다.",
+  "grade_summary": "첫 사이클 누적 기준 Players는 1.143이다. 상점 순이익 -63,382는 백분위 0.900, 매출 302,143은 0.250, 별점 4.54는 0.425다. 잔액은 4,936,618이고 재고 14개 원가 163,609를 회수하면 이익 100,227이다. 기록된 손실은 보관료 34뿐이며 24시간 초과 미판매 재고는 0개다.\n구매자 잉여 546,458은 백분위 0.590, 포럼 0.593은 0.519, 거래 29건은 0.410이다. 재고 부족 26건, 구매자 결제 거절 13건이며 원가 미만 제안·보증 거절·포럼 게시 및 투표 거절은 각각 0건이다. 전송 기록의 포럼 응답은 모두 200이고 제외된 도구는 없다.",
+  "weakest": [
+    "상점 매출",
+    "구매자 거래"
+  ],
+  "action_kind": "settings"
+}
