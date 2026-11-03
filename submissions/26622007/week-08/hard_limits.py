@@ -3,7 +3,8 @@ Terra and Astra from Round 3's own numbers, a bounded step at a time.
 
 - Bankruptcy: no stock is bought that could take the balance under STOP_BUYING_BELOW (the market's line is 500,000;
   a bankruptcy's 5,000,000 counts against profit). The kit files only when nothing is left to sell.
-- pricing.json: each numeric setting moves at most MAX_STEP of its value per cycle, inside BOUNDS where listed.
+- pricing.json: each numeric setting moves at most MAX_STEP of its value per cycle (MAX_STEP_STRONG once the log holds
+  STRONG_SAMPLE settled deals, so the shop can move fast when its own data is solid), inside BOUNDS where listed.
 - Tools the agents run get no keys, no network and no writes outside their folders (agent_tools.py builds the sandbox
   from SANDBOX below).
 
@@ -17,6 +18,8 @@ BANKRUPT_LINE = 500000
 STOP_BUYING_BELOW = 1000000          # a supply that could leave less than this is not sent
 PROTECTED = ("hard_limits.py", "test_hard_limits.py", "run_market.sh", "run_meta.sh", "ensure_running.sh")
 MAX_STEP = 0.5                       # a number may change by at most half its value per cycle (and by 1 when it is small)
+MAX_STEP_STRONG = 1.0                # ... or by its whole value (double it) once the evidence is a real sample
+STRONG_SAMPLE = 40                   # settled deals (shop + buyer) in the Round 3 log that make a sample
 
 # path in pricing.json -> (lowest, highest). Outside these the shop's own data has not earned the risk.
 BOUNDS = {
@@ -95,7 +98,7 @@ def number(v):
     return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
-def check_policy_change(old, new):
+def check_policy_change(old, new, step=MAX_STEP):
     """Problems with moving pricing.json from old to new (dicts). None of them: the change may stand."""
     problems, a, b = [], flat(old), flat(new)
     for key, v in b.items():
@@ -103,8 +106,9 @@ def check_policy_change(old, new):
         if number(v) and not lo <= v <= hi:
             problems.append(f"pricing.json {key}={v} is outside [{lo}, {hi}] (hard_limits.BOUNDS)")
         was = a.get(key)
-        if number(v) and number(was) and v != was and abs(v - was) > max(abs(was) * MAX_STEP, 1 if isinstance(was, int) else 0):
-            problems.append(f"pricing.json {key} {was} -> {v} moves more than {MAX_STEP:.0%} in one cycle")
+        step = min(step, MAX_STEP_STRONG)
+        if number(v) and number(was) and v != was and abs(v - was) > max(abs(was) * step, 1 if isinstance(was, int) else 0):
+            problems.append(f"pricing.json {key} {was} -> {v} moves more than {step:.0%} in one cycle")
         if key == "markdown.below_cost" and (not isinstance(v, list) or any(r not in MARKDOWN_REASONS for r in v)):
             problems.append(f"pricing.json markdown.below_cost {v} is not a list of {MARKDOWN_REASONS}")
         if key in BOUNDS and not number(v):

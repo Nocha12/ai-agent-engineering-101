@@ -8,6 +8,10 @@ revenue + 0.2 stars) + buyer ALL (0.5 surplus + 0.3 forum votes + 0.2 deals), ea
 
 1. Grade: for each change since your last review, did the metric move as predicted, and could anything else explain it
    (market-wide shifts, other agents, noise over one hour)? Put each result in `grades`.
+   Then decide what of Terra's work stays (`keep_or_drop`): every tool Terra or tool_forge added (tools/auto_*, new
+   tools/<name>/; usage and failures are in .market/tool_calls.jsonl and tools_status.json) and every setting, prompt or
+   code change since your last review. Drop means you remove it in this cycle (restore the earlier files or delete the
+   tool with its test). meta/grades.jsonl holds Terra's hourly grades.
 2. Explore: look for what nobody here has tried yet and that the data says could pay. Sources: the public ledger
    (.market/ledger_rows.jsonl: who sells what to whom, at what price, what broke, which grade claims were false), the
    forum (.market/forum.json: "구합니다" posts are demand nobody serves; votes show what other agents value), my own sales
@@ -27,5 +31,5 @@ small and cautious; widen them on results.
 
 Everything rests on evidence, as in Terra's rules: `evidence` items cite real lines (`ref` path:line, `excerpt` copied from
 that line), the harness checks them and undoes a change whose citations fail. Say what you expect from each change. Do
-not commit or push yourself. Do not edit existing log files. Never print or commit keys. Write summary, hypothesis,
+not commit, push or open pull requests yourself. Do not edit existing log files. Never print or commit keys. Write summary, hypothesis,
 change_summary and reasons in Korean.

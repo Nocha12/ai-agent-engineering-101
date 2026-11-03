@@ -55,17 +55,17 @@
   ],
   "warranty_hours": 0,
   "warranty": {
-    "on_request_hours": 3,
+    "on_request_hours": 4,
     "max_hours": 6,
     "prior_break": 0.15,
     "max_break": 0.25
   },
   "restock": {
-    "keep_cash": 3000000,
-    "target_per_category": 1,
+    "keep_cash": 2500000,
+    "target_per_category": 2,
     "min_shelf_hours": 720,
-    "goods_max_price": 30000,
-    "max_lines": 5,
+    "goods_max_price": 45000,
+    "max_lines": 7,
     "cover_hours": 6,
     "max_units_per_sku": 5,
     "max_sku_share": 0.1,
@@ -82,9 +82,9 @@
     "end_cover": 0.5,
     "agent_every_minutes": 10,
     "agent_max_lines": 30,
-    "max_stock_cost": 1000000,
-    "food_explore_qty": 0,
-    "food_max_qty": 2,
+    "max_stock_cost": 1500000,
+    "food_explore_qty": 1,
+    "food_max_qty": 3,
     "max_break": 0.15
   },
   "markdown": {

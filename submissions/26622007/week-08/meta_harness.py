@@ -46,11 +46,16 @@ EVIDENCE = {"type": "array", "items": {"type": "object", "additionalProperties":
 COMMON = {"changed": {"type": "boolean"}, "hypothesis": {"type": "string"}, "change_summary": {"type": "string"},
           "target_metric": {"type": "string"}, "expected": {"type": "string"}, "evidence": EVIDENCE}
 SCHEMAS = {
-    "terra": {"previous_verdict": {"type": "string", "enum": ["none", "keep", "fix", "revert"]}, "previous_reason": {"type": "string"}},
+    "terra": {"previous_verdict": {"type": "string", "enum": ["none", "keep", "fix", "revert"]}, "previous_reason": {"type": "string"},
+              "grade_summary": {"type": "string"}, "weakest": {"type": "array", "items": {"type": "string"}},
+              "action_kind": {"type": "string", "enum": ["none", "settings", "tool_new", "tool_fix", "prompt", "code", "memory"]}},
     "astra": {"summary": {"type": "string"},
               "grades": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["change", "grade", "reason"],
                                                     "properties": {"change": {"type": "string"}, "reason": {"type": "string"},
-                                                                   "grade": {"type": "string", "enum": ["worked", "no_effect", "harmful", "unclear"]}}}}},
+                                                                   "grade": {"type": "string", "enum": ["worked", "no_effect", "harmful", "unclear"]}}}},
+              "keep_or_drop": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["item", "decision", "reason"],
+                                                          "properties": {"item": {"type": "string"}, "reason": {"type": "string"},
+                                                                         "decision": {"type": "string", "enum": ["keep", "drop"]}}}}},
 }
 
 
@@ -225,6 +230,7 @@ def undo(sha, why):
 
 
 def record(rec):
+    grade_log(rec)
     with open(os.path.join(ROOT, "meta", "changes.jsonl"), "a", encoding="utf-8") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     stage()
@@ -263,7 +269,10 @@ def limit_problems(code):
     new = pricing_now()
     if "_unreadable" in new:
         return [f"pricing.json is not valid JSON: {new['_unreadable']}"]
-    return hard_limits.check_policy_change(pricing_at_head(), new) + \
+    counts = scorecard.log_counts(ROOT)
+    strong = counts.get("settled_as_shop", 0) + counts.get("paid_as_buyer", 0) >= hard_limits.STRONG_SAMPLE
+    step = hard_limits.MAX_STEP_STRONG if strong else hard_limits.MAX_STEP
+    return hard_limits.check_policy_change(pricing_at_head(), new, step) + \
         hard_limits.guard_problems(code, git("diff", "--cached", "--no-color", "--", *code) if code else "")
 
 
@@ -272,12 +281,43 @@ def push():
         log(git("push", "origin", f"HEAD:{os.environ.get('META_PUSH_BRANCH', 'week-08')}", check=False) or "pushed")
 
 
+def since_last(card):
+    """What changed since the previous scorecard: the log counters (failures included) and the objective. Terra grades the
+    last hour from this, then the change it made in it."""
+    folder = os.path.join(ROOT, "meta", "evidence")
+    packs = sorted((p for p in os.listdir(folder) if p.endswith(".json")), key=lambda p: os.path.getmtime(os.path.join(folder, p))) \
+        if os.path.isdir(folder) else []
+    if not packs:
+        return {"first": True}
+    try:
+        with open(os.path.join(folder, packs[-1]), encoding="utf-8") as f:
+            prev = json.load(f)
+    except (OSError, ValueError):
+        return {"first": True}
+    a, b = prev.get("log_counts") or {}, card.get("log_counts") or {}
+    obj = lambda c: ((c.get("board") or {}).get("objective") or {})
+    return {"previous": packs[-1], "log_counts": {k: b[k] - a.get(k, 0) for k in b if isinstance(b[k], int) and b[k] - a.get(k, 0)},
+            "players": [obj(prev).get("players"), obj(card).get("players")], "shop": [prev.get("shop"), card.get("shop")]}
+
+
+def grade_log(rec):
+    """meta/grades.jsonl: each cycle's grading, apart from the changes, so a trend of grades can be read in one place."""
+    a = rec.get("answer") or {}
+    with open(os.path.join(ROOT, "meta", "grades.jsonl"), "a", encoding="utf-8") as f:
+        f.write(json.dumps({"cycle": rec["cycle"], "time": rec["time"], "status": rec.get("status"),
+                            "grade": a.get("grade_summary") or a.get("summary"), "weakest": a.get("weakest"),
+                            "action": a.get("action_kind"), "verdict": a.get("previous_verdict"), "grades": a.get("grades"),
+                            "keep_or_drop": a.get("keep_or_drop")}, ensure_ascii=False) + "\n")
+
+
 def cycle(kind):
     cid = f"{kind}-{time.strftime('%m%d-%H%M%S')}"
     os.makedirs(os.path.join(ROOT, "meta", "evidence"), exist_ok=True)
     pack = os.path.join(ROOT, "meta", "evidence", f"{cid}.json")
+    card = scorecard.build(ROOT)
+    card["since_last_cycle"] = since_last(card)
     with open(pack, "w", encoding="utf-8") as f:
-        json.dump(scorecard.build(ROOT), f, ensure_ascii=False, indent=1, default=str)
+        json.dump(card, f, ensure_ascii=False, indent=1, default=str)
     log(f"{cid}: asking {MODELS[kind]}")
     answer, err = call_model(kind, cid, pack)
     rec = {"cycle": cid, "model": MODELS[kind], "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "answer": answer}

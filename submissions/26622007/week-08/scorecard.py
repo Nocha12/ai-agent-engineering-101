@@ -16,7 +16,10 @@ ME = os.environ.get("SHOP_MARKET_NAME", "nocha12")
 COUNTERS = {"settled_as_shop": "[acp] settled", "paid_as_buyer": "[acp] paid", "buyer_refused_to_pay": "[acp] not paying",
             "checkout_refused": "checkout refused", "settle_refused": "settle refused", "supply": "[supply]",
             "supply_refused": "refused:", "tracebacks": "Traceback", "harness_failed": "harness failed",
-            "no_stock": "REJECTED (not in stock)", "bankrupt": "[bankrupt]", "broken": "[broken]", "forum": "[forum]"}
+            "no_stock": "REJECTED (not in stock)", "bankrupt": "[bankrupt]", "broken": "[broken]", "forum": "[forum]",
+            "below_cost_offer": "instead of cost", "warranty_given": "WARRANTY ", "warranty_declined": "WARRANTY declined",
+            "forum_post_refused": "[forum] post as buyer: 4", "forum_vote_refused": "[forum] vote as buyer: 4",
+            "sold": "-> COMPLETED", "talks_rejected": "-> REJECTED"}
 SOURCES = ("logs", "memory", ".market", "meta")
 # The midterm's Round 3 rank (week 9, FIG. 07): each part a percentile among shops or buyers, Players = shop ALL + buyer ALL.
 OBJECTIVE = {"shops": [(("profit",), 0.5), (("revenue",), 0.3), (("stars",), 0.2)],
@@ -127,6 +130,24 @@ def memory_timing(md, last=500):
     return {k: {"mean_ms": round(v["ms"] / v["n"]), "bytes": v["bytes"], "n": v["n"]} for k, v in out.items()}
 
 
+def unsold(units, now=None):
+    """Stock that has waited a day or more: count, cost, and the SKUs with the most money in them."""
+    now = now or time.time()
+    old = [u for u in units if now - (u.get("supplied_at") or now) >= 86400]
+    by = collections.Counter()
+    for u in old:
+        by[u.get("sku")] += u.get("cost") or 0
+    return {"units": len(old), "cost": round(sum(by.values())), "top": by.most_common(5)}
+
+
+def jsonl_or_json(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
 def build(root):
     md = os.path.join(root, ".market")
     try:
@@ -143,7 +164,8 @@ def build(root):
     return {"time": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "board": board(),
             "shop": {"balance": inv.get("balance"), "profit_if_stock_is_worthless":
                      None if inv.get("balance") is None else inv["balance"] - (inv.get("start") or 0) - (inv.get("injected") or 0),
-                     "units": len(units), "stock_cost": round(sum(u.get("cost") or 0 for u in units))},
+                     "units": len(units), "stock_cost": round(sum(u.get("cost") or 0 for u in units)),
+                     "unsold_over_24h": unsold(units), "tools_status": jsonl_or_json(os.path.join(md, "tools_status.json"))},
             "log_counts": log_counts(root),
             "llm": llm_table(md), "memory_timing": memory_timing(md),
             "tools": dict(tools), "decisions": len(decisions), "last_decisions": decisions[-5:],

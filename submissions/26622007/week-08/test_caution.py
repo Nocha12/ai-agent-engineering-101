@@ -31,17 +31,17 @@ def shipped():
 
 
 class RestockCautionTest(unittest.TestCase):
-    def test_first_stock_is_one_goods_unit_and_no_food(self):
+    def test_first_stock_is_a_couple_of_goods_and_a_single_food_unit(self):
         out = restock.plan({"balance": 5000000, "units": []}, CATALOG, DEMAND, shipped())
-        self.assertEqual(len(out["buy"]), 1)
-        self.assertEqual(CATALOG[out["buy"][0]["sku"]]["kind"], "goods")
-        self.assertEqual(out["buy"][0]["qty"], 1)
+        got = {CATALOG[b["sku"]]["kind"]: b["qty"] for b in out["buy"]}
+        self.assertEqual(got, {"goods": shipped()["target_per_category"], "food": shipped()["food_explore_qty"]})
+        self.assertLessEqual(shipped()["food_explore_qty"], 1)
 
     def test_guard_caps_food_stock_cost_and_the_bankruptcy_line(self):
         cfg = shipped()
         inv = {"balance": 5000000, "units": []}
         self.assertEqual(restock.guard([{"sku": "F1", "qty": 20}], inv, CATALOG, cfg), [{"sku": "F1", "qty": cfg["food_max_qty"]}])
-        held = [{"unit": str(i), "sku": "H1", "cost": 15000} for i in range(66)]      # 990,000 of stock already
+        held = [{"unit": str(i), "sku": "H1", "cost": 15000} for i in range(cfg["max_stock_cost"] // 15000)]   # stock at its cap
         self.assertEqual(restock.guard([{"sku": "H1", "qty": 5}], {"balance": 5000000, "units": held}, CATALOG, cfg), [])
         loose = {**cfg, "keep_cash": 0, "max_stock_cost": float("inf")}
         self.assertEqual(restock.guard([{"sku": "H1", "qty": 20}], {"balance": 1010000, "units": []}, CATALOG, loose), [])
@@ -211,6 +211,41 @@ class MetaLimitTest(unittest.TestCase):
                 mock.patch.object(meta_harness, "git", lambda *a, **k: ""):
             self.assertEqual(meta_harness.limit_problems(["pricing.json"]), [])
         self.assertTrue(hard_limits.guard_problems(["hard_limits.py"], ""))
+
+
+class TerraGradingTest(unittest.TestCase):
+    def test_since_last_cycle_and_the_grade_log(self):
+        tmp = tempfile.mkdtemp()
+        try:
+            os.makedirs(os.path.join(tmp, "meta", "evidence"))
+            with mock.patch.object(meta_harness, "ROOT", tmp):
+                self.assertEqual(meta_harness.since_last({}), {"first": True})
+                with open(os.path.join(tmp, "meta", "evidence", "terra-1.json"), "w") as f:
+                    json.dump({"log_counts": {"no_stock": 2, "sold": 5}}, f)
+                d = meta_harness.since_last({"log_counts": {"no_stock": 7, "sold": 5}})
+                self.assertEqual(d["log_counts"], {"no_stock": 5})
+                meta_harness.grade_log({"cycle": "terra-2", "time": "t", "status": "running",
+                                        "answer": {"grade_summary": "재고 부족 5건", "weakest": ["revenue"], "action_kind": "tool_new"}})
+                with open(os.path.join(tmp, "meta", "grades.jsonl")) as f:
+                    row = json.loads(f.read())
+                self.assertEqual((row["weakest"], row["action"]), (["revenue"], "tool_new"))
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_the_strong_step_needs_a_sample(self):
+        old, new = {"restock": {"max_stock_cost": 1000000}}, {"restock": {"max_stock_cost": 2000000}}
+        for settled, ok in ((10, False), (50, True)):
+            with mock.patch.object(meta_harness, "pricing_at_head", lambda: old), mock.patch.object(meta_harness, "pricing_now", lambda: new), \
+                    mock.patch.object(meta_harness, "git", lambda *a, **k: ""), \
+                    mock.patch.object(meta_harness.scorecard, "log_counts", lambda root: {"settled_as_shop": settled, "paid_as_buyer": 0}):
+                self.assertEqual(meta_harness.limit_problems(["pricing.json"]) == [], ok)
+
+    def test_no_pull_request_path_anywhere(self):
+        for name in os.listdir(HERE):
+            if name.endswith((".py", ".sh", ".md")) and not name.startswith("test_"):
+                text = open(os.path.join(HERE, name), encoding="utf-8").read()
+                self.assertNotIn("pr create", text, name)
+                self.assertNotIn("api.github.com", text, name)
 
 
 if __name__ == "__main__":

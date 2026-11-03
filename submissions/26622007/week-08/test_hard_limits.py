@@ -49,6 +49,13 @@ class HardLimitsTest(unittest.TestCase):
         new["markdown"]["below_cost"] = ["food_expiry", "everything"]
         self.assertTrue(hl.check_policy_change(old, new))
 
+    def test_a_real_sample_allows_a_bigger_step_but_not_more(self):
+        old, new = {"restock": {"max_stock_cost": 1000000}}, {"restock": {"max_stock_cost": 2000000}}
+        self.assertTrue(hl.check_policy_change(old, new))
+        self.assertEqual(hl.check_policy_change(old, new, hl.MAX_STEP_STRONG), [])
+        self.assertTrue(hl.check_policy_change(old, {"restock": {"max_stock_cost": 2100000}}, hl.MAX_STEP_STRONG))
+        self.assertTrue(hl.check_policy_change(old, {"restock": {"max_stock_cost": 2100000}}, 5.0))     # capped at strong
+
     def test_protected_files_and_guard_lines(self):
         self.assertTrue(hl.guard_problems(["hard_limits.py"], ""))
         self.assertTrue(hl.guard_problems(["restock.py"], "-    spare = min(x, hard_limits.spendable(balance))\n"))
