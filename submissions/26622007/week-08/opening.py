@@ -31,6 +31,11 @@ def load(path, default):
 RETRY_AFTER = 300      # seconds after a phase is sent before "nothing arrived" means the window was missed
 MAX_TRIES = 2          # a phase nothing of which ever arrives is skipped after this many sends
 SECONDS_PER_LINE = 10  # the kit's pace between supply calls
+# The kit tries a line 3 times and sleeps min(wait, 30) s after each 429, so the third try comes about 60 s after the
+# first: a line sent 70 s before the window opened was refused three times and lost (05:41:19, "opens in 4 s").
+# The three tries cover a wait of about 60 s; 50 s leaves 10 s for slow calls. A run this holds back is followed by the
+# next one about 60 s later, which finds the window open or under 50 s away (the window stays open 180 s).
+WINDOW_LEAD = 50
 
 
 def save(path, st):
@@ -40,7 +45,7 @@ def save(path, st):
     os.replace(tmp, path)
 
 
-def window_closed(inv, now=None, lead=75, need=0):
+def window_closed(inv, now=None, lead=WINDOW_LEAD, need=0):
     """True when inventory.json says supply is closed and will not open within lead seconds, or is open but closes before
     need more seconds of supply calls could finish."""
     r, now = inv.get("restock"), now or time.time()

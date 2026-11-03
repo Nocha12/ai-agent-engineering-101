@@ -125,5 +125,24 @@ class ShippedOpeningTest(unittest.TestCase):
                 shutil.rmtree(md)
 
 
+class WindowLeadTest(unittest.TestCase):
+    """The kit gives a line 3 tries about 30 s apart: a line let out more than about 60 s early is lost (05:41:19)."""
+
+    def closed(self, opens_in):
+        return {"restock": {"open": False, "opens_at": NOW + opens_in, "closes_at": NOW + opens_in + 180}}
+
+    def test_holds_lines_until_the_kit_can_reach_the_window(self):
+        self.assertTrue(opening.window_closed(self.closed(70), NOW))        # 05:40:13: 70 s before, refused 3 times
+        self.assertTrue(opening.window_closed(self.closed(opening.WINDOW_LEAD + 1), NOW))
+        self.assertFalse(opening.window_closed(self.closed(opening.WINDOW_LEAD), NOW))
+        self.assertFalse(opening.window_closed(self.closed(5), NOW))
+        self.assertLessEqual(opening.WINDOW_LEAD, 55)
+
+    def test_open_window_and_missing_info(self):
+        self.assertFalse(opening.window_closed({"restock": {"open": True, "closes_at": NOW + 100}}, NOW))
+        self.assertTrue(opening.window_closed({"restock": {"open": True, "closes_at": NOW + 10}}, NOW, need=25))
+        self.assertFalse(opening.window_closed({}, NOW))
+
+
 if __name__ == "__main__":
     unittest.main()
