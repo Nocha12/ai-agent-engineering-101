@@ -33,6 +33,7 @@ import agent_memory
 import decision_memory
 import forum
 import hard_limits
+import loss_watch
 import market_model
 import tool_forge
 from harness import HarnessError
@@ -247,6 +248,7 @@ def main():
     cfg = hard_limits.clamp_cfg("restock", {**DEFAULTS, **load("pricing.json", {}).get("restock", {})})
     catalog = load(os.path.join(args.state, "catalog.json"), {})
     demand, model = load(os.path.join(args.state, "demand.json"), []), read_model(args.state, catalog, cfg)
+    loss_watch.check(args.state)           # after read_model: the ledger rows are fresh
     breaks = read_breaks(args.state, catalog)
     out = plan(inv, catalog, demand, cfg, model, breaks)
     if os.environ.get("HARNESS") and not out.get("bankrupt"):

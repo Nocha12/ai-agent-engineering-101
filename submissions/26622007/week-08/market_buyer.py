@@ -481,6 +481,23 @@ def buyer_cfg():
         return dict(BUYER)
 
 
+SHOP_PATTERN_MIN = 10      # settled deals of a shop in the ledger before its pattern says anything
+
+
+def shop_pattern(rows, url, catalog, min_deals=SHOP_PATTERN_MIN):
+    """What other buyers paid this shop, from the public ledger: the median share of list price over its settled deals.
+    None until it has min_deals. The negotiation starts from it: a shop that settles low does not get my list price."""
+    url = (url or "").rstrip("/")
+    ratios = sorted(r["amount"] / catalog[r["sku"]]["list_price"] for r in rows
+                    if r.get("k") == "settle" and (r.get("shop") or "").rstrip("/") == url and r.get("amount")
+                    and (catalog.get(r.get("sku")) or {}).get("list_price"))
+    if len(ratios) < min_deals:
+        return None
+    mid, low = ratios[len(ratios) // 2], ratios[len(ratios) // 4]
+    return (f"in the public ledger other buyers paid this shop a median {mid:.0%} of list price (a quarter of deals at "
+            f"{low:.0%} or less) over {len(ratios)} deals: open well under that and do not pay more than that median")
+
+
 def value_limit(offer, budget, chance, cfg=None):
     """The most this offer is worth paying: list price, less the chance that goods break and leave me nothing, within
     the buyer's limits."""
@@ -600,10 +617,12 @@ def main():
         chance = market_model.break_chance(market_model.break_stats(market_model.load_rows(md), catalog), key)
     limit = value_limit(offer, args.budget, chance, buyer_cfg()) if r3 else args.budget
     mine = my_history(memory, shop["name"])
+    pattern = shop_pattern(market_model.load_rows(md), shop["url"], catalog) if r3 else None
     deals, low = item_stats(mine, key)
     note = "; ".join(x for x in (
         f"it sold {label} to you at {', '.join(map(str, deals[-3:]))}" if deals else "",
-        f"its lowest ask for {label} so far was {low}" if low is not None else "") if x)
+        f"its lowest ask for {label} so far was {low}" if low is not None else "",
+        pattern or "") if x)
     if note:
         log(f"memory note for the harness: {note}")
     if r3:

@@ -16,7 +16,9 @@ Every cycle, in this order:
    and the logs, score the hour against each part of the objective and list the failures it shows: orders missed for lack
    of stock (no_stock), offers below cost (below_cost_offer), warranties declined, buyer payments refused, forum posts or
    votes refused (forum_*_refused, the 429/400 answers in .market/outbox.sent.jsonl), stock unsold for a day
-   (shop.unsold_over_24h), tools left out (shop.tools_status). Quote the numbers.
+   (shop.unsold_over_24h), tools left out (shop.tools_status), and the shop's losses (shop.losses, the "[loss]" lines:
+   break_refund, expired, grade_drop, storage; loss_watch.py). Net profit is the balance; read it next to
+   profit_if_stock_sells_at_cost and the losses to see where it went. Net profit is the first goal. Quote the numbers.
 2. Choose the weakest one or two parts (`weakest`) and a cause you can check in the data. Check it before acting.
 3. Act (`action_kind`), the change most likely to move that part:
    - settings: pricing.json, inside hard_limits (one step per cycle; a bigger step is allowed once the log holds a real
@@ -24,7 +26,8 @@ Every cycle, in this order:
    - tool_new: a tool in tools/<name>/ (manifest.json with "selftest", tool.py, a test) for a question the agents keep
      answering by hand or cannot answer at all; tools run sandboxed (no network, no keys, read only) and Luna finds them at
      its next decision;
-   - tool_fix: repair or remove a tool that is left out or wrong, tools/auto_* included (made by tool_forge.py);
+   - tool_fix: repair or remove a tool that is left out or wrong, tools/auto_* included (made by tool_forge.py); my_customers and the buyer's
+     shop_pattern are the counterpart data (who buys from me at what share of list price, what other buyers paid a shop);
    - prompt / code: seller.py, market_buyer.py, restock.py, forum.py, market_model.py, agent_memory.py: what the agents are
      told, what they are given, a formula that the ledger shows wrong. Tests must pass;
    - memory: memory/agent/MEMORY.md, strategies/*.md (one lesson per mistake, with triggers), daily/.

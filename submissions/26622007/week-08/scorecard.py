@@ -140,6 +140,13 @@ def unsold(units, now=None):
     return {"units": len(old), "cost": round(sum(by.values())), "top": by.most_common(5)}
 
 
+def live_stock_cost(units, now=None):
+    """What the stock still here cost, expired food left out: the most it can bring back at cost."""
+    now = now or time.time()
+    return round(sum(u.get("cost") or 0 for u in units
+                     if u.get("grade") != "expired" and not (u.get("expires_at") and u["expires_at"] <= now)))
+
+
 def jsonl_or_json(path):
     try:
         with open(path, encoding="utf-8") as f:
@@ -165,7 +172,10 @@ def build(root):
             "shop": {"balance": inv.get("balance"), "profit_if_stock_is_worthless":
                      None if inv.get("balance") is None else inv["balance"] - (inv.get("start") or 0) - (inv.get("injected") or 0),
                      "units": len(units), "stock_cost": round(sum(u.get("cost") or 0 for u in units)),
-                     "unsold_over_24h": unsold(units), "tools_status": jsonl_or_json(os.path.join(md, "tools_status.json"))},
+                     "unsold_over_24h": unsold(units), "tools_status": jsonl_or_json(os.path.join(md, "tools_status.json")),
+                     "profit_if_stock_sells_at_cost": None if inv.get("balance") is None else
+                     inv["balance"] - (inv.get("start") or 0) - (inv.get("injected") or 0) + live_stock_cost(units),
+                     "losses": (jsonl_or_json(os.path.join(md, "loss_state.json")) or {}).get("totals", {})},
             "log_counts": log_counts(root),
             "llm": llm_table(md), "memory_timing": memory_timing(md),
             "tools": dict(tools), "decisions": len(decisions), "last_decisions": decisions[-5:],
