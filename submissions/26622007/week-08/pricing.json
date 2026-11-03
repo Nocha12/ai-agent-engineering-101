@@ -84,7 +84,7 @@
     "agent_max_lines": 30,
     "max_stock_cost": 1500000,
     "food_explore_qty": 1,
-    "food_max_qty": 6,
+    "food_max_qty": 3,
     "max_break": 0.15,
     "food_max_price": 30000,
     "band_low": 0.8,
