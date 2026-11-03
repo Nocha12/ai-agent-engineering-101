@@ -98,6 +98,10 @@
       "G0f415407",
       "G9c02e68e"
     ],
+    "priority_skus": [
+      "G6b9db161",
+      "G75f11c19"
+    ],
     "food_max_stock_cost": 450000,
     "skip_skus": [
       "G07ec17d5"

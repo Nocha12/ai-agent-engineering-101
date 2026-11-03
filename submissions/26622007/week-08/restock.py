@@ -416,6 +416,49 @@ def agent_turn(state, inv, catalog, demand, cfg, model, decide=agent_loop.decide
     return now
 
 
+def proven_first(agent_lines, formula_lines, cfg):
+    """The high_price_proven_skus, then priority_skus, that either the agent or the formula proposes go first, at the
+    larger of their two quantities (guard still caps them). At 03:40 the agent's 'G1515d951 1' replaced the formula's 3
+    and max_lines cut G9c02e68e; at 04:00 they came behind five food lines and the 180 s window closed before G1515d951
+    was bought (kit log 04:03)."""
+    order = []
+    for s in list(cfg.get("high_price_proven_skus") or ()) + list(cfg.get("priority_skus") or ()):
+        if isinstance(s, str) and s not in order:
+            order.append(s)
+    want = {}
+    for b in list(agent_lines) + list(formula_lines):
+        q = b.get("qty")
+        if b.get("sku") in order and isinstance(q, int) and not isinstance(q, bool) and q > 0:
+            want[b["sku"]] = max(want.get(b["sku"], 0), q)
+    return [{"sku": s, "qty": want[s]} for s in order if s in want] + [b for b in agent_lines if b.get("sku") not in want]
+
+
+def batch(agent_lines, fill_lines, formula_lines, keep, cfg):
+    """This run's lines and the agent lines to queue again: proven / priority SKUs first (proven_first, from the
+    formula's plan even while the agent's queue waits), then the agent's, then fill_lines (the formula's, once the
+    queue is empty). Lines the guard drops are gone, as before; agent lines that only the cut at max_lines leaves out
+    go back to the queue, so the proven lines never push an agent line out for good."""
+    agent_skus = {b.get("sku") for b in agent_lines}
+    first = set(cfg.get("high_price_proven_skus") or ()) | set(cfg.get("priority_skus") or ())
+    kept = with_formula(proven_first(agent_lines, formula_lines, cfg), fill_lines, keep, None)
+    n = cfg["max_lines"]
+    return kept[:n], [b for b in kept[n:] if b["sku"] in agent_skus and b["sku"] not in first]
+
+
+def requeue(state, lines):
+    """Agent lines that did not fit this run's max_lines go back to the front of the queue, so none is lost."""
+    if not lines:
+        return
+    path = os.path.join(state, "restock_queue.json")
+    q = load(path, {})
+    q["lines"] = list(lines) + (q.get("lines") or [])
+    q.setdefault("at", time.time())
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(q, f, ensure_ascii=False)
+    os.replace(tmp, path)
+
+
 def with_formula(agent_lines, formula_lines, keep, limit):
     """The agent's lines first, then the formula's for the room the limits leave. Buyers see only shops that stock the
     ordered category (shops.json offers), and over Round 3's first three hours units stocked and visits ranked together
@@ -468,8 +511,11 @@ def main():
         lines = agent_turn(args.state, inv, catalog, demand, cfg, model)
         if lines is not None:
             queued = load(os.path.join(args.state, "restock_queue.json"), {}).get("lines") or []
-            # the formula fills only once the agent's queue is sent: its later lines must not meet a cap the formula used
-            out = {"buy": keep(lines) if queued else with_formula(lines, out["buy"], keep, cfg["max_lines"])}
+            # the formula fills only once the agent's queue is sent, except the proven / priority SKUs it proposes:
+            # those go first in either case (proven_first); agent lines they push past max_lines are queued again
+            send, back = batch(lines, [] if queued else out["buy"], out["buy"], keep, cfg)
+            requeue(args.state, back)
+            out = {"buy": send}
     agent_memory.maybe_consolidate(args.state)
     if os.environ.get("HARNESS"):
         forum.maybe_run(args.state)     # the kit runs this hook once a minute in Round 3; forum.py keeps its own pace

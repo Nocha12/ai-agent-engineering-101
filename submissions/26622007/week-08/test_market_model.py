@@ -215,6 +215,44 @@ class PlanWithModelTest(unittest.TestCase):
         self.assertEqual(restock.with_formula([], formula, keep, 10), [{"sku": "H1", "qty": 3}, {"sku": "F1", "qty": 2},
                                                                       {"sku": "F2", "qty": 2}])
 
+    def test_proven_high_price_lines_go_first_at_the_larger_quantity(self):
+        cfg = {"high_price_proven_skus": ["P1", "P2", "P3"]}
+        agent = [{"sku": "F1", "qty": 3}, {"sku": "P1", "qty": 1}]
+        formula = [{"sku": "F2", "qty": 2}, {"sku": "P2", "qty": 3}, {"sku": "P1", "qty": 3}]
+        self.assertEqual(restock.proven_first(agent, formula, cfg),
+                         [{"sku": "P1", "qty": 3}, {"sku": "P2", "qty": 3}, {"sku": "F1", "qty": 3}])
+        keep = lambda lines: lines
+        got = restock.with_formula(restock.proven_first(agent, formula, cfg), formula, keep, 3)
+        self.assertEqual([b["sku"] for b in got], ["P1", "P2", "F1"])     # the limit cuts food, not the proven SKUs
+        self.assertEqual(restock.proven_first(agent, formula, {}), agent)  # no list: unchanged
+        self.assertEqual(restock.proven_first([{"sku": "P3", "qty": 0}], [], cfg), [{"sku": "P3", "qty": 0}])
+        cfg = {"high_price_proven_skus": ["P1"], "priority_skus": ["Q1", "P1"]}
+        got = restock.proven_first([{"sku": "F1", "qty": 2}, {"sku": "Q1", "qty": True}], [{"sku": "Q1", "qty": 2}], cfg)
+        self.assertEqual(got, [{"sku": "Q1", "qty": 2}, {"sku": "F1", "qty": 2}])     # bool qty ignored, list deduped
+
+    def test_batch_sends_max_lines_and_queues_the_agent_lines_cut(self):
+        cfg = {"high_price_proven_skus": ["P1", "P2"], "priority_skus": ["Q1"], "max_lines": 3}
+        keep = lambda lines: [b for b in lines if b["sku"] != "X"]       # stands in for guard: X does not fit
+        agent = [{"sku": "A1", "qty": 1}, {"sku": "X", "qty": 1}, {"sku": "A2", "qty": 2}, {"sku": "P1", "qty": 1}]
+        formula = [{"sku": "P1", "qty": 3}, {"sku": "P2", "qty": 3}, {"sku": "F1", "qty": 2}]
+        send, back = restock.batch(agent, [], formula, keep, cfg)           # queue still waiting: no formula fill
+        self.assertEqual(send, [{"sku": "P1", "qty": 3}, {"sku": "P2", "qty": 3}, {"sku": "A1", "qty": 1}])
+        self.assertEqual(back, [{"sku": "A2", "qty": 2}])                   # X dropped by the guard, not queued
+        send, back = restock.batch(agent, formula, formula, keep, dict(cfg, max_lines=10))   # queue empty: formula fills
+        self.assertEqual([b["sku"] for b in send], ["P1", "P2", "A1", "A2", "F1"])
+        self.assertEqual(back, [])
+
+    def test_requeue_puts_lines_back_in_front(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "restock_queue.json")
+            restock.requeue(d, [])
+            self.assertFalse(os.path.exists(path))
+            with open(path, "w") as f:
+                json.dump({"at": 1, "lines": [{"sku": "B", "qty": 1}]}, f)
+            restock.requeue(d, [{"sku": "A", "qty": 2}])
+            with open(path) as f:
+                self.assertEqual(json.load(f), {"at": 1, "lines": [{"sku": "A", "qty": 2}, {"sku": "B", "qty": 1}]})
+
     def test_no_margin_no_stock(self):
         self.assertEqual(self.plan(model(F1={"price_ratio": 0.45}), explore_lines=0), [])
 
