@@ -286,11 +286,22 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(out["receipt"]["warranty_hours"], 6)
         self.assertGreaterEqual(int(out["receipt"]["price"]), 6667)
 
-    def test_a_quote_is_cancelled_and_the_unit_comes_back(self):
+    def test_a_quote_promises_nothing_the_loser_is_cancelled_the_winner_goes_on(self):
         got = {}
-        market_buyer.quote({"name": "s", "url": self.url}, "청소기", "G2", {"kind": "goods"}, got)
-        self.assertIsInstance(got["s"]["ask"], (int, float))
-        self.assertIsNotNone(self.stock.find("G2"))                  # not held for a talk that was cancelled
+        with mock.patch.object(market_buyer, "serves_acp", lambda u: True), mock.patch.object(seller, "break_chance", lambda s: 0.1):
+            market_buyer.quote({"name": "s", "url": self.url}, "청소기", "G2", {"kind": "goods"}, got)
+        q = got["s"]
+        self.assertIsInstance(q["ask"], (int, float))
+        self.assertIsNone(q["refused"])                               # our shop gives goods 6 h
+        self.assertIsNone(self.stock.find("G2"))                      # held for the open talk
+        out = buyer.negotiate(self.url, "청소기", 10000, "", resume=(q["url"], q["task"]))
+        self.assertEqual((out["state"], out["receipt"]["warranty_hours"]), ("TASK_STATE_COMPLETED", 6))
+        self.units.append(unit("u-g3", "G2", kind="goods", grade="A", category="가전>청소기"))
+        got = {}
+        with mock.patch.object(market_buyer, "serves_acp", lambda u: True):
+            market_buyer.quote({"name": "s", "url": self.url}, "청소기", "G2", {"kind": "goods"}, got)
+        market_buyer.cancel_quote(got["s"], "s")
+        self.assertEqual(self.stock.find("G2")["unit"], "u-g3")       # the cancelled quote let the unit go
 
     def test_food_never_gets_a_warranty(self):
         out = buyer.negotiate(self.url, "포기김치", 10000, "", "I want to buy (G1) with a warranty")
@@ -343,7 +354,7 @@ class RoundTwoStillWorks(EndToEnd):
     test_warranty_is_declined_when_the_sku_breaks_too_often = None
     test_food_never_gets_a_warranty = None
     test_goods_get_six_hours_by_default_and_food_none = None
-    test_a_quote_is_cancelled_and_the_unit_comes_back = None
+    test_a_quote_promises_nothing_the_loser_is_cancelled_the_winner_goes_on = None
     test_unit_is_not_promised_twice_and_out_of_stock_is_refused = None
     test_a_unit_near_its_date_sells_below_cost_and_stays_out_of_the_bandit = None
 
@@ -376,6 +387,11 @@ class BuyerTest(unittest.TestCase):
         self.assertIsNone(market_buyer.warranty_short({"warranty_hours": 6}, {"kind": "goods"}))
         self.assertIn("0 h", market_buyer.warranty_short({}, {"kind": "goods"}))
         self.assertIsNone(market_buyer.warranty_short({}, self.ORDER))
+        g = {"kind": "goods"}
+        self.assertTrue(market_buyer.warranty_refused("Sorry, this item is sold without a warranty. My price: 9000.", g))
+        self.assertTrue(market_buyer.warranty_refused("It comes with a 3 h warranty. My price: 9000.", g))
+        self.assertIsNone(market_buyer.warranty_refused("This unit comes with a 6 h warranty: if it breaks", g))
+        self.assertIsNone(market_buyer.warranty_refused("no warranty", self.ORDER))
 
     def test_parallel_quotes_pick_the_most_surplus_and_promise_nothing(self):
         shops = [{"name": n, "url": f"https://{n}.example", "usable": [{"sku": "H1", "name": "청소기", "list_price": 10000}]}
@@ -429,7 +445,7 @@ class BuyerTest(unittest.TestCase):
                       "holds": 0, "receipt": {"item": "G1", "price": 11000, "task": "t", "sig_seller": "x"}}
             calls = []
 
-            def neg(*a):
+            def neg(*a, **k):
                 calls.append(a)
                 return dict(result)
 

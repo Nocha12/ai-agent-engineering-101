@@ -106,13 +106,19 @@ def decide(item, budget, history, text, meta_ask, turn, note=""):
     return ask(prompt, SCHEMA, SYSTEM, tag="buyer-harness")
 
 
-def negotiate(card_url, item, budget, note="", request=None):
+def negotiate(card_url, item, budget, note="", request=None, resume=None, stop_if=None):
     """One A2A negotiation. Returns {"state", "task", "receipt", "history", "agreed"}.
 
     agreed is the last price we offered, which is what the shop accepted when the task completes.
     request is the first message; Round 3 names the name and SKU the shop has.
+    resume=(rpc url, task) goes on with a talk already opened (a quote); stop_if(shop text) returning a reason ends the
+    talk before any offer (it is cancelled, nothing was promised).
     """
     out = {"state": "", "task": None, "receipt": None, "history": [], "agreed": None, "holds": 0}
+    if resume:
+        url, t = resume
+        log(f"going on with task {str(t.get('id'))[:8]} at {url}; item {item}, budget {budget}")
+        return talk(url, t, item, budget, note, out, stop_if)
     try:
         r = httpx.get(card_url.rstrip("/") + "/.well-known/agent-card.json", headers=HEADERS, timeout=30)
         card = r.json()
@@ -134,6 +140,10 @@ def negotiate(card_url, item, budget, note="", request=None):
     if t is None:
         out["state"] = "ERROR"
         return out
+    return talk(url, t, item, budget, note, out, stop_if)
+
+
+def talk(url, t, item, budget, note, out, stop_if=None):
     task_id, history = t["id"], out["history"]
     out["task"] = task_id
     turn, holds = 0, 0
@@ -142,6 +152,11 @@ def negotiate(card_url, item, budget, note="", request=None):
         if st != "TASK_STATE_INPUT_REQUIRED":
             break
         text, meta = message_text(t), metadata_ask(t)
+        why = stop_if(text) if stop_if and turn == 1 else None
+        if why:
+            log(f"stop before any offer: {why}")
+            out["stopped"] = why
+            break
         try:
             d = decide(item, budget, history, text, meta, turn, note)
         except HarnessError as e:

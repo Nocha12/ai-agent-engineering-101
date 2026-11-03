@@ -40,13 +40,17 @@ import time
 
 import httpx
 
+import re
 import threading
 
 import agent_loop
 import hard_limits
 import market_model
 from buyer import log, negotiate
-from buyer import message_text as buyer_message_text, metadata_ask as buyer_metadata_ask, rpc as buyer_rpc, send as buyer_send
+from buyer import HEADERS as BUYER_HEADERS, message_text as buyer_message_text, metadata_ask as buyer_metadata_ask
+from buyer import rpc as buyer_rpc, send as buyer_send
+
+STARTED = time.time()      # the kit stops market_buyer after 300 s: quotes only early in the run
 from harness import HarnessError, ask
 
 MEMORY = os.environ.get("BUYER_MEMORY")   # set in main() from the {shops} path unless given
@@ -413,6 +417,18 @@ def request_text(label, key, order):
     return f"I want to buy {label} ({key}){extra}"
 
 
+def warranty_refused(text, order):
+    """The shop says, before any offer, that this goods unit comes without the warranty I need: stop and cancel."""
+    if order.get("kind") != "goods":
+        return None
+    if re.search(r"without (a |any )?warranty|no warranty|warranty is not|cannot offer a warranty", text or "", re.I):
+        return "the shop sells it without a warranty"
+    hours = [float(h) for h in re.findall(r"(\d+(?:\.\d+)?)\s*(?:h|hours?|시간)\s*warranty", text or "", re.I)]
+    if hours and max(hours) < hard_limits.BUYER_GOODS_WARRANTY_HOURS:
+        return f"the shop offers only a {max(hours):g} h warranty"
+    return None
+
+
 def warranty_short(rec, order):
     """Why a goods receipt cannot be paid for: its warranty is shorter than I require. None when it is fine."""
     if order.get("kind") != "goods" or not isinstance(rec, dict):
@@ -425,18 +441,31 @@ def warranty_short(rec, order):
 QUOTE_WAIT = 45        # seconds the quotes may take together; a shop slower than that is left out
 
 
-def quote(shop, label, key, order, out, cancel=True):
-    """Asks one shop its opening price for this SKU (no offer from me, so nothing is promised), then cancels the talk."""
+def cancel_quote(q, name):
+    if q and q.get("task", {}).get("id") and not q.get("closed"):
+        q["closed"] = True
+        log(f"[quote] closing the talk with {name}")
+        buyer_rpc(q["url"], "CancelTask", {"id": q["task"]["id"]})
+
+
+def quote(shop, label, key, order, out, ctl=None):
+    """Asks one shop its opening price for this SKU, with no offer from me, so nothing is promised. The talk stays open:
+    the winner goes on with it, the others are cancelled (by best_quote, or here when the answer comes after the choice)."""
     try:
-        card = httpx.get(shop["url"].rstrip("/") + "/.well-known/agent-card.json", timeout=15).json()
-        iface = next(i for i in card.get("supportedInterfaces", []) if i.get("protocolBinding") == "JSONRPC")
+        if not serves_acp(shop["url"]):
+            log(f"[quote] {shop['name']}: no ACP checkout, a deal there cannot settle")
+            return
+        card = httpx.get(shop["url"].rstrip("/") + "/.well-known/agent-card.json", headers=BUYER_HEADERS, timeout=15).json()
+        iface = next(i for i in card.get("supportedInterfaces", [])
+                     if i.get("protocolBinding") == "JSONRPC" and str(i.get("protocolVersion")) == "1.0")
         t = buyer_send(iface["url"], request_text(label, key, order))
         if t is None:
             return
-        ask = buyer_metadata_ask(t)
-        out[shop["name"]] = {"ask": ask, "text": buyer_message_text(t)[:300]}
-        if cancel and t.get("id"):
-            buyer_rpc(iface["url"], "CancelTask", {"id": t["id"]})
+        ask = buyer_metadata_ask(t) if t.get("status", {}).get("state") == "TASK_STATE_INPUT_REQUIRED" else None
+        out[shop["name"]] = q = {"ask": ask, "text": buyer_message_text(t)[:300], "url": iface["url"], "task": t,
+                                 "refused": warranty_refused(buyer_message_text(t), order)}
+        if ctl is not None and ctl.get("done") and ctl.get("winner") != shop["name"]:
+            cancel_quote(q, shop["name"])
     except Exception as e:  # noqa: BLE001 - a shop that cannot quote is just not compared
         log(f"[quote] {shop['name']}: {type(e).__name__}: {e}")
 
@@ -448,11 +477,11 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
     pool = [chosen] + others[:max(0, k - 1)]
     if len(pool) < 2:
         return chosen, {}
-    got, threads = {}, []
+    got, threads, ctl = {}, [], {"done": False, "winner": None}
     for s in pool:
         o = pick_offer(s["usable"], budget)
         s["_offer"] = o
-        th = threading.Thread(target=quote, args=(s, o["name"], o["sku"], order, got), daemon=True)
+        th = threading.Thread(target=quote, args=(s, o["name"], o["sku"], order, got, ctl), daemon=True)
         th.start()
         threads.append(th)
     end = time.time() + wait
@@ -461,14 +490,18 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
 
     def surplus(s):
         q = got.get(s["name"]) or {}
-        if not isinstance(q.get("ask"), (int, float)):
+        if not isinstance(q.get("ask"), (int, float)) or q.get("refused"):
             return None
         o = s["_offer"]
         return o["list_price"] * (1 - (chance_of(o["sku"]) or 0)) - q["ask"]
     scored = [(surplus(s), i, s) for i, s in enumerate(pool) if surplus(s) is not None]
-    if not scored:
+    best = max(scored, key=lambda x: (x[0], -x[1]))[2] if scored else None
+    ctl.update(done=True, winner=best["name"] if best else None)
+    for name, q in list(got.items()):
+        if not best or name != best["name"]:
+            threading.Thread(target=cancel_quote, args=(q, name), daemon=True).start()
+    if not best:
         return chosen, got
-    best = max(scored, key=lambda x: (x[0], -x[1]))[2]
     log("[quote] " + ", ".join(f"{s['name']} {got[s['name']]['ask']}" for _, _, s in scored) + f" -> {best['name']}")
     return best, got
 
@@ -687,8 +720,8 @@ def main():
         others.sort(key=lambda s: -len(s.get("reviews") or []))
         stats = market_model.break_stats(market_model.load_rows(md), catalog) if order.get("kind") == "goods" else None
         chance_of = (lambda sku: market_model.break_chance(stats, sku)) if stats else (lambda sku: None)
-        best, quotes = best_quote(shop, [s for s in others if serves_acp(s["url"])][:3], order, catalog, args.budget,
-                                  chance_of, buyer_cfg())
+        best, quotes = best_quote(shop, others[:3], order, catalog, args.budget, chance_of, buyer_cfg()) \
+            if time.time() - STARTED < 60 else (shop, {})
         if best is not shop:
             reason = f"best quote of {len(quotes)} ({quotes[best['name']]['ask']}); first choice was {shop['name']}"
             shop = best
@@ -707,14 +740,19 @@ def main():
         f"it sold {label} to you at {', '.join(map(str, deals[-3:]))}" if deals else "",
         f"its lowest ask for {label} so far was {low}" if low is not None else "",
         pattern or "",
-        f"it quoted {quotes[shop['name']]['ask']} a minute ago" if shop["name"] in quotes else "") if x)
+        f"it opened at {quotes[shop['name']]['ask']}" if isinstance((quotes.get(shop["name"]) or {}).get("ask"), (int, float)) else "")
+        if x)
     if note:
         log(f"memory note for the harness: {note}")
     if r3:
         log(f"[offer] {offer['sku']} {offer['name']}: list {offer['list_price']}, limit {limit}, {len(shop['usable'])} fit"
             + (f", breaks {chance:.1%} of the time in the ledger" if chance else ""))
     try:
-        out = negotiate(shop["url"], label, limit, note, request_text(label, key, order) if r3 else None)
+        q = quotes.get(shop["name"]) or {}
+        resume = (q["url"], q["task"]) if r3 and q.get("task") and not q.get("refused") and q["task"].get("status", {}).get(
+            "state") == "TASK_STATE_INPUT_REQUIRED" else None
+        out = negotiate(shop["url"], label, limit, note, request_text(label, key, order) if r3 else None, resume=resume,
+                        stop_if=(lambda text: warranty_refused(text, order)) if r3 else None)
         out["asked"] = key if r3 else None
     except Exception as e:  # network errors from a shop that went away
         log(f"trade failed: {type(e).__name__}: {e}")
