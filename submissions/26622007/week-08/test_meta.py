@@ -433,6 +433,19 @@ class HarnessCycleTest(unittest.TestCase):
         self.go("good")
         self.assertNotEqual(self.git("status", "--short", "logs/market-kit.log"), "")
 
+    def test_the_last_hour_is_read_from_the_harness_pack_only(self):
+        # the models save their own audits in meta/evidence/ too; one of those is not the previous scorecard
+        folder = os.path.join(self.root, "meta", "evidence")
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, "terra-1104-095319.json"), "w") as f:
+            json.dump({"log_counts": {"lines": 10, "sold": 4}}, f)
+        with open(os.path.join(folder, "terra-1104-095319-audit.json"), "w") as f:
+            json.dump([{"not": "a pack"}], f)
+        later = time.time() + 5
+        os.utime(os.path.join(folder, "terra-1104-095319-audit.json"), (later, later))
+        got = mh.since_last({"log_counts": {"lines": 15, "sold": 6}})
+        self.assertEqual((got["previous"], got["log_counts"]), ("terra-1104-095319.json", {"lines": 5, "sold": 2}))
+
     def test_astra_commits_no_logs_or_memory(self):
         # eba7dd67: Astra's commit carried 64 MB of kit logs, a Round 2 archive and the shop's memory dumps
         os.makedirs(os.path.join(self.root, "memory"))

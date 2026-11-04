@@ -374,14 +374,17 @@ def since_last(card):
     """What changed since the previous scorecard: the log counters (failures included) and the objective. Terra grades the
     last hour from this, then the change it made in it."""
     folder = os.path.join(ROOT, "meta", "evidence")
-    packs = sorted((p for p in os.listdir(folder) if p.endswith(".json")), key=lambda p: os.path.getmtime(os.path.join(folder, p))) \
-        if os.path.isdir(folder) else []
+    # only the harness's own packs: the models save their test runs and audits here too (astra-1104-090509-review.json)
+    packs = sorted((p for p in os.listdir(folder) if re.fullmatch(r"(terra|astra)-\d+(-\d+)?\.json", p)),
+                   key=lambda p: os.path.getmtime(os.path.join(folder, p))) if os.path.isdir(folder) else []
     if not packs:
         return {"first": True}
     try:
         with open(os.path.join(folder, packs[-1]), encoding="utf-8") as f:
             prev = json.load(f)
     except (OSError, ValueError):
+        return {"first": True}
+    if not isinstance(prev, dict):
         return {"first": True}
     a, b = prev.get("log_counts") or {}, card.get("log_counts") or {}
     obj = lambda c: ((c.get("board") or {}).get("objective") or {})
