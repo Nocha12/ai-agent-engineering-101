@@ -607,6 +607,8 @@ class BuyerTest(unittest.TestCase):
                     mock.patch("builtins.print", lambda *a, **k: printed.append(a[0])), \
                     mock.patch.object(sys, "argv", ["x", "--shops", sp, "--item", "김치", "--budget", "16000", "--order", op]):
                 market_buyer.main()
+            with open(os.path.join(d, "measure", "orders.jsonl"), encoding="utf-8") as f:   # measure.py: every order, a line
+                self.orders = [json.loads(x) for x in f]
         return json.loads(printed[-1]), calls
 
     def test_main_asks_for_the_sku_within_its_value_and_withholds_a_bad_receipt(self):
@@ -617,6 +619,9 @@ class BuyerTest(unittest.TestCase):
         self.assertIsNone(out["receipt"])                          # price over the list price: the kit must not pay
         self.assertEqual(out["stars"], 1)
         self.assertEqual(out["accept"], {"cert": True, "min_hours_left": 48.1})
+        o = self.orders[-1]
+        self.assertEqual((o["sku"], o["limit"], o["price"], o["passed_to_kit"], o["use_within_hours"], o["how"]),
+                         ("G1", 10000, 11000, False, self.ORDER.get("use_within_hours"), "single_ask"))
 
     def test_the_spending_limits_cut_the_price_it_will_pay(self):
         shops = [dict(self.offers("G1"), name="s", url="https://s.example", reviews=[])]
@@ -629,6 +634,7 @@ class BuyerTest(unittest.TestCase):
         out, calls = self.run_main([dict(self.offers("G4"), name="s", url="https://s.example")])
         self.assertEqual(calls, [])
         self.assertEqual(out, {"shop": "", "receipt": None})
+        self.assertEqual((self.orders[-1]["state"], self.orders[-1]["candidates"]), ("NO_SHOP_IN_STOCK", []))
 
 
 class HooksTest(unittest.TestCase):

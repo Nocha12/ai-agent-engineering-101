@@ -34,6 +34,7 @@ import decision_memory
 import forum
 import hard_limits
 import loss_watch
+import measure
 import market_model
 import opening
 import profit_price
@@ -552,6 +553,7 @@ def main():
         except OSError as e:
             print(f"[restock] could not note the lines sent: {e}", file=sys.stderr, flush=True)
     print(json.dumps(out, ensure_ascii=False), flush=True)
+    measure.tick(args.state, inv, out["buy"][:10], pricing)     # after the line the kit reads; local files only, never raises
     return 0
 
 

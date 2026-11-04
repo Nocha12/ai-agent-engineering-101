@@ -35,7 +35,8 @@ OR_REASONING = os.environ.get("OR_REASONING", "low")
 OR_MAX_CALLS_PER_HOUR = int(os.environ.get("OR_MAX_CALLS_PER_HOUR", "300"))   # a public seller spends real credit
 TIMEOUT = 90
 RETRIES = 2
-_or_calls = []   # start times of OpenRouter calls in the last hour
+_or_calls = []   # start times of OpenRouter calls in the last hour: per process, so each market_buyer run starts at 0
+CALLS = {"attempts": 0, "ok": 0, "cap": 0}   # this process's requests (measure.py orders.jsonl)
 
 
 class HarnessError(RuntimeError):
@@ -79,6 +80,8 @@ def ask(prompt, schema, system, tag="harness"):
 
 def record_call(tag, prompt, system, seconds, ok, usage=None):
     """One line per request in .market/llm_calls.jsonl, so what each kind of call costs can be measured."""
+    CALLS["attempts"] += 1
+    CALLS["ok"] += bool(ok)
     md = os.environ.get("MARKET_DIR")
     if not md:
         return
@@ -113,6 +116,13 @@ def _ask_openrouter(prompt, schema, system, tag):
     now = time.time()
     _or_calls[:] = [t for t in _or_calls if now - t < 3600]
     if len(_or_calls) >= OR_MAX_CALLS_PER_HOUR:
+        CALLS["cap"] += 1
+        try:
+            import measure
+            if os.environ.get("MARKET_DIR"):
+                measure.write(os.environ["MARKET_DIR"], "llm_cap", {"tag": tag, "pid": os.getpid(), "cap": OR_MAX_CALLS_PER_HOUR})
+        except Exception:   # noqa: BLE001 - the caller expects the HarnessError below, not a measurement error
+            pass
         raise HarnessError(f"call cap reached: {OR_MAX_CALLS_PER_HOUR} OpenRouter calls in the last hour")
     _or_calls.append(now)
     body = {

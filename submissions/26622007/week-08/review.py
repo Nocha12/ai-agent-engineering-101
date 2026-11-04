@@ -38,9 +38,12 @@ def main():
     settled, price = deal.get("settled") or {}, (deal.get("receipt") or {}).get("price")
     os.makedirs(os.path.dirname(SETTLED) or ".", exist_ok=True)
     with open(SETTLED, "a", encoding="utf-8") as f:
-        f.write(json.dumps({"time": int(time.time()), "order": (deal.get("order") or {}).get("order"), "price": price,
+        order = deal.get("order") or {}
+        # use_within_hours next to the market's expires_at: whether a food unit lasted as long as the order needed
+        f.write(json.dumps({"time": int(time.time()), "order": order.get("order"), "price": price,
                             **{k: settled.get(k) for k in ("shop", "unit", "sku", "name", "grade", "claim", "claim_honest",
-                                                           "expires_at", "warranty_hours", "value", "ledger")}},
+                                                           "expires_at", "warranty_hours", "value", "ledger")},
+                            "kind": order.get("kind"), "use_within_hours": order.get("use_within_hours")},
                            ensure_ascii=False) + "\n")
     stars, review = rate(price, settled)
     print(json.dumps({"stars": stars, "review": review}, ensure_ascii=False), flush=True)

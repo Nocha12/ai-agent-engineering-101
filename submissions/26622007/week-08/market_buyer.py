@@ -45,7 +45,9 @@ import threading
 
 import agent_loop
 import hard_limits
+import harness
 import market_model
+import measure as records    # measure.py; measure() below is the memory timing
 from buyer import log, negotiate
 from buyer import HEADERS as BUYER_HEADERS, message_text as buyer_message_text, metadata_ask as buyer_metadata_ask
 from buyer import rpc as buyer_rpc, send as buyer_send
@@ -712,6 +714,60 @@ def rate(out, problems, item, budget, warnings=()):
     return 2, f"No deal on {item} even though the ask came down to {last} (budget {budget}); the talk ended."
 
 
+def choose_path(reason):
+    """How the shop was chosen, from choose()'s reason: the tool-using agent, the single question it falls back to, code."""
+    r = reason or ""
+    if r.startswith("harness failed"):
+        return "code_fallback"
+    if r.startswith("best quote of"):
+        return "quote"
+    if " agent: " in r:
+        return "agent"
+    return "code_single" if r.endswith("the only shop in the pool") else "single_ask"
+
+
+def order_record(order, args, shops, quotes, first_choice, first_reason, shop, reason, offer, limit, chance, out, rec, result,
+                 problems, warnings, short, why, stages, catalog):
+    """measure.py orders.jsonl: what this order offered, who quoted what and why each lost, and how it ended. The kit's
+    payment (.market/payments.jsonl) and the ledger's settle join on the order id."""
+    best = shop["name"]
+    qs = []
+    for s in shops:
+        q = quotes.get(s["name"])
+        if q is None:
+            continue
+        o = s.get("_offer") or {}
+        ask_ = q.get("ask")
+        lim = value_limit(o, args.budget, 0, buyer_cfg()) if o.get("list_price") else None
+        lost = None if s["name"] == best else (
+            "refused: " + q["refused"] if q.get("refused") else "no ask (no free unit or no answer)" if not isinstance(ask_, (int, float))
+            else "over the limit before breaks (budget / share / deal cap)" if lim is not None and ask_ > lim
+            else "less expected surplus or over the break-adjusted limit")
+        qs.append({"shop": s["name"], "sku": o.get("sku"), "list_price": o.get("list_price"), "ask": ask_, "lost": lost,
+                   "text": (q.get("text") or "")[:120]})
+    qs = qs[:12]      # one small line: a single append, so overlapping buyer runs do not interleave
+    asks = [p for who, p in out.get("history") or [] if who == "shop asked"]
+    t0 = STARTED
+    since = lambda k: round(stages[k] - t0, 2) if k in stages else None
+    return {
+        "order": order.get("order"), "category": order.get("category"), "kind": order.get("kind"), "budget": args.budget,
+        "acceptable": len(order.get("acceptable") or []), "use_within_hours": order.get("use_within_hours"),
+        "candidates": [{"shop": s["name"], "offers": [{"sku": o.get("sku"), "qty": o.get("qty"), "list_price": o.get("list_price")}
+                                                      for o in s.get("usable") or []][:3]} for s in shops][:20],
+        "n_candidates": len(shops),    # lists cut so a line stays one small append (buyer runs can overlap)
+        "quotes": qs, "first_choice": first_choice, "how": choose_path(first_reason), "shop": best, "reason": (reason or "")[:300],
+        "sku": (offer or {}).get("sku"), "list_price": (offer or {}).get("list_price"), "limit": limit,
+        "break_chance": round(chance, 4) if isinstance(chance, (int, float)) else None,
+        "shelf_hours": (catalog.get((offer or {}).get("sku")) or {}).get("shelf_hours"),
+        "state": out.get("state"), "asks": asks, "counters": len(asks), "holds": out.get("holds", 0), "agreed": out.get("agreed"),
+        "price": (rec or {}).get("price"), "unit": (rec or {}).get("unit"), "claim": (rec or {}).get("claim"),
+        "warranty_hours": (rec or {}).get("warranty_hours"), "passed_to_kit": result.get("receipt") is not None,
+        "accept": result.get("accept"), "problems": problems, "warnings": warnings, "no_warranty": short, "why": why,
+        "seconds": {"choose": since("choose"), "quotes": since("quotes"), "talk": since("talk"), "end": round(time.time() - t0, 2)},
+        "luna": dict(harness.CALLS),
+    }
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--shops", required=True)
@@ -740,6 +796,11 @@ def main():
             start_round3_memory()
     if not shops:
         log("[choose] no shops with this order in stock" if r3 else "[choose] no shops in the list")
+        if r3:
+            records.write(md, "orders", {"order": order.get("order"), "category": order.get("category"), "kind": order.get("kind"),
+                                         "budget": args.budget, "acceptable": len(order.get("acceptable") or []),
+                                         "use_within_hours": order.get("use_within_hours"), "candidates": [],
+                                         "state": "NO_SHOP_IN_STOCK", "seconds": {"end": round(time.time() - STARTED, 2)}})
         print(json.dumps({"shop": "", "receipt": None, **({} if r3 else {"stars": 1, "review": "No shops to trade with."})}))
         return 0
     memory = load_memory()
@@ -761,6 +822,8 @@ def main():
         log(f"[choose] skip {shop['name']!r}: round {rnd} and no /.well-known/acp.json, so a deal there cannot settle")
         left = [s for s in left if s["name"] != shop["name"]] or left
     log(f"[choose] {shop['url']}: {shop['name']} - {reason}")
+    stages = {"choose": time.time()}
+    first_choice, first_reason = shop["name"], reason
 
     quotes = {}
     if r3:
@@ -774,6 +837,7 @@ def main():
             reason = f"best quote of {len(quotes)} ({quotes[best['name']]['ask']}); first choice was {shop['name']}"
             shop = best
             log(f"[choose] {shop['url']}: {shop['name']} - {reason}")
+        stages["quotes"] = time.time()
     offer = pick_offer(shop["usable"], args.budget) if r3 else None
     key = offer["sku"] if r3 else args.item     # prices are comparable within a SKU, not within a category
     label = offer["name"] if r3 else args.item
@@ -806,6 +870,7 @@ def main():
         log(f"trade failed: {type(e).__name__}: {e}")
         out = {"state": f"ERROR {type(e).__name__}", "task": None, "receipt": None, "history": [], "agreed": None,
                "holds": 0}
+    stages["talk"] = time.time()
 
     rec = out["receipt"] if out["state"] == "TASK_STATE_COMPLETED" else None
     problems, warnings = check_receipt(rec, out, args.item, args.budget, order, catalog) if rec is not None else ([], [])
@@ -842,6 +907,11 @@ def main():
             result["receipt"] = None            # the kit pays any receipt that verifies: this one does not go through
         if accept_policy(order):
             result["accept"] = accept_policy(order)
+        try:
+            records.write(md, "orders", order_record(order, args, shops, quotes, first_choice, first_reason, shop, reason, offer,
+                                                     limit, chance, out, rec, result, problems, warnings, short, why, stages, catalog))
+        except Exception as e:   # noqa: BLE001 - a measurement never stops the result line the kit waits for
+            log(f"[measure] order record failed: {type(e).__name__}: {e}")
     print(json.dumps(result, ensure_ascii=False), flush=True)
     return 0
 
