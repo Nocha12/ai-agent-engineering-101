@@ -43,7 +43,7 @@ CHATGPT_CODEX = "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI
 ECON_ROUND = 3
 STARTED = time.time()             # Astra's clock when no cycle is recorded yet
 NOT_CODE = ("meta/evidence/", "meta/changes.jsonl", "meta/grades.jsonl", "meta/state.json", "meta/last-")
-LIVE = (":!logs", ":!memory")
+LIVE = (":!logs", ":!memory")     # what the kit and the shop keep writing: never staged by the harness (.gitignore too)
 SELLER_FILES = ("seller.py", "shop_memory.py", "shop_stock.py", "harness.py", "catalog.py", "pricing.json", "acp_shop.py")
 EVIDENCE = {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["ref", "excerpt", "meaning"],
                                        "properties": {k: {"type": "string"} for k in ("ref", "excerpt", "meaning")}}}
@@ -146,8 +146,10 @@ def secrets_in_stage():
     return found
 
 
-def stage(with_logs=False):
-    git("add", "-A", "--", ".", *(() if with_logs else LIVE))
+def stage():
+    """This folder's changes without logs/ and memory/. Astra's commit eba7dd67 carried them: 64 MB of kit logs, a Round 2
+    archive and the shop's memory dumps, which the kit kept writing, so the undo of that commit was refused."""
+    git("add", "-A", "--", ".", *LIVE)
     return git("diff", "--cached", "--name-only", "--relative").splitlines()
 
 
@@ -331,15 +333,6 @@ def record(rec):
         commit(f"chore(week-08): 메타 하네스 기록 {rec['cycle']} - {rec['status']}"[:200])
 
 
-def archive_logs():
-    """Astra's commit carries the logs. The kit keeps one rotated file only, so each is saved under its own name first."""
-    rot = os.path.join(ROOT, "logs", "market-kit.log.1")
-    if os.path.exists(rot):
-        keep = os.path.join(ROOT, "logs", time.strftime("market-kit-rotated-%m%d-%H%M.log", time.localtime(os.path.getmtime(rot))))
-        if not os.path.exists(keep):
-            shutil.copy2(rot, keep)
-
-
 def pricing_at_head():
     try:
         return json.loads(git("show", "HEAD:./pricing.json"))
@@ -510,9 +503,7 @@ def cycle(kind):
     log(f"{cid}: asking {MODELS[kind]}")
     answer, err = call_model(kind, cid, pack)
     rec = {"cycle": cid, "model": MODELS[kind], "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "answer": answer}
-    if kind == "astra":
-        archive_logs()
-    paths = stage(with_logs=kind == "astra")
+    paths = stage()
     code = [p for p in paths if not p.startswith(NOT_CODE) and not p.startswith(("logs/", "memory/"))]
 
     if secrets_in_stage():      # nothing goes into history, the attempt included

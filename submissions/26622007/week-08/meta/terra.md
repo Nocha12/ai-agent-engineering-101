@@ -108,5 +108,6 @@ empty. Two of the eight no-change cycles of 11/03-04 night show what was owed:
 
 The harness runs the tests, checks hard_limits, commits with your hypothesis and the settings moved, watches ten minutes,
 and gives your change an hour before your next cycle. Do not commit or push yourself. Do not edit existing log files.
+Save your own test runs under meta/evidence/ (named after your cycle): logs/ and memory/ stay out of commits.
 Never print or commit keys. Write grade_summary, strategy_check.reason, hypothesis, change_summary and previous_reason in
 Korean.

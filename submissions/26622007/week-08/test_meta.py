@@ -427,22 +427,23 @@ class HarnessCycleTest(unittest.TestCase):
         self.assertEqual(self.go("nothing")["status"], "no_change")
         self.assertEqual(self.go("nothing-false")["status"], "no_change_unsupported")
 
-    def test_the_kit_log_is_not_committed_by_terra_but_is_by_astra(self):
+    def test_the_kit_log_is_not_committed_by_terra(self):
         with open(os.path.join(self.root, "logs", "market-kit.log"), "a") as f:
             f.write("10:00:02 more\n")
         self.go("good")
         self.assertNotEqual(self.git("status", "--short", "logs/market-kit.log"), "")
 
-    def test_astra_commits_the_logs_and_saves_rotated_ones(self):
-        with open(os.path.join(self.root, "logs", "market-kit.log"), "a") as f:
-            f.write("10:00:02 more\n")
-        with open(os.path.join(self.root, "logs", "market-kit.log.1"), "w") as f:
-            f.write("old part\n")
-        with mock.patch.dict(os.environ, {"FAKE_MODE": "nothing"}), mock.patch("builtins.print"), \
-                mock.patch.object(mh, "SCHEMAS", {**mh.SCHEMAS, "astra": mh.SCHEMAS["terra"]}):
-            mh.cycle("astra")
-        self.assertEqual(self.git("status", "--short", "logs/market-kit.log"), "")
-        self.assertTrue(any(n.startswith("market-kit-rotated-") for n in os.listdir(os.path.join(self.root, "logs"))))
+    def test_astra_commits_no_logs_or_memory(self):
+        # eba7dd67: Astra's commit carried 64 MB of kit logs, a Round 2 archive and the shop's memory dumps
+        os.makedirs(os.path.join(self.root, "memory"))
+        for p in ("logs/market-kit.log", "logs/astra-tests.log", "memory/seller_memory_r3.json"):
+            with open(os.path.join(self.root, p), "a") as f:
+                f.write("10:00:02 more\n")
+        rec = self.go("good", kind="astra")
+        self.assertEqual(rec["status"], "running", rec.get("problems"))
+        committed = self.git("log", "--name-only", "--format=", "HEAD~2..HEAD").split()
+        self.assertIn("changed.py", committed)
+        self.assertEqual([p for p in committed if p.startswith(("logs/", "memory/"))], [])
 
     def grades(self):
         with open(os.path.join(self.root, "meta", "grades.jsonl"), encoding="utf-8") as f:

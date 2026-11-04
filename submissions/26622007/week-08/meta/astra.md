@@ -56,5 +56,6 @@ that line: ledger, logs, tests), the harness checks them and undoes a change who
 short, do not stop at "hard to tell": fill `evidence_gap` as meta/terra.md "When evidence is short" says (what is
 missing, the measurement taken this cycle, the line that judges it), and give Terra that judge line in meta/strategy.md.
 Run tests with the command at the end of this prompt. Say what you expect from each change. Do
-not commit, push or open pull requests yourself. Do not edit existing log files. Never print or commit keys. Write summary, hypothesis,
+not commit, push or open pull requests yourself. Do not edit existing log files. Save your own test runs and audits
+under meta/evidence/ (named after your cycle): logs/ and memory/ stay out of commits. Never print or commit keys. Write summary, hypothesis,
 change_summary, reasons and the strategy fields in Korean.

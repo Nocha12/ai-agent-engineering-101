@@ -1,8 +1,0 @@
-11-03 20:08:34 [ensure_running] run_market.sh was not running; started it as pid 37047
-11-03 20:08:34 [ensure_running] run_meta.sh was not running; started it as pid 37057
-11-03 20:21:44 [ensure_running] run_meta.sh was not running; started it as pid 53286
-11-03 20:40:13 [ensure_running] run_meta.sh was not running; started it as pid 64944
-11-03 20:50:00 [ensure_running] run_market.sh was not running; started it as pid 82018
-11-03 20:50:00 [ensure_running] run_meta.sh was not running; started it as pid 82030
-11-03 21:04:25 [ensure_running] run_market.sh was not running; started it as pid 1429
-11-03 21:04:25 [ensure_running] run_meta.sh was not running; started it as pid 1438
