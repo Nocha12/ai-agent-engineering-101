@@ -343,6 +343,70 @@ class HarnessCycleTest(unittest.TestCase):
         self.assertEqual(rec["status"], "canary_failed")
         self.assertFalse(self.exists())
 
+    def test_a_failed_watch_undoes_astras_change_while_the_kit_writes_its_log(self):
+        log = os.path.join(self.root, "logs", "market-kit.log")
+        open(log, "a").write("10:01:00 [acp] settled y at 6\n")        # Astra's commit carries the log
+
+        def watch():
+            open(log, "a").write("10:05:00 [acp] settled z at 7\n")    # and the kit goes on writing it
+            return ["tracebacks +5"]
+        with mock.patch.object(mh, "canary", watch):
+            rec = self.go("good", kind="astra")
+        self.assertEqual(rec["status"], "canary_failed")
+        self.assertFalse(self.exists())
+        self.assertIn("settled z", open(log).read())
+        self.assertIn("revert(week-08)", self.git("log", "--format=%s"))
+        self.assertIn('"canary_failed"', open(os.path.join(self.root, "meta", "grades.jsonl")).read())
+
+    def change_that_deletes(self):
+        open(os.path.join(self.root, "gone.py"), "w").write("y = 1\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "gone.py")
+        os.remove(os.path.join(self.root, "gone.py"))
+        open(os.path.join(self.root, "changed.py"), "w").write("x = 1\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "change")
+        return self.git("rev-parse", "HEAD")
+
+    def test_undo_brings_back_a_deleted_file_and_drops_an_added_one(self):
+        sha = self.change_that_deletes()
+        with mock.patch("builtins.print"):
+            mh.undo(sha, "why")
+        self.assertTrue(os.path.exists(os.path.join(self.root, "gone.py")))
+        self.assertFalse(self.exists())
+        self.assertEqual(self.git("status", "--porcelain", "--", ".", ":!logs"), "")
+
+    def test_an_undo_that_fails_leaves_the_change_whole_and_is_recorded(self):
+        sha = self.change_that_deletes()
+        real = mh.git
+
+        def git(*a, **k):
+            if a[0] == "commit":
+                raise RuntimeError("git commit: refused")
+            return real(*a, **k)
+        with mock.patch.object(mh, "git", git), mock.patch("builtins.print"):
+            self.assertIn("undo failed", mh.try_undo("terra-x", sha, "why"))
+        self.assertFalse(os.path.exists(os.path.join(self.root, "gone.py")))
+        self.assertTrue(self.exists())
+        self.assertEqual(self.git("status", "--porcelain", "--", ".", ":!logs"), "")
+        self.assertEqual(self.git("rev-parse", "HEAD"), sha)
+
+    def test_the_watch_counts_across_the_kits_log_rotation(self):
+        log = os.path.join(self.root, "logs", "market-kit.log")
+        open(log, "a").write("".join(f"10:00:{i:02d} [acp] settled x at 5\n" for i in range(10)))
+        clock = [0.0]
+
+        def sleep(s):
+            clock[0] += s
+            if not os.path.exists(log + ".1"):                       # the kit moves its log at 20 MB
+                os.replace(log, log + ".1")
+                open(log, "w").write("10:09:00 [acp] settled y at 6\n")
+        fake_time = mock.Mock(time=lambda: clock[0], sleep=sleep)
+        with mock.patch.object(mh, "time", fake_time), mock.patch.object(mh, "KIT_PATTERN", "kit"), \
+                mock.patch.object(mh, "kit_alive", lambda: True):
+            self.assertEqual(mh.canary(60), [])
+            self.assertEqual(mh.canary(60), ["the kit's log did not grow"])   # no move, no new line: still caught
+
     def test_secrets_never_enter_history_even_as_an_attempt(self):
         for mode in ("secret", "env-secret"):
             self.assertEqual(self.go(mode)["status"], "discarded_secret")

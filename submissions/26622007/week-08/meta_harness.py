@@ -181,16 +181,46 @@ def kit_alive():
     return not KIT_PATTERN or subprocess.run(["pgrep", "-f", KIT_PATTERN], capture_output=True).returncode == 0
 
 
+def kit_log_id(name="market-kit.log"):
+    try:
+        return os.stat(os.path.join(ROOT, "logs", name)).st_ino
+    except OSError:
+        return None
+
+
+def kit_log_counts():
+    """The kit log's counts and the file they came from, read again if the kit moved the log during the read."""
+    while True:
+        log_id = kit_log_id()
+        counts = scorecard.log_counts(ROOT)
+        if kit_log_id() == log_id:
+            return log_id, counts
+
+
+def kit_log_counts_since(log_id):
+    """The kit log's counts now, plus the part the kit moved to market-kit.log.1 at 20 MB when that is the file that was
+    market-kit.log (log_id). 11/04 09:27 it moved during Astra's watch: the count fell from ~171,000 lines to 872 and the
+    watch undid a sound change for "the kit's log did not grow". Two moves inside one watch lose the first part."""
+    while True:
+        moved = log_id is not None and kit_log_id("market-kit.log.1") == log_id
+        now_id, now = kit_log_counts()
+        if moved:
+            old = scorecard.log_counts(ROOT, "market-kit.log.1")
+            return {k: now[k] + old.get(k, 0) for k in now}
+        if log_id is None or now_id == log_id or kit_log_id("market-kit.log.1") != log_id:
+            return now                # not moved, or moved too long ago to find: read as is
+
+
 def canary(seconds=None):
     """Watches the log for the first minutes of a change. Returns the reasons to undo it; none means carry on."""
     seconds = CANARY_SECONDS if seconds is None else seconds
-    before = scorecard.log_counts(ROOT)
+    log_id, before = kit_log_counts()
     end = time.time() + seconds
     while time.time() < end:
         time.sleep(min(30, max(0.01, end - time.time())))
         if not kit_alive():
             return ["the kit is not running"]
-    now = scorecard.log_counts(ROOT)
+    now = kit_log_counts_since(log_id)
     grew = lambda k: now[k] - before[k]
     bad = [f"{k} +{grew(k)}" for k, limit in (("tracebacks", 3), ("settle_refused", 5), ("checkout_refused", 10),
                                               ("supply_refused", 10), ("harness_failed", 10)) if grew(k) >= limit]
@@ -258,10 +288,38 @@ def commit(message):
 
 
 def undo(sha, why):
-    git("revert", "--no-commit", sha)
-    if git("diff", "--cached", "--name-only"):
-        git("commit", "-q", "-m", f"revert(week-08): {sha[:8]} 되돌림 - {why}"[:300])
+    """Puts back what `sha` changed except logs/ and memory/. Astra's commit carries those and the kit keeps writing them,
+    so `git revert` refused (11/04 09:29, "local changes would be overwritten") and the cycle went unrecorded."""
+    paths = [p for p in git("diff-tree", "--no-commit-id", "--name-only", "-r", "--relative", sha).splitlines()
+             if p and not p.startswith(("logs/", "memory/"))]
+    try:
+        for p in paths:
+            if git("ls-tree", "--name-only", f"{sha}^", "--", p):
+                git("checkout", f"{sha}^", "--", p)
+            else:
+                git("rm", "-q", "-f", "--ignore-unmatch", "--", p)
+        if git("diff", "--cached", "--name-only"):
+            git("commit", "-q", "-m", f"revert(week-08): {sha[:8]} 되돌림 - {why}"[:300])
+    except RuntimeError:              # half an undo is worse than none: every path back as the commit left it
+        git("reset", "-q", "--", *paths, check=False)
+        for p in paths:
+            if git("ls-tree", "--name-only", "HEAD", "--", p):
+                git("checkout", "HEAD", "--", p, check=False)
+            elif os.path.exists(os.path.join(ROOT, p)):
+                os.remove(os.path.join(ROOT, p))
+        raise
     log(f"undid {sha[:8]}: {why}")
+
+
+def try_undo(cid, sha, why):
+    """undo(), or why it could not (the change then stays as committed). The cycle is recorded either way: an Astra
+    cycle missing from meta/grades.jsonl runs again on the loop's next start."""
+    try:
+        undo(sha, why)
+        return None
+    except RuntimeError as e:
+        log(f"{cid}: could not undo {sha[:8]}, it stays: {e}")
+        return f"undo failed: {e}"[:400]
 
 
 def record(rec):
@@ -496,8 +554,9 @@ def cycle(kind):
     title = (answer or {}).get("change_summary") or err or "변경"
     if problems:
         sha = commit(f"wip(week-08): [{cid}] 실패 - {title} / {problems[0]}"[:300])
-        undo(sha, f"{cid} 검증 실패: {problems[0]}")
-        rec.update(status="rejected", problems=problems, commit=sha)
+        failed = try_undo(cid, sha, f"{cid} 검증 실패: {problems[0]}")
+        rec.update(status="rejected_kept" if failed else "rejected", problems=problems + ([failed] if failed else []),
+                   commit=sha)
         record(rec)
         return rec
 
@@ -515,9 +574,13 @@ def cycle(kind):
     restart_seller(code)
     bad = canary()
     if bad:
-        undo(sha, f"{cid} 10분 점검 실패: {'; '.join(bad)}")
-        restart_seller(code)
-        rec.update(status="canary_failed", problems=bad)
+        log(f"{cid}: failed the watch: {'; '.join(bad)}")
+        failed = try_undo(cid, sha, f"{cid} 10분 점검 실패: {'; '.join(bad)}")
+        if failed:
+            rec.update(status="canary_failed_kept", problems=bad + [failed])
+        else:
+            restart_seller(code)
+            rec.update(status="canary_failed", problems=bad)
     else:
         rec.update(status="running")
         log(f"{cid}: passed the watch")

@@ -107,10 +107,10 @@ def file_index(root):
     return out
 
 
-def log_counts(root):
+def log_counts(root, name="market-kit.log"):
     counts = collections.Counter()
     try:
-        with open(os.path.join(root, "logs", "market-kit.log"), encoding="utf-8", errors="replace") as f:
+        with open(os.path.join(root, "logs", name), encoding="utf-8", errors="replace") as f:
             for line in f:
                 for k, needle in COUNTERS.items():
                     if needle in line:
