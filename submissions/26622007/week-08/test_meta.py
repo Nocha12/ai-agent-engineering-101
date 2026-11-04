@@ -677,5 +677,24 @@ class RivalsTest(unittest.TestCase):
         self.assertNotIn("owner", r["top"][1])
 
 
+class ObjectiveTest(unittest.TestCase):
+    def test_the_board_formula(self):
+        # the board's own: rows it scores (all set, a shop with supplies and no deal too), mean rank on ties, stars_rank,
+        # posts 0.1 of the buyer (review/W-20261104-2030: every row of 268 Round 3 snapshots within 0.0005)
+        me = mh.scorecard.ME
+        b = {"shops": [{"name": me, "deals": 4, "profit": 10, "revenue": 100, "stars": 5, "stars_rank": 4.5, "all": 0.7},
+                       {"name": "a", "deals": 9, "profit": 20, "revenue": 50, "stars": 4, "stars_rank": 4.5, "all": 0.5},
+                       {"name": "b", "deals": 0, "profit": 0, "revenue": 0, "stars": None, "stars_rank": None, "all": 0.1},
+                       {"name": "c", "deals": 0, "profit": 1000, "revenue": 1000, "all": None}],
+             "buyers": [{"name": me, "deals": 2, "surplus": 5, "forum": 0.6, "posts": 3, "all": 0.35},
+                        {"name": "x", "deals": 1, "surplus": 10, "forum": 0.6, "posts": 0, "all": 0.65}],
+             "players": [{"player": "Nocha12", "total": 1.05}]}
+        o = mh.scorecard.objective(b)
+        self.assertEqual((o["shops"]["all"], o["shops"]["of"], o["shops"]["board_all"]), (0.7, 3, 0.7))
+        self.assertEqual(o["shops"]["parts"]["stars_rank"]["percentile"], 0.75)
+        self.assertEqual((o["buyers"]["all"], o["players"]), (0.35, 1.05))
+        self.assertEqual(o["weakest"][:2], ("buyers", "surplus"))
+
+
 if __name__ == "__main__":
     unittest.main()

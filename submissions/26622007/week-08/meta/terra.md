@@ -16,8 +16,10 @@ agent_memory imported in your own scripts open scratch files, not the live ones.
 own undo condition holds, quoted; disagreeing with it is a watch, not an act.
 
 Objective: the pack's `board.objective` estimates the midterm rank, Players = shop ALL + buyer ALL, each part a
-percentile among all shops or buyers: shop ALL = 0.5 net profit + 0.3 revenue + 0.2 stars, buyer ALL = 0.5 surplus +
-0.3 forum votes (on posts written as a buyer) + 0.2 deals.
+mean-rank percentile among the rows the board scores (shops with a supply or a deal, house shops included; buyers with a
+deal): shop ALL = 0.5 net profit + 0.3 revenue + 0.2 stars_rank, buyer ALL = 0.5 surplus + 0.3 forum votes (on posts
+written as a buyer) + 0.1 deals + 0.1 posts. This reproduces every board row; `board_all` is the board's own value. Net
+profit 1st among shops is a goal of its own: name the profit gap to the 1st shop next to the Players gap.
 
 Every cycle, in this order:
 1. Grade (`grade_summary`, Korean, a few lines). From `since_last_cycle` (what changed in the last hour), the objective

@@ -24,33 +24,52 @@ COUNTERS = {"settled_as_shop": "[acp] settled", "paid_as_buyer": "[acp] paid", "
             "sold": "-> COMPLETED", "talks_rejected": "-> REJECTED"}
 SOURCES = ("logs", "memory", ".market", "meta")
 # The midterm's Round 3 rank (week 9, FIG. 07): each part a percentile among shops or buyers, Players = shop ALL + buyer ALL.
-OBJECTIVE = {"shops": [(("profit",), 0.5), (("revenue",), 0.3), (("stars",), 0.2)],
-             "buyers": [(("surplus", "saved"), 0.5), (("forum", "forum_score", "votes", "score"), 0.3), (("deals",), 0.2)]}
+# Fitted to the board (review/W-20261104-2030, GPT Pro 3판 §2.1): every row of 268 Round 3 snapshots (13,185 shop rows,
+# 12,061 buyer rows) within the board's rounding (0.0005). The rows ranked are those the board scores (all is not None:
+# shops with a supply or a deal, house shops included; buyers with a deal), a tie takes the mean rank, a missing value is 0,
+# the shop's stars part is stars_rank, and posts count 0.1 of the buyer's ALL.
+OBJECTIVE = {"shops": [(("profit",), 0.5), (("revenue",), 0.3), (("stars_rank", "stars"), 0.2)],
+             "buyers": [(("surplus", "saved"), 0.5), (("forum", "forum_score", "votes", "score"), 0.3), (("deals",), 0.1),
+                        (("posts",), 0.1)]}
+
+
+def number(r, field):
+    v = r.get(field)
+    return v if isinstance(v, (int, float)) and not isinstance(v, bool) else 0
 
 
 def percentile(rows, field, mine):
-    vals = [r[field] for r in rows if isinstance(r.get(field), (int, float)) and not isinstance(r.get(field), bool)]
-    if not vals or not isinstance(mine.get(field), (int, float)):
+    """Mean-rank percentile among the rows: (below + (ties - 1) / 2) / (n - 1), my own row among the ties."""
+    if not rows:
         return None
-    return round(sum(v <= mine[field] for v in vals) / len(vals), 3)
+    x = number(mine, field)
+    vals = [number(r, field) for r in rows]
+    if len(vals) < 2:
+        return 1.0
+    below, ties = sum(v < x for v in vals), sum(v == x for v in vals)
+    return round((below + (max(ties, 1) - 1) / 2) / (len(vals) - 1), 6)
 
 
 def objective(b):
-    """My estimated shop ALL, buyer ALL and Players from the board's rows: what every change is meant to raise. A part the
-    board does not show yet is None and left out of the sum (the weights of the parts shown are kept as they are)."""
+    """My estimated shop ALL, buyer ALL and Players from the board's rows: what every change is meant to raise, and the
+    board's own ALL next to it (board_all) so a gap shows. A field the board does not show is 0 for every row."""
     out = {}
     for k, parts in OBJECTIVE.items():
-        rows = [r for r in b.get(k) or [] if r.get("deals")]
-        mine = next((r for r in b.get(k) or [] if r.get("name") == ME or ((r.get("owner") or {}).get("login") or "").lower() == "nocha12"), None)
+        every = b.get(k) or []
+        rows = [r for r in every if r.get("all") is not None] if any("all" in r for r in every) else \
+            [r for r in every if r.get("deals")]
+        mine = next((r for r in every if r.get("name") == ME or ((r.get("owner") or {}).get("login") or "").lower() == "nocha12"), None)
         if not mine:
             out[k] = {"all": None, "why": "not on the board yet (no deal)"}
             continue
+        if mine not in rows:
+            rows = rows + [mine]
         got = {}
         for names, w in parts:
             field = next((n for n in names if n in mine), names[0])
             got[field] = {"weight": w, "percentile": percentile(rows, field, mine), "value": mine.get(field)}
         out[k] = {"all": round(sum(x["weight"] * x["percentile"] for x in got.values() if x["percentile"] is not None), 3),
-                  "parts": got, "of": len(rows)}
+                  "board_all": mine.get("all"), "parts": got, "of": len(rows)}
     shop, buyer = out["shops"].get("all"), out["buyers"].get("all")
     out["players"] = None if shop is None and buyer is None else round((shop or 0) + (buyer or 0), 3)
     out["weakest"] = min(((k, f, x["percentile"]) for k in OBJECTIVE for f, x in (out[k].get("parts") or {}).items()
@@ -75,7 +94,9 @@ def board():
     out = {"round": b.get("round"), "totals": b.get("totals"), "objective": objective(b)}
     for k in ("shops", "buyers", "players"):
         rows = b.get(k) or []
-        mine = next((r for r in rows if r.get("name") == ME or (r.get("login") or "").lower() == "nocha12"), None)
+        mine = next((r for r in rows if r.get("name") == ME or (r.get("login") or "").lower() == "nocha12"
+                     or str(r.get("player") or "").lower() == "nocha12"
+                     or ((r.get("owner") or {}).get("login") or "").lower() == "nocha12"), None)
         out[k] = {"count": len(rows), "mine": {x: v for x, v in (mine or {}).items() if x not in ("card", "owner")}}
     out["rivals"] = rivals(b.get("shops") or [])
     return out

@@ -524,6 +524,29 @@ class BuyerTest(unittest.TestCase):
                                     {"quote_shops": 3}, wait=5)
             self.assertEqual(seen, list("abc"))                    # late in the run: one batch only
 
+    def test_a_batch_whose_asks_are_all_over_my_limit_asks_the_next_batch(self):
+        # 3판 GPT Pro §4.1: the search stopped at the first numeric ask, even one over the limit
+        shops = [{"name": n, "url": f"https://{n}.example", "usable": [{"sku": "H1", "name": "청소기", "list_price": 10000}]}
+                 for n in "abcdef"]
+        asks = {"a": 12000, "b": 11000, "e": 8000}
+        seen = []
+
+        def fake_quote(shop, label, key, order, out, ctl=None):
+            seen.append(shop["name"])
+            if shop["name"] in asks:
+                out[shop["name"]] = {"ask": asks[shop["name"]], "text": ""}
+        with mock.patch.object(market_buyer, "quote", fake_quote), mock.patch.object(market_buyer, "log"), \
+                mock.patch.object(market_buyer, "STARTED", time.time()):
+            best, _ = market_buyer.best_quote(shops[0], shops[1:], {"kind": "goods"}, {}, 20000, lambda s: None,
+                                              {"quote_shops": 3}, wait=5)
+            self.assertEqual(best["name"], "e")
+            self.assertEqual(sorted(seen), list("abcdef"))
+            seen.clear()
+            asks["a"] = 9500      # the first batch already has an ask I can pay: no second batch
+            best, _ = market_buyer.best_quote(shops[0], shops[1:], {"kind": "goods"}, {}, 20000, lambda s: None,
+                                              {"quote_shops": 3}, wait=5)
+            self.assertEqual((best["name"], sorted(seen)), ("a", list("abc")))
+
     def test_parallel_quotes_pick_the_most_surplus_and_promise_nothing(self):
         shops = [{"name": n, "url": f"https://{n}.example", "usable": [{"sku": "H1", "name": "청소기", "list_price": 10000}]}
                  for n in ("a", "b", "c")]
@@ -551,7 +574,7 @@ class BuyerTest(unittest.TestCase):
                                                lambda s: 0.5 if s == "H2" else 0.0, {"quote_shops": 2}, wait=5)[0]["name"]
         with mock.patch.object(market_buyer, "quote", fake_quote), mock.patch.object(market_buyer, "log"):
             self.assertEqual(pick(), "a")
-            asks["a"] = 20000     # above my limit for a (30000 x .5 = 15000): b, which can close at its ask, goes first
+            asks["a"] = 31000     # above my limit for a (its list price, a break is refunded): b, which can close, goes first
             self.assertEqual(pick(), "b")
             asks["b"] = 12000     # neither fits: the most expected surplus, as before
             self.assertEqual(pick(), "a")

@@ -5,7 +5,8 @@ Read AGENTS.md at the repository root, the market's rules with `curl -fsSL https
 built-in web page tool answers "Internal Error" for this site; curl works), hard_limits.py, meta/changes.jsonl (every
 change, its hypothesis, evidence, settings moved and outcome), the scorecards in meta/evidence/, meta/REPORT-notes.md and
 any log the pack below lists. The objective is the pack's `board.objective`: Players = shop ALL (0.5 net profit + 0.3
-revenue + 0.2 stars) + buyer ALL (0.5 surplus + 0.3 forum votes + 0.2 deals), each a percentile.
+revenue + 0.2 stars_rank) + buyer ALL (0.5 surplus + 0.3 forum votes + 0.1 deals + 0.1 posts), each a mean-rank
+percentile among the rows the board scores; net profit 1st among shops is a goal of its own.
 
 1. Grade: for each change since your last review, did the metric move as predicted, and could anything else explain it
    (market-wide shifts, other agents, noise over one hour)? Put each result in `grades`. That is every change, not only

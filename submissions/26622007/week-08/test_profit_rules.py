@@ -227,8 +227,13 @@ class PriceTest(unittest.TestCase):
         proven = ["G1515d951", "G6b9db161"]           # each sold out before the next window (G1515d951 3 in 6 min, twice;
         # G6b9db161 2 per window 04:03-04:44); G0f415407 and G9c02e68e left extra units unsold twice: no more buying
         self.assertEqual((r["high_price_proven_max_units"], r["high_price_proven_skus"]), (6, proven))
+        # G1515d951 at 6 also cut stock-outs 35% -> 0% while our sales went 41 -> 35 and the market's rose 921 -> 954
+        # (13:25-16:46 vs 17:07-20:27), so 4 holds; the four foods out of stock 35-54% of 17:30-20:31 go to the front
+        # (review/W-20261104-2030, GPT Pro 3판 §4.2)
         self.assertEqual((r["priority_skus"], r["sku_target_units"]),
-                         (["G75f11c19"], {"G1515d951": 4, "G6b9db161": 2, "G75f11c19": 2}))   # G1515 4: Astra 21:19, same five units across two supply windows; G6 2: undo the reduction triggered by mislinked refunds
+                         (["G75f11c19", "Gef4d3036", "Gb2392fa9", "G200e39a3", "G66ded25b"],
+                          {"G1515d951": 4, "G6b9db161": 2, "G75f11c19": 2}))   # G1515 4: Astra 21:19, same five units across two supply windows; G6 2: undo the reduction triggered by mislinked refunds
+        self.assertEqual(r["food_max_qty"], 4)     # every food line refills up to 4 units, not 3 (the SKU cap stays max_units_per_sku 6)
         self.assertTrue(r["high_price_listed_only"])
         # 2,000,000: 97% of the market's settles of SKUs listed over 889k paid at most that; at 800k my buyer settled 1 of 113
         self.assertEqual((p["buyer"]["max_spend_per_deal"], p["forum"]["every_minutes"]), (2000000, 10))

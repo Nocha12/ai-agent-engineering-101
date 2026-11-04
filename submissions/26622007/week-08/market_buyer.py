@@ -505,8 +505,8 @@ QUOTE_UNTIL = 100      # seconds into the run by which a further batch must be d
 def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOTE_WAIT, rounds=QUOTE_ROUNDS):
     """(shop, quotes): of the chosen shop and up to quote_shops - 1 others, the one whose opening ask leaves the most
     expected surplus (list price, less the chance of breaking, less the ask). Quotes run at once, each in its own thread.
-    When no shop of a batch quotes a unit I could pay for (all out of stock, or held by other buyers' talks), the next
-    quote_shops shops of others are asked, up to rounds batches, each done by QUOTE_UNTIL into the run."""
+    When no shop of a batch asks a price within my limit (all out of stock, held by other buyers' talks, or asking too
+    much), the next quote_shops shops of others are asked, up to rounds batches, each done by QUOTE_UNTIL into the run."""
     k = int(cfg.get("quote_shops", 1))
     if k < 2 or not others:
         return chosen, {}
@@ -530,7 +530,7 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
         if not batch or (r and time.time() - STARTED > QUOTE_UNTIL):
             break
         if r:
-            log(f"[quote] none of {len(pool)} shops quoted a unit I could pay for; asking {len(batch)} more")
+            log(f"[quote] none of {len(pool)} shops asked within my limit; asking {len(batch)} more")
         threads = []
         for s in batch:
             o = pick_offer(s["usable"], budget)
@@ -542,7 +542,9 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
         end = time.time() + wait if not r else min(time.time() + wait, STARTED + QUOTE_UNTIL)
         for th in threads:
             th.join(max(0.0, end - time.time()))
-        if any(surplus(s) is not None for s in pool):
+        # stop once an ask closes within my limit, not at the first number: 3판 GPT Pro §4.1, a batch whose asks were all
+        # over the limit ended the search while the next batch was never asked
+        if any(surplus(s) is not None and fits(s) for s in pool):
             break
     scored = [(surplus(s), i, s) for i, s in enumerate(pool) if surplus(s) is not None]
     best = max(scored, key=lambda x: (fits(x[2]), x[0], -x[1]))[2] if scored else None
@@ -654,11 +656,13 @@ def shop_pattern(rows, url, catalog, min_deals=SHOP_PATTERN_MIN):
 
 
 def value_limit(offer, budget, chance, cfg=None):
-    """The most this offer is worth paying: list price, less the chance that goods break and leave me nothing, within
-    the buyer's limits."""
+    """The most this offer is worth paying: the list price within the buyer's limits (budget, max_price_share, deal cap).
+    The chance of breaking no longer cuts it: goods I buy carry a 6 h warranty (shorter ones are refused), a break refunds
+    the ask, so the expected surplus (1 - b)(list - ask) stays above 0 at any ask below the list price, and best_quote ranks
+    by it (3판 GPT Pro §4.1: the limit kept 0.9 list (1 - b) after the surplus became (1 - b)(list - ask)). chance is kept
+    in the signature for the callers that log it."""
     cfg = {**BUYER, **(cfg or {})}
-    worth = offer["list_price"] * (1 - chance) if chance else offer["list_price"]
-    return int(min(budget, worth * cfg["max_price_share"], cfg["max_spend_per_deal"]))
+    return int(min(budget, offer["list_price"] * cfg["max_price_share"], cfg["max_spend_per_deal"]))
 
 
 # --- after the trade
@@ -741,8 +745,8 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         lim = value_limit(o, args.budget, 0, buyer_cfg()) if o.get("list_price") else None
         lost = None if s["name"] == best else (
             "refused: " + q["refused"] if q.get("refused") else "no ask (no free unit or no answer)" if not isinstance(ask_, (int, float))
-            else "over the limit before breaks (budget / share / deal cap)" if lim is not None and ask_ > lim
-            else "less expected surplus or over the break-adjusted limit")
+            else "over my limit (budget / share / deal cap)" if lim is not None and ask_ > lim
+            else "less expected surplus")
         qs.append({"shop": s["name"], "sku": o.get("sku"), "list_price": o.get("list_price"), "ask": ask_, "lost": lost,
                    "text": (q.get("text") or "")[:120]})
     qs = qs[:12]      # one small line: a single append, so overlapping buyer runs do not interleave

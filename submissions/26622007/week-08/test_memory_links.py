@@ -118,10 +118,10 @@ class BuyerMemoryTest(unittest.TestCase):
         self.assertIn("1 of your 1 purchases broke", line)
         self.assertIn("no certificate", line)
 
-    def test_the_limit_counts_the_chance_of_breaking(self):
+    def test_the_limit_keeps_the_list_price_when_a_break_is_refunded(self):
         offer = {"list_price": 10000}
         self.assertEqual(mb.value_limit(offer, 20000, None), 10000)
-        self.assertEqual(mb.value_limit(offer, 20000, 0.2), 8000)
+        self.assertEqual(mb.value_limit(offer, 20000, 0.2), 10000)      # 6 h warranty: a break refunds the ask
         self.assertEqual(mb.value_limit(offer, 5000, 0.2), 5000)
 
     def test_tools_answer(self):

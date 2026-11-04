@@ -84,7 +84,7 @@
     "agent_max_lines": 30,
     "max_stock_cost": 4000000,
     "food_explore_qty": 1,
-    "food_max_qty": 3,
+    "food_max_qty": 4,
     "max_break": 0.15,
     "food_max_price": 30000,
     "band_low": 0.8,
@@ -98,7 +98,11 @@
       "G6b9db161"
     ],
     "priority_skus": [
-      "G75f11c19"
+      "G75f11c19",
+      "Gef4d3036",
+      "Gb2392fa9",
+      "G200e39a3",
+      "G66ded25b"
     ],
     "sku_target_units": {
       "G1515d951": 4,
