@@ -539,17 +539,22 @@ class BuyerTest(unittest.TestCase):
             self.assertIs(market_buyer.best_quote(shops[0], shops[1:], {}, {}, 20000, lambda s: None, {"quote_shops": 1})[0], shops[0])
 
     def test_expected_surplus_counts_the_warranty_refund(self):
-        # a breaks half the time but refunds the ask: .5 x (30000 - 20000) = 5000 beats b's 10000 - 7000 = 3000
+        # a breaks half the time but refunds the ask: .5 x (30000 - 14000) = 8000 beats b's 10000 - 7000 = 3000
+        # (the old list x (1 - b) - ask gave a 1000 and picked b)
         shops = [{"name": "a", "url": "https://a.example", "usable": [{"sku": "H2", "name": "청소기", "list_price": 30000}]},
                  {"name": "b", "url": "https://b.example", "usable": [{"sku": "H1", "name": "컵", "list_price": 10000}]}]
-        asks = {"a": 20000, "b": 7000}
+        asks = {"a": 14000, "b": 7000}
 
         def fake_quote(shop, label, key, order, out, cancel=True):
             out[shop["name"]] = {"ask": asks[shop["name"]], "text": ""}
+        pick = lambda: market_buyer.best_quote(shops[0], shops[1:], {"kind": "goods"}, {}, 40000,
+                                               lambda s: 0.5 if s == "H2" else 0.0, {"quote_shops": 2}, wait=5)[0]["name"]
         with mock.patch.object(market_buyer, "quote", fake_quote), mock.patch.object(market_buyer, "log"):
-            best, _ = market_buyer.best_quote(shops[0], shops[1:], {"kind": "goods"}, {}, 40000,
-                                              lambda s: 0.5 if s == "H2" else 0.0, {"quote_shops": 2}, wait=5)
-        self.assertEqual(best["name"], "a")
+            self.assertEqual(pick(), "a")
+            asks["a"] = 20000     # above my limit for a (30000 x .5 = 15000): b, which can close at its ask, goes first
+            self.assertEqual(pick(), "b")
+            asks["b"] = 12000     # neither fits: the most expected surplus, as before
+            self.assertEqual(pick(), "a")
 
     def test_receipt_checks(self):
         out = {"agreed": 9000, "task": "t", "asked": "G1"}

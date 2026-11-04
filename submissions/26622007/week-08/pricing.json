@@ -124,8 +124,7 @@
     "stale_per_day": 0.1,
     "end_hours": 48,
     "below_cost": [
-      "food_expiry",
-      "round_end"
+      "food_expiry"
     ]
   },
   "forum": {

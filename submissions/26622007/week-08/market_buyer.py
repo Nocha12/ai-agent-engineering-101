@@ -518,6 +518,11 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
         o = s["_offer"]
         # goods I buy carry a 6 h warranty, so a break refunds the ask: (1 - b)(list - ask), not list(1 - b) - ask
         return (1 - (chance_of(o["sku"]) or 0)) * (o["list_price"] - q["ask"])
+
+    def fits(s):
+        """The opening ask is within what I would pay that shop: it can close now, so it goes before any ask above it."""
+        o = s["_offer"]
+        return got[s["name"]]["ask"] <= value_limit(o, budget, chance_of(o["sku"]) or 0, cfg)
     for r in range(rounds):
         batch, rest = rest[:k], rest[k:]
         if not batch or (r and time.time() - STARTED > QUOTE_UNTIL):
@@ -538,7 +543,7 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
         if any(surplus(s) is not None for s in pool):
             break
     scored = [(surplus(s), i, s) for i, s in enumerate(pool) if surplus(s) is not None]
-    best = max(scored, key=lambda x: (x[0], -x[1]))[2] if scored else None
+    best = max(scored, key=lambda x: (fits(x[2]), x[0], -x[1]))[2] if scored else None
     ctl.update(done=True, winner=best["name"] if best else None)
     for name, q in list(got.items()):
         if not best or name != best["name"]:

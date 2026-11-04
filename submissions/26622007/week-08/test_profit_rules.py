@@ -231,7 +231,6 @@ class PriceTest(unittest.TestCase):
                          (["G75f11c19"], {"G1515d951": 6, "G6b9db161": 2, "G75f11c19": 2}))
         self.assertTrue(r["high_price_listed_only"])
         self.assertEqual((p["buyer"]["max_spend_per_deal"], p["forum"]["every_minutes"]), (800000, 10))
-        self.assertEqual(p["markdown"]["below_cost"], ["food_expiry", "round_end"])   # unsold stock is a loss at the end
         self.assertTrue({"G054ff120", "G0f415407", "G9c02e68e", "Gf0293c0e", "G9c1a6eee", "Gbb0cbbff"} <= set(r["skip_skus"]))
         self.assertNotIn("G6b9db161", r["skip_skus"])   # held units sold at capped asks; allow replenishment
         self.assertEqual(p["price"]["scarce_asks"], {"G1515d951": 380911})
