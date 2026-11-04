@@ -248,11 +248,11 @@
     "ask_caps_source": "review/ax-overnight-20261103/0600/gpt-pro-answer.md B2-B3: slow goods held since 04:4x-05:26 sold 0 at 1.05 x median / our own paid price; G6b9db161 2 units unsold 05:23-06:01 at scarce ask 392,986. Caps are the review's per-grade asks; each unit's floor F (b 0.15) still bounds them"
   },
   "next_window": {
-    "id": "pro-20261103-2213b",
-    "source": "review/W-20261103-2120/gpt-pro-answer1.md 2-a: the mattress line missed in the 22:44 window",
+    "id": "terra-1105-012757",
+    "source": "Terra 2026-11-05 01:27: Ge62449c9 mature paid contribution and public demand; one-unit trial",
     "expires_hours": 2,
     "targets": {
-      "G1515d951": 1
+      "Ge62449c9": 1
     },
     "done_plans": [
       {
@@ -270,6 +270,13 @@
           "G5f64d42a": 1
         },
         "result": "22:44 window: 8 lines supplied; G1515d951 refused 429 (sent before the window opened)"
+      },
+      {
+        "id": "pro-20261103-2213b",
+        "targets": {
+          "G1515d951": 1
+        },
+        "result": "23:03 window: bought; see next_window_state record"
       }
     ]
   }

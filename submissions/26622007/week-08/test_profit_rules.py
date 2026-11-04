@@ -247,7 +247,7 @@ class PriceTest(unittest.TestCase):
         first = p["next_window"]["done_plans"][0]["targets"]          # the review's table: 10 SKUs, 13 units
         self.assertEqual((len(first), sum(first.values())), (10, 13))
         self.assertNotIn("G07ec17d5", first)
-        self.assertEqual(p["next_window"]["targets"], {"G1515d951": 1})     # the mattress line the 22:44 window refused
+        self.assertEqual(p["next_window"]["targets"], {"Ge62449c9": 1})     # one-unit demand and mature-margin trial
 
 
 CAT = {"F1": {"kind": "food", "list_price": 40000}, "F2": {"kind": "food", "list_price": 40000},
