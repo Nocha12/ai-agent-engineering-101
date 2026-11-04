@@ -97,6 +97,22 @@ class GuardsStayHookedTest(unittest.TestCase):
         self.assertTrue(hl.check_policy_change({"restock": {"max_break": 0.1}}, {"restock": {"max_break": None}}))
         self.assertTrue(hl.check_policy_change({"markdown": {"below_cost": ["food_expiry"]}}, {"markdown": {}}))
 
+    def test_the_buyer_has_no_cap_per_deal_but_keeps_its_budget_and_list_price(self):
+        import market_buyer
+        cfg = hl.clamp_cfg("buyer", {"max_price_share": 1.0, "max_spend_per_deal": 10000, "quote_shops": 3})
+        self.assertNotIn("max_spend_per_deal", cfg)          # whoever writes one into pricing.json
+        self.assertNotIn("buyer.max_spend_per_deal", hl.BOUNDS)
+        self.assertNotIn("max_spend_per_deal", hl.SAFE["buyer"])
+        self.assertEqual(hl.clamp_cfg("buyer", {"max_price_share": 5})["max_price_share"], 1.0)   # never past list
+        offer = {"list_price": 5 * 10 ** 9}           # far over any cap a later change could slip into the code
+        self.assertEqual(market_buyer.value_limit(offer, 9 * 10 ** 9, None, cfg), 5 * 10 ** 9)
+        self.assertEqual(market_buyer.value_limit(offer, 2500000, None, cfg), 2500000)           # the order's budget
+        self.assertEqual(market_buyer.value_limit(offer, 9 * 10 ** 9, None, market_buyer.buyer_cfg()), 5 * 10 ** 9)
+        with mock.patch.object(market_buyer, "__file__", os.path.join(tempfile.mkdtemp(), "market_buyer.py")):
+            self.assertEqual(market_buyer.value_limit(offer, 9 * 10 ** 9, None, market_buyer.buyer_cfg()), 5 * 10 ** 9)
+        self.assertEqual(market_buyer.accept_policy({"kind": "goods"}), {"warranty_hours": hl.BUYER_GOODS_WARRANTY_HOURS})
+        self.assertFalse(hl.check_policy_change({"buyer": {"max_spend_per_deal": 800000}}, {"buyer": {}}))
+
     def test_the_meta_harness_still_checks_and_tests(self):
         src = inspect.getsource(meta_harness.cycle)
         self.assertIn("problems += limit_problems(code)", src)

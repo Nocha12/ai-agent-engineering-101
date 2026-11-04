@@ -46,7 +46,6 @@ BOUNDS = {
     "warranty.max_break": (0.0, 0.5),
     "warranty.prior_break": (0.0, 0.5),
     "buyer.max_price_share": (0.3, 1.0),
-    "buyer.max_spend_per_deal": (10000, 5000000),
     "buyer.quote_shops": (1, 5),
     "markdown.min_floor_share": (0.0, 1.0),
     "forum.max_votes": (0, 30),
@@ -57,13 +56,18 @@ MARKDOWN_REASONS = ("food_expiry", "stale_goods", "round_end")
 # and my shop sells goods with one by default (its reserve carries the break chance). Fixed: not a setting.
 BUYER_GOODS_WARRANTY_HOURS = 6
 SELLER_GOODS_WARRANTY_HOURS = 6
+# The buyer spends the market's money, not the shop's: each order brings its own budget (agent.md: no buyer wallet), and
+# the order budget, the list price, the 6 h goods warranty and the food shelf-life check bound every payment. A cap per
+# deal only gave up the dear goods most of the top buyers' surplus comes from (80만: 1 of 113 such orders settled), so
+# there is none, and a pricing.json value for it is dropped here whoever wrote it (a person decided this, 2026-11-04).
+UNCAPPED = {"buyer": ("max_spend_per_deal",)}
 # The cautious start, used when a bounded setting is missing a number.
 SAFE = {"restock": {"keep_cash": 3000000, "max_stock_cost": 1000000, "target_per_category": 1, "max_lines": 5,
                     "max_units_per_sku": 5, "cover_hours": 6, "food_explore_qty": 0, "food_max_qty": 2, "max_break": 0.15,
                     "goods_max_price": 30000, "max_sku_share": 0.1, "food_max_price": 30000, "band_low": 0.8,
                     "band_high": 1.2, "prior_break": 0.15},
         "warranty": {"on_request_hours": 3, "max_hours": 6, "max_break": 0.25, "prior_break": 0.15},
-        "buyer": {"max_price_share": 0.9, "max_spend_per_deal": 200000, "quote_shops": 3},
+        "buyer": {"max_price_share": 0.9, "quote_shops": 3},
         "markdown": {"min_floor_share": 0.1, "below_cost": ["food_expiry"]},
         "forum": {"max_votes": 5, "every_minutes": 15},
         "opening": {"explore_budget_worst": 350000, "judge_settles": 50, "phase_gap_minutes": 15}}
@@ -137,7 +141,7 @@ def clamp_cfg(section, cfg):
     """A section of pricing.json as the code may use it: bounded numbers inside their bounds, and a value that is not a
     number (null, text) replaced by the cautious start (SAFE). Applied at every run, so even a settings file edited
     outside the meta-harness's checks cannot take the shop past these lines."""
-    out = dict(cfg)
+    out = {k: v for k, v in cfg.items() if k not in UNCAPPED.get(section, ())}
     for key, (lo, hi) in BOUNDS.items():
         sec, _, name = key.partition(".")
         if sec != section or (name not in out and name not in SAFE.get(section, {})):

@@ -235,8 +235,11 @@ class PriceTest(unittest.TestCase):
                           {"G1515d951": 4, "G6b9db161": 2, "G75f11c19": 2}))   # G1515 4: Astra 21:19, same five units across two supply windows; G6 2: undo the reduction triggered by mislinked refunds
         self.assertEqual(r["food_max_qty"], 4)     # every food line refills up to 4 units, not 3 (the SKU cap stays max_units_per_sku 6)
         self.assertTrue(r["high_price_listed_only"])
-        # 2,000,000: 97% of the market's settles of SKUs listed over 889k paid at most that; at 800k my buyer settled 1 of 113
-        self.assertEqual((p["buyer"]["max_spend_per_deal"], p["forum"]["every_minutes"]), (2000000, 10))
+        # no cap per deal (hard_limits.UNCAPPED; at 800k my buyer settled 1 of 113 dear orders) and the whole list price:
+        # 27 orders in 4.5 h ended with the shop's lowest ask between 0.9 and 1.0 of list, while only 6 of 271 deals paid
+        # within 1% of the limit, so the limit is rarely where a deal lands
+        self.assertNotIn("max_spend_per_deal", p["buyer"])
+        self.assertEqual((p["buyer"]["max_price_share"], p["forum"]["every_minutes"]), (1.0, 10))
         self.assertTrue({"G054ff120", "G0f415407", "G9c02e68e", "Gf0293c0e", "G9c1a6eee", "Gbb0cbbff"} <= set(r["skip_skus"]))
         self.assertNotIn("G6b9db161", r["skip_skus"])   # held units sold at capped asks; allow replenishment
         self.assertEqual(p["price"]["scarce_asks"], {"G1515d951": 380911})
