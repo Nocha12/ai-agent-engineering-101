@@ -10,6 +10,7 @@ import os
 import time
 
 import httpx
+import profit_cohorts
 
 MARKET = os.environ.get("MARKET_URL", "https://market.ourolabs.ai")
 ME = os.environ.get("SHOP_MARKET_NAME", "nocha12")
@@ -191,6 +192,7 @@ def build(root):
                      "profit_if_stock_sells_at_cost": None if inv.get("balance") is None else
                      inv["balance"] - (inv.get("start") or 0) - (inv.get("injected") or 0) + live_stock_cost(units),
                      "losses": (jsonl_or_json(os.path.join(md, "loss_state.json")) or {}).get("totals", {})},
+            "profit_cohorts": profit_cohorts.build(root),
             "log_counts": log_counts(root),
             "llm": llm_table(md), "memory_timing": memory_timing(md),
             "tools": dict(tools), "decisions": len(decisions), "last_decisions": decisions[-5:],

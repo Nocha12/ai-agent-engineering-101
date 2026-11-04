@@ -1,82 +1,70 @@
-# Current strategy
+# 현재 전략 — 2026-11-04 09:05 KST, Astra
 
-Terra reads this every hour and picks its change from the levers below. Astra rewrites it every twelve hours after
-comparing two or three directions. Terra rewrites it only with a strategy shift (two cycles of evidence, see
-meta/terra.md step 2). A person or the overnight GPT Pro review may also set it; the newest entry in History wins, and
-their commits since Terra's last cycle (`git log`) say what moved and when to undo it.
-Rewrite in place; keep this file short.
+목표는 순이익 1위이며 최종 평가는 팩의 Players(상점 ALL + 구매자 ALL)다.
+agent.md의 구매자 가중치는 0.5/0.3/0.1/0.1로 팩의 0.5/0.3/0.2와 다르다.
+이번 판단은 요청받은 팩의 지표를 유지하며 서버 ALL과 같은 값이라고 주장하지 않는다.
 
-## Strategy: broad profit stock + proven mattresses (person and overnight GPT Pro review, 11/04 00:03-06:31)
+## 선택지 비교 (다음 12시간 현금 순이익 증가의 시나리오, 예측 보장 아님)
 
-- Product mix, two parts:
-  - Breadth: restock.wanted ranks lines by profit per hour per won of stock, so the stock cost cap buys many SKUs in
-    many categories (buyers who order a category see only shops stocking it). max_stock_cost 4,000,000 and
+- 현재: 폭넓은 이익 재고 + 검증 매트리스, 침구 한 단위 시험. 약 1,000만~1,800만 + 시험 0~8.7만. 07:01→09:05 현금이익 718만→940만, 원가회수 가정 940만→1,223만을 12시간 환산하면 약 1,290만/1,650만. 선택: 자체 판매·원가가 있고 추가 재고 최악 92,175로 시험 가능.
+- 매트리스 집중 확대: 기존 시나리오에 G6b9db161 추가 0~6판매 × 숙성 건당 75,047 = 0~45만. 선택 안 함: G6는 08:43 보충 재개 후 아직 1시간이 안 됐고 G1515는 6시간 숙성 13건·원가 누락 1건, 알려진 순기여 -113,016. 집중하면 환불과 재고 자금 위험을 함께 키운다.
+- 경쟁점의 미취급 고가 가구/소파 수요 공략: 기존 시나리오 + 0~50만의 검증 전 가정(0~10판매 × 가정 마진 5만), 실패하면 매입 원가 손실. 선택 안 함: dae-yangkim G5cd4ffbc 90판매·매출 14,547,255, 그러나 경쟁점 원가·우리 수요 전환율 미확인. 포럼 3072/3118/3137의 168만/203만/534만 소파 수요는 현행 가격 한도와 재고 위험을 압박한다. 먼저 원장 가격/구매자 분산/우리 하한을 읽기 전용으로 비교한다.
+
+## 현재 전략과 이유
+
+기존 한도 설명의 원문(05:00 보증 잔액은 당시 관측값):
+
     keep_cash 4,500,000 (both hard_limits bounds; 21.9M of warranties were open at 05:00), food 450,000, at most 4
-    units per SKU, max_sku_share 0.2.
-  - Proven mattresses: the SKUs that sell out within minutes of each supply window carry the profit (11/04 07:20
-    ledger: G1515d951 39 sales, 3,413,663 gross, 2,019,861 after 4 refunds; G6b9db161 26 sales, 2,078,215 after 1).
-    restock.high_price_proven_skus (G1515d951, G6b9db161) up to high_price_proven_max_units 4, each capped by
-    restock.sku_target_units (G1515d951 4, G6b9db161 2, G75f11c19 1); these and restock.priority_skus go first in the
-    buy batch. Other goods above 100,000 only from those lists (high_price_listed_only), 2 units at most. Slow goods
-    and SKUs whose extra unit stayed unsold twice are in restock.skip_skus (G0f415407, G9c02e68e, pillows G054ff120);
-    G6b9db161 is skipped until its 2 held units sell at the capped asks.
-- Positioning: honest grades with the market certificate, the ledger's honest sales as proof, a warranty of up to 6 h
-  (pricing.json warranty) on goods whose break risk allows it.
-- Buyers reach the shop through: the card (built from current stock), shop posts on the forum, replies to "구합니다" posts.
-- Negotiation: reserve = floor F and first ask P0 (profit_price.py, b = 15% priced into the floor), concessions
-  [.6, .4, .2]; price.scarce_asks fixes G1515d951's first ask at 380,911; price.ask_caps caps the first ask of slow
-  SKUs by grade.
-- Buying: lines go out only within 50 s of a supply window opening (opening.WINDOW_LEAD), or the kit drops them.
-- Why: the mattresses made most of the gross profit and sat out of stock between windows; breadth brings the visits
-  the leaders have (07:01: our 1,060 visits against dae-yangkim's 2,115).
 
-## Rules Terra applies (numbers quoted, one step per cycle)
+현재 전략을 유지한다. 매트리스 G1515d951 4개, G6b9db161 2개와 이익/원가 순위의 폭넓은 저가 상품을 함께 판다.
+선두 dae-yangkim은 468거래·2,494방문·이익 24,462,835, 우리는 683거래·1,576방문·9,406,642다.
+선두는 같은 G1515를 122건 팔아 43,587,907을 받았고 우리는 60건·20,977,750이다.
+단순 거래 수보다 상품 구성·판매 단가·보증 비용 차이가 중요하다. 경쟁점 원가는 공개되지 않으므로 마진을 지어내지 않는다.
+선두 카드의 짧은 보증은 우리 고정 6시간 보증과 다르므로 그대로 모방하지 않는다.
+인증·정직한 등급을 카드와 재고 기반 포럼 답글로 알린다. 협상은 기존 하한 F, 최초가 P0, 양보 [.6,.4,.2]와 숫자 제안 실패 대체 경로를 쓴다.
+재고 상한 4,000,000, 현금 보유 4,500,000, 식품 450,000, SKU 점유 0.2를 유지한다.
+G6b9db161 보충 보류는 Terra가 08:43 해제했으며 목표 2와 등급별 호가 상한은 유지한다.
+느린 SKU skip 목록, 고가 목록 제한, G1515 고정 최초가 380,911, 공급창 50초 규칙을 유지한다.
 
-- Break rate, per SKU: narrow a proven mattress (sku_target_units down one, then off the proven list) when its breaks
-  within warranty exceed 15% of its sales older than 1 h (every break so far came 0.04-0.84 h after the sale) over at
-  least 20 sales, or its net per sale after refunds over its last 10 sales is below 0. Narrow all mattresses to 1 unit
-  when mattress breaks overall exceed 15%. One or two breaks in an hour are not a signal on their own: at ~10 sales an
-  hour a 10% rate gives that often (11/04 03:08 and 03:34 on G1515d951, still +51,791 per sale at 07:20).
-- Unsold: take a SKU's target down one when an extra unit is still unsold at the next window twice.
-- scarce_asks: drop a SKU from it when its paid prices fall below those before the fixed ask, or its units stop selling
-  before the next window.
-- Widening: the stock and cash caps are at their bounds; widen by adding SKUs (restock.wanted, target units) only
-  where matured (6 h past) warranty data shows net per sale above 0.
+## Terra가 먼저 조절할 것
 
-## Levers Terra pulls first
+1. 아래 침구 시험을 우선 평가한다. SKU별 유료 결제와 실제 공급 창당 판매를 비교하고 반복 guard 로그 수를 고유 품절 건수로 부르지 않는다.
+2. `profit_cohorts` 점수표 또는 `cohort_profit` 도구로 6시간 숙성/미숙성, 등급별 환불을 나눈다. `net=null`은 원가 누락 또는 무표본이다. `known_net`은 누락을 뺀 부분합이며 현금 순이익이 아니다.
+3. 가격이나 목표를 더 바꾸기 전에 유료 기억, kit의 unit/ledger seq와 원가 로그를 연결한다. 재고 원가 증가와 환불을 현금이익 변화에서 분리한다.
+4. 카드·포럼은 실제 재고와 검증된 원장 사실만 쓴다. 구합니다 게시글은 공급 없는 수요 후보이지 우리에게 전환된 주문 증거가 아니다.
 
-1. Which SKUs are stocked and how many (restock.wanted, sku_target_units, skip_skus): net per sale after refunds
-   against sales while in stock.
-2. Prices: P0 and floor F inputs, scarce_asks and ask_caps in pricing.json, inside their bounds.
-3. Card and forum posts that bring buyers to SKUs in stock.
+## 주 실험 — G75f11c19 목표 1 → 2
 
-## Shift conditions (Terra shifts only when one holds two cycles in a row, numbers quoted)
+근거: 유료 14건, 관측 순기여 339,025; 6시간 숙성 4건·87,395, 환불 0.
+09:03:05 1개 원가 54,030 입고 → 09:03:32 82,845 결제. guard가 공식 요청 4를 1로 줄인다.
+이번 설정은 보유+대기+신규 합계 목표만 2로 바꾼다. 추가 한 단위 최악 원가 122,900×0.75=92,175.
+기대: 다음 12시간 기준 판매 14건 대비 4건 추가(총 18건 이상), 숙성 건당 약 21,849 기준 추가 기여 약 87,395.
+09:05 이전 전체 표본과 단순 비교하므로 시장 판매량/공급 횟수도 함께 비교하며 인과 효과라고 단정하지 않는다.
+21:05 KST 판정: 18건 이상 유료 판매, 첫 6시간 판매의 숙성 순기여 양수, 추가 단위의 2창 연속 미판매 없음이면 유지.
+추가 단위가 두 공급창 연속 남거나 숙성 시험 판매의 총순기여가 음수면 목표 1로 복원한다.
+표본이 모자라면 확대하지 않고 최대 2를 유지하며 부족한 공급창/유료 건수를 기록한다. 마지막 6시간 판매의 최종 환불 판정은 11/05 03:05 이후다.
 
-- The shops ahead in profit (board.rivals) earn it with many more deals on SKUs or categories we do not stock, and our
-  own paid deals per hour stay flat: shift towards stocking their best-selling SKUs at a margin our floor allows.
-- Our visits rise but paid deals do not: the gap is negotiation or positioning, not stock; shift the levers there.
-- Losses (expired, break_refund, grade_drop, storage) exceed the hour's contribution: shift to a narrower, faster mix.
+## 작은 측정 실험 / 부족한 증거의 판정선
 
-## Options compared
+새 `cohort_profit`은 거래·메시지를 보내지 않는다. 기존 원장, 유료 기억과 loss_watch의 환불 추정 seq만 읽는다.
+G1515 전체 원가확인 59건의 부분 순기여 +2,855,245만 보면 놓치는 위험을 드러낸다.
+숙성 13건 중 기억에서 원가가 빠진 unit u-85a7899bd11d는 kit 14176행에서 300,207 확인(판매 381,909, 14284행).
+이를 수동 보완한 숙성 순기여는 -31,314이다. 도구는 기억의 누락을 숨기지 않고 null로 표시한다.
+G1515 등급 B는 전체 10건·환불 3건·관측 순기여 16,446, 숙성 2건·-157,687로 경고 표본이며 확정 확대 근거가 아니다.
+15:05 KST 이후 09:05까지 판매를 다시 측정한다. 숙성 20건 이상에서 환불 비율 >15% 또는 최근 10개 숙성 판매의 순기여 <0이면 목표 4→3을 우선 검토/실행한다. 원가 누락이 있으면 kit PRICE unit 연결로 먼저 채운다.
+기존 즉시 축소 조건(1시간 지난 판매 ≥20건 중 보증 내 파손 >15%, 또는 최근 10판매 순기여 <0)도 유지한다.
+이번 1시간 경과 표본은 47건 중 환불 5건(10.6%)으로 즉시 축소율 조건은 미충족이다.
+측정 성공선: 다음 Terra 두 사이클에서 숙성/미숙성 수·누락 수·순기여를 인용하고, 도구 오류 0건. 기능상 실패하면 도구 수정, 전략상 효과가 없으면 가격을 움직이지 않는다.
 
-Not yet: Astra's first cycle (12 h after the round's first cycle, 11/04 ~09:0x) grades the 14 overnight commits and
-writes its comparison of two or three directions here.
+## 전략 전환 조건
 
-## Experiment
+- 두 연속 시간에 우리 공급창당 유료 판매가 늘지 않고, 선두 미취급 SKU가 각 시간 ≥10거래·구매자 ≥3명을 확보하며 우리 최악 원가+보증 하한보다 지급가가 높으면 저가 1개 SKU 시험 방향을 watch→shift로 제안한다.
+- 두 연속 시간에 방문 증가율 ≥10%인데 유료 판매 증가율 ≤0이면 품목 확대 대신 협상/등급·가격 정보 개선으로 전환한다.
+- 두 연속 시간의 환불·폐기·보관 비용이 매출-판매원가를 넘으면 느린/손실 SKU 축소 전략으로 전환한다.
+- Terra는 직전 수락 watch와 최근 3사이클 전환 금지 조건을 따른다. 매 실험의 되돌림은 새 전략 전환을 기다리지 않는다.
 
-None running yet; Astra's next cycle designs the first one.
+## 이력
 
-## Baseline (board, 2026-11-04 07:01 KST)
-
-Profit rank 7 (7,180,093, 492 deals, 1,060 visits). First: dae-yangkim 19,808,798 (407 deals, 2,115 visits).
-
-## History
-
-- 2026-11-03 22:40 set from the GPT Pro profit review (person): lean profit stock. Strategy check added to Terra.
-- 2026-11-04 00:03-02:3x widened (person): stock cap by profit per won for breadth, 2 units of each proven mattress.
-- 2026-11-04 03:3x-06:31 proven mattresses (person, overnight GPT Pro review mw0y87qc, review/ax-overnight-20261103
-  0300-0600): G1515d951 to 4, G6b9db161 to 2 and skipped until sold, G0f415407/G9c02e68e off, slow goods stopped,
-  keep_cash 4,500,000, first-ask caps, lines sent within 50 s of a window.
-- 2026-11-04 07:4x G1515d951 kept at 4 on data (person's review W-20261104-0715-AXTerra): 39 sales, 4 breaks (10.3%,
-  under the 15% priced in the floor; market 4.2%), net +2,019,861 after 1,393,802 refunds. The 03:58 Terra cut was
-  refused by a test environment fault, not by its change. Watch: 2 of its 4 grade-B sales broke (A: 2 of 32).
+- 11/03~11/04 06:31 사람/GPT Pro: 이익 중심 폭 확대, 매트리스 검증·느린 재고 제외, 호가 상한 및 공급창 수정.
+- 11/04 07:31/08:43 Terra: 숫자 제안 대체 협상, 판매된 G6 보충 재개.
+- 2026-11-04 09:05 Astra: 첫 전수 평가, 전략 유지 + G75 목표 2의 12시간 시험, 숙성 손익 도구 추가, 잘못된 자동 검색 도구 제거.
