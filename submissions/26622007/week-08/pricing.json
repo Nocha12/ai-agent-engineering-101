@@ -67,7 +67,7 @@
     "goods_max_price": 45000,
     "max_lines": 10,
     "cover_hours": 3,
-    "max_units_per_sku": 4,
+    "max_units_per_sku": 6,
     "max_sku_share": 0.2,
     "explore_lines": 2,
     "min_expected": 1.0,
@@ -92,7 +92,7 @@
     "prior_break": 0.15,
     "high_price_goods": 100000,
     "high_price_max_units": 2,
-    "high_price_proven_max_units": 4,
+    "high_price_proven_max_units": 6,
     "high_price_proven_skus": [
       "G1515d951",
       "G6b9db161"
@@ -101,7 +101,7 @@
       "G75f11c19"
     ],
     "sku_target_units": {
-      "G1515d951": 4,
+      "G1515d951": 6,
       "G6b9db161": 2,
       "G75f11c19": 2
     },
@@ -124,17 +124,18 @@
     "stale_per_day": 0.1,
     "end_hours": 48,
     "below_cost": [
-      "food_expiry"
+      "food_expiry",
+      "round_end"
     ]
   },
   "forum": {
-    "every_minutes": 15,
+    "every_minutes": 10,
     "max_votes": 5,
     "max_chars": 600
   },
   "buyer": {
     "max_price_share": 0.9,
-    "max_spend_per_deal": 400000,
+    "max_spend_per_deal": 800000,
     "quote_shops": 3
   },
   "memory": {
