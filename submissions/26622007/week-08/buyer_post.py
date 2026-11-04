@@ -25,24 +25,39 @@ def load(path, default):
 
 
 def read_lines(path):
+    """The JSON lines of a file; a half-written or bad line is skipped, not the whole file."""
+    out = []
     try:
         with open(path, encoding="utf-8") as f:
-            return [json.loads(x) for x in f if x.strip()]
-    except (OSError, ValueError):
-        return []
+            for x in f:
+                try:
+                    out.append(json.loads(x))
+                except ValueError:
+                    continue
+    except OSError:
+        pass
+    return out
 
 
 def pending_buyer_post(md):
-    """A buyer post the kit has not sent yet (rate limit): another one now would only queue behind it."""
-    for line in read_lines(os.path.join(md, "outbox.jsonl")):
-        if isinstance(line, dict) and "post" in line and line.get("as") == "buyer":
-            return True
+    """A buyer post the kit has not sent yet (rate limit, or the kit is sending it now from outbox.taking): another one
+    now would only queue behind it."""
+    for name in ("outbox.jsonl", "outbox.taking"):
+        for line in read_lines(os.path.join(md, name)):
+            if isinstance(line, dict) and "post" in line and line.get("as") == "buyer":
+                return True
     return False
 
 
-def my_shop_skus(md):
+def my_shop_skus(md, pricing="pricing.json"):
+    """SKUs my shop has on its shelf or means to restock (pricing.json restock lists): not advertised to buyers."""
     inv = load(os.path.join(md, "inventory.json"), {})
-    return {u.get("sku") for u in inv.get("units") or [] if isinstance(u, dict)}
+    skus = {u.get("sku") for u in inv.get("units") or [] if isinstance(u, dict)}
+    r = load(pricing, {}).get("restock") or {}
+    for key in ("priority_skus", "high_price_proven_skus"):
+        skus |= {s for s in r.get(key) or [] if isinstance(s, str)}
+    skus |= {s for s in r.get("sku_target_units") or {} if isinstance(s, str)}
+    return skus
 
 
 def shop_names(memory_path):
@@ -68,17 +83,21 @@ def text(d, shop, now):
     return " | ".join(parts)
 
 
-def pick(settled, posted, mine, now):
-    """The newest settled deal not posted yet that is worth telling: paid below list, not my shop's SKU, fresh."""
+def pick(settled, posted, mine, now, names=None):
+    """(deal, text) for the newest settled deal not posted yet that is worth telling: paid below list, not my shop's
+    SKU, fresh, and with fields that make a post. (None, None) when there is none."""
     for d in reversed(settled):
-        if not isinstance(d, dict) or d.get("ledger") in posted or d.get("sku") in mine:
+        if not isinstance(d, dict) or d.get("ledger") in posted or d.get("sku") in mine or not isinstance(d.get("sku"), str):
             continue
         if not all(isinstance(d.get(k), (int, float)) for k in ("price", "value", "ledger", "time")):
             continue
         if d["value"] <= d["price"] or now - d["time"] > FRESH_HOURS * 3600:
             continue
-        return d
-    return None
+        try:
+            return d, text(d, (names or {}).get(d.get("order")), now)
+        except (TypeError, ValueError):      # an odd field (warranty, expiry) skips this deal, not every later one
+            continue
+    return None, None
 
 
 def maybe_post(md, settled_path, memory_path, now=None):
@@ -94,10 +113,11 @@ def maybe_post(md, settled_path, memory_path, now=None):
             state = load(path, {"at": 0, "posted": []})
             if now - state.get("at", 0) < GAP_MINUTES * 60 or pending_buyer_post(md):
                 return None
-            d = pick(read_lines(settled_path), set(state.get("posted") or []), my_shop_skus(md), now)
+            d, post = pick(read_lines(settled_path), set(state.get("posted") or []), my_shop_skus(md), now,
+                           shop_names(memory_path))
             if d is None:
                 return None
-            line = {"post": text(d, shop_names(memory_path).get(d.get("order")), now), "refs": [d["ledger"]], "as": "buyer"}
+            line = {"post": post, "refs": [d["ledger"]], "as": "buyer"}
             with open(os.path.join(md, "outbox.jsonl"), "a", encoding="utf-8") as f:
                 f.write(json.dumps(line, ensure_ascii=False) + "\n")
             state = {"at": now, "posted": (list(state.get("posted") or []) + [d["ledger"]])[-500:]}

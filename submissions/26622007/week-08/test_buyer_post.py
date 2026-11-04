@@ -38,7 +38,10 @@ class BuyerPost(unittest.TestCase):
 
     def outbox(self):
         path = os.path.join(self.md, "outbox.jsonl")
-        return [json.loads(x) for x in open(path)] if os.path.exists(path) else []
+        if not os.path.exists(path):
+            return []
+        with open(path) as f:
+            return [json.loads(x) for x in f]
 
     def post(self, now=NOW):
         return buyer_post.maybe_post(self.md, self.settled, self.memory, now=now)
@@ -85,6 +88,23 @@ class BuyerPost(unittest.TestCase):
         line = self.post()
         self.assertIn("보증 6h", line["post"])
         self.assertIn("900,000원, 정가 1,800,000원 대비 50% 저렴", line["post"])
+
+    def test_a_bad_line_or_field_skips_only_that_deal(self):
+        self.write_settled([deal(10)])
+        with open(self.settled, "a") as f:
+            f.write('{"half written\n')
+            f.write(json.dumps(deal(11, kind="goods", expires_at=None, warranty_hours="six")) + "\n")
+        self.assertEqual(self.post()["refs"], [10])
+
+    def test_restock_list_skus_and_a_post_being_sent_block(self):
+        pricing = os.path.join(self.tmp.name, "pricing.json")
+        with open(pricing, "w") as f:
+            json.dump({"restock": {"priority_skus": ["P1"], "sku_target_units": {"T1": 2}}}, f)
+        self.assertEqual(buyer_post.my_shop_skus(self.md, pricing), {"P1", "T1"})
+        self.write_settled([deal(10)])
+        with open(os.path.join(self.md, "outbox.taking"), "w") as f:
+            f.write(json.dumps({"post": "x", "refs": [1], "as": "buyer"}) + "\n")
+        self.assertIsNone(self.post())
 
     def test_bad_files_never_raise(self):
         with open(self.settled, "w") as f:

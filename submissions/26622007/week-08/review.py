@@ -11,8 +11,6 @@ import os
 import sys
 import time
 
-import buyer_post
-
 SETTLED = os.environ.get("BUYER_SETTLED", "memory/settled.jsonl")
 
 
@@ -50,8 +48,12 @@ def main():
     stars, review = rate(price, settled)
     print(json.dumps({"stars": stars, "review": review}, ensure_ascii=False), flush=True)
     # after the result line: the deal as a buyer post (posts are 10% of the buyer's rank); never fails the hook
-    line = buyer_post.maybe_post(os.path.dirname(os.path.abspath(args.deal)), SETTLED,
-                                 os.environ.get("BUYER_MEMORY", "memory/market_memory_r3.json"))
+    try:
+        import buyer_post        # here, not at the top: a broken import never costs the review line above
+        line = buyer_post.maybe_post(os.path.dirname(os.path.abspath(args.deal)), SETTLED,
+                                     os.environ.get("BUYER_MEMORY", "memory/market_memory_r3.json"))
+    except Exception:  # noqa: BLE001
+        line = None
     if line:
         print(f"[forum] buyer post queued: ledger #{line['refs'][0]}", file=sys.stderr, flush=True)
     return 0
