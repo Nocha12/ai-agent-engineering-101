@@ -541,6 +541,24 @@ class HarnessCycleTest(unittest.TestCase):
         with mock.patch.object(mh, "ROOT", os.path.join(sub, "inner")):
             self.assertEqual(mh.stage(), ["x.py"])
 
+    def test_staging_works_with_logs_and_memory_ignored_and_keeps_tracked_evidence_out(self):
+        # 11/04 11:07-16:12 every Terra cycle failed: `git add -A -- . :!logs :!memory` exits 1 once both are in .gitignore
+        sub = os.path.join(self.outer, "ign")
+        inner = os.path.join(sub, "inner")
+        for d in ("logs", "memory"):
+            os.makedirs(os.path.join(inner, d))
+        subprocess.run(["git", "init", "-q"], cwd=sub, check=True)
+        for name, text in ((".gitignore", "/logs/\n/memory/\n"), ("logs/evidence.txt", "a"), ("memory/r2.json", "{}")):
+            with open(os.path.join(inner, name), "w") as f:
+                f.write(text)
+        subprocess.run(["git", "add", "-f", ".gitignore", "logs/evidence.txt", "memory/r2.json"], cwd=inner, check=True)
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base"], cwd=inner, check=True)
+        for name in ("logs/evidence.txt", "logs/kit.log", "memory/r2.json", "pricing.json"):
+            with open(os.path.join(inner, name), "a") as f:
+                f.write("more")
+        with mock.patch.object(mh, "ROOT", inner):
+            self.assertEqual(mh.stage(), ["pricing.json"])
+
 
 class ForumTest(unittest.TestCase):
     POSTS = [{"id": "p1", "author": "other", "text": "a"}, {"id": "p2", "author": "nocha12", "text": "mine"}, {"id": 3, "author": "x", "text": "b"}]

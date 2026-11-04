@@ -43,7 +43,7 @@ CHATGPT_CODEX = "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI
 ECON_ROUND = 3
 STARTED = time.time()             # Astra's clock when no cycle is recorded yet
 NOT_CODE = ("meta/evidence/", "meta/changes.jsonl", "meta/grades.jsonl", "meta/state.json", "meta/last-")
-LIVE = (":!logs", ":!memory")     # what the kit and the shop keep writing: never staged by the harness (.gitignore too)
+LIVE = ("logs", "memory")         # what the kit and the shop keep writing: never staged by the harness (.gitignore too)
 SELLER_FILES = ("seller.py", "shop_memory.py", "shop_stock.py", "harness.py", "catalog.py", "pricing.json", "acp_shop.py")
 EVIDENCE = {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["ref", "excerpt", "meaning"],
                                        "properties": {k: {"type": "string"} for k in ("ref", "excerpt", "meaning")}}}
@@ -149,8 +149,15 @@ def secrets_in_stage():
 def stage():
     """This folder's changes without logs/ and memory/. Astra's commit eba7dd67 carried them: 64 MB of kit logs, a Round 2
     archive and the shop's memory dumps, which the kit kept writing, so the undo of that commit was refused."""
-    git("add", "-A", "--", ".", *LIVE)
-    return git("diff", "--cached", "--name-only", "--relative").splitlines()
+    # not `add -A -- . :!logs :!memory`: with both in .gitignore git exits 1 on those pathspecs ("paths are ignored"),
+    # which failed every Terra cycle from 11/04 11:07 (f0a8917) and left its change staged, uncommitted
+    git("add", "-A", "--", ".")
+    git("reset", "-q", "--", *LIVE, check=False)      # tracked evidence there stays as committed; no HEAD yet: nothing to undo
+    paths = git("diff", "--cached", "--name-only", "--relative").splitlines()
+    live = [p for p in paths if p.split("/", 1)[0] in LIVE]
+    if live:
+        raise RuntimeError(f"stage: {live[:5]} under {LIVE} still staged")
+    return paths
 
 
 LIVE_ENV = ("SHOP_MARKET_NAME", "SHOP_MEMORY", "AGENT_MEMORY_DIR")    # these point shop_memory/agent_memory at live files

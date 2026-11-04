@@ -228,7 +228,7 @@ class PriceTest(unittest.TestCase):
         # G6b9db161 2 per window 04:03-04:44); G0f415407 and G9c02e68e left extra units unsold twice: no more buying
         self.assertEqual((r["high_price_proven_max_units"], r["high_price_proven_skus"]), (6, proven))
         self.assertEqual((r["priority_skus"], r["sku_target_units"]),
-                         (["G75f11c19"], {"G1515d951": 6, "G6b9db161": 2, "G75f11c19": 2}))
+                         (["G75f11c19"], {"G1515d951": 6, "G6b9db161": 1, "G75f11c19": 2}))   # G6b9db161 1: Terra 15:11, committed here after its own commit failed (stage)
         self.assertTrue(r["high_price_listed_only"])
         self.assertEqual((p["buyer"]["max_spend_per_deal"], p["forum"]["every_minutes"]), (800000, 10))
         self.assertTrue({"G054ff120", "G0f415407", "G9c02e68e", "Gf0293c0e", "G9c1a6eee", "Gbb0cbbff"} <= set(r["skip_skus"]))
