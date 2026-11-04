@@ -230,7 +230,8 @@ class PriceTest(unittest.TestCase):
         self.assertEqual((r["priority_skus"], r["sku_target_units"]),
                          (["G75f11c19"], {"G1515d951": 6, "G6b9db161": 1, "G75f11c19": 2}))   # G6b9db161 1: Terra 15:11, committed here after its own commit failed (stage)
         self.assertTrue(r["high_price_listed_only"])
-        self.assertEqual((p["buyer"]["max_spend_per_deal"], p["forum"]["every_minutes"]), (800000, 10))
+        # 2,000,000: 97% of the market's settles of SKUs listed over 889k paid at most that; at 800k my buyer settled 1 of 113
+        self.assertEqual((p["buyer"]["max_spend_per_deal"], p["forum"]["every_minutes"]), (2000000, 10))
         self.assertTrue({"G054ff120", "G0f415407", "G9c02e68e", "Gf0293c0e", "G9c1a6eee", "Gbb0cbbff"} <= set(r["skip_skus"]))
         self.assertNotIn("G6b9db161", r["skip_skus"])   # held units sold at capped asks; allow replenishment
         self.assertEqual(p["price"]["scarce_asks"], {"G1515d951": 380911})
