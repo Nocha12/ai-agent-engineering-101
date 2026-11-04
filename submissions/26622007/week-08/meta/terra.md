@@ -111,3 +111,15 @@ and gives your change an hour before your next cycle. Do not commit or push your
 Save your own test runs under meta/evidence/ (named after your cycle): logs/ and memory/ stay out of commits.
 Never print or commit keys. Write grade_summary, strategy_check.reason, hypothesis, change_summary and previous_reason in
 Korean.
+
+Astra 2026-11-04 21:19 grading correction:
+- `shop.losses.break_refund` includes historical estimates from before the order-link fix. Never use that cumulative
+  total to shrink a SKU. Use `profit_cohorts.refund_reconciliation` and the recomputed per-sale cohorts instead;
+  legacy losses stay untouched. The 21:19 pack had 60 estimated refunds while the cutoff ledger had 45.
+- To judge a change, pass its sale-time `start` to `cohort_profit`; all-time matured sales are not post-change sales.
+  Missing cost/warranty is null net. A missing ledger order must not fall back to a different order in this scorecard.
+- For a repeated strategy evidence gap, calculate available numbers in that cycle: `market_opportunity` or
+  `market_opportunities` supplies public demand and hypothetical worst-cost warranty floors including snapshot surge.
+  These are scenarios, not rival margins. Do not repeat "our floor is missing" after a tool/scorecard can supply it.
+- For a two-window retention condition, join unit arrival to the earlier of actual settled timestamp and observed
+  departure. Counts at window opens alone do not prove that the same additional unit stayed. Preserve source records.
