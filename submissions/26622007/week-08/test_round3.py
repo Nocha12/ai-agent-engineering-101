@@ -538,6 +538,19 @@ class BuyerTest(unittest.TestCase):
             self.assertEqual((best["name"], sorted(got)), ("b", ["a", "b"]))
             self.assertIs(market_buyer.best_quote(shops[0], shops[1:], {}, {}, 20000, lambda s: None, {"quote_shops": 1})[0], shops[0])
 
+    def test_expected_surplus_counts_the_warranty_refund(self):
+        # a breaks half the time but refunds the ask: .5 x (30000 - 20000) = 5000 beats b's 10000 - 7000 = 3000
+        shops = [{"name": "a", "url": "https://a.example", "usable": [{"sku": "H2", "name": "청소기", "list_price": 30000}]},
+                 {"name": "b", "url": "https://b.example", "usable": [{"sku": "H1", "name": "컵", "list_price": 10000}]}]
+        asks = {"a": 20000, "b": 7000}
+
+        def fake_quote(shop, label, key, order, out, cancel=True):
+            out[shop["name"]] = {"ask": asks[shop["name"]], "text": ""}
+        with mock.patch.object(market_buyer, "quote", fake_quote), mock.patch.object(market_buyer, "log"):
+            best, _ = market_buyer.best_quote(shops[0], shops[1:], {"kind": "goods"}, {}, 40000,
+                                              lambda s: 0.5 if s == "H2" else 0.0, {"quote_shops": 2}, wait=5)
+        self.assertEqual(best["name"], "a")
+
     def test_receipt_checks(self):
         out = {"agreed": 9000, "task": "t", "asked": "G1"}
         rec = {"item": "G1", "price": 9000, "task": "t", "sig_seller": "x"}

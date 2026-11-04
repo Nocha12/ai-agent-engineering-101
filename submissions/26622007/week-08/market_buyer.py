@@ -516,7 +516,8 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
         if not isinstance(q.get("ask"), (int, float)) or q.get("refused"):
             return None
         o = s["_offer"]
-        return o["list_price"] * (1 - (chance_of(o["sku"]) or 0)) - q["ask"]
+        # goods I buy carry a 6 h warranty, so a break refunds the ask: (1 - b)(list - ask), not list(1 - b) - ask
+        return (1 - (chance_of(o["sku"]) or 0)) * (o["list_price"] - q["ask"])
     for r in range(rounds):
         batch, rest = rest[:k], rest[k:]
         if not batch or (r and time.time() - STARTED > QUOTE_UNTIL):

@@ -28,14 +28,24 @@ def settle(seq, sku="H1", buyer="b", ts=T, shop="https://a", grade="A"):
     return {"k": "settle", "seq": seq, "ts": ts, "buyer": buyer, "order": f"o{seq}", "sku": sku, "amount": 8000, "grade": grade, "shop": shop}
 
 
-def broken(seq, sku="H1", buyer="b", ts=T + 3600):
-    return {"k": "broken", "seq": seq, "ts": ts, "buyer": buyer, "sku": sku}
+def broken(seq, sku="H1", buyer="b", ts=T + 3600, order=None):
+    r = {"k": "broken", "seq": seq, "ts": ts, "buyer": buyer, "sku": sku}
+    if order:
+        r["order"] = order
+    return r
 
 
 class LinkTest(unittest.TestCase):
     def test_links_to_the_latest_purchase_within_the_window(self):
         rows = [settle(1, ts=T - 3600), settle(2, ts=T), broken(3)]
         self.assertEqual([s["seq"] for _, s in mm.link_broken(rows)], [2])
+
+    def test_a_break_naming_its_order_links_to_that_settle_not_the_latest(self):
+        rows = [settle(1, ts=T - 3600, grade="C"), settle(2, ts=T), broken(3, order="o1")]
+        self.assertEqual([s["seq"] for _, s in mm.link_broken(rows)], [1])
+        rows = [settle(1, ts=T - 3600), settle(2, ts=T), broken(3, order="o1"), broken(4)]   # one by order, one by window
+        self.assertEqual(sorted(s["seq"] for _, s in mm.link_broken(rows)), [1, 2])
+        self.assertEqual(mm.link_broken([settle(1), broken(2, sku="H2", order="o1")]), [])   # order and SKU must agree
 
     def test_each_purchase_breaks_once_and_two_breaks_take_two(self):
         rows = [settle(1, ts=T - 3600), settle(2, ts=T), broken(3), broken(4, ts=T + 3700)]

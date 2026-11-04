@@ -147,14 +147,24 @@ BREAK_WINDOW = 7 * 3600       # goods break up to 6 h after the sale; an hour mo
 
 
 def link_broken(rows):
-    """[(broken row, the settle it belongs to)]. A broken entry names only the buyer and the SKU, so it belongs to that
-    buyer's latest purchase of that SKU within the window, each purchase once. An unmatched entry is left out."""
-    by_key = {}
+    """[(broken row, the settle it belongs to)]. A broken entry names its order: it belongs to the settle of that order.
+    Without an order it belongs to that buyer's latest purchase of that SKU within the window, each purchase once. An
+    unmatched entry is left out. (By buyer and SKU alone 751 of 969 Round 3 breaks went to another order of the same
+    buyer, which mixed up the break rates by grade and shop.)"""
+    by_key, by_order = {}, {}
     for r in rows:
         if r["k"] == "settle" and r.get("ts"):
             by_key.setdefault((r.get("buyer"), r.get("sku")), []).append(r)
+            if r.get("order"):
+                by_order[r["order"]] = r
     used, out = set(), []
-    for b in (r for r in rows if r["k"] == "broken" and r.get("ts")):
+    breaks = [r for r in rows if r["k"] == "broken" and r.get("ts")]
+    for b in breaks:
+        s = by_order.get(b.get("order"))
+        if s is not None and s.get("sku") == b.get("sku") and s["seq"] not in used:
+            used.add(s["seq"])
+            out.append((b, s))
+    for b in (r for r in breaks if r.get("order") not in by_order):
         fit = [s for s in by_key.get((b.get("buyer"), b.get("sku")), []) if 0 <= b["ts"] - s["ts"] <= BREAK_WINDOW and s["seq"] not in used]
         if fit:
             s = max(fit, key=lambda x: x["ts"])
