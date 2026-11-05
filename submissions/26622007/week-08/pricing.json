@@ -66,7 +66,7 @@
     "min_shelf_hours": 720,
     "goods_max_price": 45000,
     "max_lines": 10,
-    "cover_hours": 3,
+    "cover_hours": 6,
     "max_units_per_sku": 6,
     "max_sku_share": 0.2,
     "explore_lines": 2,
@@ -82,7 +82,7 @@
     "end_cover": 0.5,
     "agent_every_minutes": 20,
     "agent_max_lines": 30,
-    "max_stock_cost": 4000000,
+    "max_stock_cost": 15000000,
     "food_explore_qty": 1,
     "food_max_qty": 4,
     "max_break": 0.15,
@@ -91,7 +91,7 @@
     "band_high": 1.2,
     "prior_break": 0.15,
     "high_price_goods": 100000,
-    "high_price_max_units": 2,
+    "high_price_max_units": 3,
     "high_price_proven_max_units": 6,
     "high_price_proven_skus": [
       "G1515d951",
@@ -104,18 +104,24 @@
       "G200e39a3",
       "G66ded25b",
       "G05277ffe",
-      "Gb5d0dde7"
+      "Gb5d0dde7",
+      "G8ec51935",
+      "G03d0199f",
+      "G00327e80"
     ],
     "sku_target_units": {
       "G1515d951": 4,
       "G6b9db161": 1,
       "G75f11c19": 1,
-      "G05277ffe": 1,
-      "Gb5d0dde7": 1
+      "G05277ffe": 3,
+      "Gb5d0dde7": 3,
+      "G8ec51935": 3,
+      "G03d0199f": 2,
+      "G00327e80": 2
     },
     "high_price_listed_only": true,
     "food_max_stock_cost": 650000,
-    "scale_source": "review/W-20261105-0953-AX패치3.3/scale-analysis.md (11/05 11:1x ledger): G05277ffe and Gb5d0dde7 are 60만+ goods 12-14 shops sell 39-49/h with 3.4-4.0% mature break (ledger guard rate 4.8-6.7%) and a 0.35-0.42 h median hold; one unit each, after the proven SKUs and food. G8ec51935 (worst cost 1.74M) waits for a larger cap: under 4M one held sofa cut G1515d951 refills 4 -> 2 (independent review replay). Food cap 45만->65만: food sells in 0.1 h, 0 spoiled, and its cap cut 416 of the last 2,000 guard lines; it is filled before the 60만+ lines",
+    "scale_source": "review/W-20261105-0953-AX패치3.3/scale-analysis.md (11/05 11:1x ledger): G05277ffe and Gb5d0dde7 are 60만+ goods 12-14 shops sell 39-49/h with 3.4-4.0% mature break (ledger guard rate 4.8-6.7%) and a 0.35-0.42 h median hold; one unit each, after the proven SKUs and food. G8ec51935 (worst cost 1.74M) waits for a larger cap: under 4M one held sofa cut G1515d951 refills 4 -> 2 (independent review replay). Food cap 45만->65만: food sells in 0.1 h, 0 spoiled, and its cap cut 416 of the last 2,000 guard lines; it is filled before the 60만+ lines. With the 15M cap (hard_limits): G05277ffe, Gb5d0dde7 and G8ec51935 at 2 units each, G03d0199f (13 shops, 33/h, 7.8% break, 0.87 h) and G00327e80 (13 shops, 21/h, 2.8%, 1.10 h) at 1, about 11.3M at worst cost with the proven SKUs and food, the rest for the formula. Scale 2 (a person's 15M hard_limits cap, 11/05 11:48): 60만+ goods to 3 units each (G03d0199f, G00327e80 2), high_price_max_units 2->3 and cover_hours 3->6 so the demand model asks for them (our share 0.35-0.76/h each, 11:50 model); at worst cost the targets come to ~19M, so the 15M cap binds and held cost (0.6 x list) sits near 12-15M (replay review/W-20261105-0953-AX패치3.3/scale2-result.md)",
     "skip_skus": [
       "G07ec17d5",
       "G054ff120",
