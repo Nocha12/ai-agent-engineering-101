@@ -69,11 +69,20 @@ class HardLimitsTest(unittest.TestCase):
         self.assertEqual(hl.check_policy_change(old, {"restock": {"max_stock_cost": 10000000}}, hl.MAX_STEP_STRONG), [])
         self.assertTrue(any("META_FLOOR" in p for p in
                             hl.check_policy_change(old, {"restock": {"max_stock_cost": 9000000}}, hl.MAX_STEP_STRONG)))
-        # under the floor already (a person's choice): rising toward it is fine, falling further is not
+        # under the floor already (a person's choice): the usual steps apply either way, the floor only stops a crossing
         self.assertEqual(hl.check_policy_change({"restock": {"max_stock_cost": 2000000}},
                                                 {"restock": {"max_stock_cost": 3000000}}), [])
-        self.assertTrue(hl.check_policy_change({"restock": {"max_stock_cost": 2000000}}, {"restock": {"max_stock_cost": 1500000}}))
+        self.assertEqual(hl.check_policy_change({"restock": {"max_stock_cost": 2000000}},
+                                                {"restock": {"max_stock_cost": 1500000}}), [])
         self.assertEqual(hl.clamp_cfg("restock", {"max_stock_cost": 2000000})["max_stock_cost"], 2000000)   # a person's file stands
+
+    def test_settings_without_bounds_still_at_most_double(self):
+        old = {"restock": {"food_max_stock_cost": 650000, "sku_target_units": {"G1": 3}}}
+        self.assertEqual(hl.check_policy_change(old, {"restock": {"food_max_stock_cost": 1300000, "sku_target_units": {"G1": 6}}},
+                                                hl.MAX_STEP_STRONG), [])
+        self.assertEqual(len(hl.check_policy_change(old, {"restock": {"food_max_stock_cost": 1950000, "sku_target_units": {"G1": 9}}},
+                                                    hl.MAX_STEP_STRONG)), 2)
+        self.assertTrue(hl.check_policy_change({"x": {"y": 0.1}}, {"x": {"y": -0.1}}, hl.MAX_STEP_STRONG))   # a sign flip is a fall
 
     def test_explore_price_caps_reach_the_dearest_catalog_items(self):
         self.assertEqual((hl.BOUNDS["restock.goods_max_price"], hl.BOUNDS["restock.food_max_price"]),

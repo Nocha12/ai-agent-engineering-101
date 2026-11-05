@@ -23,6 +23,7 @@ MAX_STEP = 0.5                       # a number may change by at most half its v
 # the sample: Patch 3.3 scores book (cash + unsold stock at cost), the shop held 3.2M of stock against the top ten's
 # 24-158M (11/05 11:09 board), and a strong step of 100% let one cycle cut a cap to nothing (a person, 11/05 11:48).
 MAX_STEP_STRONG = 2.0
+MAX_STEP_UNBOUNDED = 1.0             # a setting with no BOUNDS (food_max_stock_cost, sku_target_units) still at most doubles
 MAX_STEP_DOWN = 0.5
 STRONG_SAMPLE = 40                   # settled deals (shop + buyer) in the Round 3 log that make a sample
 # The meta-harness may not take these under the line (a person may, in pricing.json): scale is the strategy now and a
@@ -138,10 +139,11 @@ def check_policy_change(old, new, step=MAX_STEP):
             problems.append(f"pricing.json {key}={v} is outside [{lo}, {hi}] (hard_limits.BOUNDS)")
         was = a.get(key)
         step = min(step, MAX_STEP_STRONG)
-        move = step if number(v) and number(was) and abs(v) >= abs(was) else min(step, MAX_STEP_DOWN)
+        rise = number(v) and number(was) and was >= 0 and v >= was
+        move = (step if key in BOUNDS else min(step, MAX_STEP_UNBOUNDED)) if rise else min(step, MAX_STEP_DOWN)
         if number(v) and number(was) and v != was and abs(v - was) > max(abs(was) * move, 1 if isinstance(was, int) else 0):
             problems.append(f"pricing.json {key} {was} -> {v} moves more than {move:.0%} in one cycle")
-        if key in META_FLOOR and number(v) and number(was) and v < was and v < META_FLOOR[key]:
+        if key in META_FLOOR and number(v) and number(was) and was >= META_FLOOR[key] > v:
             problems.append(f"pricing.json {key} {was} -> {v} goes under {META_FLOOR[key]} (hard_limits.META_FLOOR, a person's line)")
         if key == "markdown.below_cost" and (not isinstance(v, list) or any(r not in MARKDOWN_REASONS for r in v)):
             problems.append(f"pricing.json markdown.below_cost {v} is not a list of {MARKDOWN_REASONS}")
