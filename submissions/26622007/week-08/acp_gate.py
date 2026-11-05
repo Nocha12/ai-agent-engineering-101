@@ -155,7 +155,7 @@ class OneStars:
         except (OSError, ValueError):
             return None
         ok = isinstance(st, dict) and isinstance(st.get("after"), int) and isinstance(st.get("urls"), list) \
-            and isinstance(st.get("rows"), list)
+            and all(isinstance(u, str) for u in st["urls"]) and isinstance(st.get("rows"), list)
         return st if ok else None
 
     def counts(self):
