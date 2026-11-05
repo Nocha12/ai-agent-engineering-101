@@ -150,9 +150,11 @@ class TrendPost(unittest.TestCase):
         for i in range(10):
             seq += 1
             rows.append({"k": "settle", "seq": seq, "ts": NOW - 900, "sku": "G8", "amount": 7000, "grade": "B", "warranty": None})
+        rows.append({"k": "settle", "seq": seq + 1, "ts": NOW - 60, "sku": "G9", "amount": 1, "grade": "A", "warranty": 24.0,
+                     "honest": False})               # a false grade claim is not in the statistics
         with open(os.path.join(self.md, buyer_post.LEDGER), "w") as f:
             f.write("{broken\n")
-            for r in rows:
+            for r in rows + rows[:1]:                 # a settle written twice counts once
                 f.write(json.dumps(r) + "\n")
         self.settled = os.path.join(self.tmp.name, "settled.jsonl")
         with open(self.settled, "w") as f:

@@ -18,6 +18,7 @@ import os
 import statistics
 import time
 
+HERE = os.path.dirname(os.path.abspath(__file__))
 GAP_MINUTES = 6          # the kit allows one buyer post per 5 minutes; forum.py's posts share that slot
 STATE = "buyer_post_state.json"
 FRESH_HOURS = 3          # a deal older than this is old news
@@ -61,7 +62,7 @@ def pending_buyer_post(md):
     return False
 
 
-def my_shop_skus(md, pricing="pricing.json"):
+def my_shop_skus(md, pricing=os.path.join(HERE, "pricing.json")):
     """SKUs my shop has on its shelf or means to restock (pricing.json restock lists): not advertised to buyers."""
     inv = load(os.path.join(md, "inventory.json"), {})
     skus = {u.get("sku") for u in inv.get("units") or [] if isinstance(u, dict)}
@@ -113,8 +114,9 @@ def pick(settled, posted, mine, now, names=None):
 
 
 def recent_settles(md, since):
-    """The ledger's settle rows from `since` on, read from the end of ledger_rows.jsonl."""
-    out = []
+    """The ledger's settle rows from `since` on, read from the end of ledger_rows.jsonl, each seq once (a row can be
+    written twice, as market_model.load_rows also allows for)."""
+    out, seen = [], set()
     try:
         with open(os.path.join(md, LEDGER), "rb") as f:
             f.seek(0, os.SEEK_END)
@@ -127,7 +129,9 @@ def recent_settles(md, since):
                 except ValueError:
                     continue
                 if isinstance(r, dict) and r.get("k") == "settle" and isinstance(r.get("ts"), (int, float)) \
-                        and r["ts"] >= since and isinstance(r.get("amount"), (int, float)) and isinstance(r.get("seq"), int):
+                        and r["ts"] >= since and isinstance(r.get("amount"), (int, float)) and isinstance(r.get("seq"), int) \
+                        and r["seq"] not in seen:
+                    seen.add(r["seq"])
                     out.append(r)
     except OSError:
         pass
@@ -144,7 +148,7 @@ def trend(md, now, mine, recent_skus):
     cut = now - TREND_HOURS * 3600
     groups = {}
     for r in recent_settles(md, now - 2 * TREND_HOURS * 3600):
-        if r["ts"] > now or not isinstance(r.get("sku"), str):
+        if r["ts"] > now or not isinstance(r.get("sku"), str) or r.get("honest") is False:   # a false grade claim is no price of that grade
             continue
         g = groups.setdefault((r["sku"], r.get("grade") or "", _warranted(r)), ([], []))
         g[0 if r["ts"] >= cut else 1].append(r)
@@ -171,8 +175,8 @@ def trend(md, now, mine, recent_skus):
     parts = [f"[가격 동향] {(item.get('name') or sku)[:60]} ({sku}) {'·'.join(terms)}".rstrip(),
              f"{time.strftime('%m/%d', time.localtime(cut))} {hm(cut)}–{hm(now)} KST {len(recent)}건 정산, 결제액 중앙값 {med:,}원 "
              f"(사분위 {q1:,}–{q3:,}원, 정가 {round(item['list_price']):,}원의 {round(100 * med / item['list_price'])}%)"]
-    if before:
-        med0 = round(statistics.median(r["amount"] for r in before))
+    med0 = round(statistics.median(r["amount"] for r in before)) if before else 0
+    if med0 > 0:
         parts.append(f"직전 {TREND_HOURS}시간 {len(before)}건, 중앙값 {med0:,}원 대비 {100 * (med - med0) / med0:+.1f}%")
     else:
         parts.append(f"직전 {TREND_HOURS}시간 정산 없음")
@@ -224,7 +228,10 @@ def maybe_post(md, settled_path, memory_path, now=None):
             line = kind = None
             for kind in order:
                 if kind == "trend":
-                    t = trend(md, now, mine, set(state.get("trend_skus") or []))
+                    try:
+                        t = trend(md, now, mine, set(state.get("trend_skus") or []))
+                    except Exception:  # noqa: BLE001 - a failing trend leaves the purchase record its turn
+                        t = None
                     if t is not None:
                         line = {"post": t[1], "refs": t[2], "as": "buyer"}
                         state["trend_skus"] = (list(state.get("trend_skus") or []) + [t[0]])[-TREND_REPEAT:]
