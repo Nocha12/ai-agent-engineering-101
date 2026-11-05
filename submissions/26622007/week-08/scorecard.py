@@ -10,6 +10,7 @@ import os
 import time
 
 import httpx
+import patch_notes
 import profit_cohorts
 import strategy_screen
 
@@ -219,7 +220,7 @@ def build(root):
     for c in calls:
         tools[c.get("tool")]["calls"] += 1
         tools[c.get("tool")]["failed"] += 0 if c.get("ok") else 1
-    return {"time": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "board": board(),
+    return {"time": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "rules": patch_notes.check(root), "board": board(),
             "shop": {"balance": inv.get("balance"), "profit_if_stock_is_worthless":
                      None if inv.get("balance") is None else inv["balance"] - (inv.get("start") or 0) - (inv.get("injected") or 0),
                      "units": len(units), "stock_cost": round(sum(u.get("cost") or 0 for u in units)),

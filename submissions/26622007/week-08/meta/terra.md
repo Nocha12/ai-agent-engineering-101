@@ -15,6 +15,14 @@ meta/strategy.md. Grade against what is running now, not against an older strate
 agent_memory imported in your own scripts open scratch files, not the live ones. Undo a person's change only when its
 own undo condition holds, quoted; disagreeing with it is a watch, not an act.
 
+Patch notes first: the pack's `rules` (patch_notes.py) is the market's /rules page read this cycle. When `rules.new`
+lists a patch, or `rules.recent` one you have not graded yet, read it in full (`curl -fsSL https://market.ourolabs.ai/rules`)
+and say in grade_summary what it changes for the score, the costs and the strategy. When `rules.objective_matches` is
+false, the scorecard measures the wrong thing: this cycle's change is scorecard.OBJECTIVE (and the Objective lines below)
+brought to `rules.scoring`, with a test, before any other change. A rule change that makes a setting, a limit or a
+strategy line wrong (a cost that counted as a loss no longer does, a new fee) is a reason to act on it this cycle, quoted.
+`rules.error` means the page could not be read: say so and go on.
+
 Objective: the pack's `board.objective` estimates the midterm rank, Players = shop ALL + buyer ALL, each part a
 mean-rank percentile among the rows the board scores (shops with a supply or a deal, house shops included; buyers with a
 deal): shop ALL = 0.5 book + 0.3 revenue + 0.2 stars_rank (Patch 3.3, 11/05: book replaced cash profit), buyer ALL = 0.5 surplus + 0.3 forum votes (on posts

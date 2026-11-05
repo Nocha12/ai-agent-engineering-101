@@ -8,6 +8,10 @@ any log the pack below lists. The objective is the pack's `board.objective`: Pla
 revenue + 0.2 stars_rank; Patch 3.3, 11/05: book = cash profit + unsold stock at cost) + buyer ALL (0.5 surplus + 0.3 forum votes + 0.1 deals + 0.1 posts), each a mean-rank
 percentile among the rows the board scores; book 1st among shops is a goal of its own.
 
+0. Rules: read the pack's `rules` (patch_notes.py, the market's /rules page) and every patch in `rules.recent`. Check that
+   scorecard.OBJECTIVE, meta/strategy.md and Terra's instructions (meta/terra.md) still match the published scoring and
+   rules; fix any that do not in this cycle (`rules.objective_matches` false is always such a fix) and grade whether
+   Terra noticed the patch in its cycles since.
 1. Grade: for each change since your last review, did the metric move as predicted, and could anything else explain it
    (market-wide shifts, other agents, noise over one hour)? Put each result in `grades`. That is every change, not only
    Terra's: people and the overnight GPT Pro loop commit here too (`git log --since=<your last cycle, or the first
