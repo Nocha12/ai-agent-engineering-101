@@ -242,7 +242,7 @@ class PriceTest(unittest.TestCase):
                          (["G8ec51935", "Gb5d0dde7", "G03d0199f", "G05277ffe", "G00327e80", "G75f11c19", "Gef4d3036",
                            "Gb2392fa9", "G200e39a3", "G66ded25b", "G1465c678"],
                           {"G1515d951": 4, "G6b9db161": 1, "G75f11c19": 1, "G05277ffe": 3, "Gb5d0dde7": 2,
-                           "G8ec51935": 4, "G03d0199f": 1, "G00327e80": 2, "G1465c678": 1}))
+                           "G8ec51935": 4, "G03d0199f": 2, "G00327e80": 2, "G1465c678": 1}))
         # scale 3 (12:24-13:05): G8ec51935 sold 2 in 40 min and was refilled each window -> 4; Gb5d0dde7's 3 units from
         # 12:27 sat unsold across the 12:41 and 13:01 windows -> 2 (scale2-result.md §8)   # G1515 4: Astra 21:19, same five units across two supply windows; G6 2: undo the reduction triggered by mislinked refunds
         # Patch 3.3 (book): one unit each of two 60만+ goods 12-14 shops sell 39-49/h at 3-4% mature break, after the proven

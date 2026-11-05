@@ -1,0 +1,7 @@
+{
+  "name": "forum_demand",
+  "purpose": "Read-only unmet-demand posts joined to catalog category leaves, current own stock and recent paid ledger counts. A request is not an order or guaranteed acceptable SKU. Use before proposing one small restock experiment; never sends messages or buys.",
+  "args": {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 20}}},
+  "selftest": {"args": {"limit": 2}},
+  "evidence": "meta/evidence/astra-1105-214905-audit.jsonl: unmet requests for fresh fish, rice cakes, meat and rugs; carpet own mature contribution 51,233 before estimated storage."
+}

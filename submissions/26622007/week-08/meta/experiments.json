@@ -1,27 +1,38 @@
 {
- "about": "Evidenced experiments, one at a time, in order (meta/terra.md 'Experiments'). Add at the end with every field filled and the evidence cited; meta/experiments_log.jsonl holds which one runs.",
- "queue": [
-  {
-   "id": "carpet-G1465c678-one-unit",
-   "change": "One unit of G1465c678 (list 307,000; worst cost at the highest surge 345,375): next_window target 1, priority_skus gets it with sku_target_units 1 so the guard lets one high-price unit through, no repeat until judged.",
-   "evidence": "GPT Pro 11/05 product candidates: the next high-price candidate in the current exploration budget; market mature sales 29 at 3 shops, 0 refunds, 21 of them at one shop, so whether we sell it is unknown.",
-   "metric": "the unit's net contribution 6 h after its sale (settled price - cost - refund - storage), or unsold after two supply windows",
-   "direction": "above",
-   "threshold": "net contribution > 0 and sold within 2 supply windows",
-   "min_sample": "1 unit",
-   "hours": 12,
-   "undo": "drop it from next_window, priority_skus and sku_target_units; no repeat"
-  },
-  {
-   "id": "g6-a-ask-cap-343k",
-   "change": "price.ask_caps.G6b9db161.A 350,000 -> 343,000 (first ask 2% lower), nothing else.",
-   "evidence": "GPT Pro 11/05 priority 7: G6 A 64 mature sales, 5 refunds, mean paid 345,584, contribution 52,388 per sale; book breaks even at +13.9% units, revenue at +2.04%; the data has no count of orders lost on price, so it is a test.",
-   "metric": "G6 A units sold per hour and net contribution per hour, same grade and stock hours, against the 20 mature sales before",
-   "direction": "above",
-   "threshold": "net contribution per hour >= the previous 20 sales' rate",
-   "min_sample": "20 mature sales after the change",
-   "hours": 24,
-   "undo": "price.ask_caps.G6b9db161.A back to 350000"
-  }
- ]
+  "about": "Astra 21:49: 카펫은 다음 Terra에서 숙성 성공 판정. 규모 실험 우선, 수요 문맥 실험 다음. G6 가격인하 대기안은 가격실패 표본 없이 순기여를 낮추므로 이번에 제거. 한 번에 하나만 실행.",
+  "queue": [
+    {
+      "id": "carpet-G1465c678-one-unit",
+      "change": "One unit of G1465c678 (list 307,000; worst cost at the highest surge 345,375): next_window target 1, priority_skus gets it with sku_target_units 1 so the guard lets one high-price unit through, no repeat until judged.",
+      "evidence": "GPT Pro 11/05 product candidates: the next high-price candidate in the current exploration budget; market mature sales 29 at 3 shops, 0 refunds, 21 of them at one shop, so whether we sell it is unknown.",
+      "metric": "the unit's net contribution 6 h after its sale (settled price - cost - refund - storage), or unsold after two supply windows",
+      "direction": "above",
+      "threshold": "net contribution > 0 and sold within 2 supply windows",
+      "min_sample": "1 unit",
+      "hours": 12,
+      "undo": "drop it from next_window, priority_skus and sku_target_units; no repeat"
+    },
+    {
+      "id": "scale-qualified-growth-214905",
+      "change": "세 규모조건 충족시에만 max_stock_cost 15000000→22500000와 판매가 입증된 G00327e80 목표2→3. 미달이면 해당 숫자를 기록하고 시작하지 않는다.",
+      "evidence": "meta/evidence/astra-1105-214905-measurement.jsonl:5,15,16; meta/evidence/astra-1105-214905-scale.jsonl:1. 현재 G003 숙성2건+706847, 우선 상한차단0/0, 새매입표본0으로 아직 시작 불가.",
+      "metric": "시작후12시간 book 변화와 첫6시간 해당 SKU 판매의 숙성 순기여",
+      "direction": "above",
+      "threshold": "book 변화 >= 0 및 해당 SKU 숙성 순기여 > 0; 시작 전 세 규모조건 모두 충족",
+      "min_sample": "서로 다른 공급창2개와 해당SKU 숙성판매5건; 기한표본미달은 미확정 종료",
+      "hours": 12,
+      "undo": "추가 확대 중지. 총상한을 낮추지 않는다. 해당 SKU 최근숙성10건 순기여<=0이면 그 SKU 목표3→2만 복원한다."
+    },
+    {
+      "id": "forum-demand-context-one-line-214905",
+      "change": "restock 에이전트 문맥에 forum_demand를 실제 제안 전에 조회하도록 추가; 수요근거 제안은 기존 가드 안에서 최대1줄·1단위. 도구 자체는 읽기 전용.",
+      "evidence": "meta/evidence/astra-1105-214905-measurement.jsonl:14; audit.jsonl의 요청15465 예산35만원, 러그계열 시장정산96/32/29건. 단순 구합니다 글이 실제 acceptable 주문은 아니다.",
+      "metric": "서로 다른 실제 수요글을 정확한 카탈로그와 지급정산에 연결한 근거 수; 잘못된 인용 수",
+      "direction": "above",
+      "threshold": "유효 연결 >= 2 및 잘못된 분류·미정산 인용 = 0; 확대는 별도 숙성손익으로만",
+      "min_sample": "서로 다른 실제 수요글2개, Terra2사이클",
+      "hours": 12,
+      "undo": "문맥의 필수 조회 지시만 제거; 도구를 원인으로 잘못된 연결이 재현되면 도구와 해당 테스트 제거. 기존 재고·총상한·게시주기 유지."
+    }
+  ]
 }
