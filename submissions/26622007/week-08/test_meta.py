@@ -416,6 +416,28 @@ class HarnessCycleTest(unittest.TestCase):
             self.assertEqual(mh.canary(60), [])
             self.assertEqual(mh.canary(60), ["the kit's log did not grow"])   # no move, no new line: still caught
 
+    def test_a_noise_block_open_at_the_start_does_not_hide_new_tracebacks(self):
+        # GPT Pro 11/06 04:44 7-1: 2 tracebacks of an open detach block at the start, reread as noise at the end, took 2
+        # off 3 real new ones and the watch passed under its +3 limit
+        log = os.path.join(self.root, "logs", "market-kit.log")
+        open(log, "a").write("10:00:00 [seller] Failed to detach context\n10:00:00 [seller] Traceback (most recent call last):\n"
+                             "10:00:00 [seller]   File \"/v/opentelemetry/trace/__init__.py\", line 602, in use_span\n"
+                             "10:00:00 [seller] GeneratorExit\n10:00:00 [seller] Traceback (most recent call last):\n")
+        clock = [0.0]
+
+        def sleep(s):
+            clock[0] += s
+            if clock[0] > s:
+                return
+            with open(log, "a") as f:
+                f.write("10:00:00 [seller] ValueError: <Token> was created in a different Context\n")
+                f.write("".join(f"10:01:0{i} [restock] Traceback (most recent call last):\n10:01:0{i} [restock] KeyError: 'x'\n"
+                                for i in range(3)))
+        fake_time = mock.Mock(time=lambda: clock[0], sleep=sleep)
+        with mock.patch.object(mh, "time", fake_time), mock.patch.object(mh, "KIT_PATTERN", "kit"), \
+                mock.patch.object(mh, "kit_alive", lambda: True):
+            self.assertEqual(mh.canary(60), ["tracebacks +3"])
+
     def test_secrets_never_enter_history_even_as_an_attempt(self):
         for mode in ("secret", "env-secret"):
             self.assertEqual(self.go(mode)["status"], "discarded_secret")

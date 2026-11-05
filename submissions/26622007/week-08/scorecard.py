@@ -347,11 +347,13 @@ def log_counts(root, name="market-kit.log", start=0):
     """Counts of COUNTERS in the kit log from line `start` on. A tuple needle needs all its parts in the line:
     supply_refused is a refused [supply] line only, not also "[acp] checkout refused:" (11/05 22:25 Astra's watch read
     10 checkout refusals and 1 supply 502 as supply_refused +11).
-    The two tracebacks of a DETACH_NOISE block go to tracebacks_detach_noise, not tracebacks. A block with another count
-    of tracebacks, a nested one ("  + Exception Group Traceback"), another ending, or one cut off at the end of the file
-    still counts as tracebacks."""
+    The two tracebacks of a DETACH_NOISE block through opentelemetry frames go to tracebacks_detach_noise, not tracebacks.
+    A block with another count of tracebacks, a nested one ("  + Exception Group Traceback"), no opentelemetry frame or
+    another ending counts as tracebacks. One still open at the end of the file goes to tracebacks_open: it is not known
+    yet, and a later count must not take it back from tracebacks (GPT Pro 11/06 04:44 7-1: 2 open at the start of a watch,
+    reread as noise at its end, hid 3 new real ones under the +3 limit)."""
     counts = collections.Counter()
-    pending = {}  # process tag -> tracebacks seen since its "Failed to detach context"
+    pending = {}  # process tag -> [tracebacks seen since its "Failed to detach context", an opentelemetry frame seen]
     try:
         with open(os.path.join(root, "logs", name), encoding="utf-8", errors="replace") as f:
             for i, line in enumerate(f):
@@ -359,16 +361,18 @@ def log_counts(root, name="market-kit.log", start=0):
                     continue
                 tag, body = log_tag(line.rstrip("\n"))
                 if DETACH_NOISE[0] in body:
-                    counts["tracebacks"] += pending.pop(tag, 0)
-                    pending[tag] = 0
+                    counts["tracebacks"] += pending.pop(tag, [0])[0]
+                    pending[tag] = [0, False]
                 elif tag in pending:
                     if DETACH_NOISE[1] in body:
-                        n = pending.pop(tag)
-                        counts["tracebacks_detach_noise" if n == 2 else "tracebacks"] += n
+                        n, otel = pending.pop(tag)
+                        counts["tracebacks_detach_noise" if n == 2 and otel else "tracebacks"] += n
                     elif body.startswith("Traceback"):
-                        pending[tag] += 1
+                        pending[tag][0] += 1
                     elif "Traceback" in body or body.strip() and not body.startswith(TRACE_PARTS):
-                        counts["tracebacks"] += pending.pop(tag)
+                        counts["tracebacks"] += pending.pop(tag)[0]
+                    elif "/opentelemetry/" in body:
+                        pending[tag][1] = True
                 for k, needle in COUNTERS.items():
                     if k == "tracebacks" and tag in pending:
                         continue
@@ -377,8 +381,8 @@ def log_counts(root, name="market-kit.log", start=0):
                 counts["lines"] += 1
     except OSError:
         pass
-    counts["tracebacks"] += sum(pending.values())
-    return {k: counts[k] for k in ["lines", *COUNTERS, "tracebacks_detach_noise"]}
+    counts["tracebacks_open"] += sum(n for n, _ in pending.values())
+    return {k: counts[k] for k in ["lines", *COUNTERS, "tracebacks_detach_noise", "tracebacks_open"]}
 
 
 def llm_table(md, last=2000):

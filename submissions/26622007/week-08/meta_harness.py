@@ -242,6 +242,11 @@ def canary(seconds=None):
         if not kit_alive():
             return ["the kit is not running"]
     now = kit_log_counts_since(log_id)
+    if now.get("tracebacks_open"):     # a block half written at the read: let it finish before counting it
+        time.sleep(2)
+        now = kit_log_counts_since(log_id)
+    # a traceback block still open at the end counts as new; one open at the start is not taken off when it turns out noise
+    now = dict(now, tracebacks=now["tracebacks"] + now.get("tracebacks_open", 0))
     grew = lambda k: now[k] - before[k]
     bad = [f"{k} +{grew(k)}" for k, limit in (("tracebacks", 3), ("settle_refused", 5), ("checkout_refused", 10),
                                               ("supply_refused", 10), ("harness_failed", 10)) if grew(k) >= limit]
@@ -427,7 +432,7 @@ def since_last(card, kind="terra", now=None):
     # the part written to the old file after the last pack is in market-kit.log.1 past its line a["lines"]; without it
     # the 22:26 Terra pack saw 46 shop settles of 144 (the hour before the 21:58 move was lost)
     old = scorecard.log_counts(ROOT, "market-kit.log.1", start=a.get("lines", 0)) if rotated else {}
-    delta = {k: (b[k] + old.get(k, 0) if rotated else b[k] - a.get(k, 0)) for k in b if isinstance(b[k], int)}
+    delta = {k: (b[k] + old.get(k, 0) if rotated else b[k] - a.get(k, 0)) for k in b if isinstance(b[k], int) and k != "tracebacks_open"}
     out = {"previous": packs[-1], "log_rotated": rotated, "log_counts": {k: v for k, v in delta.items() if v},
            "players": [obj(prev).get("players"), obj(card).get("players")], "shop": [prev.get("shop"), card.get("shop")],
            "across_score_switch": os.path.getmtime(os.path.join(folder, packs[-1])) < SCORE_SWITCH <= now, "baselines": {}}

@@ -524,6 +524,33 @@ class BuyerTest(unittest.TestCase):
                                     {"quote_shops": 3}, wait=5)
             self.assertEqual(seen, list("abc"))                    # late in the run: one batch only
 
+    def test_the_fallback_shop_keeps_its_talk_and_a_closed_talk_is_never_resumed(self):
+        # 11/06 03:17 o-d22893401725: the chosen shop's quote had no ask in its metadata, so no best; it was cancelled and
+        # then resumed as the fallback, and the shop answered "terminal state: TASK_STATE_CANCELED"
+        shops = [{"name": n, "url": f"https://{n}.example", "usable": [{"sku": "H1", "name": "청소기", "list_price": 10000}]}
+                 for n in "abc"]
+        open_task = lambda i: {"id": f"t-{i}", "status": {"state": "TASK_STATE_INPUT_REQUIRED"}}
+
+        def fake_quote(shop, label, key, order, out, ctl=None):
+            out[shop["name"]] = {"ask": None, "text": "asking 9000", "url": shop["url"], "task": open_task(shop["name"]),
+                                 "refused": None}
+        cancelled = []
+        with mock.patch.object(market_buyer, "quote", fake_quote), mock.patch.object(market_buyer, "log"), \
+                mock.patch.object(market_buyer, "buyer_rpc", lambda url, m, p: cancelled.append(p["id"])), \
+                mock.patch.object(market_buyer, "STARTED", time.time()):
+            best, got = market_buyer.best_quote(shops[0], shops[1:], {"kind": "goods"}, {}, 20000, lambda s: None,
+                                                {"quote_shops": 3}, wait=5, rounds=1)
+            time.sleep(0.2)
+        self.assertIs(best, shops[0])
+        self.assertTrue(market_buyer.resumable(got["a"]))                     # the fallback goes on with its talk
+        self.assertEqual([got[n].get("closed") for n in "bc"], [True, True])  # closed before best_quote returns
+        self.assertFalse(market_buyer.resumable(got["b"]))
+        self.assertEqual(sorted(cancelled), ["t-b", "t-c"])
+        self.assertFalse(market_buyer.resumable(dict(got["a"], closed=True)))
+        self.assertFalse(market_buyer.resumable(dict(got["a"], refused="no warranty")))
+        self.assertFalse(market_buyer.resumable({"task": {"status": {"state": "TASK_STATE_REJECTED"}}}))
+        self.assertFalse(market_buyer.resumable(None))
+
     def test_a_batch_whose_asks_are_all_over_my_limit_asks_the_next_batch(self):
         # 3판 GPT Pro §4.1: the search stopped at the first numeric ask, even one over the limit
         shops = [{"name": n, "url": f"https://{n}.example", "usable": [{"sku": "H1", "name": "청소기", "list_price": 10000}]}

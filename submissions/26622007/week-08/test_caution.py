@@ -258,6 +258,7 @@ class LogCountTest(unittest.TestCase):
                  "03:28:36 [seller] \n"
                  "03:28:36 [buyer] [03:28:36] buyer <- error -32004\n"
                  "03:28:36 [seller] Traceback (most recent call last):\n"
+                 "03:28:36 [seller]   File \"/x/opentelemetry/context/__init__.py\", line 127, in detach\n"
                  "03:28:36 [seller]     self._current_context.reset(token)\n"
                  "03:28:36 [seller] ValueError: <Token var=<ContextVar name='current_context'> at 0x1> was created in a different Context\n"
                  "03:28:36 [seller] Task was destroyed but it is pending!\n")
@@ -274,13 +275,14 @@ class LogCountTest(unittest.TestCase):
             lines = noise.splitlines(True)
             group = "".join(lines[:3] + ["03:28:36 [seller]   + Exception Group Traceback (most recent call last):\n"] + lines[3:])
             third = "".join(lines[:3] + ["03:28:36 [seller] Traceback (most recent call last):\n"] + lines[3:])
-            cases = ((noise, (0, 2)), (noise + real, (1, 2)), (noise + odd, (1, 2)), (cut, (1, 0)), (real + noise, (1, 2)),
-                     (group, (3, 0)), (third, (3, 0)))
+            no_otel = noise.replace("/x/opentelemetry/", "/x/mine/")
+            cases = ((noise, (0, 2, 0)), (noise + real, (1, 2, 0)), (noise + odd, (1, 2, 0)), (cut, (0, 0, 1)),
+                     (real + noise, (1, 2, 0)), (group, (3, 0, 0)), (third, (3, 0, 0)), (no_otel, (2, 0, 0)))
             for text, want in cases:
                 with open(os.path.join(tmp, "logs", "market-kit.log"), "w") as f:
                     f.write(text)
                 c = scorecard.log_counts(tmp)
-                self.assertEqual((c["tracebacks"], c["tracebacks_detach_noise"]), want, text)
+                self.assertEqual((c["tracebacks"], c["tracebacks_detach_noise"], c["tracebacks_open"]), want, text)
                 self.assertEqual(c["lines"], text.count("\n"))
         finally:
             shutil.rmtree(tmp)

@@ -508,6 +508,16 @@ def warranty_short(rec, order):
 QUOTE_WAIT = 45        # seconds the quotes may take together; a shop slower than that is left out
 
 
+def resumable(q):
+    """The quote's talk can go on as the trade: open on the shop's side (a price asked for), not refused, not closed by me.
+    11/06 03:17 o-d22893401725: best_quote closed lee-sungsoo's quote (no ask in its metadata, so no best) and handed
+    lee-sungsoo back as the fallback; the trade went on with that task and the shop answered "terminal state:
+    TASK_STATE_CANCELED" to an ask of 1,190,000 under my limit 1,867,590. 35 of 457 resumed talks from 11/05 21:58 to
+    11/06 05:13 were such closed tasks (GPT Pro 11/06 04:44 B1)."""
+    return bool(q and q.get("task") and not q.get("refused") and not q.get("closed")
+                and q["task"].get("status", {}).get("state") == "TASK_STATE_INPUT_REQUIRED")
+
+
 def cancel_quote(q, name):
     if q and q.get("task", {}).get("id") and not q.get("closed"):
         q["closed"] = True
@@ -644,10 +654,12 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
             break
     scored = [(surplus(s), i, s) for i, s in enumerate(pool) if surplus(s) is not None]
     best = max(scored, key=lambda x: (fits(x[2]), x[0], -x[1]))[2] if scored else None
-    ctl.update(done=True, winner=best["name"] if best else None)
+    keep = best["name"] if best else chosen["name"] if resumable(got.get(chosen["name"])) else None
+    ctl.update(done=True, winner=keep)    # a late quote thread of the kept shop must not cancel it either
     for name, q in list(got.items()):
-        if not best or name != best["name"]:
-            threading.Thread(target=cancel_quote, args=(q, name), daemon=True).start()
+        if name != keep:
+            q["closed"] = True            # before the thread runs, so the trade can never go on with it
+            threading.Thread(target=cancel_quote, args=(dict(q, closed=False), name), daemon=True).start()
     if not best:
         return chosen, got
     log("[quote] " + ", ".join(f"{s['name']} {got[s['name']]['ask']}" for _, _, s in scored) + f" -> {best['name']}")
@@ -965,8 +977,7 @@ def main():
             + (f", breaks {chance:.1%} of the time in the ledger" if chance else ""))
     try:
         q = quotes.get(shop["name"]) or {}
-        resume = (q["url"], q["task"]) if r3 and q.get("task") and not q.get("refused") and q["task"].get("status", {}).get(
-            "state") == "TASK_STATE_INPUT_REQUIRED" else None
+        resume = (q["url"], q["task"]) if r3 and resumable(q) else None
         out = negotiate(shop["url"], label, limit, note, request_text(label, key, order) if r3 else None, resume=resume,
                         stop_if=(lambda text: quote_refused(text, order)) if r3 else None,
                         take_at=limit if r3 and FOOD_TAKE_ASK and order.get("kind") == "food" else None)
