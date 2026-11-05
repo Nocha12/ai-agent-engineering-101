@@ -29,8 +29,10 @@ SOURCES = ("logs", "memory", ".market", "meta")
 # 12,061 buyer rows) within the board's rounding (0.0005). The rows ranked are those the board scores (all is not None:
 # shops with a supply or a deal, house shops included; buyers with a deal), a tie takes the mean rank, a missing value is 0,
 # the shop's stars part is stars_rank, and posts count 0.1 of the buyer's ALL. Patch 3.3 (11/05) ranks book (cash profit +
-# unsold stock at cost) instead of profit: on the 09:57 board book reproduces all 52 shop rows within 0.0005, profit
-# misses by up to 0.157. profit stays the fallback for a board without book.
+# unsold stock at cost) instead of profit: every shop row of the 80 boards from 03:47:25 KST matches book to the shown
+# 3 decimals, every row of the 42 boards up to 03:42:05 matches profit (GPT Pro 4판, checked again on the collector's
+# boards). profit stays the fallback for reading a board without book; patch_notes.compare never accepts it as the
+# published part.
 OBJECTIVE = {"shops": [(("book", "profit"), 0.5), (("revenue",), 0.3), (("stars_rank", "stars"), 0.2)],
              "buyers": [(("surplus", "saved"), 0.5), (("forum", "forum_score", "votes", "score"), 0.3), (("deals",), 0.1),
                         (("posts",), 0.1)]}

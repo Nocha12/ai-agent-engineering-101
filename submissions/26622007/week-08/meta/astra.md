@@ -26,7 +26,7 @@ percentile among the rows the board scores; book 1st among shops is a goal of it
    code change since your last review. Drop means you remove it in this cycle (restore the earlier files or delete the
    tool with its test). meta/grades.jsonl holds Terra's hourly grades and strategy checks; grade those checks and any
    strategy shift Terra made too.
-2. Explore, strategy before numbers. The goal is first place in book.
+2. Explore, strategy before numbers. The goal is first place in Players, with first place in book among shops.
    a. Strategy (`strategy`). Read meta/strategy.md, Terra's strategy checks and the shops ahead in book (`board.rivals`;
       .market/ledger_rows.jsonl: what they sell, to whom, how many deals at what margin; their cards and posts). Compare
       two or three directions (`options`, the current strategy one of them) across product mix, positioning, how buyers

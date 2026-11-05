@@ -80,6 +80,13 @@ class PatchNotesTest(unittest.TestCase):
         drawn["shops"][0] = ["stars", 0.1]
         self.assertEqual(patch_notes.compare(drawn, scorecard.OBJECTIVE), ["shops: published stars 0.1, scorecard 0.2"])
 
+    def test_the_profit_fallback_never_matches_a_published_part(self):
+        drawn = {"shops": [["profit", 0.5], ["revenue", 0.3], ["stars", 0.2]],
+                 "buyers": [["surplus", 0.5], ["forum", 0.3], ["deals", 0.1], ["posts", 0.1]]}
+        got = patch_notes.compare(drawn, scorecard.OBJECTIVE)
+        self.assertIn("shops: published profit 0.5, not in the scorecard", got)
+        self.assertIn("shops: scorecard book 0.5, not published", got)
+
     def test_an_unreadable_page_is_an_error_not_a_crash(self):
         self.assertIn("error", patch_notes.check(self.tmp.name, "<html>moved</html>"))
 

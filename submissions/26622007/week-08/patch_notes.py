@@ -23,6 +23,9 @@ STATE = os.path.join(".market", "patch_notes.json")
 RECENT_HOURS = 24
 TOLERANCE = 0.005      # published weights come from drawn bar widths (50%, 30%, ...)
 KINDS = {"Shop ALL": "shops", "Buyer ALL": "buyers"}
+# Fields scorecard.OBJECTIVE keeps only to read an older board (profit before Patch 3.3): never a match for a published
+# part, so a patch that scores profit (or cash) again shows as a mismatch instead of passing through the alias.
+LEGACY = {"profit"}
 
 
 def text(fragment):
@@ -61,16 +64,16 @@ def compare(scoring, objective):
         if not published:
             out.append(f"{kind}: no published weights found")
             continue
-        mine = [(names, w) for names, w in parts]
+        mine = [(names, tuple(n for n in names if n not in LEGACY), w) for names, w in parts]
         for part, w in published:       # by name, in any order; bar widths are drawn, so 0.005 is the same weight
-            match = next((mw for names, mw in mine if part in names), None)
+            match = next((mw for _, names, mw in mine if part in names), None)
             if match is None:
                 out.append(f"{kind}: published {part} {w}, not in the scorecard")
             elif abs(w - match) > TOLERANCE:
                 out.append(f"{kind}: published {part} {w}, scorecard {match}")
-        for names, mw in mine:
+        for shown, names, mw in mine:
             if not any(part in names for part, _ in published):
-                out.append(f"{kind}: scorecard {names[0]} {mw}, not published")
+                out.append(f"{kind}: scorecard {shown[0]} {mw}, not published")
     return out
 
 
