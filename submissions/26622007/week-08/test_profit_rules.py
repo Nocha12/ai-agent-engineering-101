@@ -236,10 +236,11 @@ class PriceTest(unittest.TestCase):
         self.assertEqual((r["high_price_proven_max_units"], r["high_price_proven_skus"]), (6, proven))
         # G1515d951 at 6 also cut stock-outs 35% -> 0% while our sales went 41 -> 35 and the market's rose 921 -> 954
         # (13:25-16:46 vs 17:07-20:27), so 4 holds; the four foods out of stock 35-54% of 17:30-20:31 go to the front
-        # (review/W-20261104-2030, GPT Pro 3판 §4.2)
+        # (review/W-20261104-2030, GPT Pro 3판 §4.2). Under 15M the 60만+ lines go first: at 12:24 they came after five food
+        # lines and G03d0199f was refused when the window closed (scale2-result.md §8)
         self.assertEqual((r["priority_skus"], r["sku_target_units"]),
-                         (["G75f11c19", "Gef4d3036", "Gb2392fa9", "G200e39a3", "G66ded25b", "G05277ffe", "Gb5d0dde7",
-                           "G8ec51935", "G03d0199f", "G00327e80", "G1465c678"],
+                         (["G8ec51935", "Gb5d0dde7", "G03d0199f", "G05277ffe", "G00327e80", "G75f11c19", "Gef4d3036",
+                           "Gb2392fa9", "G200e39a3", "G66ded25b", "G1465c678"],
                           {"G1515d951": 4, "G6b9db161": 1, "G75f11c19": 1, "G05277ffe": 3, "Gb5d0dde7": 3,
                            "G8ec51935": 3, "G03d0199f": 2, "G00327e80": 2, "G1465c678": 1}))   # G1515 4: Astra 21:19, same five units across two supply windows; G6 2: undo the reduction triggered by mislinked refunds
         # Patch 3.3 (book): one unit each of two 60만+ goods 12-14 shops sell 39-49/h at 3-4% mature break, after the proven

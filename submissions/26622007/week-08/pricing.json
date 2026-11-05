@@ -98,16 +98,16 @@
       "G6b9db161"
     ],
     "priority_skus": [
+      "G8ec51935",
+      "Gb5d0dde7",
+      "G03d0199f",
+      "G05277ffe",
+      "G00327e80",
       "G75f11c19",
       "Gef4d3036",
       "Gb2392fa9",
       "G200e39a3",
       "G66ded25b",
-      "G05277ffe",
-      "Gb5d0dde7",
-      "G8ec51935",
-      "G03d0199f",
-      "G00327e80",
       "G1465c678"
     ],
     "sku_target_units": {
@@ -132,7 +132,8 @@
       "Gbb0cbbff",
       "G9c02e68e",
       "G0f415407"
-    ]
+    ],
+    "supply_order_source": "GPT Pro 11/05 우선순위 4, re-planned for the 15M cap (review/W-20261105-0953-AX패치3.3/scale2-result.md §8): in the 12:24 window the 60만+ lines came after five food lines, run 2 reached them at 12:27:07-12:27:20 and G03d0199f x2 was refused when the 180 s window closed (12:28:28 429). 60만+ goods now go right after the proven SKUs, by net per sale and hold (sofa 30.9만/0.26 h, mattress 12.1만/0.35 h, bed set 17.0만/0.87 h, goose 9.7만/0.42 h, leather sofa 26.3만/1.10 h); food refills fill the rest of run 1 and run 2 (food 0.1 h hold, lines cost under 11만); Terra's one-unit trial stays last"
   },
   "markdown": {
     "clear_hours": 24,
@@ -309,8 +310,12 @@
     "hold_after_done": true
   },
   "seller": {
-    "refuse_buyers": ["totato2203-r3"],
+    "refuse_buyers": [
+      "totato2203-r3"
+    ],
     "refuse_one_star_at": 3,
-    "refuse_exempt": ["q00"]
+    "refuse_exempt": [
+      "q00"
+    ]
   }
 }
