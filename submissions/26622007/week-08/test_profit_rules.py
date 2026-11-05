@@ -306,6 +306,19 @@ class GuardTest(unittest.TestCase):
         self.assertIn("BIG 3 -> 2 (units per SKU)", err.getvalue())
         self.assertIn("BIG 3 -> 1 (units per SKU, stock cost)", err.getvalue())
 
+    def test_an_empty_priority_food_cut_by_stock_cost_is_only_logged_for_the_reserve_trial(self):
+        inv = {"balance": 5000000, "units": self.held("H1", 3, cost=295000)}       # 885,000 of 900,000 held
+        cfg = {**CFG, "priority_skus": ["F1"]}
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(restock.guard([{"sku": "F1", "qty": 2}, {"sku": "F2", "qty": 2}], inv, CAT, cfg), [])
+        self.assertIn("food-reserve sim: F1 none held or waiting", err.getvalue())
+        self.assertNotIn("food-reserve sim: F2", err.getvalue())                # not a priority food
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):           # one F1 already on the shelf: nothing to reserve
+            restock.guard([{"sku": "F1", "qty": 2}], {"balance": 5000000, "units": inv["units"] + self.held("F1", 1, kind="food")}, CAT, cfg)
+        self.assertNotIn("food-reserve sim", err.getvalue())
+
     def test_three_units_only_for_proven_expensive_goods(self):
         inv = {"balance": 5000000, "units": []}
         cat = {**CAT, "BIG2": {"kind": "goods", "list_price": 400000}}

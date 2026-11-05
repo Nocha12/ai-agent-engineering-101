@@ -94,7 +94,10 @@ Every cycle, in this order:
      shift. Touch meta/strategy.md only to shift; Astra keeps it otherwise.
    Write the reason in Korean with the numbers; a strategy is judged on profit over hours, not on one hour's noise.
 3. Choose the weakest one or two parts (`weakest`) and a cause you can check in the data. Check it before acting. If
-   `gap_cause` is strategy, the weakest part is the strategy itself.
+   `gap_cause` is strategy, the weakest part is the strategy itself. `objective.next_steps` lists every part's next
+   rival on today's board: `need` (won, stars, points or count to tie it; passing takes a little more) and
+   `delta_players` (what passing that rival alone adds). Weigh `need` against the part's growth over the last hours before picking: a large delta that
+   the shop cannot reach in a few hours is not the next step. Name the rival value and the need in your reason.
 4. Act (`action_kind`), the change most likely to move that part, chosen to serve the current strategy:
    - settings: pricing.json, inside hard_limits, except seller.refuse_buyers, seller.refuse_one_star_at and seller.refuse_exempt (a person's decision: leave them)
      (one step per cycle; a bigger step is allowed once the log holds a real

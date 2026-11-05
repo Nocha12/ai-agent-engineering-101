@@ -6,19 +6,27 @@ import market_buyer
 class RecentFitsTest(unittest.TestCase):
     def test_counts_asks_within_my_limit_for_the_category_in_the_window(self):
         now = time.time()
-        rows = [{"ts": now - 60, "category": "c", "quotes": [{"shop": "a", "ask": 10, "lost": None},
-                                                            {"shop": "b", "ask": 12, "lost": "less expected surplus"},
-                                                            {"shop": "c", "ask": 99, "lost": "over my limit (budget / share / deal cap)"},
-                                                            {"shop": "d", "ask": None, "lost": "no ask (no free unit or no answer)"}]},
-                {"ts": now - 4 * 3600, "category": "c", "quotes": [{"shop": "c", "ask": 5, "lost": None}]},
-                {"ts": now - 60, "category": "other", "quotes": [{"shop": "c", "ask": 5, "lost": None}]}]
+        rows = [{"ts": now - 60, "category": "c", "budget": 50,
+                 "quotes": [{"shop": "a", "ask": 10, "list_price": 20, "lost": None},
+                            {"shop": "b", "ask": 12, "list_price": 20, "lost": "less expected surplus"},
+                            {"shop": "c", "ask": 99, "list_price": 120, "lost": "over my limit (budget / share / deal cap)"},
+                            {"shop": "d", "ask": None, "list_price": 20, "lost": "no ask (no free unit or no answer)"}]},
+                # the chosen shop (lost None) asked over the budget, or over the list price: not a fit
+                {"ts": now - 60, "category": "c", "budget": 30, "quotes": [{"shop": "e", "ask": 40, "list_price": 90, "lost": None},
+                                                                          {"shop": "f", "ask": 25, "list_price": 20, "lost": None},
+                                                                          {"shop": "g", "ask": 5, "lost": None}]},
+                # lines with fit say so themselves
+                {"ts": now - 60, "category": "c", "budget": 30, "quotes": [{"shop": "a", "ask": 40, "list_price": 90, "lost": None, "fit": True},
+                                                                          {"shop": "h", "ask": 5, "list_price": 9, "lost": None, "fit": False}]},
+                {"ts": now - 4 * 3600, "category": "c", "budget": 50, "quotes": [{"shop": "c", "ask": 5, "list_price": 9, "lost": None}]},
+                {"ts": now - 60, "category": "other", "budget": 50, "quotes": [{"shop": "c", "ask": 5, "list_price": 9, "lost": None}]}]
         with tempfile.TemporaryDirectory() as md:
             os.makedirs(os.path.join(md, "measure"))
             with open(os.path.join(md, "measure", "orders.jsonl"), "w") as f:
                 f.writelines(json.dumps(r) + "\n" for r in rows)
                 f.write('{"ts": cut')
             got = market_buyer.recent_fits(md, "c", now=now)
-            self.assertEqual(dict(got), {"a": 1, "b": 1})
+            self.assertEqual(dict(got), {"a": 2, "b": 1})
             self.assertEqual(market_buyer.recent_fits(md + "/none", "c"), {})
             self.assertEqual(market_buyer.recent_fits(md, None), {})
 

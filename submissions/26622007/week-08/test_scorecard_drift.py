@@ -45,6 +45,20 @@ class RaceTest(unittest.TestCase):
         self.assertEqual(o['shops']['all'], .5)
         self.assertTrue(o['shops']['ranked'])
 
+    def test_next_step_names_the_next_rival_and_what_passing_it_adds(self):
+        rows = [{'name': str(i), 'book': i * 10, 'revenue': i, 'stars_rank': 4.5, 'all': 0} for i in range(5)]
+        rows[2]['name'] = scorecard.ME          # book 20 among 0, 10, 20, 30, 40: next rival 30
+        o = scorecard.objective({'shops': rows, 'buyers': []})
+        nx = o['shops']['parts']['book']['next']
+        self.assertEqual((nx['rival_value'], nx['need'], nx['delta_players']), (30, 10, .125))   # .5 x (3/4 - 2/4)
+        stars = o['shops']['parts']['stars_rank']['next']
+        self.assertIsNone(stars)            # all tied, nobody above
+        rows[4]['book'] = 20                 # a tie with me counts half now; passing 30 passes it too: .5 x (4/4 - 2.5/4)
+        self.assertEqual(scorecard.objective({'shops': rows, 'buyers': []})['shops']['parts']['book']['next']['delta_players'], .1875)
+        self.assertEqual(o['next_steps'][0]['field'], 'book')
+        top = [{'name': scorecard.ME, 'book': 9, 'revenue': 9, 'stars_rank': 9}, {'name': 'x', 'book': 1, 'revenue': 1, 'stars_rank': 1, 'all': 0}]
+        self.assertEqual(scorecard.objective({'shops': top, 'buyers': []})['next_steps'], [])
+
     def test_an_unscored_row_is_estimated_but_marked(self):
         me = {'name': scorecard.ME, 'book': 1, 'revenue': 1, 'stars_rank': 1}
         o = scorecard.objective({'shops': [me, {'name': 'x', 'book': 2, 'revenue': 2, 'stars_rank': 2, 'all': .9}], 'buyers': []})

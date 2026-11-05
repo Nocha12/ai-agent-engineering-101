@@ -75,7 +75,7 @@ def objective(b):
             field = next((n for n in names if n in mine), names[0])
             p = percentile(rows, field, mine)
             got[field] = {"weight": w, "percentile": None if p is None else round(p, 4), "value": mine.get(field),
-                          "_p": p}
+                          "next": next_step(rows, field, mine, w, p), "_p": p}
         total = sum(x["weight"] * x["_p"] for x in got.values() if x["_p"] is not None)
         for x in got.values():
             x.pop("_p")
@@ -95,7 +95,27 @@ def objective(b):
     out["weakest"] = max(((k, f, x["percentile"]) for k in OBJECTIVE for f, x in (out[k].get("parts") or {}).items()
                           if x["percentile"] is not None), key=lambda t: dict(
                               (f, w) for names, w in OBJECTIVE[t[0]] for f in names).get(t[1], 0) * (1 - t[2]), default=None)
+    # next_steps: every part's next rival, how far it is (need) and what passing it adds to Players, the largest first
+    # (GPT Pro 11/05 13:30 §7: weight x percentile left is the distance to first place, not the next reachable step)
+    out["next_steps"] = sorted(({"part": k, "field": f, **x["next"]} for k in OBJECTIVE
+                                for f, x in (out[k].get("parts") or {}).items() if x.get("next")),
+                               key=lambda s: -s["delta_players"])
     return out
+
+
+def next_step(rows, field, mine, weight, p):
+    """The lowest value above mine among the other rows (the next rival on this part), how much I need to pass it, and
+    what passing it alone adds to Players at today's board (weight x the percentile gained). None when I lead the part."""
+    if p is None:
+        return None
+    x = number(mine, field)
+    others = [number(r, field) for r in rows if r is not mine]
+    above = [v for v in others if v > x]
+    if not above:
+        return None
+    rival = min(above)
+    passed = sum(v <= rival for v in others) / len(others)      # mine just above the rival, tied with nobody
+    return {"rival_value": rival, "need": round(rival - x, 6), "delta_players": round(weight * (passed - p), 5)}
 
 
 HISTORY = os.path.join(".market", "board_history.jsonl")

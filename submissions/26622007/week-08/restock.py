@@ -274,6 +274,12 @@ def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
                 "no list price" if unit == float("inf") else "cash kept" if limit == spare else "stock cost" if limit == room
                 else "food stock cost"] if qty < capped else [])
             print(f"[restock] guard: {b['sku']} {asked} -> {max(qty, 0)} ({', '.join(why)})", file=sys.stderr)
+            if qty < 1 and "stock cost" in why and x.get("kind") == "food" and proven_or_priority and count[b["sku"]] <= 0 \
+                    and unit < float("inf"):
+                # measured only, nothing reserved: whether keeping 1 unit for an empty priority food would change a real
+                # window's lines (GPT Pro 11/05 13:30 §2; a person decides the guard after the windows are compared)
+                print(f"[restock] food-reserve sim: {b['sku']} none held or waiting, cut by stock cost; 1 unit would take "
+                      f"{unit:.0f} of {room:.0f} room", file=sys.stderr)
         if qty < 1:
             continue
         out.append({"sku": b["sku"], "qty": qty})

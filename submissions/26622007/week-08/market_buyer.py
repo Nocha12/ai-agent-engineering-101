@@ -521,6 +521,7 @@ def recent_fits(md, category, now=None, hours=RECENT_FIT_HOURS):
             lines = f.read().decode("utf-8", "replace").splitlines()
     except OSError:
         return out
+    cfg = buyer_cfg()
     for x in lines[1:] if size > RECENT_FIT_BYTES else lines:      # the first line of a tail may be cut
         try:
             r = json.loads(x)
@@ -530,10 +531,24 @@ def recent_fits(md, category, now=None, hours=RECENT_FIT_HOURS):
                 or not now - hours * 3600 <= r["ts"] <= now:
             continue
         for q in r.get("quotes") or ():
-            if isinstance(q, dict) and isinstance(q.get("shop"), str) and isinstance(q.get("ask"), (int, float)) \
-                    and q.get("lost") in (None, "less expected surplus"):
+            if isinstance(q, dict) and isinstance(q.get("shop"), str) and quote_fitted(q, r.get("budget"), cfg):
                 out[q["shop"]] += 1
     return out
+
+
+def quote_fitted(q, budget, cfg):
+    """Whether a recorded quote asked within my limit then. The chosen shop's quote has lost None even when its ask was
+    over the limit (it was picked anyway), and lost alone counted it: 12 of the 250 quotes counted in the 3 hours to 13:57
+    were over budget or list (GPT Pro 11/05 13:30 priority 1: 17 of 235 to 13:29). Lines from now on carry fit; older ones are checked again against
+    the budget and list price they recorded, under today's share and deal cap."""
+    if isinstance(q.get("fit"), bool):
+        return q["fit"]
+    ask, lp = q.get("ask"), q.get("list_price")
+    if not isinstance(ask, (int, float)) or q.get("lost") not in (None, "less expected surplus"):
+        return False
+    if not isinstance(lp, (int, float)) or not isinstance(budget, (int, float)):
+        return False
+    return ask <= value_limit({"list_price": lp}, budget, 0, cfg)
 
 
 def quote_order(others, fits, k):
@@ -793,6 +808,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
             else "over my limit (budget / share / deal cap)" if lim is not None and ask_ > lim
             else "less expected surplus")
         qs.append({"shop": s["name"], "sku": o.get("sku"), "list_price": o.get("list_price"), "ask": ask_, "lost": lost,
+                   "limit": lim, "fit": not q.get("refused") and isinstance(ask_, (int, float)) and lim is not None and ask_ <= lim,
                    "text": (q.get("text") or "")[:120]})
     qs = qs[:12]      # one small line: a single append, so overlapping buyer runs do not interleave
     asks = [p for who, p in out.get("history") or [] if who == "shop asked"]
