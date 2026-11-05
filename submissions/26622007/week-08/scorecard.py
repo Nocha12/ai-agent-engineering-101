@@ -126,7 +126,7 @@ def forum_then(past, hours, now=None):
 
 
 LLM_CAP = 300            # OpenRouter calls an hour, all processes together (harness.OR_MAX_CALLS_PER_HOUR)
-WORST_COST_SHARE = 0.75  # restock's worst cost before surge (restock.py, hard_limits.final_buy)
+WORST_COST_SHARE = 0.9   # 0.75 x list x restock.SURGE_HALF: a unit above it was bought deep in a surge
 FORUM_DROP = 0.01
 
 

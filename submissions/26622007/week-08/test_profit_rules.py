@@ -432,5 +432,38 @@ class PendingAndNextWindowTest(unittest.TestCase):
         self.assertEqual(restock.next_window(self.md, self.open_inv, CAT, {}), (None, "no next_window plan"))
 
 
+class SurgeTest(unittest.TestCase):
+    """Patch 3.2: the caps reserve the surge cost, a SKU high under surge buys less or nothing."""
+    CFG = {**CFG, "max_units_per_sku": 20, "max_stock_cost": 10 ** 9, "priority_skus": ["F1"]}
+
+    def inv(self, *rows):
+        return {"balance": 50000000, "units": [], "surge": [{"sku": s, "units": 0, "factor": f} for s, f in rows]}
+
+    def test_the_worst_cost_follows_the_factor_and_the_line_size(self):
+        f = restock.surge(self.inv(("H1", 1.2), ("F1", 9)))
+        self.assertEqual(f, {"H1": 1.2, "F1": 1.5})
+        self.assertEqual(restock.worst("H2", 3, CAT, f), 0)                       # not in the catalog
+        self.assertAlmostEqual(restock.worst("F2", 3, CAT, f), 40000 * 0.75)       # not under surge
+        self.assertAlmostEqual(restock.worst("H1", 3, CAT, f), 20000 * 0.75 * (1.2 + 0.004 + 0.05))
+        self.assertAlmostEqual(restock.worst("F1", 3, CAT, f), 40000 * 0.75 * 1.5)
+        self.assertEqual(restock.surge({"surge": "x"}), {})
+        self.assertEqual(restock.surge({"surge": [{"sku": "H1", "factor": True}, {"factor": 1.3}]}), {})
+
+    def test_half_from_1_20_unless_listed_and_none_from_1_30(self):
+        buy = [{"sku": "H1", "qty": 4}, {"sku": "F1", "qty": 2}, {"sku": "F2", "qty": 2}]
+        out = restock.guard(buy, self.inv(("H1", 1.22), ("F1", 1.25), ("F2", 1.3)), CAT, self.CFG)
+        self.assertEqual(out, [{"sku": "H1", "qty": 2}, {"sku": "F1", "qty": 2}])
+
+    def test_the_stock_cap_counts_the_surge_cost(self):
+        cfg = {**self.CFG, "max_stock_cost": 100000}
+        self.assertEqual(restock.guard([{"sku": "H1", "qty": 8}], self.inv(), CAT, cfg), [{"sku": "H1", "qty": 6}])
+        self.assertEqual(restock.guard([{"sku": "H1", "qty": 8}], self.inv(("H1", 1.1)), CAT, cfg), [{"sku": "H1", "qty": 5}])
+
+    def test_sent_lines_reserve_the_surge_cost(self):
+        with tempfile.TemporaryDirectory() as md:
+            restock.note_sent(md, [{"sku": "H1", "qty": 2}], CAT, factors={"H1": 1.2})
+            self.assertAlmostEqual(restock.pending(md, {"units": []})[0]["worst"], 20000 * 0.75 * 1.252)
+
+
 if __name__ == "__main__":
     unittest.main()

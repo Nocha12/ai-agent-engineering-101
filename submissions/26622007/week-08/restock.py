@@ -47,10 +47,35 @@ WORST_COST = 0.75      # a unit's cost is at most this share of its list price (
 EXPECTED_COST = {"food": 0.50, "goods": 0.59}      # a unit's expected cost share, from the published grade odds
 FOOD_SELL_WITHIN = 0.45                            # share of shelf life to sell in: below it a unit is grade C
 MAX_LOT = 20                                       # the most one supply line can buy
+# Patch 3.2 surge: past 50 units of a product bought by the whole market in an hour, each unit costs 0.2% more, at most
+# +50%. inventory.json's surge lists the products under it with the factor the next unit pays. On 11/05 49 of our units
+# cost more than 0.75 x list (the most 0.926), so the worst cost the caps reserve follows the factor (GPT Pro 11/05 §2).
+SURGE_STEP, SURGE_MAX = 0.002, 1.5
+SURGE_SLACK = 0.05        # other shops' units bought between this run and the supply: 25 units at 0.2%
+SURGE_HALF, SURGE_SKIP = 1.20, 1.30   # from 1.20 a SKU off the proven / priority lists buys half; from 1.30 none
 DEFAULTS = {"keep_cash": 1500000, "target_per_category": 2, "min_shelf_hours": 720, "goods_max_price": 50000,
             "max_lines": 10, "cover_hours": 12, "max_units_per_sku": 20, "max_sku_share": 0.1, "explore_lines": 2,
             "min_expected": 1.0, "agent_every_minutes": 10, "agent_max_lines": 30, "round_ends_at": 1794927540, "no_explore_hours": 48, "end_cover": 0.5,
             "band_low": 0, "band_high": float("inf"), "food_max_price": float("inf")}
+
+
+def surge(inv):
+    """{sku: factor the next unit pays} from inventory.json's surge; a SKU not listed pays the plain cost."""
+    rows = inv.get("surge") if isinstance(inv, dict) else None
+    out = {}
+    for r in rows if isinstance(rows, list) else ():
+        if isinstance(r, dict) and isinstance(r.get("sku"), str) and isinstance(r.get("factor"), (int, float)) \
+                and not isinstance(r.get("factor"), bool):
+            out[r["sku"]] = min(max(float(r["factor"]), 1.0), SURGE_MAX)
+    return out
+
+
+def worst(sku, qty, catalog, factors=None):
+    """The most one unit of a qty-unit line can cost: grade A's 0.75 x list, times the surge factor its last unit pays
+    with the slack for other shops' buys, at most 1.5."""
+    price = (catalog.get(sku) or {}).get("list_price") or 0
+    f = (factors or {}).get(sku)
+    return price * WORST_COST * (1.0 if f is None else min(SURGE_MAX, f + SURGE_STEP * max(qty - 1, 0) + SURGE_SLACK))
 
 
 def load(path, default):
@@ -61,7 +86,7 @@ def load(path, default):
         return default
 
 
-def wanted(model, catalog, have_sku, balance, cfg, hours_left=float("inf")):
+def wanted(model, catalog, have_sku, balance, cfg, hours_left=float("inf"), factors=None):
     """[(profit per hour per won of stock, sku, qty)] the demand model asks for, best first. The stock-cost caps in guard()
     are the binding limit, so lines are ranked by what each won tied up in stock earns: ranked by profit per hour alone,
     three mattresses filled the whole cap and the shop held 6 units in 5 categories while buyers see only shops that
@@ -76,7 +101,7 @@ def wanted(model, catalog, have_sku, balance, cfg, hours_left=float("inf")):
         rate = m["rate"] * m["my_share"]
         cover = min(cfg["cover_hours"], hours_left * cfg["end_cover"])
         # expected net per unit sold (GPT Pro §1.5): price x (1 - refund chance under my 6 h warranty) - cost - storage
-        cost = price * EXPECTED_COST.get(x.get("kind"), EXPECTED_COST["goods"])
+        cost = price * EXPECTED_COST.get(x.get("kind"), EXPECTED_COST["goods"]) * (factors or {}).get(sku, 1.0)
         refund = (cfg.get("prior_break") or 0) if x.get("kind") == "goods" else 0
         storage = cost * 0.01 * cover / 24 if x.get("kind") == "goods" else 0
         margin = price * m["price_ratio"] * (1 - refund) - cost - storage
@@ -115,7 +140,7 @@ def plan(inv, catalog, demand, cfg, model=None, breaks=None, waiting=()):
     hours_left = (cfg["round_ends_at"] - now) / 3600 if cfg.get("round_ends_at") else float("inf")
     picks = []
     if active:      # the caps first, over the whole ranked list, then the line limit: a line the food cap empties is
-        ranked = wanted(model, catalog, have_sku, balance, cfg, hours_left)       # refilled by the next one that fits
+        ranked = wanted(model, catalog, have_sku, balance, cfg, hours_left, surge(inv))   # refilled by the next one that fits
         # proven / priority SKUs first, so the guard gives them the stock-cost room and the line limit cannot cut them:
         # ranked per won a mattress came below the cut (04:59 run left out G1515d951 that the guard allowed 3 of, and
         # G75f11c19 got 0 room in every run 04:44-05:02), and proven_first() only sees the lines plan() returns
@@ -170,13 +195,12 @@ def pending(md, inv, now=None):
     return out
 
 
-def note_sent(md, buy, catalog, now=None):
+def note_sent(md, buy, catalog, now=None, factors=None):
     now = now or time.time()
     old = load(os.path.join(md, SENT), [])
     keep = [s for s in old if isinstance(s, dict) and isinstance(s.get("at"), (int, float))
             and now - s["at"] < PENDING_SECONDS] if isinstance(old, list) else []
-    keep += [{"at": now, "sku": b["sku"], "qty": b["qty"],
-              "worst": ((catalog.get(b["sku"]) or {}).get("list_price") or 0) * WORST_COST} for b in buy]
+    keep += [{"at": now, "sku": b["sku"], "qty": b["qty"], "worst": worst(b["sku"], b["qty"], catalog, factors)} for b in buy]
     tmp = os.path.join(md, SENT + ".tmp")
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(keep, f)
@@ -189,7 +213,8 @@ def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
     new lines: units per SKU (max_units_per_sku; high_price_max_units for goods listed above high_price_goods, high_price_proven_max_units for the
     high_price_proven_skus whose extra units sold out between supply windows), the cost of all stock
     (max_stock_cost) and of food (food_max_stock_cost), the cash kept, and hard_limits' line above bankruptcy. New and
-    waiting lines count at worst cost (0.75 x list). A line that does not fit is shrunk or dropped."""
+    waiting lines count at worst cost (0.75 x list x the surge factor, worst()). A line that does not fit is shrunk or
+    dropped; a SKU under surge from SURGE_HALF buys half unless it is proven / priority, from SURGE_SKIP not at all."""
     balance, units = inv.get("balance") or 0, inv.get("units") or []
     now = time.time()
     live = [u for u in units if not (u.get("expires_at") and u["expires_at"] <= now)]
@@ -204,10 +229,17 @@ def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
     room = cfg.get("max_stock_cost", float("inf")) - held
     food_room = cfg.get("food_max_stock_cost", float("inf")) - food
     spare = min(balance - cfg["keep_cash"], hard_limits.spendable(balance)) - sum(w["worst"] * w["qty"] for w in waiting)
-    out = []
+    out, factors = [], surge(inv)
     for b in buy:
         x = catalog.get(b["sku"]) or {}
         qty = min(b["qty"], MAX_LOT)
+        f = factors.get(b["sku"], 1.0)
+        if f >= SURGE_SKIP:
+            print(f"[restock] guard: {b['sku']} surge {f} >= {SURGE_SKIP}, left out until it falls", file=sys.stderr)
+            continue
+        if f >= SURGE_HALF and b["sku"] not in listed(cfg) and qty > 1:
+            print(f"[restock] guard: {b['sku']} surge {f} >= {SURGE_HALF}, unproven: {qty} -> {qty // 2}", file=sys.stderr)
+            qty //= 2
         if b["sku"] in (cfg.get("skip_skus") or ()):
             print(f"[restock] guard: {b['sku']} is in skip_skus, left out", file=sys.stderr)
             continue
@@ -232,7 +264,7 @@ def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
             cap = min(cap, cfg.get("high_price_proven_max_units", cfg.get("high_price_max_units", 1)) if proven
                       else cfg.get("high_price_max_units", 1))
         asked, capped = qty, min(qty, cap - count[b["sku"]])
-        unit = (x.get("list_price") or float("inf")) * WORST_COST
+        unit = worst(b["sku"], capped, catalog, factors) if x.get("list_price") else float("inf")
         limit = min(spare, room, food_room if x.get("kind") == "food" else float("inf"))
         qty = min(capped, int(limit // unit) if unit < float("inf") else 0)
         if qty < asked:     # which limits cut the line, so a stock-out can be traced to a cap or the cash
@@ -502,8 +534,7 @@ def with_trial(trial, buy, inv, catalog, cfg, breaks=None, waiting=(), hold=()):
     rest = [b for b in buy if b["sku"] not in skip]
     if not trial:
         return rest
-    sent = [{"sku": b["sku"], "qty": b["qty"],
-             "worst": ((catalog.get(b["sku"]) or {}).get("list_price") or 0) * WORST_COST} for b in trial]
+    sent = [{"sku": b["sku"], "qty": b["qty"], "worst": worst(b["sku"], b["qty"], catalog, surge(inv))} for b in trial]
     return (list(trial) + guard(rest, inv, catalog, cfg, breaks, list(waiting) + sent))[:max(cfg["max_lines"], len(trial))]
 
 
@@ -571,10 +602,12 @@ def main():
         forum.maybe_run(args.state)     # the kit runs this hook once a minute in Round 3; forum.py keeps its own pace
         tool_forge.maybe_run(args.state)
     shop_forum.maybe_run(args.state)    # the shop's own posts, written by code from its ledger rows and stock
-    out["buy"] = hard_limits.final_buy(out.get("buy"), inv.get("balance"), catalog)     # the last word, whatever came before
+    # the last word, whatever came before. It keeps its own 0.75 x list (test_hard_limits pins it); the surge cost is
+    # reserved by guard() and the waiting lines, and with the balance far above STOP_BUYING_BELOW the line does not bind
+    out["buy"] = hard_limits.final_buy(out.get("buy"), inv.get("balance"), catalog)
     if out["buy"]:
         try:
-            note_sent(args.state, out["buy"][:10], catalog)    # the kit sends ten lines a run
+            note_sent(args.state, out["buy"][:10], catalog, factors=surge(inv))    # the kit sends ten lines a run
         except OSError as e:
             print(f"[restock] could not note the lines sent: {e}", file=sys.stderr, flush=True)
     print(json.dumps(out, ensure_ascii=False), flush=True)

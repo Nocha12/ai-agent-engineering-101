@@ -62,7 +62,7 @@ class AlertTest(unittest.TestCase):
             with open(os.path.join(md, 'measure', 'llm_cap.jsonl'), 'w') as f:
                 f.write(json.dumps({'ts': now - 5, 'tag': 'buyer-agent'}) + '\n')
             json.dump({'G1': {'list_price': 1000}}, open(os.path.join(md, 'catalog.json'), 'w'))
-            json.dump({'units': [{'sku': 'G1', 'cost': 900, 'supplied_at': now - 60},
+            json.dump({'units': [{'sku': 'G1', 'cost': 950, 'supplied_at': now - 60},
                                  {'sku': 'G1', 'cost': 700, 'supplied_at': now - 60}]}, open(os.path.join(md, 'inventory.json'), 'w'))
             b = {'objective': {'buyers': {'parts': {'forum': {'value': .55}}}, 'board_drift': {'shops': .002, 'buyers': 0}},
                  'forum_6h_ago': .58}
