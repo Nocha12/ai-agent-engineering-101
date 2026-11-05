@@ -497,7 +497,7 @@ def with_trial(trial, buy, inv, catalog, cfg, breaks=None, waiting=(), hold=()):
     as on their way), never more than max_lines. The trial used to replace the whole window: the 01:40 and 09:40 windows
     of 11/05 each bought the single trial unit while the windows around them bought 28-53 units (ledger supply rows).
     The usual lines leave out the trial's SKUs (hold: all its targets while it runs), so a unit of them that arrives is
-    the trial's and next_window's arrived() check and retry stay true."""
+    the trial's and next_window's arrived() check and retry stay true. A target the guard cut from the trial stays held too."""
     skip = set(hold) | {b["sku"] for b in trial or ()}
     rest = [b for b in buy if b["sku"] not in skip]
     if not trial:
@@ -559,6 +559,9 @@ def main():
             # the formula fills only once the agent's queue is sent, except the proven / priority SKUs it proposes:
             # those go first in either case (proven_first); agent lines they push past max_lines are queued again
             send, back = batch(lines, [] if queued else out["buy"], out["buy"], keep, cfg)
+            agent_skus = {x.get("sku") for x in lines}
+            if hold and not trial:         # agent lines for the trial's SKUs wait in the queue until the trial ends
+                back += [x for x in send if x["sku"] in hold and x["sku"] in agent_skus]
             requeue(args.state, back)
             out = {"buy": send}
     if hold and not trial:                 # the trial was sent earlier in this window: its SKUs stay the trial's
