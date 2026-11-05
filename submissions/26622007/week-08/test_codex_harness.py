@@ -64,7 +64,9 @@ class CodexHarnessTest(unittest.TestCase):
         self.env = mock.patch.dict(os.environ, {"HARNESS_CODEX": self.codex, "MARKET_DIR": self.md,
                                                 "OPENROUTER_API_KEY": "sk-or-test-secret", "MARKET_OWNER": "claim-secret"})
         self.env.start()
-        self.patches = [mock.patch.object(harness, "BACKEND", "codex"), mock.patch.object(harness, "_codex_path", [])]
+        self.cwd_root = os.path.join(os.path.realpath(self.d), "cwd")
+        self.patches = [mock.patch.object(harness, "BACKEND", "codex"), mock.patch.object(harness, "_codex_path", []),
+                        mock.patch.object(harness, "CODEX_CWD_ROOT", self.cwd_root)]
         for p in self.patches:
             p.start()
 
@@ -237,6 +239,49 @@ class CodexHarnessTest(unittest.TestCase):
         with open(os.path.join(self.md, "llm_calls.jsonl"), "a") as f:
             f.write(json.dumps({"ts": int(time.time()), "tag": "t", "ok": True}) + "\n")   # an older line, OpenRouter
         self.assertEqual(scorecard.llm_last_hour(self.md)["backends"], {"codex": 1, "openrouter": 1})
+
+    def test_cached_tokens_are_recorded_with_every_other_field(self):
+        self.plan({"answer": '{"a": 1}'})
+        harness.ask("p", SCHEMA, "s", tag="seller-harness")
+        rec, = self.lines("llm_calls.jsonl")
+        self.assertEqual(set(rec), {"ts", "tag", "backend", "chars", "seconds", "ok", "prompt_tokens", "completion_tokens",
+                                    "cached_tokens", "cost"})
+        self.assertEqual((rec["prompt_tokens"], rec["cached_tokens"], rec["completion_tokens"]), (17000, 11000, 9))
+        harness.record_call("or", "p", "s", 1.0, True, {"prompt_tokens": 100, "prompt_tokens_details": {"cached_tokens": 64}})
+        self.assertEqual(self.lines("llm_calls.jsonl")[-1]["cached_tokens"], 64)    # OpenRouter's place for it
+        self.assertEqual(scorecard.llm_last_hour(self.md)["cache"],
+                         {"calls": 2, "prompt_tokens": 17100, "cached_tokens": 11064, "ratio": 0.647})
+
+    def test_each_tag_keeps_one_empty_cwd_and_a_file_in_it_falls_back_to_scratch(self):
+        self.plan({"answer": '{"a": 1}'}, {"answer": '{"a": 2}'}, {"answer": '{"a": 3}'}, {"answer": '{"a": 4}'})
+        harness.ask("p", SCHEMA, "s", tag="seller-harness")
+        harness.ask("q", SCHEMA, "s", tag="seller-harness")
+        harness.ask("r", SCHEMA, "s", tag="buyer/agent")
+        a, b, c = [os.path.realpath(r["cwd"]) for r in self.runs()]
+        fixed = os.path.join(self.cwd_root, "t_seller-harness")
+        self.assertEqual((a, b), (fixed, fixed))
+        self.assertEqual(c, os.path.join(self.cwd_root, "t_buyer_agent"))
+        self.assertEqual(os.listdir(fixed), [])                                 # nothing is left there
+        open(os.path.join(fixed, "AGENTS.md"), "w").close()
+        harness.ask("s", SCHEMA, "s", tag="seller-harness")
+        last = self.runs()[-1]
+        self.assertNotEqual(os.path.realpath(last["cwd"]), fixed)
+        self.assertEqual(last["listing"], [])
+        self.assertEqual(self.lines("measure/llm_codex_cwd.jsonl")[-1]["kind"], "scratch")
+
+    def test_a_cwd_under_a_repository_is_never_used(self):
+        """codex puts every AGENTS.md from the cwd up to the repo root into the prompt."""
+        self.plan({"answer": '{"a": 1}'}, {"answer": '{"a": 2}'})
+        open(os.path.join(self.d, "AGENTS.md"), "w").close()                  # above cwd_root
+        harness.ask("p", SCHEMA, "s", tag="seller-harness")
+        self.assertFalse(os.path.realpath(self.runs()[-1]["cwd"]).startswith(self.cwd_root))
+        os.remove(os.path.join(self.d, "AGENTS.md"))
+        os.mkdir(os.path.join(self.cwd_root, ".git"))
+        harness.ask("p", SCHEMA, "s", tag="seller-harness")
+        self.assertFalse(os.path.realpath(self.runs()[-1]["cwd"]).startswith(self.cwd_root))
+        self.assertTrue(harness._under_project(os.path.join(HERE, ".market")))   # the kit's own MARKET_DIR
+        os.rmdir(os.path.join(self.cwd_root, ".git"))
+        self.assertEqual(os.path.basename(harness.codex_workdir("..", os.path.join(self.d, "s"))), "t___")
 
 
 if __name__ == "__main__":

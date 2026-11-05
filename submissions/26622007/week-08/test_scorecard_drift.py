@@ -82,6 +82,38 @@ class AlertTest(unittest.TestCase):
             self.assertEqual(scorecard.llm_last_hour(md, now=now)['calls'], 0)
 
 
+class CacheAlertTest(unittest.TestCase):
+    def write(self, md, rows):
+        import json, os
+        with open(os.path.join(md, 'llm_calls.jsonl'), 'w') as f:
+            f.writelines(json.dumps(r) + '\n' for r in rows)
+
+    def test_a_falling_cache_share_alerts_and_too_few_calls_or_old_lines_do_not(self):
+        import tempfile, time
+        now = time.time()
+        row = lambda ts, cached, ok=True, backend='codex': {'ts': ts, 'tag': 'seller-harness', 'ok': ok, 'backend': backend,
+                                                             'prompt_tokens': 9000, 'cached_tokens': cached}
+        with tempfile.TemporaryDirectory() as md:
+            before = [row(now - 3 * 3600, 6912 if i % 3 else 0) for i in range(300)]          # 0.51 in the 6 h before
+            self.write(md, before + [row(now - 60, 6912 if i % 5 == 0 else 0) for i in range(60)])   # 0.15 now
+            a, = scorecard.alerts(md, {}, now=now)
+            self.assertTrue(a.startswith('llm_cache: cached input share 0.154 over 60 calls'), a)
+            self.assertIn('never cut calls', a)
+            self.write(md, before + [row(now - 60, 6912 if i % 2 else 0) for i in range(60)])        # 0.38: no drop
+            self.assertEqual(scorecard.alerts(md, {}, now=now), [])
+            self.write(md, [row(now - 60, 0) for i in range(49)])                                     # too few calls
+            self.assertEqual(scorecard.alerts(md, {}, now=now), [])
+            self.write(md, [{'ts': now - 60, 'tag': 't', 'ok': True, 'backend': 'codex', 'prompt_tokens': 9000} for i in range(80)]
+                       + [row(now - 60, 0, ok=False) for i in range(80)]                      # no field, failed calls
+                       + [row(now - 60, 0, backend='openrouter') for i in range(80)]          # another backend
+                       + [row(now - 60, True) for i in range(80)] + [row('x', 0) for i in range(80)]   # odd values
+                       + [{**row(now - 60, 0), 'prompt_tokens': '9000'} for i in range(80)])
+            self.assertEqual(scorecard.alerts(md, {}, now=now), [])
+            self.write(md, [row(now - 60, 0) for i in range(60)])                                     # under the floor
+            self.assertEqual([x.split(':')[0] for x in scorecard.alerts(md, {}, now=now)], ['llm_cache'])
+            self.assertEqual(scorecard.llm_table(md)['seller-harness']['cache']['ratio'], 0.0)
+
+
 class JsonlTest(unittest.TestCase):
     def test_a_cut_line_is_skipped_not_the_whole_file(self):
         import os, tempfile

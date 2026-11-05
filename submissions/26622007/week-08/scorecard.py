@@ -137,7 +137,7 @@ FORUM_DROP = 0.01
 def alerts(md, card_board, now=None):
     """Signals a cycle must not pass over with no_change: a buyer or restock call refused at its cap (only when one is set
     again), stock bought above the worst cost restock reserves for, the buyer forum falling, the scorecard drifting from
-    the board, the rules disagreeing with it. Each is a short sentence with its numbers. meta_harness refuses a no_change
+    the board, the rules disagreeing with it, the LLM cache share falling (cache_drop). Each is a short sentence with its numbers. meta_harness refuses a no_change
     answer that leaves one of them open. How many calls the last hour made is no alert: there is no cap (llm_last_hour)."""
     now = time.time() if now is None else now
     out = []
@@ -169,7 +169,35 @@ def alerts(md, card_board, now=None):
     drift = {k: v for k, v in (obj.get("board_drift") or {}).items() if abs(v) > 0.001}
     if drift:
         out.append(f"board_drift: scorecard ALL differs from the board by {drift}")
+    cache = cache_drop(md, now)
+    if cache:
+        out.append(cache)
     return out
+
+
+CACHE_MIN_CALLS = 50     # fewer calls in the hour than this: the share is noise (one hit is 6,912 of ~9,000 tokens)
+CACHE_FLOOR = 0.10       # 11/05 measured 0.15 (random cwd) to 0.3-0.5 (fixed cwd) on 10-call runs
+CACHE_DROP = 0.5         # the last hour under half of the 6 hours before it
+
+
+def cache_drop(md, now=None):
+    """The LLM cache hit share falling: the last hour under CACHE_FLOOR, or under CACHE_DROP of the 6 hours before. Only an
+    alert to look at what changed in the prompt (a system prompt with a time or a price in it, a new codex): a person
+    forbade a call cap, so the answer is never fewer calls. Codex calls only: another backend may cache nothing."""
+    now = time.time() if now is None else now
+    rows = [c for c in jsonl(os.path.join(md, "llm_calls.jsonl"))[-40000:] if c.get("backend") == "codex"
+            and isinstance(c.get("ts"), (int, float)) and c["ts"] >= now - 7 * 3600]
+    hour = cache_share([c for c in rows if c["ts"] >= now - 3600])
+    before = cache_share([c for c in rows if c["ts"] < now - 3600])
+    if hour["calls"] < CACHE_MIN_CALLS or hour["ratio"] is None:
+        return None
+    low = hour["ratio"] < CACHE_FLOOR
+    fell = before["calls"] >= CACHE_MIN_CALLS and before["ratio"] and hour["ratio"] < CACHE_DROP * before["ratio"]
+    if not (low or fell):
+        return None
+    return (f"llm_cache: cached input share {hour['ratio']} over {hour['calls']} calls in the last hour, "
+            f"{before['ratio']} over {before['calls']} in the 6 h before (floor {CACHE_FLOOR}); look at what changed in "
+            f"the prompts, never cut calls")
 
 
 def race(b, past, now=None):
@@ -298,7 +326,8 @@ def log_counts(root, name="market-kit.log"):
 def llm_table(md, last=2000):
     """What each kind of model call costs lately: how often, how large, how slow, how many failed."""
     table = collections.defaultdict(lambda: {"calls": 0, "failed": 0, "chars": 0, "seconds": 0.0, "prompt_tokens": 0, "completion_tokens": 0, "cost": 0.0})
-    for c in jsonl(os.path.join(md, "llm_calls.jsonl"))[-last:]:
+    rows = jsonl(os.path.join(md, "llm_calls.jsonl"))[-last:]
+    for c in rows:
         t = table[c.get("tag")]
         t["calls"] += 1
         t["failed"] += 0 if c.get("ok") else 1
@@ -306,7 +335,20 @@ def llm_table(md, last=2000):
         t["seconds"] += c.get("seconds") or 0
         for k in ("prompt_tokens", "completion_tokens", "cost"):
             t[k] += c.get(k) or 0
-    return {k: {**v, "mean_chars": round(v["chars"] / v["calls"]), "mean_seconds": round(v["seconds"] / v["calls"], 2)} for k, v in table.items()}
+    out = {k: {**v, "mean_chars": round(v["chars"] / v["calls"]), "mean_seconds": round(v["seconds"] / v["calls"], 2)} for k, v in table.items()}
+    for k in out:
+        out[k]["cache"] = cache_share([c for c in rows if c.get("tag") == k])
+    return out
+
+
+def cache_share(calls):
+    """Cached input tokens over input tokens, on the calls that report it (lines from before 11/05 12:50 do not)."""
+    count = lambda x: type(x) is int and x >= 0
+    known = [c for c in calls if c.get("ok") is True and count(c.get("cached_tokens")) and count(c.get("prompt_tokens"))
+             and c["prompt_tokens"] > 0]
+    prompt = sum(c["prompt_tokens"] for c in known)
+    return {"calls": len(known), "prompt_tokens": prompt, "cached_tokens": sum(c["cached_tokens"] for c in known),
+            "ratio": round(sum(c["cached_tokens"] for c in known) / prompt, 3) if prompt else None}
 
 
 def llm_last_hour(md, now=None):
@@ -317,7 +359,8 @@ def llm_last_hour(md, now=None):
     return {"calls": len(calls), "failed": sum(1 for c in calls if not c.get("ok")),
             "cost": round(sum(c.get("cost") or 0 for c in calls), 4),
             "tags": collections.Counter(c.get("tag") for c in calls).most_common(4),
-            "backends": dict(collections.Counter(c.get("backend") or "openrouter" for c in calls))}
+            "backends": dict(collections.Counter(c.get("backend") or "openrouter" for c in calls)),
+            "cache": cache_share(calls)}
 
 
 def memory_timing(md, last=500):

@@ -4,7 +4,8 @@ The seller and the buyer both decide through ask(). Three backends:
 
 - HARNESS=codex (the market account on the Mac mini, agent.json): gpt-6-luna through
   `codex exec` on the ChatGPT subscription login, reasoning effort low, the schema
-  passed as --output-schema. Each call runs in a fresh empty directory with a
+  passed as --output-schema. Each call runs in an empty directory outside any repository,
+  one fixed per tag (codex_workdir) so the prompt codex builds keeps one prefix, with a
   read-only sandbox, approvals never, the user config and rules ignored, the shell
   and every other built-in tool turned off, and an environment holding no key (only
   PATH, HOME, locale). At most CODEX_CONCURRENCY calls run at once over all processes
@@ -72,6 +73,9 @@ CODEX_ENV = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE", "T
 CODEX_FINAL = re.compile(r"usage[ _]limit|rate[ _-]?limit|quota|\b429\b|not supported|log ?in|unauthori[sz]ed|\b40[13]\b",
                          re.I)
 _codex_path = []
+# Fixed empty cwd per tag (codex_workdir): the user's temp folder, which no repository sits above.
+CODEX_CWD_ROOT = os.environ.get("CODEX_CWD_ROOT") or os.path.join(os.path.realpath(tempfile.gettempdir()),
+                                                                  f"harness-codex-cwd-{os.getuid()}")
 
 
 class HarnessError(RuntimeError):
@@ -123,12 +127,16 @@ def record_call(tag, prompt, system, seconds, ok, usage=None):
     if not md:
         return
     usage = usage or {}
+    # codex reports cached_input_tokens (kept as cached_tokens); OpenRouter puts it in prompt_tokens_details
+    cached = usage.get("cached_tokens")
+    if cached is None:
+        cached = (usage.get("prompt_tokens_details") or {}).get("cached_tokens")
     try:
         with open(os.path.join(md, "llm_calls.jsonl"), "a", encoding="utf-8") as f:
             f.write(json.dumps({"ts": int(time.time()), "tag": tag, "backend": BACKEND, "chars": len(prompt) + len(system),
                                 "seconds": round(seconds, 2), "ok": ok,
                                 "prompt_tokens": usage.get("prompt_tokens"), "completion_tokens": usage.get("completion_tokens"),
-                                "cost": usage.get("cost")}) + "\n")
+                                "cached_tokens": cached, "cost": usage.get("cost")}) + "\n")
     except OSError:
         pass
 
@@ -239,6 +247,42 @@ def codex_cmd(codex, schema_file, out_file, workdir, system):
         cmd += ["--disable", feature]
     return cmd + ["-s", "read-only", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--ignore-rules",
                   "-C", workdir, "--output-schema", schema_file, "-o", out_file, "--json", "-"]
+
+
+def _under_project(d):
+    """True if d or a folder above it holds .git or AGENTS.md: codex walks up from the cwd and puts every AGENTS.md on
+    the way into the prompt (4,742 chars of the course repo's rules with the cwd under .market, prompt-input 11/05)."""
+    d = os.path.realpath(d)
+    while True:
+        if any(os.path.exists(os.path.join(d, n)) for n in (".git", "AGENTS.md", "AGENTS.override.md")):
+            return True
+        up = os.path.dirname(d)
+        if up == d:
+            return False
+        d = up
+
+
+def codex_workdir(tag, scratch):
+    """The -C directory: CODEX_CWD_ROOT/t_<tag>, the same empty folder for every call of a tag, outside any repository,
+    since codex writes the cwd into the environment_context message just before the prompt (`codex debug prompt-input`,
+    0.166) and a fresh random one made that part differ on every call. Calls of a tag share it at once: the sandbox is
+    read-only, every tool is off and --ephemeral writes nothing there. Not empty, under a repository, or no MARKET_DIR:
+    the per-call scratch folder, as before, so a decision never sees a file. What it cannot fix: codex sends the new
+    session's id as prompt_cache_key (codex-rs core/src/client.rs, PromptCacheKey::SessionDerived; no flag or config
+    sets it), so calls of one tag still land on cache shards apart and the hits are mostly the prefix shared by every
+    codex call (6,912 of ~9,000 tokens, 11/05). The cached share is measured (llm_calls.jsonl cached_tokens) and
+    watched (scorecard cache_drop)."""
+    if os.environ.get("MARKET_DIR"):
+        d = os.path.join(CODEX_CWD_ROOT, "t_" + re.sub(r"[^A-Za-z0-9_-]", "_", tag))
+        try:
+            os.makedirs(d, mode=0o700, exist_ok=True)
+            if not os.listdir(d) and not _under_project(d):
+                return d
+        except OSError:
+            pass
+        _codex_measure("llm_codex_cwd", tag, "scratch", 0, d)
+    os.makedirs(scratch, exist_ok=True)
+    return scratch
 
 
 class _Slot:
@@ -353,8 +397,7 @@ def _codex_once(prompt, schema, system, tag):
                 break           # a slow failure is not tried again: the counterpart is waiting
             started = time.time()
             with tempfile.TemporaryDirectory(prefix="harness-codex-") as empty:
-                work = os.path.join(empty, "work")
-                os.mkdir(work)
+                work = codex_workdir(tag, os.path.join(empty, "work"))
                 schema_file, out_file = os.path.join(empty, "schema.json"), os.path.join(empty, "answer.json")
                 with open(schema_file, "w", encoding="utf-8") as f:
                     json.dump(schema, f)
