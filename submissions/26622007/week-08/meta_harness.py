@@ -424,7 +424,10 @@ def since_last(card, kind="terra", now=None):
     a, b = prev.get("log_counts") or {}, card.get("log_counts") or {}
     obj = lambda c: ((c.get("board") or {}).get("objective") or {})
     rotated = b.get("lines", 0) < a.get("lines", 0)        # the kit moved its log to .log.1: counts start again
-    delta = {k: (b[k] if rotated else b[k] - a.get(k, 0)) for k in b if isinstance(b[k], int)}
+    # the part written to the old file after the last pack is in market-kit.log.1 past its line a["lines"]; without it
+    # the 22:26 Terra pack saw 46 shop settles of 144 (the hour before the 21:58 move was lost)
+    old = scorecard.log_counts(ROOT, "market-kit.log.1", start=a.get("lines", 0)) if rotated else {}
+    delta = {k: (b[k] + old.get(k, 0) if rotated else b[k] - a.get(k, 0)) for k in b if isinstance(b[k], int)}
     out = {"previous": packs[-1], "log_rotated": rotated, "log_counts": {k: v for k, v in delta.items() if v},
            "players": [obj(prev).get("players"), obj(card).get("players")], "shop": [prev.get("shop"), card.get("shop")],
            "across_score_switch": os.path.getmtime(os.path.join(folder, packs[-1])) < SCORE_SWITCH <= now, "baselines": {}}

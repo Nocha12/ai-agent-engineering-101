@@ -521,8 +521,8 @@ class Seller(AgentExecutor):
             log(f"task {task.id[:8]} -> COMPLETED {deal['id']} at {offer}")
             del self.open[task.id]
         elif action == "reject":
-            await up.reject(say(f"{d['message'].strip()} We are so sorry we could not meet your budget this time! "
-                                "If you leave us a 5-star review, we will give you a better price on your next visit. No deal."))
+            # no price promised for a review: /rules Round 3 names "a discount for a five-star review" rating manipulation
+            await up.reject(say(f"{d['message'].strip()} We are so sorry we could not meet your budget this time! No deal."))
             log(f"task {task.id[:8]} -> REJECTED")
             self.remember(task.id, deal, "rejected")
             self.free(task.id, deal)

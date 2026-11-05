@@ -230,6 +230,29 @@ class MetaLimitTest(unittest.TestCase):
         self.assertTrue(hard_limits.guard_problems(["hard_limits.py"], ""))
 
 
+class LogCountTest(unittest.TestCase):
+    def test_a_checkout_refusal_is_not_a_supply_refusal(self):
+        import scorecard
+        tmp = tempfile.mkdtemp()
+        try:
+            os.makedirs(os.path.join(tmp, "logs"))
+            with open(os.path.join(tmp, "logs", "market-kit.log"), "w") as f:
+                f.write("22:20 [acp] checkout refused: unit u-1 is not in stock for this order\n"
+                        "22:23 [supply] {'sku': 'G1', 'qty': 1} refused: 502 \n"
+                        "22:24 [supply] {'sku': 'G2', 'qty': 1} ok\n")
+            c = scorecard.log_counts(tmp)
+            self.assertEqual((c["checkout_refused"], c["supply_refused"], c["supply"], c["lines"]), (1, 1, 2, 3))
+            c = scorecard.log_counts(tmp, start=1)
+            self.assertEqual((c["checkout_refused"], c["supply_refused"], c["lines"]), (0, 1, 2))
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_no_price_is_promised_for_a_review(self):
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "seller.py"), encoding="utf-8") as f:
+            src = f.read()
+        self.assertNotIn("better price on your next visit", src)
+
+
 class TerraGradingTest(unittest.TestCase):
     def test_since_last_cycle_and_the_grade_log(self):
         tmp = tempfile.mkdtemp()
@@ -245,6 +268,14 @@ class TerraGradingTest(unittest.TestCase):
                     json.dump({"log_counts": {"lines": 900, "sold": 50}}, f)
                 r = meta_harness.since_last({"log_counts": {"lines": 10, "sold": 3}})
                 self.assertEqual((r["log_rotated"], r["log_counts"]["sold"]), (True, 3))
+                # the old file's part after the last pack (past its line 2) counts too
+                os.makedirs(os.path.join(tmp, "logs"))
+                with open(os.path.join(tmp, "logs", "market-kit.log.1"), "w") as f:
+                    f.write("a -> COMPLETED x\nb\nc -> COMPLETED y\nd -> COMPLETED z\n")
+                with open(os.path.join(tmp, "meta", "evidence", "terra-1.json"), "w") as f:
+                    json.dump({"log_counts": {"lines": 2, "sold": 1}}, f)
+                r = meta_harness.since_last({"log_counts": {"lines": 1, "sold": 3}})
+                self.assertEqual((r["log_rotated"], r["log_counts"]["sold"], r["log_counts"]["lines"]), (True, 5, 3))
                 meta_harness.grade_log({"cycle": "terra-2", "time": "t", "status": "running",
                                         "answer": {"grade_summary": "재고 부족 5건", "weakest": ["revenue"], "action_kind": "tool_new"}})
                 with open(os.path.join(tmp, "meta", "grades.jsonl")) as f:

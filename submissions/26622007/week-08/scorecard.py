@@ -18,7 +18,7 @@ MARKET = os.environ.get("MARKET_URL", "https://market.ourolabs.ai")
 ME = os.environ.get("SHOP_MARKET_NAME", "nocha12")
 COUNTERS = {"settled_as_shop": "[acp] settled", "paid_as_buyer": "[acp] paid", "buyer_refused_to_pay": "[acp] not paying",
             "checkout_refused": "checkout refused", "settle_refused": "settle refused", "supply": "[supply]",
-            "supply_refused": "refused:", "tracebacks": "Traceback", "harness_failed": "harness failed",
+            "supply_refused": ("[supply]", "refused:"), "tracebacks": "Traceback", "harness_failed": "harness failed",
             "no_stock": "REJECTED (not in stock)", "bankrupt": "[bankrupt]", "broken": "[broken]", "forum": "[forum]",
             "below_cost_offer": "instead of cost", "warranty_given": "WARRANTY ", "warranty_declined": "WARRANTY declined",
             "forum_post_refused": "[forum] post as buyer: 4", "forum_vote_refused": "[forum] vote as buyer: 4",
@@ -329,13 +329,18 @@ def file_index(root):
     return out
 
 
-def log_counts(root, name="market-kit.log"):
+def log_counts(root, name="market-kit.log", start=0):
+    """Counts of COUNTERS in the kit log from line `start` on. A tuple needle needs all its parts in the line:
+    supply_refused is a refused [supply] line only, not also "[acp] checkout refused:" (11/05 22:25 Astra's watch read
+    10 checkout refusals and 1 supply 502 as supply_refused +11)."""
     counts = collections.Counter()
     try:
         with open(os.path.join(root, "logs", name), encoding="utf-8", errors="replace") as f:
-            for line in f:
+            for i, line in enumerate(f):
+                if i < start:
+                    continue
                 for k, needle in COUNTERS.items():
-                    if needle in line:
+                    if all(n in line for n in needle) if isinstance(needle, tuple) else needle in line:
                         counts[k] += 1
                 counts["lines"] += 1
     except OSError:
