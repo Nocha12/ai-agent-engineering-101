@@ -150,6 +150,27 @@ class CapTest(unittest.TestCase):
                 harness._ask_openrouter("p", {}, "s", "buyer-agent")
         self.assertEqual([x["tag"] for x in lines(md, "llm_cap")], ["buyer-agent"])
 
+    def test_no_cap_by_default(self):
+        """No OR_MAX_CALLS_PER_HOUR: the cap is 0, and 0 refuses nothing however many calls the last hour made."""
+        import subprocess
+        import sys
+        import time
+        env = {k: v for k, v in os.environ.items() if k != "OR_MAX_CALLS_PER_HOUR"}
+        out = subprocess.run([sys.executable, "-c", "import harness; print(harness.OR_MAX_CALLS_PER_HOUR)"],
+                             cwd=os.path.dirname(os.path.abspath(__file__)), env=env, capture_output=True, text=True)
+        self.assertEqual(out.stdout.strip(), "0", out.stderr)
+        md = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, md)
+        ok = mock.Mock(status_code=200)
+        ok.json.return_value = {"choices": [{"message": {"content": "{}"}}]}
+        client = mock.MagicMock()
+        client.__enter__.return_value.post.return_value = ok
+        with mock.patch.dict(os.environ, {"MARKET_DIR": md, "OPENROUTER_API_KEY": "x"}), \
+                mock.patch.object(harness, "OR_MAX_CALLS_PER_HOUR", 0), mock.patch.object(harness, "_or_calls", [time.time()] * 1000), \
+                mock.patch.object(harness.httpx, "Client", return_value=client):
+            self.assertEqual(harness._ask_openrouter("p", {}, "s", "seller-harness"), {})
+        self.assertEqual(lines(md, "llm_cap"), [])
+
 
 if __name__ == "__main__":
     unittest.main()

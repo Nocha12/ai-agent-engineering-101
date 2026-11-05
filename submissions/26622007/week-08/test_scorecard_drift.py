@@ -69,6 +69,7 @@ class AlertTest(unittest.TestCase):
                  'forum_6h_ago': .58}
             got = [a.split(':')[0] for a in scorecard.alerts(md, b, now=now)]
             self.assertEqual(got, ['llm_cap', 'surge', 'forum', 'board_drift'])        # 301 calls an hour: no alert
+            self.assertEqual(scorecard.llm_last_hour(md, now=now)['calls'], 301)       # shown, not a limit
             first = scorecard.alerts(md, b, now=now)[0]
             self.assertIn('buyer-agent', first)
             self.assertNotIn('seller-harness', first)                                    # it answers by code
@@ -76,6 +77,8 @@ class AlertTest(unittest.TestCase):
             b['objective']['board_drift'] = {}
             os.remove(os.path.join(md, 'measure', 'llm_cap.jsonl'))
             self.assertEqual([a.split(':')[0] for a in scorecard.alerts(md, b, now=now)], ['surge'])
+            os.remove(os.path.join(md, 'llm_calls.jsonl'))
+            self.assertEqual(scorecard.llm_last_hour(md, now=now)['calls'], 0)
 
 
 class JsonlTest(unittest.TestCase):

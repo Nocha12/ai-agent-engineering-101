@@ -29,6 +29,8 @@ Alerts next: the pack's `alerts` (scorecard.alerts) are broken constraints or fa
 (`llm_cap`, `surge`, `forum`, `board_drift`, `rules`). Each one is either this cycle's change or answered in
 grade_summary or evidence_gap as `alert <name>: ` followed by why it needs no change and the measurement that will settle
 it; meta_harness refuses a no_change that leaves one unanswered (status no_change_unsupported).
+Luna calls have no hourly cap (a person's decision, 11/05): `llm_last_hour` shows the calls and their cost, it is not a
+limit. Never cut model calls, negotiations, quotes or posts to lower that count, and never add a call cap back.
 
 The race: `board.race` is the Everyone rank, the gap to the leader and to the player just above, and how much each of
 the three grew over 6 and 12 hours (`growth`). A gap closes only if I grow faster than the player above: when

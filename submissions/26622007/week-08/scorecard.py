@@ -125,19 +125,20 @@ def forum_then(past, hours, now=None):
     return row[1] if len(row) > 1 and isinstance(row[1], (int, float)) else None
 
 
-# harness.OR_MAX_CALLS_PER_HOUR (300) is a credit guard of each process (a09b9f0, 10/19), not a market rule: the total
-# over processes is a cost the operator decides, so it is no alert. The seller's own refusals are none either: on a
-# numeric offer it answers by code (1,527 of 1,635 refusals 11/05 04:07-11:20, "cannot answer" 0 times).
+# harness.OR_MAX_CALLS_PER_HOUR is off by default since 11/05 (a person's call: the seller gave up thousands of
+# negotiations at 300 an hour). The total calls over processes is a cost shown in llm_last_hour, not an alert. If a cap
+# is set again, the seller's own refusals are no alert either: on a numeric offer it answers by code (1,527 of 1,635
+# refusals 11/05 04:07-11:20, "cannot answer" 0 times).
 CAP_HARMLESS = ("seller-harness",)
 WORST_COST_SHARE = 0.9   # 0.75 x list x restock.SURGE_HALF: a unit above it was bought deep in a surge
 FORUM_DROP = 0.01
 
 
 def alerts(md, card_board, now=None):
-    """Signals a cycle must not pass over with no_change: a buyer or restock call refused at its cap, stock bought above
-    the worst cost restock reserves for, the buyer forum falling, the scorecard drifting from the board, the rules
-    disagreeing with it. Each is a short sentence with its numbers. meta_harness refuses a no_change answer that leaves
-    one of them open."""
+    """Signals a cycle must not pass over with no_change: a buyer or restock call refused at its cap (only when one is set
+    again), stock bought above the worst cost restock reserves for, the buyer forum falling, the scorecard drifting from
+    the board, the rules disagreeing with it. Each is a short sentence with its numbers. meta_harness refuses a no_change
+    answer that leaves one of them open. How many calls the last hour made is no alert: there is no cap (llm_last_hour)."""
     now = time.time() if now is None else now
     out = []
     caps = [c for c in jsonl(os.path.join(md, "measure", "llm_cap.jsonl"))[-5000:]
@@ -308,6 +309,15 @@ def llm_table(md, last=2000):
     return {k: {**v, "mean_chars": round(v["chars"] / v["calls"]), "mean_seconds": round(v["seconds"] / v["calls"], 2)} for k, v in table.items()}
 
 
+def llm_last_hour(md, now=None):
+    """OpenRouter calls and their cost over the last hour, all processes: shown for cost, not a limit (no hourly cap)."""
+    now = time.time() if now is None else now
+    calls = [c for c in jsonl(os.path.join(md, "llm_calls.jsonl"))[-20000:] if (c.get("ts") or 0) >= now - 3600]
+    return {"calls": len(calls), "failed": sum(1 for c in calls if not c.get("ok")),
+            "cost": round(sum(c.get("cost") or 0 for c in calls), 4),
+            "tags": collections.Counter(c.get("tag") for c in calls).most_common(4)}
+
+
 def memory_timing(md, last=500):
     """Latest size and mean milliseconds of each memory operation: does the memory slow the agent as it grows?"""
     rows, out = jsonl(os.path.join(md, "timing.jsonl"))[-last:], {}
@@ -372,7 +382,7 @@ def build(root, record=False):
             "profit_cohorts": profit_cohorts.build(root),
             "market_opportunities": strategy_screen.build(root),
             "log_counts": log_counts(root),
-            "llm": llm_table(md), "memory_timing": memory_timing(md),
+            "llm": llm_table(md), "llm_last_hour": llm_last_hour(md), "memory_timing": memory_timing(md),
             "tools": dict(tools), "decisions": len(decisions), "last_decisions": decisions[-5:],
             "payments": {"paid": sum(1 for p in pays if p.get("paid")), "refused": sum(1 for p in pays if not p.get("paid")),
                          "refused_for_warranty": sum(1 for p in pays if not p.get("paid") and "warranty" in str(p.get("reason"))),

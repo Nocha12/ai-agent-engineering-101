@@ -57,7 +57,9 @@ percentile among the rows the board scores; book 1st among shops is a goal of it
 
 Limits: hard_limits.py is a person's line, not yours: settings move one bounded step per cycle, the bankruptcy guard
 stays, and tools stay in the sandbox (no network, no keys, no payments, no messages sent anywhere). pricing.json seller.refuse_buyers is a person's
-decision too (the owner refused that buyer): leave it as it is. Experiments start
+decision too (the owner refused that buyer): leave it as it is. Luna calls have no hourly cap (a person's decision,
+11/05): the pack's `llm_last_hour` is a cost display, not a limit; do not cut calls to lower it or bring a cap back, and
+grade Terra down if it does. Experiments start
 small and cautious; widen them on results.
 
 Everything rests on evidence, as in Terra's rules: `evidence` items cite real lines (`ref` path:line, `excerpt` copied from
