@@ -58,7 +58,7 @@ class AlertTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as md:
             os.makedirs(os.path.join(md, 'measure'))
             with open(os.path.join(md, 'llm_calls.jsonl'), 'w') as f:
-                f.writelines(json.dumps({'ts': now - 10, 'tag': 'seller-harness'}) + '\n' for _ in range(301))
+                f.writelines(json.dumps({'ts': now - 10, 'tag': 'seller-harness', 'ok': i > 0, 'cost': 0.001}) + '\n' for i in range(301))
             with open(os.path.join(md, 'measure', 'llm_cap.jsonl'), 'w') as f:
                 f.write(json.dumps({'ts': now - 5, 'tag': 'buyer-agent'}) + '\n')
                 f.write(json.dumps({'ts': now - 5, 'tag': 'seller-harness'}) + '\n')
@@ -69,7 +69,8 @@ class AlertTest(unittest.TestCase):
                  'forum_6h_ago': .58}
             got = [a.split(':')[0] for a in scorecard.alerts(md, b, now=now)]
             self.assertEqual(got, ['llm_cap', 'surge', 'forum', 'board_drift'])        # 301 calls an hour: no alert
-            self.assertEqual(scorecard.llm_last_hour(md, now=now)['calls'], 301)       # shown, not a limit
+            shown = scorecard.llm_last_hour(md, now=now)                               # shown, not a limit
+            self.assertEqual((shown['calls'], shown['failed'], shown['cost'], shown['tags']), (301, 1, 0.301, [('seller-harness', 301)]))
             first = scorecard.alerts(md, b, now=now)[0]
             self.assertIn('buyer-agent', first)
             self.assertNotIn('seller-harness', first)                                    # it answers by code
