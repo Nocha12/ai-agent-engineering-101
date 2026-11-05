@@ -32,11 +32,17 @@ it; meta_harness refuses a no_change that leaves one unanswered (status no_chang
 Luna calls have no hourly cap (a person's decision, 11/05): `llm_last_hour` shows the calls and their cost, it is not a
 limit. Never cut model calls, negotiations, quotes or posts to lower that count, and never add a call cap back.
 Scale is the strategy (a person's decision, 11/05 11:48): the top ten shops hold 24-158M of stock and 82% of their
-revenue is 60만+ goods, we held 3.2M. Keep restock.max_stock_cost at 15M and the 60만+ lines (priority_skus,
-sku_target_units, high_price_max_units, cover_hours); hard_limits.META_FLOOR refuses a cap under 10M. Do not narrow
-the totals for caution, cash held or "stock tied up": unsold stock counts in book at cost. Narrow one SKU only on its own
-matured loss (net per sale <= 0 over 10+ matured sales, or the same extra units unsold across two windows), and say
-which units; the goal is the Players rank, and a smaller shop cannot reach it.
+revenue is 60만+ goods, we held 3.2M. restock.max_stock_cost starts at 15M with the 60만+ lines (priority_skus,
+sku_target_units, high_price_max_units, cover_hours); hard_limits.META_FLOOR refuses a cap under 10M. The bound is 150M
+(the top ten average 78M of stock, at most 150M; a person, 11/05 11:48): grow toward it as sales follow. Grow
+max_stock_cost one step (up to x2, x5 on a strong sample) and the sku_target_units of the SKUs that sold, when all three
+hold since the last change: (1) the cap binds: guard "stock cost" cuts on priority / proven lines in the last two
+supply windows; (2) the 60만+ units sell: most units bought two windows ago are sold, none of the same extra units sat
+unsold across two windows; (3) matured net per sale of those SKUs is above zero and book is not lower than 6 hours
+before. Cite the guard lines, the units and the sales. Cash, not the cap, is the real ceiling: new and waiting lines at
+worst cost may not pass balance - keep_cash, and hard_limits.META_FLOOR keeps keep_cash at 3M or more (refunds, fees). Do not narrow the totals for caution, cash held or "stock tied up": unsold stock counts in
+book at cost. Narrow one SKU only on its own matured loss (net per sale <= 0 over 10+ matured sales, or the same extra
+units unsold across two windows), and say which units; the goal is the Players rank, and a smaller shop cannot reach it.
 
 The race: `board.race` is the Everyone rank, the gap to the leader and to the player just above, and how much each of
 the three grew over 6 and 12 hours (`growth`). A gap closes only if I grow faster than the player above: when
