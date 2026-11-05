@@ -293,6 +293,7 @@
     ]
   },
   "seller": {
-    "refuse_buyers": ["totato2203-r3"]
+    "refuse_buyers": ["totato2203-r3"],
+    "refuse_one_star_at": 3
   }
 }

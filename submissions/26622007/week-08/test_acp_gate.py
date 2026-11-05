@@ -214,8 +214,10 @@ class KitAcpShopTest(Base):
         self.assertEqual(self.run_path(f"acp/checkout_sessions/{sid}/complete", pay_body("o-bad")).status_code, 200)
 
     def test_load_gate_finds_this_folder(self):
-        with unittest.mock.patch.object(acp_gate.OrderBuyers, "warm"):    # no real ledger thread in tests
+        import threading               # load_gate runs a fresh copy of the file, so patch the thread, not acp_gate
+        with unittest.mock.patch.object(threading.Thread, "start") as start:  # no real ledger threads in tests
             g = kit.load_gate(HERE)
+        self.assertEqual(start.call_count, 2)                     # the order read and the one-star scan
         self.assertTrue(callable(g))
         self.assertIsNone(kit.load_gate(self.tmp.name))           # a folder without acp_gate.py: no gate
 
@@ -252,9 +254,90 @@ class AcpCheckoutTest(Base):
         self.assertEqual([s["order"] for s in self.settles], ["o-good"])
 
 
+def result_row(seq, order, buyer, shop, stars, verified=True, seller="Nocha Furniture", rnd=3):
+    receipt = {"shop": seller, "price": 1000} if seller else None
+    return {"seq": seq, "kind": "result", "round": rnd, "data": {"order": order, "buyer": buyer, "shop": shop,
+                                                                  "stars": stars, "verified": verified, "receipt": receipt}}
+
+
+class OneStarTest(Base):
+    US, US2, THEM = "https://a.trycloudflare.com", "https://b.trycloudflare.com/", "https://them.example"
+
+    def set_at(self, at):
+        with open(self.pricing, "w", encoding="utf-8") as f:
+            json.dump({"tiers": [], "seller": {"refuse_buyers": [BAD], "refuse_one_star_at": at}}, f)
+
+    def rows(self):
+        r = [{"seq": 1, "kind": "order", "round": 2, "data": {}}]               # Round 2: before the scan's start
+        r += [result_row(2, "o-r2", "grump", self.US, 1, rnd=2)]
+        n = 3
+        for i, shop in enumerate((self.US, self.US2, self.US)):                # grump: 3 on two of our URLs
+            r.append(result_row(n, f"o-g{i}", "grump", shop, 1)); n += 1
+        for i in range(2):                                                     # meh: only 2
+            r.append(result_row(n, f"o-m{i}", "meh", self.US, 1)); n += 1
+        r.append(result_row(n, "o-m2", "meh", self.US, 1, verified=False)); n += 1    # unverified: not counted
+        r.append(result_row(n, "o-m3", "meh", self.US, 2)); n += 1                    # 2 stars: not counted
+        r.append(result_row(n, "o-m4", "meh", self.US, True)); n += 1                 # stars True is not 1
+        for i in range(3):                                                     # other shop's 1-stars: not ours
+            r.append(result_row(n, f"o-t{i}", "other", self.THEM, 1, seller="someone")); n += 1
+        r.append(result_row(n, "o-g0", "grump", self.US, 1)); n += 1                  # same order twice: one result
+        return FakeLedger(r)
+
+    def stars(self, get):
+        return acp_gate.OneStars(self.md, get)
+
+    def test_three_verified_one_stars_on_our_urls_refuse_the_buyer(self):
+        self.set_at(3)
+        st = self.stars(self.rows())
+        self.assertFalse(st.scan())
+        self.assertEqual(st.counts(), {"grump": 3, "meh": 2})
+        self.assertEqual(set(st.load()["urls"]), {self.US, self.US2.rstrip("/")})
+        self.assertEqual(acp_gate.refused_buyers(self.pricing, self.md), [BAD, "grump"])
+        self.set_at(0)
+        self.assertEqual(acp_gate.refused_buyers(self.pricing, self.md), [BAD])
+        self.set_refused([BAD])                                                 # no key: off
+        self.assertEqual(acp_gate.refused_buyers(self.pricing, self.md), [BAD])
+
+    def test_the_gate_refuses_a_one_star_buyer(self):
+        self.set_at(3)
+        self.stars(self.rows()).scan()
+        self.gate.orders.buyers["o-new"] = "grump"
+        self.assertEqual(self.gate.refusal("o-new", {}), acp_gate.OUT_OF_STOCK)
+        self.gate.orders.buyers["o-new2"] = "meh"
+        self.assertIsNone(self.gate.refusal("o-new2", {}))
+
+    def test_scan_pages_and_resumes(self):
+        led = self.rows()
+        with unittest.mock.patch.object(acp_gate, "PAGE", 3):
+            st = self.stars(led)
+            self.assertTrue(st.scan(max_pages=1))
+            while st.scan(max_pages=1):
+                pass
+        self.assertEqual(st.counts(), {"grump": 3, "meh": 2})
+        self.assertEqual(st.load()["after"], led.rows[-1]["seq"])
+
+    def test_a_one_star_seen_before_its_url_still_counts(self):
+        r = [{"seq": 1, "kind": "order", "round": 3, "data": {}},
+             result_row(2, "o-1", "grump", self.US, 1, seller=None)]           # no receipt name on this one
+        r += [result_row(3 + i, f"o-{i + 2}", "grump", self.US, 1) for i in range(2)]
+        st = self.stars(FakeLedger(r))
+        st.scan()
+        self.assertEqual(st.counts(), {"grump": 3})
+
+    def test_a_broken_file_counts_nothing(self):
+        os.makedirs(self.md)
+        with open(os.path.join(self.md, acp_gate.OneStars.FILE), "w") as f:
+            f.write("{not json")
+        self.set_at(3)
+        self.assertEqual(acp_gate.refused_buyers(self.pricing, self.md), [BAD])
+
+
 class ConfigTest(unittest.TestCase):
-    def test_shipped_pricing_refuses_only_totato(self):
-        self.assertEqual(acp_gate.refused_buyers(os.path.join(HERE, "pricing.json")), [BAD])
+    def test_shipped_pricing_refuses_totato_and_three_one_stars(self):
+        p = os.path.join(HERE, "pricing.json")
+        with tempfile.TemporaryDirectory() as md:
+            self.assertEqual(acp_gate.refused_buyers(p, md), [BAD])
+        self.assertEqual(acp_gate.one_star_at(p), 3)
 
 
 if __name__ == "__main__":
