@@ -223,7 +223,9 @@ class PriceTest(unittest.TestCase):
         r = p["restock"]
         self.assertEqual((r["max_stock_cost"], r["max_units_per_sku"], r["cover_hours"], r["keep_cash"],
                           r["food_max_stock_cost"], r["high_price_goods"], r["high_price_max_units"]),
-                         (4000000, 6, 3, 4500000, 450000, 100000, 2))   # keep_cash: 21.9M open warranties at 05:00
+                         (4000000, 6, 3, 4500000, 650000, 100000, 2))   # keep_cash: 21.9M open warranties at 05:00
+        # food 65만: food sells in 0.1 h with nothing spoiled, and its 45만 cap cut 416 of the last 2,000 guard lines
+        # (review/W-20261105-0953-AX패치3.3/scale-analysis.md)
         # 6 per SKU: G1515d951 147 of 147 sold, out of stock 45% of 11-04 10-16 h (review/W-20261104-1507 all-shops review)
         self.assertEqual(r["max_sku_share"], 0.2)
         proven = ["G1515d951", "G6b9db161"]           # each sold out before the next window (G1515d951 3 in 6 min, twice;
@@ -233,8 +235,11 @@ class PriceTest(unittest.TestCase):
         # (13:25-16:46 vs 17:07-20:27), so 4 holds; the four foods out of stock 35-54% of 17:30-20:31 go to the front
         # (review/W-20261104-2030, GPT Pro 3판 §4.2)
         self.assertEqual((r["priority_skus"], r["sku_target_units"]),
-                         (["G75f11c19", "Gef4d3036", "Gb2392fa9", "G200e39a3", "G66ded25b"],
-                          {"G1515d951": 4, "G6b9db161": 1, "G75f11c19": 1}))   # G1515 4: Astra 21:19, same five units across two supply windows; G6 2: undo the reduction triggered by mislinked refunds
+                         (["G75f11c19", "Gef4d3036", "Gb2392fa9", "G200e39a3", "G66ded25b", "G05277ffe", "Gb5d0dde7", "G8ec51935"],
+                          {"G1515d951": 4, "G6b9db161": 1, "G75f11c19": 1, "G05277ffe": 1, "Gb5d0dde7": 1, "G8ec51935": 1}))   # G1515 4: Astra 21:19, same five units across two supply windows; G6 2: undo the reduction triggered by mislinked refunds
+        # Patch 3.3 (book): one unit each of the 60만+ goods 12-15 shops sell 38-79/h at 4-5% mature break, after the proven
+        # SKUs and food; listed last, so the 4M stock cap reaches them only when the rest fits (scale-analysis.md)
+        self.assertTrue(all(r["sku_target_units"][s] == 1 for s in ("G05277ffe", "Gb5d0dde7", "G8ec51935")))
         self.assertEqual(r["food_max_qty"], 4)     # every food line refills up to 4 units, not 3 (the SKU cap stays max_units_per_sku 6)
         self.assertTrue(r["high_price_listed_only"])
         # no cap per deal (hard_limits.UNCAPPED; at 800k my buyer settled 1 of 113 dear orders) and the whole list price:
