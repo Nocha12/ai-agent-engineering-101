@@ -33,6 +33,7 @@ What the code does and what the harness does:
 """
 import argparse
 import json
+import collections
 import os
 import random
 import sys
@@ -68,6 +69,8 @@ SHELF_MARGIN = 0.1     # hours of shelf life asked for beyond use_within_hours: 
 BREAK_WINDOW = 7 * 3600   # goods break up to 6 h after the sale
 CHOOSE_STEPS = 3       # Round 3: the shop-choosing agent's steps, tool calls included
 AGENT_DIR = None       # Round 3: the .market folder, when the shop is chosen by the tool-using agent
+RECENT_FIT_HOURS = 3   # a shop that asked within my limit for the order's category this recently is quoted first
+RECENT_FIT_BYTES = 3000000   # the tail of measure/orders.jsonl read for it (about 750 orders)
 SETTLED = os.environ.get("BUYER_SETTLED", "memory/settled.jsonl")
 MEMORY_R2 = "memory/market_memory.json"
 MEMORY_R3 = "memory/market_memory_r3.json"
@@ -502,6 +505,34 @@ QUOTE_ROUNDS = 3       # batches of quote_shops shops asked while none so far ha
 QUOTE_UNTIL = 100      # seconds into the run by which a further batch must be done: the talk needs the rest of the 300 s
 
 
+def recent_fits(md, category, now=None, hours=RECENT_FIT_HOURS):
+    """{shop: its quotes within my limit for this category in the last hours} from measure/orders.jsonl. Of 9,519 quotes
+    in 1,838 orders (11/04 13:25 - 11/05 11:15) a shop with such a quote fitted again 56.5% of the time, any other 3.9%:
+    quoting the shops with one first finds an ask that can close in the first batch (GPT Pro 11/05 priority 5)."""
+    now = time.time() if now is None else now
+    out = collections.Counter()
+    try:
+        with open(os.path.join(md, records.DIR, "orders.jsonl"), "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - RECENT_FIT_BYTES))
+            lines = f.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return out
+    for x in lines[1:] if size > RECENT_FIT_BYTES else lines:      # the first line of a tail may be cut
+        try:
+            r = json.loads(x)
+        except ValueError:
+            continue
+        if not isinstance(r, dict) or r.get("category") != category or not isinstance(r.get("ts"), (int, float)) \
+                or not now - hours * 3600 <= r["ts"] <= now:
+            continue
+        for q in r.get("quotes") or ():
+            if isinstance(q, dict) and isinstance(q.get("ask"), (int, float)) and q.get("lost") in (None, "less expected surplus"):
+                out[q.get("shop")] += 1
+    return out
+
+
 def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOTE_WAIT, rounds=QUOTE_ROUNDS):
     """(shop, quotes): of the chosen shop and up to quote_shops - 1 others, the one whose opening ask leaves the most
     expected surplus (list price, less the chance of breaking, less the ask). Quotes run at once, each in its own thread.
@@ -832,7 +863,8 @@ def main():
     quotes = {}
     if r3:
         others = [s for s in left if s is not shop and not caught_cheating(my_history(memory, s["name"]))]
-        others.sort(key=lambda s: -len(s.get("reviews") or []))
+        fits = recent_fits(md, order.get("category"))
+        others.sort(key=lambda s: (-fits[s["name"]], -len(s.get("reviews") or [])))
         stats = market_model.break_stats(market_model.load_rows(md), catalog) if order.get("kind") == "goods" else None
         chance_of = (lambda sku: market_model.break_chance(stats, sku)) if stats else (lambda sku: None)
         best, quotes = best_quote(shop, others, order, catalog, args.budget, chance_of, buyer_cfg()) \
