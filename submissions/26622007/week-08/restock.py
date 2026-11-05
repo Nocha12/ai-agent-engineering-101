@@ -546,6 +546,28 @@ def with_trial(trial, buy, inv, catalog, cfg, breaks=None, waiting=(), hold=()):
     return (list(trial) + guard(rest, inv, catalog, cfg, breaks, list(waiting) + sent))[:max(cfg["max_lines"], len(trial))]
 
 
+LATE_MARGIN = 5     # seconds the kit needs to read this run's output and make its first supply call
+
+
+def late_lines(state, inv, buy, agent_skus=(), now=None):
+    """The lines the kit can still start before an open window closes. A run reads inventory.json when it starts, and
+    the agent turn and the hooks after it can take tens of seconds: on 11/05 a run that began at 16:25:13 handed four
+    lines over at 16:25:24, nine seconds after the 16:25:15 close, and each was refused (429) and retried. Lines that
+    cannot start go back to the queue when they are the agent's; the formula plans its own lines again next run."""
+    r, now = inv.get("restock"), now or time.time()
+    if not buy or not isinstance(r, dict) or r.get("open") is not True or not isinstance(r.get("closes_at"), (int, float)):
+        return buy
+    left = r["closes_at"] - now - LATE_MARGIN
+    n = 0 if left < 0 else int(left // opening.SECONDS_PER_LINE) + 1
+    if n >= len(buy):
+        return buy
+    send, late = list(buy[:n]), list(buy[n:])
+    requeue(state, [b for b in late if b.get("sku") in agent_skus])
+    print(f"[restock] window closes in {r['closes_at'] - now:.0f} s: {len(late)} line(s) held back "
+          f"({', '.join(str(b.get('sku')) for b in late)})", file=sys.stderr, flush=True)
+    return send
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--state", required=True)
@@ -584,7 +606,8 @@ def main():
     print(f"[restock] {why}", file=sys.stderr, flush=True)
     trial_cfg = pricing.get("next_window") or {}
     hold = set(trial_cfg.get("targets") or {}) if trial is not None or trial_cfg.get("hold_after_done") is True else set()
-    if first is not None:                  # the opening decides this run (already guarded); the agent waits
+    agent_skus = set()
+    if first is not None:                 # the opening decides this run (already guarded); the agent waits
         out = {"buy": first}
     elif (opening.window_closed(inv) or trial == [] and opening.window_closed(inv, lead=0)) and not out.get("bankrupt"):
         out = {"buy": []}                  # nothing can be bought now; the agent's queue keeps its lines for the window.
@@ -613,6 +636,8 @@ def main():
     shop_forum.maybe_run(args.state)    # the shop's own posts, written by code from its ledger rows and stock
     # the last word, whatever came before. It keeps its own 0.75 x list (test_hard_limits pins it); the surge cost is
     # reserved by guard() and the waiting lines, and with the balance far above STOP_BUYING_BELOW the line does not bind
+    if first is None:
+        out["buy"] = late_lines(args.state, inv, out.get("buy"), agent_skus)
     out["buy"] = hard_limits.final_buy(out.get("buy"), inv.get("balance"), catalog)
     if out["buy"]:
         try:

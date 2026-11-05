@@ -47,13 +47,14 @@ def save(path, st):
 
 def window_closed(inv, now=None, lead=WINDOW_LEAD, need=0):
     """True when inventory.json says supply is closed and will not open within lead seconds, or is open but closes before
-    need more seconds of supply calls could finish."""
+    need more seconds of supply calls could finish. An open window whose closes_at has passed is closed whatever need is:
+    inventory.json is read when the run starts and can still say open after the window ended."""
     r, now = inv.get("restock"), now or time.time()
     if not isinstance(r, dict):
         return False
     if r.get("open") is not False:
         closes = r.get("closes_at")
-        return bool(need) and isinstance(closes, (int, float)) and closes - now < need
+        return isinstance(closes, (int, float)) and (closes <= now or closes - now < need)
     opens = r.get("opens_at")
     return not isinstance(opens, (int, float)) or opens - now > lead
 

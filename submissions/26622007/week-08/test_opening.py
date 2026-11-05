@@ -143,6 +143,47 @@ class WindowLeadTest(unittest.TestCase):
         self.assertTrue(opening.window_closed({"restock": {"open": True, "closes_at": NOW + 10}}, NOW, need=25))
         self.assertFalse(opening.window_closed({}, NOW))
 
+    def test_open_window_past_its_close_is_closed_without_need(self):
+        # inventory.json read at 16:25:13 said open, closes 16:25:15; the run's lines went out at 16:25:24 (11/05)
+        self.assertTrue(opening.window_closed({"restock": {"open": True, "closes_at": NOW - 9}}, NOW))
+        self.assertTrue(opening.window_closed({"restock": {"open": True, "closes_at": NOW}}, NOW))
+        self.assertFalse(opening.window_closed({"restock": {"open": True, "closes_at": NOW + 1}}, NOW))
+        self.assertFalse(opening.window_closed({"restock": {"open": True}}, NOW))
+
+
+class LateLinesTest(unittest.TestCase):
+    """restock.late_lines: lines the kit cannot start before the window closes are held back, the agent's requeued."""
+
+    def setUp(self):
+        self.md = tempfile.mkdtemp()
+        self.buy = [{"sku": s, "qty": 1} for s in ("G1", "F1", "G2", "F2")]
+
+    def tearDown(self):
+        shutil.rmtree(self.md)
+
+    def queue(self):
+        return restock.load(os.path.join(self.md, "restock_queue.json"), {}).get("lines") or []
+
+    def run_at(self, closes_in, agent=(), inv=None):
+        with mock.patch("sys.stderr"):
+            return restock.late_lines(self.md, inv if inv is not None else {"restock": {"open": True, "closes_at": NOW + closes_in}},
+                                      self.buy, set(agent), now=NOW)
+
+    def test_after_close_nothing_goes_and_agent_lines_wait(self):
+        self.assertEqual(self.run_at(-9, agent={"G1", "F2"}), [])
+        self.assertEqual([b["sku"] for b in self.queue()], ["G1", "F2"])
+
+    def test_near_close_only_the_lines_that_can_start(self):
+        sent = self.run_at(restock.LATE_MARGIN + opening.SECONDS_PER_LINE + 1, agent={"F2"})
+        self.assertEqual([b["sku"] for b in sent], ["G1", "F1"])
+        self.assertEqual([b["sku"] for b in self.queue()], ["F2"])         # G2 is the formula's: planned again
+
+    def test_enough_time_or_unknown_window_changes_nothing(self):
+        self.assertEqual(self.run_at(120), self.buy)
+        self.assertEqual(self.run_at(0, inv={"restock": {"open": False, "opens_at": NOW + 30}}), self.buy)
+        self.assertEqual(self.run_at(0, inv={}), self.buy)
+        self.assertEqual(self.queue(), [])
+
 
 if __name__ == "__main__":
     unittest.main()
