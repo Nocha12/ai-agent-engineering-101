@@ -56,7 +56,7 @@ percentile among the rows the board scores; book 1st among shops is a goal of it
    for the midterm is written from it. The midterm grades the structure (model, context, tools) as well as the rank.
 
 Limits: hard_limits.py is a person's line, not yours: settings move one bounded step per cycle, the bankruptcy guard
-stays, and tools stay in the sandbox (no network, no keys, no payments, no messages sent anywhere). pricing.json seller.refuse_buyers and refuse_one_star_at are a person's
+stays, and tools stay in the sandbox (no network, no keys, no payments, no messages sent anywhere). pricing.json seller.refuse_buyers, refuse_one_star_at and refuse_exempt are a person's
 decision too (the owner refused those buyers): leave them as they are. Luna calls have no hourly cap (a person's decision,
 11/05): the pack's `llm_last_hour` is a cost display, not a limit; do not cut calls to lower it or bring a cap back, and
 grade Terra down if it does. Scale is the strategy (a person's decision, 11/05 11:48): restock.max_stock_cost stays at

@@ -306,6 +306,22 @@ class OneStarTest(Base):
         self.gate.orders.buyers["o-new2"] = "meh"
         self.assertIsNone(self.gate.refusal("o-new2", {}))
 
+    def test_an_exempt_buyer_passes_the_one_star_rule_but_not_refuse_buyers(self):
+        self.stars(self.rows()).scan()
+        for exempt, refused, out in (([BAD], [], ["grump"]), (["grump"], [BAD], [BAD]),
+                                     (["grump", BAD], [BAD], [BAD]), ("grump", [BAD], [BAD, "grump"])):
+            with open(self.pricing, "w", encoding="utf-8") as f:   # a string, not a list, exempts no one
+                json.dump({"tiers": [], "seller": {"refuse_buyers": refused, "refuse_one_star_at": 3,
+                                                   "refuse_exempt": exempt}}, f)
+            self.assertEqual(acp_gate.refused_buyers(self.pricing, self.md), out, exempt)
+        with open(self.pricing, "w", encoding="utf-8") as f:
+            json.dump({"tiers": [], "seller": {"refuse_buyers": [BAD], "refuse_one_star_at": 3,
+                                               "refuse_exempt": ["grump", BAD]}}, f)
+        self.gate.orders.buyers.update({"o-g": "grump", "o-b": BAD, "o-m": "meh"})
+        self.assertIsNone(self.gate.refusal("o-g", {}))                          # exempt: 3 one-stars, still sold to
+        self.assertEqual(self.gate.refusal("o-b", {}), acp_gate.OUT_OF_STOCK)    # refuse_buyers wins over exempt
+        self.assertIsNone(self.gate.refusal("o-m", {}))
+
     def test_scan_pages_and_resumes(self):
         led = self.rows()
         with unittest.mock.patch.object(acp_gate, "PAGE", 3):
@@ -388,6 +404,12 @@ class ConfigTest(unittest.TestCase):
         p = os.path.join(HERE, "pricing.json")
         with tempfile.TemporaryDirectory() as md:
             self.assertEqual(acp_gate.refused_buyers(p, md), [BAD])
+            with open(os.path.join(md, acp_gate.OneStars.FILE), "w") as f:   # q00 (대표님 11/05 12:27) is exempt
+                json.dump({"after": 1, "urls": ["https://a.trycloudflare.com"],
+                           "rows": [{"order": f"o{i}", "buyer": b, "shop": "https://a.trycloudflare.com"}
+                                    for i, b in enumerate(["q00"] * 5 + ["grump"] * 3)]}, f)
+            self.assertEqual(acp_gate.OneStars(md).counts(), {"q00": 5, "grump": 3})
+            self.assertEqual(acp_gate.refused_buyers(p, md), [BAD, "grump"])
         self.assertEqual(acp_gate.one_star_at(p), 3)
 
 
@@ -405,6 +427,10 @@ class MetaGuardTest(unittest.TestCase):
     def test_seller_settings_and_the_gate_are_the_owners(self):
         head = {"seller": {"refuse_buyers": ["totato2203-r3"], "refuse_one_star_at": 3}}
         self.assertEqual([p for p in self.problems(head, head) if "owner" in p], [])
+        exempt = {"seller": {**head["seller"], "refuse_exempt": ["q00"]}}
+        for now in ({"seller": {**exempt["seller"], "refuse_exempt": []}},
+                    {"seller": {**exempt["seller"], "refuse_exempt": ["q00", "grump"]}}, head):
+            self.assertTrue(any("refuse_exempt" in p for p in self.problems(exempt, now)), now)
         for now in ({"seller": {"refuse_buyers": ["totato2203-r3"], "refuse_one_star_at": 0}},
                     {"seller": {"refuse_buyers": [], "refuse_one_star_at": 3}}, {}):
             self.assertTrue(any("owner" in p for p in self.problems(head, now)), now)

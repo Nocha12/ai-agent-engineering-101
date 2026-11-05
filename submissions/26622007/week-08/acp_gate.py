@@ -11,6 +11,7 @@ An empty list (or no "seller" key) turns this off without a restart: pricing.jso
 
 seller.refuse_one_star_at (대표님 11/05 11:34): a buyer with that many verified 1-star results on this shop, over the
 whole of Round 3 and every URL the shop has had, is refused the same way (OneStars, .market/one_star.json). 0 is off.
+seller.refuse_exempt (대표님 11/05 12:27): buyers the 1-star rule never refuses (refuse_buyers still does).
 
 Used by the kit's AcpShop (scripts/market_kit.py loads this file from the shop folder) and by acp_shop.AcpCheckout.
 """
@@ -49,14 +50,22 @@ def one_star_at(path=None):
     return at if isinstance(at, int) and not isinstance(at, bool) and at > 0 else 0
 
 
+def _names(seller, key):
+    names = seller.get(key) or []
+    return [n for n in names if isinstance(n, str) and n] if isinstance(names, list) else []
+
+
 def refused_buyers(path=None, md=None):
     """pricing.json seller.refuse_buyers, plus (refuse_one_star_at) every buyer with that many verified 1-star results
-    on this shop in .market/one_star.json, read now. [] when absent or unreadable."""
-    names = _seller(path).get("refuse_buyers") or []
-    names = [n for n in names if isinstance(n, str) and n] if isinstance(names, list) else []
+    on this shop in .market/one_star.json, read now, except those in seller.refuse_exempt (대표님 11/05 12:27: q00).
+    refuse_exempt only lifts the 1-star rule; a buyer named in refuse_buyers is refused anyway. [] when absent or
+    unreadable."""
+    seller = _seller(path)
+    names = _names(seller, "refuse_buyers")
     at = one_star_at(path)
     if at:
-        names += [b for b, n in OneStars(md).counts().items() if n >= at and b not in names]
+        exempt = _names(seller, "refuse_exempt")
+        names += [b for b, n in OneStars(md).counts().items() if n >= at and b not in names and b not in exempt]
     return names
 
 

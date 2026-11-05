@@ -383,7 +383,7 @@ def limit_problems(code):
     owner = [f"{p} decides which buyers are refused, an owner's decision (11/05)" for p in code
              if p.split("/")[-1] == "acp_gate.py"]
     if (pricing_at_head().get("seller") or {}) != (new.get("seller") or {}):
-        owner.append("pricing.json seller (refuse_buyers, refuse_one_star_at) is the owner's setting (11/05)")
+        owner.append("pricing.json seller (refuse_buyers, refuse_one_star_at, refuse_exempt) is the owner's setting (11/05)")
     return owner + hard_limits.check_policy_change(pricing_at_head(), new, step) + \
         hard_limits.guard_problems(code, git("diff", "--cached", "--no-color", "--", *guarded) if guarded else "")
 
