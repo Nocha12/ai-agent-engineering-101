@@ -380,7 +380,11 @@ def limit_problems(code):
     guarded = [p for p in code if p not in DOCS_ONLY]     # prose rewritten in place may drop a line naming the module
     strong = SAMPLE["settled"] >= hard_limits.STRONG_SAMPLE
     step = hard_limits.MAX_STEP_STRONG if strong else hard_limits.MAX_STEP
-    return hard_limits.check_policy_change(pricing_at_head(), new, step) + \
+    owner = [f"{p} decides which buyers are refused, an owner's decision (11/05)" for p in code
+             if p.split("/")[-1] == "acp_gate.py"]
+    if (pricing_at_head().get("seller") or {}) != (new.get("seller") or {}):
+        owner.append("pricing.json seller (refuse_buyers, refuse_one_star_at) is the owner's setting (11/05)")
+    return owner + hard_limits.check_policy_change(pricing_at_head(), new, step) + \
         hard_limits.guard_problems(code, git("diff", "--cached", "--no-color", "--", *guarded) if guarded else "")
 
 

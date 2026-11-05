@@ -391,5 +391,25 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(acp_gate.one_star_at(p), 3)
 
 
+class MetaGuardTest(unittest.TestCase):
+    """Terra and Astra may not change who is refused: meta_harness undoes a cycle that does."""
+
+    def problems(self, head, now, code=()):
+        import meta_harness
+        from unittest import mock
+        with mock.patch.object(meta_harness, "pricing_at_head", return_value=head), \
+                mock.patch.object(meta_harness, "pricing_now", return_value=now), \
+                mock.patch.object(meta_harness, "git", return_value=""):
+            return meta_harness.limit_problems(list(code))
+
+    def test_seller_settings_and_the_gate_are_the_owners(self):
+        head = {"seller": {"refuse_buyers": ["totato2203-r3"], "refuse_one_star_at": 3}}
+        self.assertEqual([p for p in self.problems(head, head) if "owner" in p], [])
+        for now in ({"seller": {"refuse_buyers": ["totato2203-r3"], "refuse_one_star_at": 0}},
+                    {"seller": {"refuse_buyers": [], "refuse_one_star_at": 3}}, {}):
+            self.assertTrue(any("owner" in p for p in self.problems(head, now)), now)
+        self.assertTrue(any("acp_gate.py" in p for p in self.problems(head, head, ["acp_gate.py"])))
+
+
 if __name__ == "__main__":
     unittest.main()
