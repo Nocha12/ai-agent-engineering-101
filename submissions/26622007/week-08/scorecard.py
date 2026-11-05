@@ -52,7 +52,7 @@ def percentile(rows, field, mine):
     if len(vals) < 2:
         return 1.0
     below, ties = sum(v < x for v in vals), sum(v == x for v in vals)
-    return round((below + (max(ties, 1) - 1) / 2) / (len(vals) - 1), 6)
+    return (below + (max(ties, 1) - 1) / 2) / (len(vals) - 1)     # not rounded: the board rounds only the weighted ALL
 
 
 def objective(b):
@@ -67,14 +67,19 @@ def objective(b):
         if not mine:
             out[k] = {"all": None, "why": "not on the board yet (no deal)"}
             continue
-        if mine not in rows:
+        ranked = mine in rows
+        if not ranked:      # the board does not score my row (yet): what it would be if it did, marked as such
             rows = rows + [mine]
         got = {}
         for names, w in parts:
             field = next((n for n in names if n in mine), names[0])
-            got[field] = {"weight": w, "percentile": percentile(rows, field, mine), "value": mine.get(field)}
-        out[k] = {"all": round(sum(x["weight"] * x["percentile"] for x in got.values() if x["percentile"] is not None), 3),
-                  "board_all": mine.get("all"), "parts": got, "of": len(rows)}
+            p = percentile(rows, field, mine)
+            got[field] = {"weight": w, "percentile": None if p is None else round(p, 4), "value": mine.get(field),
+                          "_p": p}
+        total = sum(x["weight"] * x["_p"] for x in got.values() if x["_p"] is not None)
+        for x in got.values():
+            x.pop("_p")
+        out[k] = {"all": round(total, 3), "board_all": mine.get("all"), "parts": got, "of": len(rows), "ranked": ranked}
     shop, buyer = out["shops"].get("all"), out["buyers"].get("all")
     out["players"] = None if shop is None and buyer is None else round((shop or 0) + (buyer or 0), 3)
     # Drift from the board's own ALL: a non-zero value means the formula above no longer matches the board.
@@ -86,8 +91,108 @@ def objective(b):
                         or str(r.get("login", "")).lower() == "nocha12"), None)
     out["board_players_gap"] = (round(max(r["total"] for r in players) - mine_player["total"], 6)
                                 if mine_player else None)
-    out["weakest"] = min(((k, f, x["percentile"]) for k in OBJECTIVE for f, x in (out[k].get("parts") or {}).items()
-                          if x["percentile"] is not None), key=lambda t: t[2], default=None)
+    # weakest: the part whose next step is worth most to Players (weight x percentile left), not just the lowest percentile
+    out["weakest"] = max(((k, f, x["percentile"]) for k in OBJECTIVE for f, x in (out[k].get("parts") or {}).items()
+                          if x["percentile"] is not None), key=lambda t: dict(
+                              (f, w) for names, w in OBJECTIVE[t[0]] for f in names).get(t[1], 0) * (1 - t[2]), default=None)
+    return out
+
+
+HISTORY = os.path.join(".market", "board_history.jsonl")
+GROWTH_HOURS = (6, 12)
+
+
+def snapshot(b):
+    """The board in a few numbers per row, for the growth of me and the players around me."""
+    return {"ts": time.time(),
+            "players": {str(r.get("player")): r.get("total") for r in b.get("players") or [] if r.get("player")},
+            "shops": {r.get("name"): [r.get("book"), r.get("revenue"), r.get("all")] for r in b.get("shops") or []},
+            "buyers": {r.get("name"): [r.get("surplus"), r.get("forum"), r.get("all")] for r in b.get("buyers") or []}}
+
+
+def history(root):
+    return jsonl(os.path.join(root, HISTORY))
+
+
+def forum_then(past, hours, now=None):
+    """My buyer forum score on the last history line at least `hours` old, or None."""
+    now = time.time() if now is None else now
+    old = [p for p in past if isinstance(p.get("ts"), (int, float)) and p["ts"] <= now - hours * 3600]
+    row = ((old[-1].get("buyers") or {}).get(ME) if old else None) or []
+    return row[1] if len(row) > 1 and isinstance(row[1], (int, float)) else None
+
+
+LLM_CAP = 300            # OpenRouter calls an hour, all processes together (harness.OR_MAX_CALLS_PER_HOUR)
+WORST_COST_SHARE = 0.75  # restock's worst cost before surge (restock.py, hard_limits.final_buy)
+FORUM_DROP = 0.01
+
+
+def alerts(md, card_board, now=None):
+    """Signals a cycle must not pass over with no_change: the LLM cap broken or refusing, stock bought above the worst cost
+    restock reserves for, the buyer forum falling, the scorecard drifting from the board, the rules disagreeing with it.
+    Each is a short sentence with its numbers. meta_harness refuses a no_change answer that leaves one of them open."""
+    now = time.time() if now is None else now
+    out = []
+    calls = [c for c in jsonl(os.path.join(md, "llm_calls.jsonl"))[-5000:] if (c.get("ts") or 0) >= now - 3600]
+    if len(calls) > LLM_CAP:
+        tags = collections.Counter(c.get("tag") for c in calls).most_common(4)
+        out.append(f"llm_calls: {len(calls)} OpenRouter calls in the last hour, cap {LLM_CAP} for all processes ({tags})")
+    caps = [c for c in jsonl(os.path.join(md, "measure", "llm_cap.jsonl"))[-5000:] if (c.get("ts") or 0) >= now - 3600]
+    if caps:
+        out.append(f"llm_cap: {len(caps)} calls refused at the cap in the last hour "
+                   f"({collections.Counter(c.get('tag') for c in caps).most_common(3)})")
+    cat = jsonl_or_json(os.path.join(md, "catalog.json")) or {}
+    try:
+        with open(os.path.join(md, "inventory.json"), encoding="utf-8") as f:
+            units = json.load(f).get("units") or []
+    except (OSError, ValueError):
+        units = []
+    over = []
+    for u in units:
+        lp = (cat.get(u.get("sku")) or {}).get("list_price") if isinstance(cat, dict) else None
+        if lp and (u.get("supplied_at") or 0) >= now - 6 * 3600 and (u.get("cost") or 0) > WORST_COST_SHARE * lp:
+            over.append((u.get("sku"), round(u["cost"] / lp, 3)))
+    if over:
+        out.append(f"surge: {len(over)} unit(s) in stock bought in the last 6 h above {WORST_COST_SHARE} x list "
+                   f"(worst {max(r for _, r in over)}; {collections.Counter(s for s, _ in over).most_common(3)})")
+    obj = card_board.get("objective") or {}
+    now_forum = (((obj.get("buyers") or {}).get("parts") or {}).get("forum") or {}).get("value")
+    then = card_board.get("forum_6h_ago")
+    if isinstance(now_forum, (int, float)) and isinstance(then, (int, float)) and now_forum < then - FORUM_DROP:
+        out.append(f"forum: buyer forum {now_forum} now, {then} 6 h ago")
+    drift = {k: v for k, v in (obj.get("board_drift") or {}).items() if abs(v) > 0.001}
+    if drift:
+        out.append(f"board_drift: scorecard ALL differs from the board by {drift}")
+    return out
+
+
+def race(b, past, now=None):
+    """Where Nocha12 stands among Everyone players: rank, the gap to the leader and to the player just above, and how
+    fast each of the three grew over the last 6 and 12 hours (from .market/board_history.jsonl, one line per cycle). A
+    gap closes only if I grow faster than the player above: the growth says whether the current strategy can do it."""
+    now = time.time() if now is None else now
+    players = [r for r in b.get("players") or [] if isinstance(r.get("total"), (int, float))]
+    players.sort(key=lambda r: -r["total"])
+    idx = next((i for i, r in enumerate(players) if str(r.get("player", "")).lower() == "nocha12"), None)
+    if idx is None:
+        return {"rank": None, "why": "not among the players"}
+    me, lead = players[idx], players[0]
+    above = players[idx - 1] if idx else None
+    out = {"rank": idx + 1, "of": len(players), "total": me["total"], "leader": lead.get("player"),
+           "gap_to_leader": round(lead["total"] - me["total"], 3),
+           "above": above.get("player") if above else None,
+           "gap_to_above": round(above["total"] - me["total"], 3) if above else 0.0, "growth": {}}
+    for h in GROWTH_HOURS:
+        old = [p for p in past if isinstance(p.get("ts"), (int, float)) and p["ts"] <= now - h * 3600]
+        if not old:
+            out["growth"][f"{h}h"] = None
+            continue
+        then = old[-1].get("players") or {}
+        g = lambda name: None if name is None or not isinstance(then.get(name), (int, float)) else \
+            round(next(r["total"] for r in players if r.get("player") == name) - then[name], 3)
+        out["growth"][f"{h}h"] = {"me": g(me.get("player")), "leader": g(lead.get("player")),
+                                  "above": g(above.get("player")) if above else None,
+                                  "hours": round((now - old[-1]["ts"]) / 3600, 1)}
     return out
 
 
@@ -99,13 +204,25 @@ def jsonl(path):
         return []
 
 
-def board():
-    """My rows on the board, and where they stand. The board's fields beyond week 7's show up as they are."""
+def board(root=None, record=False):
+    """My rows on the board, and where they stand. The board's fields beyond week 7's show up as they are. With root, the
+    race against the players around me (race); record=True also appends this board to the history (a cycle does, a look
+    by hand does not)."""
     try:
         b = httpx.get(f"{MARKET}/api/board", timeout=20).json()
     except (httpx.HTTPError, ValueError) as e:
         return {"error": f"{type(e).__name__}: {e}"}
     out = {"round": b.get("round"), "totals": b.get("totals"), "objective": objective(b)}
+    if root:
+        past = history(root)
+        out["race"] = race(b, past)
+        out["forum_6h_ago"] = forum_then(past, 6)
+        if record:
+            try:
+                with open(os.path.join(root, HISTORY), "a", encoding="utf-8") as f:
+                    f.write(json.dumps(snapshot(b), ensure_ascii=False) + "\n")
+            except OSError:
+                pass
     for k in ("shops", "buyers", "players"):
         rows = b.get(k) or []
         mine = next((r for r in rows if r.get("name") == ME or (r.get("login") or "").lower() == "nocha12"
@@ -128,7 +245,7 @@ def rivals(rows, top=5):
     me = next((i for i, r in enumerate(ranked, 1)
                if r.get("name") == ME or ((r.get("owner") or {}).get("login") or "").lower() == "nocha12"), None)
     card = lambda r: str((r.get("card") or {}).get("description") or "")[:240] if isinstance(r.get("card"), dict) else ""
-    return {"my_profit_rank": me, "ranked_by": key, "of": len(ranked),
+    return {"my_rank": me, "ranked_by": key, "of": len(ranked),
             "top": [{**{f: r.get(f) for f in RIVAL_FIELDS}, "card": card(r)} for r in ranked[:top]]}
 
 
@@ -209,8 +326,12 @@ def jsonl_or_json(path):
         return None
 
 
-def build(root):
+def build(root, record=False):
     md = os.path.join(root, ".market")
+    rules, b = patch_notes.check(root, record=record), board(root, record=record)
+    warn = alerts(md, b) if "error" not in b else []
+    if rules.get("objective_matches") is False:
+        warn.append(f"rules: the published score disagrees with scorecard.OBJECTIVE ({rules.get('mismatch')})")
     try:
         with open(os.path.join(md, "inventory.json"), encoding="utf-8") as f:
             inv = json.load(f)
@@ -222,7 +343,7 @@ def build(root):
     for c in calls:
         tools[c.get("tool")]["calls"] += 1
         tools[c.get("tool")]["failed"] += 0 if c.get("ok") else 1
-    return {"time": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "rules": patch_notes.check(root), "board": board(),
+    return {"time": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "alerts": warn, "rules": rules, "board": b,
             "shop": {"balance": inv.get("balance"), "profit_if_stock_is_worthless":
                      None if inv.get("balance") is None else inv["balance"] - (inv.get("start") or 0) - (inv.get("injected") or 0),
                      "units": len(units), "stock_cost": round(sum(u.get("cost") or 0 for u in units)),
@@ -242,4 +363,4 @@ def build(root):
 
 
 if __name__ == "__main__":
-    print(json.dumps(build(os.path.dirname(os.path.abspath(__file__))), ensure_ascii=False, indent=1))
+    print(json.dumps(build(os.path.dirname(os.path.abspath(__file__))), ensure_ascii=False, indent=1))   # records nothing

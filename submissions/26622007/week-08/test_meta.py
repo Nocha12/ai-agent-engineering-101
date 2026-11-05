@@ -253,7 +253,8 @@ class HarnessCycleTest(unittest.TestCase):
         self.git("commit", "-qm", "start")
         patches = [mock.patch.object(mh, "ROOT", self.root), mock.patch.object(mh, "KIT_PATTERN", ""),
                    mock.patch.object(mh, "CANARY_SECONDS", 0), mock.patch.dict(os.environ, {"META_CODEX": fake}),
-                   mock.patch.object(mh.scorecard, "board", lambda: {"round": 3})]
+                   mock.patch.object(mh.scorecard, "board", lambda *a, **k: {"round": 3}),
+                   mock.patch.object(mh.scorecard.patch_notes, "check", lambda *a, **k: {"error": "offline in tests"})]
         for p in patches:
             p.start()
             self.addCleanup(p.stop)
@@ -671,7 +672,7 @@ class RivalsTest(unittest.TestCase):
         rows = [{"name": "a", "profit": 10, "deals": 3, "card": {"description": "x" * 500}, "owner": {"login": "a"}},
                 {"name": mh.scorecard.ME, "profit": 5}, {"name": "b", "profit": 20, "card": "odd"}, {"name": "c"}]
         r = mh.scorecard.rivals(rows, top=2)
-        self.assertEqual((r["my_profit_rank"], r["of"]), (3, 3))
+        self.assertEqual((r["my_rank"], r["of"]), (3, 3))
         self.assertEqual([x["name"] for x in r["top"]], ["b", "a"])
         self.assertEqual((len(r["top"][1]["card"]), r["top"][0]["card"]), (240, ""))
         self.assertNotIn("owner", r["top"][1])
@@ -694,6 +695,15 @@ class ObjectiveTest(unittest.TestCase):
         self.assertEqual(o["shops"]["parts"]["stars_rank"]["percentile"], 0.75)
         self.assertEqual((o["buyers"]["all"], o["players"]), (0.35, 1.05))
         self.assertEqual(o["weakest"][:2], ("buyers", "surplus"))
+
+
+class AlertProblemsTest(unittest.TestCase):
+    def test_no_change_must_name_every_open_alert(self):
+        card = {"alerts": ["llm_cap: 4 calls refused", "surge: 2 unit(s)"]}
+        answer = {"grade_summary": "llm_cap refusals are the seller at its own cap; measured next hour"}
+        self.assertEqual(mh.alert_problems(card, answer, []), ["alert left open with no change: surge: 2 unit(s)"])
+        self.assertEqual(mh.alert_problems(card, answer, ["restock.py"]), [])
+        self.assertEqual(mh.alert_problems({"alerts": []}, answer, []), [])
 
 
 if __name__ == "__main__":

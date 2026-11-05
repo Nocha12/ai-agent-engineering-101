@@ -377,28 +377,66 @@ def push():
         log(git("push", "origin", f"HEAD:{os.environ.get('META_PUSH_BRANCH', 'week-08')}", check=False) or "pushed")
 
 
-def since_last(card):
-    """What changed since the previous scorecard: the log counters (failures included) and the objective. Terra grades the
-    last hour from this, then the change it made in it."""
+SCORE_SWITCH = datetime.datetime(2026, 11, 5, 3, 45, tzinfo=datetime.timezone(datetime.timedelta(hours=9))).timestamp()
+BASELINE_HOURS = (6, 12)
+
+
+def since_last(card, kind="terra", now=None):
+    """What changed since the previous scorecard of the same kind (Terra hourly, Astra twelve-hourly: one window each),
+    and against the packs 6 and 12 hours back: the log counters (failures included) and the objective. Terra grades the
+    last hour from this, then the change it made in it. A window across Patch 3.3's switch (board 11/05 03:42-03:47, shop
+    ALL from cash to book) is marked: its shop ALL moved with the formula, not only with trading."""
+    now = time.time() if now is None else now
     folder = os.path.join(ROOT, "meta", "evidence")
     # only the harness's own packs: the models save their test runs and audits here too (astra-1104-090509-review.json)
-    packs = sorted((p for p in os.listdir(folder) if re.fullmatch(r"(terra|astra)-\d+(-\d+)?\.json", p)),
+    packs = sorted((p for p in os.listdir(folder) if re.fullmatch(rf"{kind}-\d+(-\d+)?\.json", p)),
                    key=lambda p: os.path.getmtime(os.path.join(folder, p))) if os.path.isdir(folder) else []
     if not packs:
         return {"first": True}
-    try:
-        with open(os.path.join(folder, packs[-1]), encoding="utf-8") as f:
-            prev = json.load(f)
-    except (OSError, ValueError):
-        return {"first": True}
-    if not isinstance(prev, dict):
+
+    def load(p):
+        try:
+            with open(os.path.join(folder, p), encoding="utf-8") as f:
+                x = json.load(f)
+            return x if isinstance(x, dict) else None
+        except (OSError, ValueError):
+            return None
+
+    prev = load(packs[-1])
+    if prev is None:
         return {"first": True}
     a, b = prev.get("log_counts") or {}, card.get("log_counts") or {}
     obj = lambda c: ((c.get("board") or {}).get("objective") or {})
     rotated = b.get("lines", 0) < a.get("lines", 0)        # the kit moved its log to .log.1: counts start again
     delta = {k: (b[k] if rotated else b[k] - a.get(k, 0)) for k in b if isinstance(b[k], int)}
-    return {"previous": packs[-1], "log_rotated": rotated, "log_counts": {k: v for k, v in delta.items() if v},
-            "players": [obj(prev).get("players"), obj(card).get("players")], "shop": [prev.get("shop"), card.get("shop")]}
+    out = {"previous": packs[-1], "log_rotated": rotated, "log_counts": {k: v for k, v in delta.items() if v},
+           "players": [obj(prev).get("players"), obj(card).get("players")], "shop": [prev.get("shop"), card.get("shop")],
+           "across_score_switch": os.path.getmtime(os.path.join(folder, packs[-1])) < SCORE_SWITCH <= now, "baselines": {}}
+    for h in BASELINE_HOURS:      # the newest pack at least h hours old, any kind: the 6 and 12 hour trend
+        every = sorted((p for p in os.listdir(folder) if re.fullmatch(r"(terra|astra)-\d+(-\d+)?\.json", p)),
+                       key=lambda p: os.path.getmtime(os.path.join(folder, p)))
+        old = [p for p in every if os.path.getmtime(os.path.join(folder, p)) <= now - h * 3600]
+        base = load(old[-1]) if old else None
+        if base is None:
+            out["baselines"][f"{h}h"] = None
+            continue
+        t = os.path.getmtime(os.path.join(folder, old[-1]))
+        out["baselines"][f"{h}h"] = {"pack": old[-1], "hours": round((now - t) / 3600, 1),
+                                     "players": [obj(base).get("players"), obj(card).get("players")],
+                                     "shop_all": [(obj(base).get("shops") or {}).get("all"), (obj(card).get("shops") or {}).get("all")],
+                                     "buyer_all": [(obj(base).get("buyers") or {}).get("all"), (obj(card).get("buyers") or {}).get("all")],
+                                     "across_score_switch": t < SCORE_SWITCH <= now}
+    return out
+
+
+def alert_problems(card, answer, code):
+    """A cycle that changes nothing while the scorecard raises an alert (llm cap, surge above the worst cost, forum falling,
+    drift, rules) must answer each alert by name in evidence_gap or grade_summary: no_change cannot pass one over."""
+    if code or not answer:
+        return []
+    said = json.dumps({k: answer.get(k) for k in ("grade_summary", "summary", "evidence_gap", "strategy_check")},
+                      ensure_ascii=False)
+    return [f"alert left open with no change: {a}" for a in card.get("alerts") or [] if a.split(":")[0] not in said]
 
 
 def grade_log(rec):
@@ -504,8 +542,8 @@ def cycle(kind):
     cid = f"{kind}-{time.strftime('%m%d-%H%M%S')}"
     os.makedirs(os.path.join(ROOT, "meta", "evidence"), exist_ok=True)
     pack = os.path.join(ROOT, "meta", "evidence", f"{cid}.json")
-    card = scorecard.build(ROOT)
-    card["since_last_cycle"] = since_last(card)
+    card = scorecard.build(ROOT, record=True)
+    card["since_last_cycle"] = since_last(card, kind)
     lc = card.get("log_counts") or {}
     SAMPLE["settled"] = lc.get("settled_as_shop", 0) + lc.get("paid_as_buyer", 0)
     with open(pack, "w", encoding="utf-8") as f:
@@ -532,6 +570,7 @@ def cycle(kind):
         problems += verify_evidence(answer.get("evidence"))
         problems += strategy_problems(kind, answer, code)
         problems += gap_problems(answer, code)
+        problems += alert_problems(card, answer, code)
     problems += limit_problems(code)
     moved = hard_limits.policy_diff(pricing_at_head(), pricing_now())
     if moved:

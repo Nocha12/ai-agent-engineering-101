@@ -25,6 +25,17 @@ a mismatch go away. A rule change that makes a setting, a limit or a
 strategy line wrong (a cost that counted as a loss no longer does, a new fee) is a reason to act on it this cycle, quoted.
 `rules.error` means the page could not be read: say so and go on.
 
+Alerts next: the pack's `alerts` (scorecard.alerts) are broken constraints or falling signals, each led by its name
+(`llm_calls`, `llm_cap`, `surge`, `forum`, `board_drift`, `rules`). Each one is either this cycle's change or named in
+grade_summary or evidence_gap with why it needs no change and the measurement that will settle it; meta_harness refuses
+a no_change that leaves one unnamed (status no_change_unsupported).
+
+The race: `board.race` is the Everyone rank, the gap to the leader and to the player just above, and how much each of
+the three grew over 6 and 12 hours (`growth`). A gap closes only if I grow faster than the player above: when
+`growth.6h.me` is below `growth.6h.above`, the current strategy is losing ground, and "keep" needs a reason in numbers.
+`since_last_cycle` compares with the previous Terra pack and the packs 6 and 12 hours back (`baselines`); a window with
+`across_score_switch` true moved with Patch 3.3's formula, not only with trading.
+
 Objective: the pack's `board.objective` estimates the midterm rank, Players = shop ALL + buyer ALL, each part a
 mean-rank percentile among the rows the board scores (shops with a supply or a deal, house shops included; buyers with a
 deal): shop ALL = 0.5 book + 0.3 revenue + 0.2 stars_rank (Patch 3.3, 11/05: book replaced cash profit), buyer ALL = 0.5 surplus + 0.3 forum votes (on posts
