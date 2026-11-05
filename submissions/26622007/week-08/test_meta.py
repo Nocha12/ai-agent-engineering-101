@@ -717,14 +717,14 @@ class ObjectiveTest(unittest.TestCase):
                        {"name": "a", "deals": 9, "profit": 20, "revenue": 50, "stars": 4, "stars_rank": 4.5, "all": 0.5},
                        {"name": "b", "deals": 0, "profit": 0, "revenue": 0, "stars": None, "stars_rank": None, "all": 0.1},
                        {"name": "c", "deals": 0, "profit": 1000, "revenue": 1000, "all": None}],
-             "buyers": [{"name": me, "deals": 2, "surplus": 5, "forum": 0.6, "posts": 3, "all": 0.35},
-                        {"name": "x", "deals": 1, "surplus": 10, "forum": 0.6, "posts": 0, "all": 0.65}],
+             "buyers": [{"name": me, "deals": 2, "saved": 0.1, "surplus": 100, "forum": 0.6, "posts": 3, "all": 0.35},
+                        {"name": "x", "deals": 1, "saved": 0.2, "surplus": 1, "forum": 0.6, "posts": 0, "all": 0.65}],
              "players": [{"player": "Nocha12", "total": 1.05}]}
         o = mh.scorecard.objective(b)
         self.assertEqual((o["shops"]["all"], o["shops"]["of"], o["shops"]["board_all"]), (0.7, 3, 0.7))
         self.assertEqual(o["shops"]["parts"]["stars_rank"]["percentile"], 0.75)
         self.assertEqual((o["buyers"]["all"], o["players"]), (0.35, 1.05))
-        self.assertEqual(o["weakest"][:2], ("buyers", "surplus"))
+        self.assertEqual(o["weakest"][:2], ("buyers", "saved"))
 
 
 class AlertProblemsTest(unittest.TestCase):

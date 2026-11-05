@@ -61,7 +61,7 @@ and its evidence cited; do not edit or remove entries (Astra orders the queue) o
 
 Objective: the pack's `board.objective` estimates the midterm rank, Players = shop ALL + buyer ALL, each part a
 mean-rank percentile among the rows the board scores (shops with a supply or a deal, house shops included; buyers with a
-deal): shop ALL = 0.5 book + 0.3 revenue + 0.2 stars_rank (Patch 3.3, 11/05: book replaced cash profit), buyer ALL = 0.5 surplus + 0.3 forum votes (on posts
+deal): shop ALL = 0.5 book + 0.3 revenue + 0.2 stars_rank (Patch 3.3, 11/05: book replaced cash profit), buyer ALL = 0.5 saved (절감률, 거래 100건을 0%로 추가한 평균; Patch 3.4) + 0.3 forum votes (on posts
 written as a buyer) + 0.1 deals + 0.1 posts. This reproduces every board row; `board_all` is the board's own value. Book
 = balance - starting capital - bankruptcy money + what the unsold stock cost, so a restock does not lower it; storage
 (1%/day), refunds, spoiled food and markdowns below cost do. Book 1st among shops is a goal of its own: name the book gap

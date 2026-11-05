@@ -20,7 +20,7 @@ PAGE = """
   <ul class="changes"><li><span class="tag">New</span><div><b>Surge cost.</b> +0.2% a unit.</div></li></ul>
 </article>
 <div class="bar"><span>Shop ALL</span><div class="parts"><span class="p1" style="width:50%">book 0.5</span><span class="p2" style="width:30%">revenue 0.3</span><span class="p3" style="width:20%">stars 0.2</span></div></div>
-<div class="bar"><span>Buyer ALL</span><div class="parts"><span class="p1" style="width:50%">surplus 0.5</span><span class="p2" style="width:30%">forum 0.3</span><span class="p3" style="width:10%">deals</span><span class="p4" style="width:10%">posts</span></div></div>
+<div class="bar"><span>Buyer ALL</span><div class="parts"><span class="p1" style="width:50%">saved 0.5</span><span class="p2" style="width:30%">forum 0.3</span><span class="p3" style="width:10%">deals</span><span class="p4" style="width:10%">posts</span></div></div>
 """
 
 
@@ -43,6 +43,12 @@ class PatchNotesTest(unittest.TestCase):
         self.assertTrue(out["first_check"])
         self.assertEqual(out["new"], [])
         self.assertEqual(len(out["recent"]), 2)
+
+    def test_old_surplus_objective_is_flagged(self):
+        old = {**scorecard.OBJECTIVE, "buyers": [( ("surplus", "saved"), 0.5), *((names, w) for names, w in scorecard.OBJECTIVE["buyers"][1:])]}
+        # An alias can mask the bug, so the actual outdated single-field formula must be rejected.
+        old["buyers"][0] = (("surplus",), 0.5)
+        self.assertFalse(patch_notes.check(self.tmp.name, PAGE, now=1000, objective=old)["objective_matches"])
 
     def test_a_cash_objective_is_flagged(self):
         old = {**scorecard.OBJECTIVE, "shops": [(("profit",), 0.5), (("revenue",), 0.3), (("stars_rank", "stars"), 0.2)]}
@@ -75,14 +81,14 @@ class PatchNotesTest(unittest.TestCase):
 
     def test_weights_match_by_name_within_the_drawn_width(self):
         drawn = {"shops": [["stars", 0.2], ["book", 0.497], ["revenue", 0.3]],
-                 "buyers": [["surplus", 0.5], ["forum", 0.3], ["deals", 0.1], ["posts", 0.1]]}
+                 "buyers": [["saved", 0.5], ["forum", 0.3], ["deals", 0.1], ["posts", 0.1]]}
         self.assertEqual(patch_notes.compare(drawn, scorecard.OBJECTIVE), [])
         drawn["shops"][0] = ["stars", 0.1]
         self.assertEqual(patch_notes.compare(drawn, scorecard.OBJECTIVE), ["shops: published stars 0.1, scorecard 0.2"])
 
     def test_the_profit_fallback_never_matches_a_published_part(self):
         drawn = {"shops": [["profit", 0.5], ["revenue", 0.3], ["stars", 0.2]],
-                 "buyers": [["surplus", 0.5], ["forum", 0.3], ["deals", 0.1], ["posts", 0.1]]}
+                 "buyers": [["saved", 0.5], ["forum", 0.3], ["deals", 0.1], ["posts", 0.1]]}
         got = patch_notes.compare(drawn, scorecard.OBJECTIVE)
         self.assertIn("shops: published profit 0.5, not in the scorecard", got)
         self.assertIn("shops: scorecard book 0.5, not published", got)

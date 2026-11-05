@@ -34,8 +34,9 @@ SOURCES = ("logs", "memory", ".market", "meta")
 # 3 decimals, every row of the 42 boards up to 03:42:05 matches profit (GPT Pro 4판, checked again on the collector's
 # boards). profit stays the fallback for reading a board without book; patch_notes.compare never accepts it as the
 # published part.
+# Patch 3.4 ranks buyers by saved rate, not absolute surplus.
 OBJECTIVE = {"shops": [(("book", "profit"), 0.5), (("revenue",), 0.3), (("stars_rank", "stars"), 0.2)],
-             "buyers": [(("surplus", "saved"), 0.5), (("forum", "forum_score", "votes", "score"), 0.3), (("deals",), 0.1),
+             "buyers": [(("saved",), 0.5), (("forum", "forum_score", "votes", "score"), 0.3), (("deals",), 0.1),
                         (("posts",), 0.1)]}
 
 
@@ -130,7 +131,7 @@ def snapshot(b):
     return {"ts": time.time(),
             "players": {str(r.get("player")): r.get("total") for r in b.get("players") or [] if r.get("player")},
             "shops": {r.get("name"): [r.get("book"), r.get("revenue"), r.get("all")] for r in b.get("shops") or []},
-            "buyers": {r.get("name"): [r.get("surplus"), next((r[n] for n in FORUM if n in r), None), r.get("all")]
+            "buyers": {r.get("name"): [r.get("saved"), next((r[n] for n in FORUM if n in r), None), r.get("all")]
                        for r in b.get("buyers") or []}}
 
 
