@@ -65,6 +65,11 @@ BOUNDS = {
     "opening.judge_settles": (10, 1000),
     "opening.phase_gap_minutes": (5, 120),
     "restock.max_sku_share": (0.01, 0.4),
+    # What counts as dear goods (listed only, FIXED above) and how many of each: unbounded, a few cycles of doubling
+    # would lift high_price_goods past every price and switch the listed-only rule off.
+    "restock.high_price_goods": (50000, 1000000),
+    "restock.high_price_max_units": (0, 20),
+    "restock.high_price_proven_max_units": (0, 20),
     "warranty.on_request_hours": (0, 6),
     "warranty.max_hours": (0, 6),
     "warranty.max_break": (0.0, 0.5),
@@ -89,7 +94,8 @@ UNCAPPED = {"buyer": ("max_spend_per_deal",)}
 SAFE = {"restock": {"keep_cash": 3000000, "max_stock_cost": 1000000, "target_per_category": 1, "max_lines": 5,
                     "max_units_per_sku": 5, "cover_hours": 6, "food_explore_qty": 0, "food_max_qty": 2, "max_break": 0.15,
                     "goods_max_price": 30000, "max_sku_share": 0.1, "food_max_price": 30000, "band_low": 0.8,
-                    "band_high": 1.2, "prior_break": 0.15},
+                    "band_high": 1.2, "prior_break": 0.15, "high_price_goods": 100000, "high_price_max_units": 1,
+                    "high_price_proven_max_units": 2},
         "warranty": {"on_request_hours": 3, "max_hours": 6, "max_break": 0.25, "prior_break": 0.15},
         "buyer": {"max_price_share": 0.9, "quote_shops": 3},
         "markdown": {"min_floor_share": 0.1, "below_cost": ["food_expiry"]},
@@ -155,7 +161,7 @@ def check_policy_change(old, new, step=MAX_STEP):
             problems.append(f"pricing.json {key} {was} -> {v} moves more than {move:.0%} in one cycle")
         if key in META_FLOOR and number(v) and number(was) and was >= META_FLOOR[key] > v:
             problems.append(f"pricing.json {key} {was} -> {v} goes under {META_FLOOR[key]} (hard_limits.META_FLOOR, a person's line)")
-        if key in FIXED and key in a and v != was:
+        if key in FIXED and key in a and not (type(v) is type(was) and v == was):     # true -> 1 is a change too
             problems.append(f"pricing.json {key} {was!r} -> {v!r} is a person's setting (hard_limits.FIXED)")
         if key == "markdown.below_cost" and (not isinstance(v, list) or any(r not in MARKDOWN_REASONS for r in v)):
             problems.append(f"pricing.json markdown.below_cost {v} is not a list of {MARKDOWN_REASONS}")

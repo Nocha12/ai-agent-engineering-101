@@ -155,7 +155,14 @@ class GuardsStayHookedTest(unittest.TestCase):
         old = {"restock": {"high_price_listed_only": True}}
         self.assertTrue(any("FIXED" in p for p in hl.check_policy_change(old, {"restock": {"high_price_listed_only": False}})))
         self.assertTrue(any("removed" in p for p in hl.check_policy_change(old, {"restock": {}})))
+        self.assertTrue(any("FIXED" in p for p in hl.check_policy_change(old, {"restock": {"high_price_listed_only": 1}})))
         self.assertEqual(hl.check_policy_change(old, old), [])
+        # nor by lifting the line above every price: high_price_goods is bounded and moves a step at a time
+        self.assertTrue(any("outside" in p for p in hl.check_policy_change({"restock": {"high_price_goods": 800000}},
+                                                                           {"restock": {"high_price_goods": 1600000}},
+                                                                           hl.MAX_STEP_STRONG)))
+        self.assertEqual(hl.clamp_cfg("restock", {"high_price_goods": 5000000})["high_price_goods"], 1000000)
+        self.assertEqual(hl.clamp_cfg("restock", {"high_price_goods": None})["high_price_goods"], 100000)
         with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
             self.assertIs(json.load(f)["restock"]["high_price_listed_only"], True)
 
