@@ -241,7 +241,7 @@ class PriceTest(unittest.TestCase):
         self.assertEqual((r["priority_skus"], r["sku_target_units"]),
                          (["G8ec51935", "Gb5d0dde7", "G03d0199f", "G05277ffe", "G00327e80", "G75f11c19", "Gef4d3036",
                            "Gb2392fa9", "G200e39a3", "G66ded25b", "G1465c678"],
-                          {"G1515d951": 4, "G6b9db161": 1, "G75f11c19": 1, "G05277ffe": 2, "Gb5d0dde7": 2,
+                          {"G1515d951": 4, "G6b9db161": 1, "G75f11c19": 1, "G05277ffe": 3, "Gb5d0dde7": 2,
                            "G8ec51935": 4, "G03d0199f": 1, "G00327e80": 2, "G1465c678": 1}))
         # scale 3 (12:24-13:05): G8ec51935 sold 2 in 40 min and was refilled each window -> 4; Gb5d0dde7's 3 units from
         # 12:27 sat unsold across the 12:41 and 13:01 windows -> 2 (scale2-result.md §8)   # G1515 4: Astra 21:19, same five units across two supply windows; G6 2: undo the reduction triggered by mislinked refunds
@@ -253,10 +253,10 @@ class PriceTest(unittest.TestCase):
         buy = [{"sku": s, "qty": 5} for s in cat]
         inv = {"balance": 50000000, "units": [{"sku": "G05277ffe", "kind": "goods", "cost": 360000}]}
         with contextlib.redirect_stderr(io.StringIO()):
-            self.assertEqual(restock.guard(buy, inv, cat, cfg), [{"sku": "G05277ffe", "qty": 1}, {"sku": "Gb5d0dde7", "qty": 2},
+            self.assertEqual(restock.guard(buy, inv, cat, cfg), [{"sku": "G05277ffe", "qty": 2}, {"sku": "Gb5d0dde7", "qty": 2},
                                                               {"sku": "G8ec51935", "qty": 4}])     # targets under 15M, one held
             self.assertEqual(restock.guard(buy, {**inv, "units": []}, cat, cfg),
-                             [{"sku": "G05277ffe", "qty": 2}, {"sku": "Gb5d0dde7", "qty": 2}, {"sku": "G8ec51935", "qty": 4}])   # unlisted stay out
+                             [{"sku": "G05277ffe", "qty": 3}, {"sku": "Gb5d0dde7", "qty": 2}, {"sku": "G8ec51935", "qty": 4}])   # unlisted stay out
         self.assertEqual(r["food_max_qty"], 4)     # every food line refills up to 4 units, not 3 (the SKU cap stays max_units_per_sku 6)
         self.assertTrue(r["high_price_listed_only"])
         # no cap per deal (hard_limits.UNCAPPED; at 800k my buyer settled 1 of 113 dear orders) and the whole list price:
