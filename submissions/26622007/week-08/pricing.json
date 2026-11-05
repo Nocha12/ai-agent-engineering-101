@@ -104,20 +104,18 @@
       "G200e39a3",
       "G66ded25b",
       "G05277ffe",
-      "Gb5d0dde7",
-      "G8ec51935"
+      "Gb5d0dde7"
     ],
     "sku_target_units": {
       "G1515d951": 4,
       "G6b9db161": 1,
       "G75f11c19": 1,
       "G05277ffe": 1,
-      "Gb5d0dde7": 1,
-      "G8ec51935": 1
+      "Gb5d0dde7": 1
     },
     "high_price_listed_only": true,
     "food_max_stock_cost": 650000,
-    "scale_source": "review/W-20261105-0953-AX패치3.3/scale-analysis.md (11/05 11:1x ledger): G05277ffe·Gb5d0dde7·G8ec51935 are the 60만+ goods 12-15 shops sell 38-79/h with 4-5% mature break and a 0.26-0.42 h median hold; one unit each, after the proven SKUs and food. Food cap 45만->65만: food sells in 0.1 h, 0 spoiled, and was the cap that cut lines 416 times in the last 2,000 guard cuts",
+    "scale_source": "review/W-20261105-0953-AX패치3.3/scale-analysis.md (11/05 11:1x ledger): G05277ffe and Gb5d0dde7 are 60만+ goods 12-14 shops sell 39-49/h with 3.4-4.0% mature break (ledger guard rate 4.8-6.7%) and a 0.35-0.42 h median hold; one unit each, after the proven SKUs and food. G8ec51935 (worst cost 1.74M) waits for a larger cap: under 4M one held sofa cut G1515d951 refills 4 -> 2 (independent review replay). Food cap 45만->65만: food sells in 0.1 h, 0 spoiled, and its cap cut 416 of the last 2,000 guard lines; it is filled before the 60만+ lines",
     "skip_skus": [
       "G07ec17d5",
       "G054ff120",

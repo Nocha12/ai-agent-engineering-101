@@ -13,6 +13,7 @@ import time
 import unittest
 from unittest import mock
 
+import hard_limits
 import profit_price
 import restock
 import shop_stock
@@ -235,11 +236,19 @@ class PriceTest(unittest.TestCase):
         # (13:25-16:46 vs 17:07-20:27), so 4 holds; the four foods out of stock 35-54% of 17:30-20:31 go to the front
         # (review/W-20261104-2030, GPT Pro 3판 §4.2)
         self.assertEqual((r["priority_skus"], r["sku_target_units"]),
-                         (["G75f11c19", "Gef4d3036", "Gb2392fa9", "G200e39a3", "G66ded25b", "G05277ffe", "Gb5d0dde7", "G8ec51935"],
-                          {"G1515d951": 4, "G6b9db161": 1, "G75f11c19": 1, "G05277ffe": 1, "Gb5d0dde7": 1, "G8ec51935": 1}))   # G1515 4: Astra 21:19, same five units across two supply windows; G6 2: undo the reduction triggered by mislinked refunds
-        # Patch 3.3 (book): one unit each of the 60만+ goods 12-15 shops sell 38-79/h at 4-5% mature break, after the proven
-        # SKUs and food; listed last, so the 4M stock cap reaches them only when the rest fits (scale-analysis.md)
-        self.assertTrue(all(r["sku_target_units"][s] == 1 for s in ("G05277ffe", "Gb5d0dde7", "G8ec51935")))
+                         (["G75f11c19", "Gef4d3036", "Gb2392fa9", "G200e39a3", "G66ded25b", "G05277ffe", "Gb5d0dde7"],
+                          {"G1515d951": 4, "G6b9db161": 1, "G75f11c19": 1, "G05277ffe": 1, "Gb5d0dde7": 1}))   # G1515 4: Astra 21:19, same five units across two supply windows; G6 2: undo the reduction triggered by mislinked refunds
+        # Patch 3.3 (book): one unit each of two 60만+ goods 12-14 shops sell 39-49/h at 3-4% mature break, after the proven
+        # SKUs and food (scale-analysis.md); the 2.32M sofa G8ec51935 waits for a larger cap
+        cat = {"G05277ffe": {"kind": "goods", "list_price": 600000}, "Gb5d0dde7": {"kind": "goods", "list_price": 1094400},
+               "G8ec51935": {"kind": "goods", "list_price": 2320000}, "G8095ddd6": {"kind": "goods", "list_price": 851400}}
+        cfg = hard_limits.clamp_cfg("restock", {**restock.DEFAULTS, **r})
+        buy = [{"sku": s, "qty": 5} for s in cat]
+        inv = {"balance": 50000000, "units": [{"sku": "G05277ffe", "kind": "goods", "cost": 360000}]}
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(restock.guard(buy, inv, cat, cfg), [{"sku": "Gb5d0dde7", "qty": 1}])     # one held: none more
+            self.assertEqual(restock.guard(buy, {**inv, "units": []}, cat, cfg),
+                             [{"sku": "G05277ffe", "qty": 1}, {"sku": "Gb5d0dde7", "qty": 1}])     # unlisted ones stay out
         self.assertEqual(r["food_max_qty"], 4)     # every food line refills up to 4 units, not 3 (the SKU cap stays max_units_per_sku 6)
         self.assertTrue(r["high_price_listed_only"])
         # no cap per deal (hard_limits.UNCAPPED; at 800k my buyer settled 1 of 113 dear orders) and the whole list price:
