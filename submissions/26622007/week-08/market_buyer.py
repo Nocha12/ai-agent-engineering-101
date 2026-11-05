@@ -79,6 +79,12 @@ SHORT_WARRANTY_MIN = 2      # of them, this many short of my warranty: goods ord
 FOOD_TAKE_ASK = True        # food: an ask within my limit is taken as it is. Of 572 food orders in 24 h to 11/05 23:40 whose
 #                             first ask was within the limit, countering saved 559,509 in all and lost 193 deals (616,884 of
 #                             list less first ask): deals are 10% of the rank and food surplus is about 7,000 a deal
+FOOD_TAKE_SHARE = 0.70      # ... but only an ask at or under this share of list. Patch 3.4 (11/06 06:00) scores Saved, the mean
+#                             share of list kept per deal over deals + 100, and a deal below my Saved (0.2415) lowers it: food
+#                             taken as asked kept a median 10% in the 6 h to 07:28 (126 of 150 under 0.2415; GPT Pro 11/06 07:30 B1)
+SAVED_MIN_SHARE = 0.25      # the share of list a deal must be expected to keep: the limit is list (1 - 0.25 / (1 - b)), b the
+#                             chance goods break (a break under warranty refunds and keeps 0). Of our 385 deals in that 6 h,
+#                             the 111 at 25% or more would have raised Saved 0.2415 -> 0.2441, all 385 lowered it to 0.2360
 SHORT_WARRANTY_HOURS = 3    # only receipts this recent count, so a shop that changed is tried again: yms979 sold goods
 #                             with a warranty for days before it turned to 0 h, and a shop that turns back is not lost for long
 
@@ -221,7 +227,7 @@ def history_line(trades, item=None):
     held = [t for t in deals if t.get("holds")]
     if held:
         parts.append(f"{len(held)} deal(s) closed after you held at your budget")
-    fails = [t for t in trades if t["result"] != "deal"]
+    fails = [t for t in trades if t["result"] not in ("deal", "no_value")]   # no_value: my saved_cap, not the shop
     hopeless = [t for t in fails if t.get("why") == "budget"]
     on_shop = [t for t in fails if t.get("why") != "budget"]
     if hopeless:
@@ -594,7 +600,7 @@ def quote_fitted(q, budget, cfg):
         return False
     if not isinstance(lp, (int, float)) or not isinstance(budget, (int, float)):
         return False
-    return ask <= value_limit({"list_price": lp}, budget, 0, cfg)
+    return ask <= min(value_limit({"list_price": lp}, budget, 0, cfg), saved_cap({"list_price": lp}, 0))
 
 
 def quote_order(others, fits, k):
@@ -624,13 +630,15 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
         if not isinstance(q.get("ask"), (int, float)) or q.get("refused"):
             return None
         o = s["_offer"]
-        # goods I buy carry a 6 h warranty, so a break refunds the ask: (1 - b)(list - ask), not list(1 - b) - ask
-        return (1 - (chance_of(o["sku"]) or 0)) * (o["list_price"] - q["ask"])
+        # goods I buy carry a 6 h warranty, so a break refunds the ask: (1 - b)(list - ask), not list(1 - b) - ask.
+        # Patch 3.4 scores the share of list kept, not the money, so the shops are ranked by (1 - b)(list - ask) / list
+        return (1 - (chance_of(o["sku"]) or 0)) * (o["list_price"] - q["ask"]) / o["list_price"]
 
     def fits(s):
         """The opening ask is within what I would pay that shop: it can close now, so it goes before any ask above it."""
         o = s["_offer"]
-        return got[s["name"]]["ask"] <= value_limit(o, budget, chance_of(o["sku"]) or 0, cfg)
+        b = chance_of(o["sku"]) or 0
+        return got[s["name"]]["ask"] <= min(value_limit(o, budget, b, cfg), saved_cap(o, b))
     for r in range(rounds):
         batch, rest = rest[:k], rest[k:]
         if not batch or (r and time.time() - STARTED > QUOTE_UNTIL):
@@ -640,7 +648,7 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
         threads = []
         for s in batch:
             o = pick_offer(s["usable"], budget)
-            s["_offer"] = o
+            s["_offer"], s["_b"] = o, chance_of(o["sku"]) or 0
             th = threading.Thread(target=quote, args=(s, o["name"], o["sku"], order, got, ctl), daemon=True)
             th.start()
             threads.append(th)
@@ -773,6 +781,20 @@ def value_limit(offer, budget, chance, cfg=None):
     return int(min(budget, offer["list_price"] * cfg["max_price_share"], cfg["max_spend_per_deal"]))
 
 
+class NoValue(Exception):
+    """saved_cap left nothing to pay for the offer: no talk is started."""
+
+
+def saved_cap(offer, chance, share=SAVED_MIN_SHARE):
+    """The most a deal may cost and still keep share of the list price in expectation (patch 3.4 Saved): goods that break
+    under the warranty are refunded and keep 0, so the price keeps (1 - b)(1 - price / list) and the cap is
+    list (1 - share / (1 - b)). None or a chance of 1 or more leaves nothing to buy at."""
+    b = min(max(chance or 0, 0.0), 1.0)
+    if b >= 1 or share / (1 - b) >= 1:
+        return 0
+    return int(offer["list_price"] * (1 - share / (1 - b)))
+
+
 # --- after the trade
 
 def check_receipt(rec, out, item, budget, order=None, catalog=None):
@@ -805,9 +827,12 @@ def check_receipt(rec, out, item, budget, order=None, catalog=None):
     return problems, warnings
 
 
-def rate(out, problems, item, budget, warnings=()):
-    """Stars and review from the facts of the trade."""
+def rate(out, problems, item, budget, warnings=(), limit=None):
+    """Stars and review from the facts of the trade. limit is what I would pay (saved_cap may hold it under the budget):
+    a talk that ended over it is my price, not the shop's fault, and gets the neutral 3."""
     asks = [p for who, p in out["history"] if who == "shop asked"]
+    if out["state"] == "NO_VALUE":
+        return 3, f"No deal on {item}: not a price I can pay for it now."
     if out["state"] == "TASK_STATE_COMPLETED":
         price = out["receipt"].get("price")
         if problems:
@@ -821,6 +846,8 @@ def rate(out, problems, item, budget, warnings=()):
     if not asks:
         return 2, f"No price offered for {item} ({out['state'] or 'no answer'})."
     last = asks[-1]
+    if limit is not None and budget > limit and last > limit:
+        return 3, f"No deal on {item}: lowest ask {min(asks)} stayed above what I can pay. Polite, fair talk."
     if last > budget:
         return 3, f"No deal on {item}: lowest ask {min(asks)} stayed above my budget {budget}. Polite, fair talk."
     return 2, f"No deal on {item} even though the ask came down to {last} (budget {budget}); the talk ended."
@@ -850,7 +877,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
             continue
         o = s.get("_offer") or {}
         ask_ = q.get("ask")
-        lim = value_limit(o, args.budget, 0, buyer_cfg()) if o.get("list_price") else None
+        lim = min(value_limit(o, args.budget, 0, buyer_cfg()), saved_cap(o, s.get("_b", 0))) if o.get("list_price") else None
         lost = None if s["name"] == best else (
             "refused: " + q["refused"] if q.get("refused") else "no ask (no free unit or no answer)" if not isinstance(ask_, (int, float))
             else "over my limit (budget / share / deal cap)" if lim is not None and ask_ > lim
@@ -960,7 +987,7 @@ def main():
     chance = None
     if r3 and order.get("kind") == "goods":
         chance = market_model.break_chance(market_model.break_stats(market_model.load_rows(md), catalog), key)
-    limit = value_limit(offer, args.budget, chance, buyer_cfg()) if r3 else args.budget
+    limit = min(value_limit(offer, args.budget, chance, buyer_cfg()), saved_cap(offer, chance)) if r3 else args.budget
     mine = my_history(memory, shop["name"])
     pattern = shop_pattern(market_model.load_rows(md), shop["url"], catalog) if r3 else None
     deals, low = item_stats(mine, key)
@@ -977,11 +1004,23 @@ def main():
             + (f", breaks {chance:.1%} of the time in the ledger" if chance else ""))
     try:
         q = quotes.get(shop["name"]) or {}
+        if r3 and limit <= 0:      # saved_cap 0: goods that break 75% of the time or more keep nothing in expectation
+            log(f"[offer] limit 0 for {offer['sku']}: no talk")
+            if resumable(q):
+                q["closed"] = True
+                try:
+                    cancel_quote(dict(q, closed=False), shop["name"])    # at once: the run ends right after this
+                except Exception as e:  # a shop that went away: the talk times out on its side
+                    log(f"[quote] closing {shop['name']} failed: {type(e).__name__}: {e}")
+            raise NoValue()
         resume = (q["url"], q["task"]) if r3 and resumable(q) else None
         out = negotiate(shop["url"], label, limit, note, request_text(label, key, order) if r3 else None, resume=resume,
                         stop_if=(lambda text: quote_refused(text, order)) if r3 else None,
-                        take_at=limit if r3 and FOOD_TAKE_ASK and order.get("kind") == "food" else None)
+                        take_at=min(limit, int(offer["list_price"] * FOOD_TAKE_SHARE))
+                        if r3 and FOOD_TAKE_ASK and order.get("kind") == "food" else None)
         out["asked"] = key if r3 else None
+    except NoValue:
+        out = {"state": "NO_VALUE", "task": None, "receipt": None, "history": [], "agreed": None, "holds": 0}
     except Exception as e:  # network errors from a shop that went away
         log(f"trade failed: {type(e).__name__}: {e}")
         out = {"state": f"ERROR {type(e).__name__}", "task": None, "receipt": None, "history": [], "agreed": None,
@@ -1001,10 +1040,10 @@ def main():
     for w in warnings:
         log(f"[receipt] WARNING {shop['name']}: {w}")
     asks = [p for who, p in out["history"] if who == "shop asked"]
-    why = None if rec is not None else no_deal_reason(asks, limit)
+    why = None if rec is not None or out["state"] == "NO_VALUE" else no_deal_reason(asks, limit)
     if why:
         log(f"[memory] no deal, on the {why} side" + (f" (lowest ask {min(asks)}, limit {limit})" if asks else ""))
-    stars, review = rate(out, problems, args.item, args.budget, warnings) if rec is not None or not problems \
+    stars, review = rate(out, problems, args.item, args.budget, warnings, limit if r3 else None) if rec is not None or not problems \
         else (1, f"Said the deal was done but sent no receipt for {args.item}.")
 
     memory["trades"].append({

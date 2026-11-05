@@ -498,7 +498,7 @@ class BuyerTest(unittest.TestCase):
     def test_when_no_shop_quotes_a_unit_the_next_shops_are_asked(self):
         shops = [{"name": n, "url": f"https://{n}.example", "usable": [{"sku": "H1", "name": "청소기", "list_price": 10000}]}
                  for n in "abcdefgh"]
-        asks = {"e": 9000, "f": 8000}
+        asks = {"e": 7400, "f": 7000}     # both within the 7,500 limit (75% of list)
         seen = []
 
         def fake_quote(shop, label, key, order, out, ctl=None):
@@ -555,7 +555,7 @@ class BuyerTest(unittest.TestCase):
         # 3판 GPT Pro §4.1: the search stopped at the first numeric ask, even one over the limit
         shops = [{"name": n, "url": f"https://{n}.example", "usable": [{"sku": "H1", "name": "청소기", "list_price": 10000}]}
                  for n in "abcdef"]
-        asks = {"a": 12000, "b": 11000, "e": 8000}
+        asks = {"a": 12000, "b": 11000, "e": 7000}     # my limit is 7,500: 75% of list (patch 3.4 saved_cap)
         seen = []
 
         def fake_quote(shop, label, key, order, out, ctl=None):
@@ -569,7 +569,7 @@ class BuyerTest(unittest.TestCase):
             self.assertEqual(best["name"], "e")
             self.assertEqual(sorted(seen), list("abcdef"))
             seen.clear()
-            asks["a"] = 9500      # the first batch already has an ask I can pay: no second batch
+            asks["a"] = 7400      # the first batch already has an ask I can pay: no second batch
             best, _ = market_buyer.best_quote(shops[0], shops[1:], {"kind": "goods"}, {}, 20000, lambda s: None,
                                               {"quote_shops": 3}, wait=5)
             self.assertEqual((best["name"], sorted(seen)), ("a", list("abc")))
@@ -589,11 +589,12 @@ class BuyerTest(unittest.TestCase):
             self.assertIs(market_buyer.best_quote(shops[0], shops[1:], {}, {}, 20000, lambda s: None, {"quote_shops": 1})[0], shops[0])
 
     def test_expected_surplus_counts_the_warranty_refund(self):
-        # a breaks half the time but refunds the ask: .5 x (30000 - 14000) = 8000 beats b's 10000 - 7000 = 3000
-        # (the old list x (1 - b) - ask gave a 1000 and picked b)
+        # a breaks half the time but refunds the ask: .5 x (30000 - 10000) / 30000 = 0.33 of list kept beats b's
+        # (10000 - 7000) / 10000 = 0.30 (the old list (1 - b) - ask, as a share of list, gave a 0.17 and picked b).
+        # Patch 3.4 ranks by the share kept; a's limit is 30000 (1 - .25 / .5) = 15000
         shops = [{"name": "a", "url": "https://a.example", "usable": [{"sku": "H2", "name": "청소기", "list_price": 30000}]},
                  {"name": "b", "url": "https://b.example", "usable": [{"sku": "H1", "name": "컵", "list_price": 10000}]}]
-        asks = {"a": 14000, "b": 7000}
+        asks = {"a": 10000, "b": 7000}
 
         def fake_quote(shop, label, key, order, out, cancel=True):
             out[shop["name"]] = {"ask": asks[shop["name"]], "text": ""}
@@ -601,10 +602,18 @@ class BuyerTest(unittest.TestCase):
                                                lambda s: 0.5 if s == "H2" else 0.0, {"quote_shops": 2}, wait=5)[0]["name"]
         with mock.patch.object(market_buyer, "quote", fake_quote), mock.patch.object(market_buyer, "log"):
             self.assertEqual(pick(), "a")
-            asks["a"] = 31000     # above my limit for a (its list price, a break is refunded): b, which can close, goes first
+            asks["a"] = 20000     # over a's limit 15,000 (saved_cap with its 50% breaks), under its list: b, which can close, goes first
+            self.assertEqual(pick(), "b")
+            asks["a"] = 31000     # above the list price too
             self.assertEqual(pick(), "b")
             asks["b"] = 12000     # neither fits: the most expected surplus, as before
             self.assertEqual(pick(), "a")
+
+    def test_no_deal_over_my_own_cap_is_not_the_shops_fault(self):
+        out = {"state": "TASK_STATE_CANCELED", "history": [("shop asked", 9000), ("shop asked", 8000)], "receipt": None}
+        self.assertEqual(market_buyer.rate(out, [], "G1", 20000, (), 7500)[0], 3)     # 8,000: in budget, over my cap
+        self.assertEqual(market_buyer.rate(out, [], "G1", 20000, (), 9000)[0], 2)     # came down under my cap, no deal
+        self.assertEqual(market_buyer.rate({"state": "NO_VALUE", "history": [], "receipt": None}, [], "G1", 20000)[0], 3)
 
     def test_receipt_checks(self):
         out = {"agreed": 9000, "task": "t", "asked": "G1"}
@@ -664,21 +673,23 @@ class BuyerTest(unittest.TestCase):
     def test_main_asks_for_the_sku_within_its_value_and_withholds_a_bad_receipt(self):
         shops = [dict(self.offers("G1"), name="s", url="https://s.example", reviews=[])]
         out, calls = self.run_main(shops)
-        self.assertEqual(calls[0][1:3], ("G1", 10000))             # limit is the list price, under the budget
+        self.assertEqual(calls[0][1:3], ("G1", 7500))              # limit is 75% of list (saved_cap), under the budget
         self.assertIn("(G1)", calls[0][4])
         self.assertIsNone(out["receipt"])                          # price over the list price: the kit must not pay
         self.assertEqual(out["stars"], 1)
         self.assertEqual(out["accept"], {"cert": True, "min_hours_left": 48.1})
         o = self.orders[-1]
         self.assertEqual((o["sku"], o["limit"], o["price"], o["passed_to_kit"], o["use_within_hours"], o["how"]),
-                         ("G1", 10000, 11000, False, self.ORDER.get("use_within_hours"), "single_ask"))
+                         ("G1", 7500, 11000, False, self.ORDER.get("use_within_hours"), "single_ask"))
 
     def test_the_spending_limits_cut_the_price_it_will_pay(self):
         shops = [dict(self.offers("G1"), name="s", url="https://s.example", reviews=[])]
-        self.BUYER_CFG = {"max_price_share": 0.9, "max_spend_per_deal": 8500}
-        self.assertEqual(self.run_main(shops)[1][0][1:3], ("G1", 8500))
-        self.BUYER_CFG = {"max_price_share": 0.9}
-        self.assertEqual(self.run_main(shops)[1][0][1:3], ("G1", 9000))
+        self.BUYER_CFG = {"max_price_share": 0.7, "max_spend_per_deal": 6500}
+        self.assertEqual(self.run_main(shops)[1][0][1:3], ("G1", 6500))
+        self.BUYER_CFG = {"max_price_share": 0.7}
+        self.assertEqual(self.run_main(shops)[1][0][1:3], ("G1", 7000))
+        self.BUYER_CFG = {"max_price_share": 0.9}                   # above the saved_cap: 75% of list holds
+        self.assertEqual(self.run_main(shops)[1][0][1:3], ("G1", 7500))
 
     def test_main_with_no_stock_anywhere_closes_the_order_without_stars(self):
         out, calls = self.run_main([dict(self.offers("G4"), name="s", url="https://s.example")])

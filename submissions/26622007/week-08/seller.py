@@ -515,8 +515,8 @@ class Seller(AgentExecutor):
                 self.stock.agree(deal["unit"], {"task": task.id, "deal": deal, "price": int(offer),
                                                 "expires_at": deal.get("expires_at")})
             await up.add_artifact(parts=[new_data_part(receipt)], name="receipt")
-            await up.complete(say(f"Deal: {deal['name']} at {offer}. Thank you! If you were happy with us, a 5-star review saying "
-                                  "what you liked (fair price, quick deal, signed receipt) would mean a lot to our shop."))
+            # no ask for a 5-star review: choo-chu gave 3 stars to all 4 deals "the shop pushed for a 5-star review" (GPT Pro 11/06 07:30 A1)
+            await up.complete(say(f"Deal: {deal['name']} at {offer}. Thank you!"))
             self.remember(task.id, deal, "agreed" if deal.get("unit") else "deal", int(offer))
             log(f"task {task.id[:8]} -> COMPLETED {deal['id']} at {offer}")
             del self.open[task.id]

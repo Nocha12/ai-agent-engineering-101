@@ -92,7 +92,43 @@ class MarketBuyerPassesTakeAtForFoodOnly(unittest.TestCase):
         import inspect
         import market_buyer
         src = inspect.getsource(market_buyer.main)
-        self.assertIn('take_at=limit if r3 and FOOD_TAKE_ASK and order.get("kind") == "food" else None', src)
+        self.assertIn('take_at=min(limit, int(offer["list_price"] * FOOD_TAKE_SHARE))', src)
+        self.assertIn('if r3 and FOOD_TAKE_ASK and order.get("kind") == "food" else None)', src)
+        self.assertIn('limit = min(value_limit(offer, args.budget, chance, buyer_cfg()), saved_cap(offer, chance)) if r3', src)
+
+
+class SavedCap(unittest.TestCase):
+    """Patch 3.4 Saved: a deal must be expected to keep SAVED_MIN_SHARE of list; food is taken at once only at FOOD_TAKE_SHARE."""
+
+    def test_food_cap_is_75_percent_of_list(self):
+        import market_buyer as mb
+        self.assertEqual(mb.SAVED_MIN_SHARE, 0.25)
+        self.assertEqual(mb.saved_cap({"list_price": 10000}, None), 7500)
+        self.assertEqual(mb.saved_cap({"list_price": 10000}, 0), 7500)
+
+    def test_goods_cap_counts_the_refunded_breaks(self):
+        import market_buyer as mb
+        self.assertEqual(mb.saved_cap({"list_price": 100000}, 0.10), 72222)   # (1 - 0.1)(1 - p/L) >= 0.25
+        self.assertEqual(mb.saved_cap({"list_price": 100000}, 0.75), 0)
+        self.assertEqual(mb.saved_cap({"list_price": 100000}, 1.0), 0)
+
+    def test_food_take_share_is_below_the_cap(self):
+        import market_buyer as mb
+        self.assertEqual(mb.FOOD_TAKE_SHARE, 0.70)
+        self.assertLess(mb.FOOD_TAKE_SHARE, 1 - mb.SAVED_MIN_SHARE)
+
+    def test_best_quote_ranks_by_share_kept_not_money(self):
+        import market_buyer as mb
+        cheap = {"name": "a", "usable": [{"sku": "S1", "name": "snack", "qty": 1, "list_price": 10000}]}
+        dear = {"name": "b", "usable": [{"sku": "S2", "name": "sofa", "qty": 1, "list_price": 1000000}]}
+        asks = {"a": 6000, "b": 740000}     # a keeps 40% (4,000), b keeps 26% (260,000)
+
+        def quote(s, name, sku, order, got, ctl):
+            got[s["name"]] = {"ask": asks[s["name"]], "url": "u", "task": "t"}
+        with mock.patch.object(mb, "quote", quote), mock.patch.object(mb, "cancel_quote", lambda *a: None), \
+                mock.patch.object(mb, "log", lambda *a: None):
+            best, got = mb.best_quote(dear, [cheap], {}, {}, 10 ** 7, lambda sku: None, {"quote_shops": 2}, wait=1)
+        self.assertEqual(best["name"], "a")
 
 
 if __name__ == "__main__":

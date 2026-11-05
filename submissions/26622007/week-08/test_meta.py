@@ -614,12 +614,26 @@ class ForumTest(unittest.TestCase):
         votes = [{"post": "p1", "value": 1}, {"post": "p1", "value": -1}, {"post": "p2", "value": 1}, {"post": "gone", "value": 1},
                  {"post": "3", "value": -1}]
         lines, new = self.clean({"votes": votes})
-        self.assertEqual(lines, [{"vote": "p1", "value": 1, "as": "buyer"}, {"vote": 3, "value": -1, "as": "buyer"}])
-        self.assertEqual(new, ["p1", "3"])
+        # patch 3.4: dislikes past 3 an hour cost the shop cash, so a -1 is never sent
+        self.assertEqual(lines, [{"vote": "p1", "value": 1, "as": "buyer"}])
+        self.assertEqual(new, ["p1"])
         self.assertEqual(self.clean({"votes": votes}, voted=["p1", "3"])[0], [])
 
+    def test_one_like_per_author(self):
+        posts = [{"id": "q1", "author": "x"}, {"id": "q2", "author": "x"}, {"id": "q3", "author": "y"}]
+        final = {"post": "", "refs": [], "thread": "", "votes": [{"post": p["id"], "value": 1} for p in posts]}
+        self.assertEqual(forum.clean(final, posts, set(), set(), self.CFG, "nocha12")[1], ["q1", "q3"])
+
+    def test_no_dislike_is_sent_or_offered(self):
+        lines, new = self.clean({"votes": [{"post": "p1", "value": -1}, {"post": "3", "value": -1}]})
+        self.assertEqual((lines, new), ([], []))
+        enum = forum.FINAL["properties"]["votes"]["items"]["properties"]["value"]["enum"]
+        self.assertEqual(enum, [1])
+        self.assertIn("50 settled deals", forum.GOAL)
+        self.assertNotIn("-1 on false", forum.GOAL)
+
     def test_the_vote_limit_and_length_limit_hold(self):
-        posts = [{"id": str(i), "author": "o"} for i in range(30)]
+        posts = [{"id": str(i), "author": f"o{i}"} for i in range(30)]
         final = {"post": "z" * 2000, "refs": [10], "thread": "", "votes": [{"post": str(i), "value": 1} for i in range(30)]}
         lines, new = forum.clean(final, posts, {10}, set(), self.CFG, "nocha12")
         self.assertEqual(len(new), self.CFG["max_votes"])
