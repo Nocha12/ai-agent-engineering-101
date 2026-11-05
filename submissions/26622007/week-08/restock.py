@@ -110,7 +110,7 @@ def wanted(model, catalog, have_sku, balance, cfg, hours_left=float("inf"), fact
         if margin <= 0 or rate * cover < cfg["min_expected"]:
             continue
         target = min(cfg["max_units_per_sku"], math.ceil(rate * cover),
-                     int(balance * cfg["max_sku_share"] / (price * WORST_COST)))
+                     int(balance * cfg["max_sku_share"] / (worst(sku, 1, catalog, factors) or price * WORST_COST)))
         if target > have_sku[sku]:
             out.append((rate * margin / cost, sku, min(MAX_LOT, target - have_sku[sku])))
     return sorted(out, reverse=True)
@@ -233,13 +233,10 @@ def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
     for b in buy:
         x = catalog.get(b["sku"]) or {}
         qty = min(b["qty"], MAX_LOT)
-        f = factors.get(b["sku"], 1.0)
-        if f >= SURGE_SKIP:
+        f, proven_or_priority = factors.get(b["sku"], 1.0), b["sku"] in listed(cfg)
+        if f >= SURGE_SKIP and not proven_or_priority:
             print(f"[restock] guard: {b['sku']} surge {f} >= {SURGE_SKIP}, left out until it falls", file=sys.stderr)
             continue
-        if f >= SURGE_HALF and b["sku"] not in listed(cfg) and qty > 1:
-            print(f"[restock] guard: {b['sku']} surge {f} >= {SURGE_HALF}, unproven: {qty} -> {qty // 2}", file=sys.stderr)
-            qty //= 2
         if b["sku"] in (cfg.get("skip_skus") or ()):
             print(f"[restock] guard: {b['sku']} is in skip_skus, left out", file=sys.stderr)
             continue
@@ -263,7 +260,12 @@ def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
             proven = b["sku"] in listed({"high_price_proven_skus": cfg.get("high_price_proven_skus")})
             cap = min(cap, cfg.get("high_price_proven_max_units", cfg.get("high_price_max_units", 1)) if proven
                       else cfg.get("high_price_max_units", 1))
+        if f >= SURGE_SKIP:         # a proven / priority SKU keeps one unit on the shelf, no more, deep in a surge
+            cap = min(cap, count[b["sku"]] + 1)
+        elif f >= SURGE_HALF and not proven_or_priority and cap > 1:
+            cap //= 2               # half the units held + waiting + new, not half of each run's line
         asked, capped = qty, min(qty, cap - count[b["sku"]])
+        # priced on the capped line, not the line the cash leaves: a few won high at most, never low
         unit = worst(b["sku"], capped, catalog, factors) if x.get("list_price") else float("inf")
         limit = min(spare, room, food_room if x.get("kind") == "food" else float("inf"))
         qty = min(capped, int(limit // unit) if unit < float("inf") else 0)

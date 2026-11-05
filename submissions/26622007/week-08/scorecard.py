@@ -233,10 +233,11 @@ def board(root=None, record=False):
         if record:
             keep = [p for p in past if isinstance(p.get("ts"), (int, float)) and p["ts"] > time.time() - HISTORY_HOURS * 3600]
             path = os.path.join(root, HISTORY)
+            tmp = f"{path}.{os.getpid()}.tmp"      # two recorders at once each write their own
             try:
-                with open(path + ".tmp", "w", encoding="utf-8") as f:
+                with open(tmp, "w", encoding="utf-8") as f:
                     f.writelines(json.dumps(p, ensure_ascii=False) + "\n" for p in keep + [snapshot(b)])
-                os.replace(path + ".tmp", path)
+                os.replace(tmp, path)
             except OSError:
                 pass
     for k in ("shops", "buyers", "players"):

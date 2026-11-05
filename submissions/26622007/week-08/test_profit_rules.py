@@ -450,9 +450,13 @@ class SurgeTest(unittest.TestCase):
         self.assertEqual(restock.surge({"surge": [{"sku": "H1", "factor": True}, {"factor": 1.3}]}), {})
 
     def test_half_from_1_20_unless_listed_and_none_from_1_30(self):
+        cfg = {**self.CFG, "max_units_per_sku": 4}
         buy = [{"sku": "H1", "qty": 4}, {"sku": "F1", "qty": 2}, {"sku": "F2", "qty": 2}]
-        out = restock.guard(buy, self.inv(("H1", 1.22), ("F1", 1.25), ("F2", 1.3)), CAT, self.CFG)
-        self.assertEqual(out, [{"sku": "H1", "qty": 2}, {"sku": "F1", "qty": 2}])
+        out = restock.guard(buy, self.inv(("H1", 1.22), ("F1", 1.25), ("F2", 1.3)), CAT, cfg)
+        self.assertEqual(out, [{"sku": "H1", "qty": 2}, {"sku": "F1", "qty": 2}])      # half of the 4-unit cap, listed whole
+        inv = dict(self.inv(("H1", 1.22), ("F1", 1.35)), units=[unit("h", sku="H1", kind="goods")])
+        out = restock.guard(buy, inv, CAT, cfg)
+        self.assertEqual(out, [{"sku": "H1", "qty": 1}, {"sku": "F1", "qty": 1}, {"sku": "F2", "qty": 2}])   # one held of two; listed keeps one
 
     def test_the_stock_cap_counts_the_surge_cost(self):
         cfg = {**self.CFG, "max_stock_cost": 100000}
