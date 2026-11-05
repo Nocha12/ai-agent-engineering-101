@@ -219,7 +219,11 @@ json.dump({"changed": True, "hypothesis": "h", "change_summary": "변경 요약"
            "strategy": {"options": [], "chosen": "lean", "experiment": "e"},
            "evidence_gap": {"missing": "breaks before or after the widening" if mode.startswith("unsure") else "",
                             "measurement": "ledger seq of each break vs the 02:30 commit" if mode == "unsure-planned" else "",
-                            "judge_line": "narrow if over 15% of 20+ sales" if mode == "unsure-planned" else ""}}, open(out, "w"))
+                            "judge_line": {"metric": "break rate of the widened SKUs", "direction": "below",
+                                           "threshold": "15%", "min_sample": "20 sales", "expires": "11-05 18:00",
+                                           "undo": "narrow back"} if mode == "unsure-planned" else
+                                          {"metric": "", "direction": "none", "threshold": "", "min_sample": "",
+                                           "expires": "", "undo": ""}}}, open(out, "w"))
 """
 
 
@@ -299,7 +303,11 @@ class HarnessCycleTest(unittest.TestCase):
         rec = self.go("unsure-planned")
         self.assertEqual(rec["status"], "no_change")
         with open(os.path.join(self.root, "meta", "grades.jsonl"), encoding="utf-8") as f:
-            self.assertIn("15%", json.loads(f.read().splitlines()[-1])["evidence_gap"]["judge_line"])
+            self.assertEqual(json.loads(f.read().splitlines()[-1])["evidence_gap"]["judge_line"]["threshold"], "15%")
+        half = {"missing": "m", "measurement": "x", "judge_line": {"metric": "a", "direction": "above", "threshold": "1",
+                                                                     "min_sample": "", "expires": "e", "undo": "u"}}
+        self.assertTrue(mh.gap_problems({"evidence_gap": half}, []))        # no min_sample: not a whole judge line
+        self.assertTrue(mh.gap_problems({"evidence_gap": {**half, "judge_line": "a string"}}, []))
 
     def test_the_schedule_survives_a_restart(self):
         grades = os.path.join(self.root, "meta", "grades.jsonl")
@@ -704,6 +712,49 @@ class AlertProblemsTest(unittest.TestCase):
         self.assertEqual(mh.alert_problems(card, answer, []), ["alert left open with no change: surge: 2 unit(s)"])
         self.assertEqual(mh.alert_problems(card, answer, ["restock.py"]), [])
         self.assertEqual(mh.alert_problems({"alerts": []}, answer, []), [])
+
+
+class ExperimentQueueTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        os.makedirs(os.path.join(self.tmp.name, "meta"))
+        p = mock.patch.object(mh, "ROOT", self.tmp.name)
+        p.start()
+        self.addCleanup(p.stop)
+        with open(os.path.join(self.tmp.name, mh.EXPERIMENTS), "w") as f:
+            json.dump({"queue": [{"id": "a", "hours": 2}, {"id": "b"}, "junk"]}, f)
+
+    def answer(self, step, eid="", result=""):
+        return {"experiment": {"step": step, "id": eid, "result": result}}
+
+    def test_one_at_a_time_in_order_and_judged_when_due(self):
+        v = mh.experiments()
+        self.assertEqual((v["running"], v["next"]["id"], v["waiting"]), (None, "a", 2))
+        p = lambda step, eid="", result="", view=None: mh.experiment_problems("terra", self.answer(step, eid, result), view or mh.experiments())
+        self.assertTrue(p("start", "b"))                    # not the next one
+        self.assertTrue(p("none"))                          # idle with a next one and no reason
+        self.assertEqual(p("none", result="cash 3.9M of 4M: no room for it until 12:40"), [])
+        self.assertEqual(p("start", "a"), [])
+        mh.note_experiment("terra-1", self.answer("start", "a"))
+        v = mh.experiments()
+        self.assertEqual((v["running"]["id"], v["running"]["expired"], v["next"]["id"]), ("a", False, "b"))
+        self.assertTrue(p("start", "b"))                    # a still runs
+        self.assertEqual(p("continue", "a"), [])
+        self.assertEqual(p("none"), [])
+        later = mh.experiments(now=time.time() + 3 * 3600)
+        self.assertTrue(p("none", view=later))              # past its 2 h: must be judged
+        self.assertTrue(p("continue", "a", view=later))
+        self.assertTrue(p("drop", "a", view=later))         # a judgment needs its number
+        self.assertEqual(p("drop", "a", "forum 0.51 < 0.55 on 22 posts", view=later), [])
+        mh.note_experiment("terra-2", self.answer("drop", "a", "forum 0.51 < 0.55 on 22 posts"))
+        v = mh.experiments()
+        self.assertEqual((v["running"], v["next"]["id"], v["closed"]), (None, "b", {"a": "drop"}))
+        self.assertEqual(mh.experiment_problems("astra", self.answer("start", "zzz"), v), [])
+
+    def test_no_queue_file_asks_nothing(self):
+        os.remove(os.path.join(self.tmp.name, mh.EXPERIMENTS))
+        self.assertEqual(mh.experiment_problems("terra", self.answer("none"), mh.experiments()), [])
 
 
 if __name__ == "__main__":

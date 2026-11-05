@@ -1,0 +1,38 @@
+{
+ "about": "Evidenced experiments, one at a time, in order (meta/terra.md 'Experiments'). Add at the end with every field filled and the evidence cited; meta/experiments_log.jsonl holds which one runs.",
+ "queue": [
+  {
+   "id": "forum-price-trend",
+   "change": "Part of the buyer's [구매 기록] posts become [가격 동향] posts: the same SKU's settled prices over the last 6 h from the ledger (median, low, high, count) next to my deal, one post per SKU per window, the other format kept for the rest.",
+   "evidence": "GPT Pro 11/05 priority 3 (review/W-20261105-0953 gptpro-answer-1105.md): buyer forum is the weakest buyer part (percentile 0.396 at 11:14, weight 0.3); forum 0.574 adds +0.025 Players, 0.600 adds +0.109; the same-window gap between formats was only 0.0038, so it is a test, not a known win.",
+   "metric": "median score of a post 10 minutes after posting, per format, and dislikes per post",
+   "direction": "above",
+   "threshold": "trend posts' median 10-minute score >= 0.55 and >= the [구매 기록] median of the same windows, dislikes <= 0.4 per post",
+   "min_sample": "20 posts of each format",
+   "hours": 24,
+   "undo": "back to [구매 기록] posts only (revert the commit that started it)"
+  },
+  {
+   "id": "carpet-G1465c678-one-unit",
+   "change": "One unit of G1465c678 (list 307,000; worst cost at the highest surge 345,375): next_window target 1, priority_skus gets it with sku_target_units 1 so the guard lets one high-price unit through, no repeat until judged.",
+   "evidence": "GPT Pro 11/05 product candidates: the next high-price candidate in the current exploration budget; market mature sales 29 at 3 shops, 0 refunds, 21 of them at one shop, so whether we sell it is unknown.",
+   "metric": "the unit's net contribution 6 h after its sale (settled price - cost - refund - storage), or unsold after two supply windows",
+   "direction": "above",
+   "threshold": "net contribution > 0 and sold within 2 supply windows",
+   "min_sample": "1 unit",
+   "hours": 12,
+   "undo": "drop it from next_window, priority_skus and sku_target_units; no repeat"
+  },
+  {
+   "id": "g6-a-ask-cap-343k",
+   "change": "price.ask_caps.G6b9db161.A 350,000 -> 343,000 (first ask 2% lower), nothing else.",
+   "evidence": "GPT Pro 11/05 priority 7: G6 A 64 mature sales, 5 refunds, mean paid 345,584, contribution 52,388 per sale; book breaks even at +13.9% units, revenue at +2.04%; the data has no count of orders lost on price, so it is a test.",
+   "metric": "G6 A units sold per hour and net contribution per hour, same grade and stock hours, against the 20 mature sales before",
+   "direction": "above",
+   "threshold": "net contribution per hour >= the previous 20 sales' rate",
+   "min_sample": "20 mature sales after the change",
+   "hours": 24,
+   "undo": "price.ask_caps.G6b9db161.A back to 350000"
+  }
+ ]
+}

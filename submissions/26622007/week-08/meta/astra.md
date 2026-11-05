@@ -46,6 +46,9 @@ percentile among the rows the board scores; book 1st among shops is a goal of it
    a test), a new data source for the restock or forum agents, a new strategy behind a setting in pricing.json that starts
    small, or a better memory or context rule (agent_memory.py: what a decision is given, how lessons are written).
    The chosen strategy's experiment comes first; a finding outside it is a second, smaller experiment.
+   Both go into the queue Terra runs one at a time (meta/experiments.json; the pack's `experiments` shows which runs
+   and what closed): every field filled (id, change, evidence cited, metric, direction, threshold, min_sample, hours,
+   undo), ordered by expected effect on Everyone Players. Reorder or drop queued entries the data no longer supports.
 3. Improve the system: meta/terra.md, scorecard.py (the numbers everyone is judged by are yours), meta_harness.py,
    tool_forge.py, agent_tools.py, or a change Terra got wrong. You may build skills, plugins and MCP servers for your own
    analysis and register an MCP server with your own Codex (`codex mcp add`), with their code in this folder.

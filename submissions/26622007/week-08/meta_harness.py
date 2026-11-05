@@ -42,7 +42,8 @@ KIT_PATTERN = os.environ.get("META_KIT_PATTERN", "market_kit.py join")
 CHATGPT_CODEX = "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"
 ECON_ROUND = 3
 STARTED = time.time()             # Astra's clock when no cycle is recorded yet
-NOT_CODE = ("meta/evidence/", "meta/changes.jsonl", "meta/grades.jsonl", "meta/state.json", "meta/last-")
+NOT_CODE = ("meta/evidence/", "meta/changes.jsonl", "meta/grades.jsonl", "meta/state.json", "meta/last-",
+            "meta/experiments_log.jsonl")
 LIVE = ("logs", "memory")         # what the kit and the shop keep writing: never staged by the harness (.gitignore too)
 SELLER_FILES = ("seller.py", "shop_memory.py", "shop_stock.py", "harness.py", "catalog.py", "pricing.json", "acp_shop.py")
 EVIDENCE = {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["ref", "excerpt", "meaning"],
@@ -51,9 +52,18 @@ COMMON = {"changed": {"type": "boolean"}, "hypothesis": {"type": "string"}, "cha
           "target_metric": {"type": "string"}, "expected": {"type": "string"}, "evidence": EVIDENCE,
           # "hard to tell" is not an answer: what is missing, the measurement taken for it this cycle, the line that judges it
           "evidence_gap": {"type": "object", "additionalProperties": False, "required": ["missing", "measurement", "judge_line"],
-                           "properties": {k: {"type": "string"} for k in ("missing", "measurement", "judge_line")}}}
+                           "properties": {"missing": {"type": "string"}, "measurement": {"type": "string"},
+                                          "judge_line": {"type": "object", "additionalProperties": False,
+                                                         "required": ["metric", "direction", "threshold", "min_sample", "expires", "undo"],
+                                                         "properties": {"metric": {"type": "string"},
+                                                                        "direction": {"type": "string", "enum": ["above", "below", "none"]},
+                                                                        "threshold": {"type": "string"}, "min_sample": {"type": "string"},
+                                                                        "expires": {"type": "string"}, "undo": {"type": "string"}}}}}}
+JUDGE_FIELDS = ("metric", "threshold", "min_sample", "expires", "undo")   # a judge line: the number, which way, how many, by when, how to undo
 STRATEGY = "meta/strategy.md"     # the strategy Terra follows: Astra sets it, Terra shifts it only on repeated evidence
-DOCS_ONLY = (STRATEGY,)           # a change of these alone needs no tests and no watch: nothing running reads them
+EXPERIMENTS = "meta/experiments.json"        # the queue of evidenced experiments: Astra, Terra or a person adds to it
+EXPERIMENT_LOG = "meta/experiments_log.jsonl"  # the harness's record of each start and judgment: which one runs
+DOCS_ONLY = (STRATEGY, EXPERIMENTS)  # a change of these alone needs no tests and no watch: nothing running reads them
 
 
 def strict(props):
@@ -67,7 +77,9 @@ SCHEMAS = {
               "strategy_check": strict({"current": S, "gap_cause": {"type": "string", "enum": ["dials", "strategy", "bug", "unclear"]},
                                         "keep_or_shift": {"type": "string", "enum": ["keep", "watch", "shift"]}, "reason": S}),
               "action_kind": {"type": "string", "enum": ["none", "settings", "tool_new", "tool_fix", "prompt", "code", "memory",
-                                                         "strategy_shift"]}},
+                                                         "strategy_shift"]},
+              "experiment": strict({"id": S, "step": {"type": "string", "enum": ["none", "start", "continue", "done", "drop"]},
+                                    "result": S})},
     "astra": {"summary": S,
               "strategy": strict({"options": {"type": "array", "items": strict({"direction": S, "expected_profit": S, "risk": S, "test": S})},
                                   "chosen": S, "experiment": S}),
@@ -457,9 +469,81 @@ def gap_problems(answer, code):
     if not answer or code:
         return []
     gap = answer.get("evidence_gap") or {}
-    if (gap.get("missing") or "").strip() and not ((gap.get("measurement") or "").strip() and (gap.get("judge_line") or "").strip()):
-        return ["evidence is missing but no measurement or judge line was set (meta/terra.md 'When evidence is short')"]
+    line = gap.get("judge_line")
+    whole = isinstance(line, dict) and line.get("direction") in ("above", "below") and \
+        all(isinstance(line.get(k), str) and line[k].strip() for k in JUDGE_FIELDS)
+    if (gap.get("missing") or "").strip() and not ((gap.get("measurement") or "").strip() and whole):
+        return ["evidence is missing but no measurement or whole judge line (metric, direction, threshold, min_sample, "
+                "expires, undo) was set (meta/terra.md 'When evidence is short')"]
     return []
+
+
+def experiments(now=None):
+    """The queue as the pack shows it: the one running (when it started, its expiry, whether that passed), the next one
+    queued and how many wait. A queue entry: id, change, evidence, metric, direction, threshold, min_sample, hours, undo.
+    Its state is the last step meta/experiments_log.jsonl holds for it (none yet: queued)."""
+    now = time.time() if now is None else now
+    try:
+        with open(os.path.join(ROOT, EXPERIMENTS), encoding="utf-8") as f:
+            queue = json.load(f).get("queue") or []
+    except (OSError, ValueError, AttributeError):
+        queue = []
+    queue = [e for e in queue if isinstance(e, dict) and isinstance(e.get("id"), str)]
+    steps, started = {}, {}
+    for r in scorecard.jsonl(os.path.join(ROOT, EXPERIMENT_LOG)):
+        if isinstance(r.get("id"), str) and isinstance(r.get("ts"), (int, float)):
+            steps[r["id"]] = r.get("step")
+            if r.get("step") == "start":
+                started[r["id"]] = r["ts"]
+    run = next((e for e in queue if steps.get(e["id"]) in ("start", "continue")), None)
+    waiting = [e for e in queue if e["id"] not in steps]
+    out = {"running": None, "next": waiting[0] if waiting else None, "waiting": len(waiting),
+           "closed": {i: st for i, st in steps.items() if st in ("done", "drop")}}
+    if run:
+        hours = run.get("hours") if isinstance(run.get("hours"), (int, float)) and not isinstance(run.get("hours"), bool) else 12
+        ends = started.get(run["id"], now) + hours * 3600
+        out["running"] = {**run, "hours": hours, "started": time.strftime("%m-%d %H:%M", time.localtime(started.get(run["id"], now))),
+                          "expires": time.strftime("%m-%d %H:%M", time.localtime(ends)), "expired": now > ends}
+    return out
+
+
+def experiment_problems(kind, answer, view):
+    """One evidenced experiment at a time, from the queue in order (meta/terra.md 'Experiments'): start only the next
+    one and only when none runs, judge the running one once its hours pass, and with none running either start the next
+    or say why not in result. A cycle that breaks this is not accepted."""
+    if kind != "terra" or not answer:
+        return []
+    x = answer.get("experiment") or {}
+    step, eid, said = x.get("step") or "none", x.get("id") or "", (x.get("result") or "").strip()
+    run, nxt = view.get("running"), view.get("next")
+    if step == "start":
+        if run:
+            return [f"experiment {eid}: {run['id']} still runs; judge it (done or drop) before another starts"]
+        if not nxt or eid != nxt["id"]:
+            return [f"experiment {eid}: only the next one in the queue ({nxt['id'] if nxt else 'none'}) can start"]
+        return []
+    if step in ("continue", "done", "drop"):
+        if not run or eid != run["id"]:
+            return [f"experiment {eid}: not the running one ({run['id'] if run else 'none'})"]
+        if step == "continue" and run.get("expired"):
+            return [f"experiment {eid} passed its {run['hours']} h at {run['expires']}: judge it (done or drop)"]
+        if step != "continue" and not said:
+            return [f"experiment {eid} {step}: result must give the metric's number against its threshold and the sample"]
+        return []
+    if run and run.get("expired"):
+        return [f"experiment {run['id']} passed its {run['hours']} h at {run['expires']}: judge it (done or drop)"]
+    if not run and nxt and not said:
+        return [f"experiment {nxt['id']} is next in the queue: start it or say in result why not now (the number that blocks it)"]
+    return []
+
+
+def note_experiment(cid, answer):
+    """After an accepted cycle: its experiment step goes into the log the next pack reads."""
+    x = (answer or {}).get("experiment") or {}
+    if x.get("step") in ("start", "continue", "done", "drop") and x.get("id"):
+        with open(os.path.join(ROOT, EXPERIMENT_LOG), "a", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": time.time(), "cycle": cid, "id": x["id"], "step": x["step"],
+                                "result": x.get("result") or ""}, ensure_ascii=False) + "\n")
 
 
 def last_cycle_time(kind):
@@ -545,6 +629,7 @@ def cycle(kind):
     pack = os.path.join(ROOT, "meta", "evidence", f"{cid}.json")
     card = scorecard.build(ROOT, record=True)
     card["since_last_cycle"] = since_last(card, kind)
+    card["experiments"] = view = experiments()
     lc = card.get("log_counts") or {}
     SAMPLE["settled"] = lc.get("settled_as_shop", 0) + lc.get("paid_as_buyer", 0)
     with open(pack, "w", encoding="utf-8") as f:
@@ -572,6 +657,7 @@ def cycle(kind):
         problems += strategy_problems(kind, answer, code)
         problems += gap_problems(answer, code)
         problems += alert_problems(card, answer, code)
+        problems += experiment_problems(kind, answer, view)
     problems += limit_problems(code)
     moved = hard_limits.policy_diff(pricing_at_head(), pricing_now())
     if moved:
@@ -588,6 +674,8 @@ def cycle(kind):
         return rec
     if not code:
         rec.update(status="no_change" if not problems else "no_change_unsupported", problems=problems)
+        if not problems:
+            note_experiment(cid, answer)
         log(f"{cid}: no change ({len(problems)} citation problems)")
         record(rec)
         return rec
@@ -608,6 +696,7 @@ def cycle(kind):
     rec.update(commit=sha, files=code, settings=moved)
     log(f"{cid}: applied {sha[:8]}: {title}")
     if docs_only:
+        note_experiment(cid, answer)
         rec.update(status="running")
         log(f"{cid}: strategy document only, nothing to watch")
         record(rec)
@@ -623,6 +712,7 @@ def cycle(kind):
             restart_seller(code)
             rec.update(status="canary_failed", problems=bad)
     else:
+        note_experiment(cid, answer)    # only a change that stays: one the watch undid took its experiment step with it
         rec.update(status="running")
         log(f"{cid}: passed the watch")
     record(rec)

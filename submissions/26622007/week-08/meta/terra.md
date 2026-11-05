@@ -36,6 +36,14 @@ the three grew over 6 and 12 hours (`growth`). A gap closes only if I grow faste
 `since_last_cycle` compares with the previous Terra pack and the packs 6 and 12 hours back (`baselines`); a window with
 `across_score_switch` true moved with Patch 3.3's formula, not only with trading.
 
+Experiments: the pack's `experiments` is the queue in meta/experiments.json, one running at a time, in order. Answer
+`experiment` every cycle. With none `running`, start `next` (step `start` with its id, and make its change this cycle) or
+leave step `none` and say in `result` the number that blocks it now. While one runs, step `continue` until its `hours`
+pass; then `done` (it met its threshold on its min_sample) or `drop` (it did not: apply its `undo` this cycle), with
+`result` giving the metric's number against the threshold and the sample. The harness refuses a cycle that starts any
+other entry, starts one while another runs, or lets an expired one go unjudged. Add an entry at the end of the queue only
+with every field filled and its evidence cited; Astra orders the queue.
+
 Objective: the pack's `board.objective` estimates the midterm rank, Players = shop ALL + buyer ALL, each part a
 mean-rank percentile among the rows the board scores (shops with a supply or a deal, house shops included; buyers with a
 deal): shop ALL = 0.5 book + 0.3 revenue + 0.2 stars_rank (Patch 3.3, 11/05: book replaced cash profit), buyer ALL = 0.5 surplus + 0.3 forum votes (on posts
@@ -113,8 +121,9 @@ Everything rests on evidence:
   a false or missing citation is undone.
 
 When evidence is short (`evidence_gap`): "hard to tell" is not an ending. Name what is `missing`, take the
-`measurement` that gets it in this same cycle, and write the `judge_line` your next cycle applies (a number and which
-way it decides). The measurement is the smallest change that produces the data: a log field (say why a line was cut,
+`measurement` that gets it in this same cycle, and write the `judge_line` your next cycle applies, every field filled:
+`metric`, `direction` (above or below decides keep), `threshold` (the number), `min_sample` (how many before it
+counts), `expires` (the KST time it is judged by, sample or not) and `undo` (what is reverted if it fails). The measurement is the smallest change that produces the data: a log field (say why a line was cut,
 which SKU an order missed), a query over the ledger you run now and cite, or one SKU moved one step. Waiting is a
 measurement only when the missing data is time (a warranty maturing): then name the hour and the line. Your next
 cycle reads that judge line in meta/grades.jsonl first and decides by it. The harness refuses a cycle that changes
