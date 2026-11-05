@@ -224,7 +224,7 @@ class PriceTest(unittest.TestCase):
         r = p["restock"]
         self.assertEqual((r["max_stock_cost"], r["max_units_per_sku"], r["cover_hours"], r["keep_cash"],
                           r["food_max_stock_cost"], r["high_price_goods"], r["high_price_max_units"]),
-                         (15000000, 6, 6, 4500000, 650000, 100000, 3))   # keep_cash: 21.9M open warranties at 05:00
+                         (15000000, 6, 6, 4500000, 650000, 100000, 4))   # 4: G8ec51935's target (scale 3); other dear SKUs stay at their own target   # keep_cash: 21.9M open warranties at 05:00
         # scale 2 (a person's 15M cap, 11/05 11:48): cover 6 h and 3 dear units so the model asks for the 60만+ lines
         # (our share 0.35-0.76/h); six runs without a sale fill ~15.0M, 10.5M of it 60만+ (scale2-result.md)
         # food 65만: food sells in 0.1 h with nothing spoiled, and its 45만 cap cut 416 of the last 2,000 guard lines
@@ -241,8 +241,10 @@ class PriceTest(unittest.TestCase):
         self.assertEqual((r["priority_skus"], r["sku_target_units"]),
                          (["G8ec51935", "Gb5d0dde7", "G03d0199f", "G05277ffe", "G00327e80", "G75f11c19", "Gef4d3036",
                            "Gb2392fa9", "G200e39a3", "G66ded25b", "G1465c678"],
-                          {"G1515d951": 4, "G6b9db161": 1, "G75f11c19": 1, "G05277ffe": 3, "Gb5d0dde7": 3,
-                           "G8ec51935": 3, "G03d0199f": 2, "G00327e80": 2, "G1465c678": 1}))   # G1515 4: Astra 21:19, same five units across two supply windows; G6 2: undo the reduction triggered by mislinked refunds
+                          {"G1515d951": 4, "G6b9db161": 1, "G75f11c19": 1, "G05277ffe": 3, "Gb5d0dde7": 2,
+                           "G8ec51935": 4, "G03d0199f": 2, "G00327e80": 2, "G1465c678": 1}))
+        # scale 3 (12:24-13:05): G8ec51935 sold 2 in 40 min and was refilled each window -> 4; Gb5d0dde7's 3 units from
+        # 12:27 sat unsold across the 12:41 and 13:01 windows -> 2 (scale2-result.md §8)   # G1515 4: Astra 21:19, same five units across two supply windows; G6 2: undo the reduction triggered by mislinked refunds
         # Patch 3.3 (book): one unit each of two 60만+ goods 12-14 shops sell 39-49/h at 3-4% mature break, after the proven
         # SKUs and food (scale-analysis.md); the 2.32M sofa G8ec51935 waits for a larger cap
         cat = {"G05277ffe": {"kind": "goods", "list_price": 600000}, "Gb5d0dde7": {"kind": "goods", "list_price": 1094400},
@@ -251,10 +253,10 @@ class PriceTest(unittest.TestCase):
         buy = [{"sku": s, "qty": 5} for s in cat]
         inv = {"balance": 50000000, "units": [{"sku": "G05277ffe", "kind": "goods", "cost": 360000}]}
         with contextlib.redirect_stderr(io.StringIO()):
-            self.assertEqual(restock.guard(buy, inv, cat, cfg), [{"sku": "G05277ffe", "qty": 2}, {"sku": "Gb5d0dde7", "qty": 3},
-                                                              {"sku": "G8ec51935", "qty": 3}])     # 3 each under 15M, one held
+            self.assertEqual(restock.guard(buy, inv, cat, cfg), [{"sku": "G05277ffe", "qty": 2}, {"sku": "Gb5d0dde7", "qty": 2},
+                                                              {"sku": "G8ec51935", "qty": 4}])     # targets under 15M, one held
             self.assertEqual(restock.guard(buy, {**inv, "units": []}, cat, cfg),
-                             [{"sku": "G05277ffe", "qty": 3}, {"sku": "Gb5d0dde7", "qty": 3}, {"sku": "G8ec51935", "qty": 3}])   # unlisted stay out
+                             [{"sku": "G05277ffe", "qty": 3}, {"sku": "Gb5d0dde7", "qty": 2}, {"sku": "G8ec51935", "qty": 4}])   # unlisted stay out
         self.assertEqual(r["food_max_qty"], 4)     # every food line refills up to 4 units, not 3 (the SKU cap stays max_units_per_sku 6)
         self.assertTrue(r["high_price_listed_only"])
         # no cap per deal (hard_limits.UNCAPPED; at 800k my buyer settled 1 of 113 dear orders) and the whole list price:
