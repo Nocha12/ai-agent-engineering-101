@@ -374,8 +374,8 @@ def log_prices(md, inv, breaks, pricing):
     opening.save(path, {"seen": [u["unit"] for u in units]})
 
 
-GOAL = """You decide what stock a shop buys now. Profit (balance at the end of the round, so unsold stock is a loss),
-revenue and stars are what count. Round ends at unix time {ends}, now is {now}. A unit costs 25-75% of list price by grade;
+GOAL = """You decide what stock a shop buys now. Book (balance plus what the unsold stock cost, Patch 3.3: a restock
+does not lower it; storage, refunds and spoiled food do), revenue and stars are what count. Round ends at unix time {ends}, now is {now}. A unit costs 25-75% of list price by grade;
 food past its date is thrown away at cost; goods in stock cost 1% of cost per day. A shop with no stock cannot sell at all,
 and other shops' deals show in the ledger whether you stock or not. Up to {lines} lines, qty 1-20 each.
 c0 is the formula's proposal for this state; follow it, change it or ignore it, as the evidence says. Your lines go
@@ -492,6 +492,18 @@ def with_formula(agent_lines, formula_lines, keep, limit):
     return keep(list(agent_lines) + [b for b in formula_lines if b["sku"] not in mine])[:limit]
 
 
+def with_trial(trial, buy, inv, catalog, cfg, breaks=None, waiting=()):
+    """next_window's one-off lines first, then the run's usual lines in the room the limits leave (the trial's units count
+    as on their way). The trial used to replace the whole window: the 01:40 and 09:40 windows of 11/05 each bought the
+    single trial unit while the windows around them bought 28-53 units (ledger supply rows)."""
+    if not trial:
+        return list(buy)
+    sent = [{"sku": b["sku"], "qty": b["qty"],
+             "worst": ((catalog.get(b["sku"]) or {}).get("list_price") or 0) * WORST_COST} for b in trial]
+    mine = {b["sku"] for b in trial}
+    return list(trial) + guard([b for b in buy if b["sku"] not in mine], inv, catalog, cfg, breaks, list(waiting) + sent)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--state", required=True)
@@ -511,17 +523,17 @@ def main():
     keep = lambda b: guard(b, inv, catalog, cfg, breaks, waiting)
     out = plan(inv, catalog, demand, cfg, model, breaks, waiting)
     ocfg = hard_limits.clamp_cfg("opening", {**opening.DEFAULTS, **pricing.get("opening", {})})
-    first, why = None, "not Round 3"
+    first, why, trial = None, "not Round 3", None
     if inv.get("round", 0) >= market_model.ECON_ROUND and not out.get("bankrupt"):
         try:
             first, why = opening.lines(args.state, inv, catalog, demand, market_model.load_rows(args.state), ocfg, keep=keep)
         except Exception as e:   # noqa: BLE001 - a broken opening leaves the usual plan, not an idle shop
             first, why = None, f"opening failed: {type(e).__name__}: {e}"
-        if first is None:
+        if first is None:       # next_window adds its lines to this run's (with_trial); it no longer stops the window
             try:
-                first, more = next_window(args.state, inv, catalog, pricing.get("next_window") or {}, waiting, keep)
+                trial, more = next_window(args.state, inv, catalog, pricing.get("next_window") or {}, waiting, keep)
             except Exception as e:   # noqa: BLE001 - the same: the usual plan goes on
-                first, more = None, f"next_window failed: {type(e).__name__}: {e}"
+                trial, more = None, f"next_window failed: {type(e).__name__}: {e}"
             why = f"{why}; {more}"
         try:
             log_prices(args.state, inv, breaks, pricing)
@@ -541,6 +553,8 @@ def main():
             send, back = batch(lines, [] if queued else out["buy"], out["buy"], keep, cfg)
             requeue(args.state, back)
             out = {"buy": send}
+    if trial and not out.get("bankrupt"):
+        out["buy"] = with_trial(trial, out["buy"], inv, catalog, cfg, breaks, waiting)
     agent_memory.maybe_consolidate(args.state)
     if os.environ.get("HARNESS"):
         forum.maybe_run(args.state)     # the kit runs this hook once a minute in Round 3; forum.py keeps its own pace

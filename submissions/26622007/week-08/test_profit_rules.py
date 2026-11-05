@@ -306,6 +306,22 @@ class GuardTest(unittest.TestCase):
         self.assertEqual(restock.guard([{"sku": "H1", "qty": 3}], {"balance": 2520000, "units": []}, CAT, CFG), [{"sku": "H1", "qty": 1}])
 
 
+class WithTrialTest(unittest.TestCase):
+    def test_trial_goes_first_and_the_usual_lines_fill_the_room_left(self):
+        inv = {"balance": 5000000, "units": []}
+        # BIG's trial unit (worst 300,000) leaves 600,000 of the 900,000 stock cap: H1 3 still fits, BIG is not bought twice
+        out = restock.with_trial([{"sku": "BIG", "qty": 1}], [{"sku": "BIG", "qty": 1}, {"sku": "H1", "qty": 3}],
+                                 inv, CAT, CFG)
+        self.assertEqual(out, [{"sku": "BIG", "qty": 1}, {"sku": "H1", "qty": 3}])
+        self.assertEqual(restock.with_trial([{"sku": "BIG", "qty": 1}], [{"sku": "F2", "qty": 3}], inv, CAT,
+                                            dict(CFG, max_stock_cost=320000)), [{"sku": "BIG", "qty": 1}])
+
+    def test_no_trial_leaves_the_lines_alone(self):
+        lines = [{"sku": "H1", "qty": 9}]
+        self.assertEqual(restock.with_trial(None, lines, {}, CAT, CFG), lines)
+        self.assertEqual(restock.with_trial([], lines, {}, CAT, CFG), lines)
+
+
 class PendingAndNextWindowTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

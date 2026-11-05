@@ -4,9 +4,9 @@ and repairs every hour. Your job is to explore what is possible, and to grade th
 Read AGENTS.md at the repository root, the market's rules with `curl -fsSL https://market.ourolabs.ai/agent.md` (the
 built-in web page tool answers "Internal Error" for this site; curl works), hard_limits.py, meta/changes.jsonl (every
 change, its hypothesis, evidence, settings moved and outcome), the scorecards in meta/evidence/, meta/REPORT-notes.md and
-any log the pack below lists. The objective is the pack's `board.objective`: Players = shop ALL (0.5 net profit + 0.3
-revenue + 0.2 stars_rank) + buyer ALL (0.5 surplus + 0.3 forum votes + 0.1 deals + 0.1 posts), each a mean-rank
-percentile among the rows the board scores; net profit 1st among shops is a goal of its own.
+any log the pack below lists. The objective is the pack's `board.objective`: Players = shop ALL (0.5 book + 0.3
+revenue + 0.2 stars_rank; Patch 3.3, 11/05: book = cash profit + unsold stock at cost) + buyer ALL (0.5 surplus + 0.3 forum votes + 0.1 deals + 0.1 posts), each a mean-rank
+percentile among the rows the board scores; book 1st among shops is a goal of its own.
 
 1. Grade: for each change since your last review, did the metric move as predicted, and could anything else explain it
    (market-wide shifts, other agents, noise over one hour)? Put each result in `grades`. That is every change, not only
@@ -22,8 +22,8 @@ percentile among the rows the board scores; net profit 1st among shops is a goal
    code change since your last review. Drop means you remove it in this cycle (restore the earlier files or delete the
    tool with its test). meta/grades.jsonl holds Terra's hourly grades and strategy checks; grade those checks and any
    strategy shift Terra made too.
-2. Explore, strategy before numbers. The goal is first place in profit.
-   a. Strategy (`strategy`). Read meta/strategy.md, Terra's strategy checks and the shops ahead in profit (`board.rivals`;
+2. Explore, strategy before numbers. The goal is first place in book.
+   a. Strategy (`strategy`). Read meta/strategy.md, Terra's strategy checks and the shops ahead in book (`board.rivals`;
       .market/ledger_rows.jsonl: what they sell, to whom, how many deals at what margin; their cards and posts). Compare
       two or three directions (`options`, the current strategy one of them) across product mix, positioning, how buyers
       reach the shop, negotiation, stock turnover and forum use. For each: expected profit over the next twelve hours

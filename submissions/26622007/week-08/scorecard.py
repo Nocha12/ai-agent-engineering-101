@@ -27,8 +27,10 @@ SOURCES = ("logs", "memory", ".market", "meta")
 # Fitted to the board (review/W-20261104-2030, GPT Pro 3판 §2.1): every row of 268 Round 3 snapshots (13,185 shop rows,
 # 12,061 buyer rows) within the board's rounding (0.0005). The rows ranked are those the board scores (all is not None:
 # shops with a supply or a deal, house shops included; buyers with a deal), a tie takes the mean rank, a missing value is 0,
-# the shop's stars part is stars_rank, and posts count 0.1 of the buyer's ALL.
-OBJECTIVE = {"shops": [(("profit",), 0.5), (("revenue",), 0.3), (("stars_rank", "stars"), 0.2)],
+# the shop's stars part is stars_rank, and posts count 0.1 of the buyer's ALL. Patch 3.3 (11/05) ranks book (cash profit +
+# unsold stock at cost) instead of profit: on the 09:57 board book reproduces all 52 shop rows within 0.0005, profit
+# misses by up to 0.157. profit stays the fallback for a board without book.
+OBJECTIVE = {"shops": [(("book", "profit"), 0.5), (("revenue",), 0.3), (("stars_rank", "stars"), 0.2)],
              "buyers": [(("surplus", "saved"), 0.5), (("forum", "forum_score", "votes", "score"), 0.3), (("deals",), 0.1),
                         (("posts",), 0.1)]}
 
@@ -72,8 +74,7 @@ def objective(b):
                   "board_all": mine.get("all"), "parts": got, "of": len(rows)}
     shop, buyer = out["shops"].get("all"), out["buyers"].get("all")
     out["players"] = None if shop is None and buyer is None else round((shop or 0) + (buyer or 0), 3)
-    # Keep the requested cash-profit objective, but expose drift from the public
-    # board (which can rank book). Do not silently claim exact reproduction.
+    # Drift from the board's own ALL: a non-zero value means the formula above no longer matches the board.
     out["board_drift"] = {k: round(out[k]["all"] - out[k]["board_all"], 6)
                           for k in OBJECTIVE if isinstance(out[k].get("all"), (int, float))
                           and isinstance(out[k].get("board_all"), (int, float))}
@@ -112,17 +113,19 @@ def board():
     return out
 
 
-RIVAL_FIELDS = ("name", "deals", "visits", "share", "revenue", "profit", "stars", "refunds", "broken", "honest_claims", "claims")
+RIVAL_FIELDS = ("name", "deals", "visits", "share", "revenue", "book", "stock_cost", "profit", "stars", "refunds", "broken", "honest_claims", "claims")
 
 
 def rivals(rows, top=5):
-    """The shops ahead in profit and how they present themselves: the strategy check compares mine with theirs."""
-    ranked = sorted((r for r in rows if isinstance(r.get("profit"), (int, float)) and not isinstance(r.get("profit"), bool)),
-                    key=lambda r: -r["profit"])
+    """The shops ahead in book (Patch 3.3; profit on a board without book) and how they present themselves: the strategy
+    check compares mine with theirs."""
+    key = "book" if any(isinstance(r.get("book"), (int, float)) for r in rows) else "profit"
+    ranked = sorted((r for r in rows if isinstance(r.get(key), (int, float)) and not isinstance(r.get(key), bool)),
+                    key=lambda r: -r[key])
     me = next((i for i, r in enumerate(ranked, 1)
                if r.get("name") == ME or ((r.get("owner") or {}).get("login") or "").lower() == "nocha12"), None)
     card = lambda r: str((r.get("card") or {}).get("description") or "")[:240] if isinstance(r.get("card"), dict) else ""
-    return {"my_profit_rank": me, "of": len(ranked),
+    return {"my_profit_rank": me, "ranked_by": key, "of": len(ranked),
             "top": [{**{f: r.get(f) for f in RIVAL_FIELDS}, "card": card(r)} for r in ranked[:top]]}
 
 

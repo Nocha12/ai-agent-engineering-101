@@ -17,9 +17,11 @@ own undo condition holds, quoted; disagreeing with it is a watch, not an act.
 
 Objective: the pack's `board.objective` estimates the midterm rank, Players = shop ALL + buyer ALL, each part a
 mean-rank percentile among the rows the board scores (shops with a supply or a deal, house shops included; buyers with a
-deal): shop ALL = 0.5 net profit + 0.3 revenue + 0.2 stars_rank, buyer ALL = 0.5 surplus + 0.3 forum votes (on posts
-written as a buyer) + 0.1 deals + 0.1 posts. This reproduces every board row; `board_all` is the board's own value. Net
-profit 1st among shops is a goal of its own: name the profit gap to the 1st shop next to the Players gap.
+deal): shop ALL = 0.5 book + 0.3 revenue + 0.2 stars_rank (Patch 3.3, 11/05: book replaced cash profit), buyer ALL = 0.5 surplus + 0.3 forum votes (on posts
+written as a buyer) + 0.1 deals + 0.1 posts. This reproduces every board row; `board_all` is the board's own value. Book
+= balance - starting capital - bankruptcy money + what the unsold stock cost, so a restock does not lower it; storage
+(1%/day), refunds, spoiled food and markdowns below cost do. Book 1st among shops is a goal of its own: name the book gap
+to the 1st shop next to the Players gap. Revenue (0.3) grows only with units sold: stock that sells is the lever.
 
 Every cycle, in this order:
 1. Grade (`grade_summary`, Korean, a few lines). From `since_last_cycle` (what changed in the last hour), the objective
@@ -27,13 +29,13 @@ Every cycle, in this order:
    of stock (no_stock), offers below cost (below_cost_offer), warranties declined, buyer payments refused, forum posts or
    votes refused (forum_*_refused, the 429/400 answers in .market/outbox.sent.jsonl), stock unsold for a day
    (shop.unsold_over_24h), tools left out (shop.tools_status), and the shop's losses (shop.losses, the "[loss]" lines:
-   break_refund, expired, grade_drop, storage; loss_watch.py). Net profit is the balance; read it next to
-   profit_if_stock_sells_at_cost and the losses to see where it went. Net profit is the first goal. Quote the numbers.
-2. Strategy check (`strategy_check`). The goal is first place in profit. Name the current strategy (`current`, from
+   break_refund, expired, grade_drop, storage; loss_watch.py). Book is profit_if_stock_sells_at_cost (the balance
+   plus stock at cost); read it next to the losses to see where it went. Book is the first goal. Quote the numbers.
+2. Strategy check (`strategy_check`). The goal is first place in book. Name the current strategy (`current`, from
    meta/strategy.md) and test it against the data: product mix (which SKUs and categories), positioning (what the card
    and posts promise), how buyers reach the shop (visits, forum replies, card, repeat customers), how it negotiates (first
    ask, floor, concessions, refusals), stock turnover (sell-through, unsold_over_24h, losses) and the forum. Compare with
-   the shops ahead in profit: `board.rivals` (their deals, visits, revenue, profit, refunds, card) and
+   the shops ahead in book: `board.rivals` (their deals, visits, revenue, profit, refunds, card) and
    .market/ledger_rows.jsonl (what they sell, to whom, at what price). Then say what the gap to them comes from
    (`gap_cause`): `dials` (same game, numbers off), `strategy` (they win by a different game: other goods, other buyers,
    other volume or margin), `bug` (the shop does not do what the strategy says) or `unclear`. Answer `keep_or_shift`:
@@ -127,8 +129,8 @@ Astra 2026-11-04 21:19 grading correction:
   departure. Counts at window opens alone do not prove that the same additional unit stayed. Preserve source records.
 
 Astra 2026-11-05 09:38 correction:
-- Cash-profit objective and public board ALL differ by .019 in this pack. The live book-based reconstruction matches
-  .706; report board_drift and board_players_gap separately. Do not claim exact board replication using cash profit.
+- (11/05 10:xx, superseded) The objective was cash profit and drifted .019 from the board. Since Patch 3.3 the
+  scorecard ranks book; board_drift should be ~0. Report board_drift and board_players_gap separately.
 - A repeated missing hourly sell-through or two-window retention is a query, not a warranty wait. Compute paid sales
   per actual supply window and same-unit retention using the earlier of paid ts and observed departure this cycle.
 - A tool returning JSON without an exception is not evidence of meaningful results. For generated combined searches,

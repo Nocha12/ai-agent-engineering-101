@@ -12,3 +12,16 @@ class DriftTest(unittest.TestCase):
         self.assertEqual(o['players'], 2)
         del b['players']
         self.assertIsNone(scorecard.objective(b)['board_players_gap'])
+
+
+class BookTest(unittest.TestCase):
+    def test_shop_all_ranks_book_when_the_board_has_it(self):
+        me = {'name': scorecard.ME, 'profit': 1, 'book': 9, 'revenue': 5, 'stars_rank': 5, 'all': .75}
+        other = {'name': 'x', 'profit': 5, 'book': 5, 'revenue': 9, 'stars_rank': 9, 'all': .25}
+        o = scorecard.objective({'shops': [me, other], 'buyers': []})
+        self.assertIn('book', o['shops']['parts'])
+        self.assertEqual(o['shops']['all'], .5)
+        self.assertEqual(o['board_drift']['shops'], -.25)
+        r = scorecard.rivals([me, other])
+        self.assertEqual((r['ranked_by'], r['my_profit_rank']), ('book', 1))
+        self.assertEqual(scorecard.rivals([{k: v for k, v in other.items() if k != 'book'}])['ranked_by'], 'profit')
