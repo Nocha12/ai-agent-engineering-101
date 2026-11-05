@@ -100,6 +100,8 @@ def objective(b):
 
 HISTORY = os.path.join(".market", "board_history.jsonl")
 GROWTH_HOURS = (6, 12)
+HISTORY_HOURS = 13         # the history keeps what the longest growth window needs
+FORUM = next(names for names, _ in OBJECTIVE["buyers"] if "forum" in names)
 
 
 def snapshot(b):
@@ -107,7 +109,8 @@ def snapshot(b):
     return {"ts": time.time(),
             "players": {str(r.get("player")): r.get("total") for r in b.get("players") or [] if r.get("player")},
             "shops": {r.get("name"): [r.get("book"), r.get("revenue"), r.get("all")] for r in b.get("shops") or []},
-            "buyers": {r.get("name"): [r.get("surplus"), r.get("forum"), r.get("all")] for r in b.get("buyers") or []}}
+            "buyers": {r.get("name"): [r.get("surplus"), next((r[n] for n in FORUM if n in r), None), r.get("all")]
+                       for r in b.get("buyers") or []}}
 
 
 def history(root):
@@ -156,7 +159,8 @@ def alerts(md, card_board, now=None):
         out.append(f"surge: {len(over)} unit(s) in stock bought in the last 6 h above {WORST_COST_SHARE} x list "
                    f"(worst {max(r for _, r in over)}; {collections.Counter(s for s, _ in over).most_common(3)})")
     obj = card_board.get("objective") or {}
-    now_forum = (((obj.get("buyers") or {}).get("parts") or {}).get("forum") or {}).get("value")
+    parts = (obj.get("buyers") or {}).get("parts") or {}
+    now_forum = next(((parts[n] or {}).get("value") for n in FORUM if n in parts), None)
     then = card_board.get("forum_6h_ago")
     if isinstance(now_forum, (int, float)) and isinstance(then, (int, float)) and now_forum < then - FORUM_DROP:
         out.append(f"forum: buyer forum {now_forum} now, {then} 6 h ago")
@@ -188,8 +192,8 @@ def race(b, past, now=None):
             out["growth"][f"{h}h"] = None
             continue
         then = old[-1].get("players") or {}
-        g = lambda name: None if name is None or not isinstance(then.get(name), (int, float)) else \
-            round(next(r["total"] for r in players if r.get("player") == name) - then[name], 3)
+        g = lambda name: None if name is None or not isinstance(then.get(str(name)), (int, float)) else \
+            round(next(r["total"] for r in players if r.get("player") == name) - then[str(name)], 3)
         out["growth"][f"{h}h"] = {"me": g(me.get("player")), "leader": g(lead.get("player")),
                                   "above": g(above.get("player")) if above else None,
                                   "hours": round((now - old[-1]["ts"]) / 3600, 1)}
@@ -197,11 +201,20 @@ def race(b, past, now=None):
 
 
 def jsonl(path):
+    """Every readable line: a line cut by a killed append is skipped, not the whole file."""
+    out = []
     try:
         with open(path, encoding="utf-8") as f:
-            return [json.loads(x) for x in f if x.strip().startswith("{")]
-    except (OSError, ValueError):
-        return []
+            for x in f:
+                try:
+                    r = json.loads(x)
+                except ValueError:
+                    continue
+                if isinstance(r, dict):
+                    out.append(r)
+    except OSError:
+        pass
+    return out
 
 
 def board(root=None, record=False):
@@ -218,9 +231,12 @@ def board(root=None, record=False):
         out["race"] = race(b, past)
         out["forum_6h_ago"] = forum_then(past, 6)
         if record:
+            keep = [p for p in past if isinstance(p.get("ts"), (int, float)) and p["ts"] > time.time() - HISTORY_HOURS * 3600]
+            path = os.path.join(root, HISTORY)
             try:
-                with open(os.path.join(root, HISTORY), "a", encoding="utf-8") as f:
-                    f.write(json.dumps(snapshot(b), ensure_ascii=False) + "\n")
+                with open(path + ".tmp", "w", encoding="utf-8") as f:
+                    f.writelines(json.dumps(p, ensure_ascii=False) + "\n" for p in keep + [snapshot(b)])
+                os.replace(path + ".tmp", path)
             except OSError:
                 pass
     for k in ("shops", "buyers", "players"):

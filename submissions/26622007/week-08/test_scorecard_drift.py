@@ -72,3 +72,13 @@ class AlertTest(unittest.TestCase):
             b['objective']['board_drift'] = {}
             os.remove(os.path.join(md, 'llm_calls.jsonl'))
             self.assertEqual([a.split(':')[0] for a in scorecard.alerts(md, b, now=now)], ['llm_cap', 'surge'])
+
+
+class JsonlTest(unittest.TestCase):
+    def test_a_cut_line_is_skipped_not_the_whole_file(self):
+        import os, tempfile
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, 'h.jsonl')
+            with open(p, 'w') as f:
+                f.write('{"ts": 1}\n{"ts": 2, "pla{"ts": 3}\n{"ts": 4}\n')
+            self.assertEqual([r['ts'] for r in scorecard.jsonl(p)], [1, 4])

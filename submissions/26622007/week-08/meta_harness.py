@@ -412,10 +412,10 @@ def since_last(card, kind="terra", now=None):
     out = {"previous": packs[-1], "log_rotated": rotated, "log_counts": {k: v for k, v in delta.items() if v},
            "players": [obj(prev).get("players"), obj(card).get("players")], "shop": [prev.get("shop"), card.get("shop")],
            "across_score_switch": os.path.getmtime(os.path.join(folder, packs[-1])) < SCORE_SWITCH <= now, "baselines": {}}
+    every = sorted((os.path.getmtime(os.path.join(folder, p)), p) for p in os.listdir(folder)
+                   if re.fullmatch(r"(terra|astra)-\d+(-\d+)?\.json", p))
     for h in BASELINE_HOURS:      # the newest pack at least h hours old, any kind: the 6 and 12 hour trend
-        every = sorted((p for p in os.listdir(folder) if re.fullmatch(r"(terra|astra)-\d+(-\d+)?\.json", p)),
-                       key=lambda p: os.path.getmtime(os.path.join(folder, p)))
-        old = [p for p in every if os.path.getmtime(os.path.join(folder, p)) <= now - h * 3600]
+        old = [p for t, p in every if t <= now - h * 3600]
         base = load(old[-1]) if old else None
         if base is None:
             out["baselines"][f"{h}h"] = None
@@ -431,12 +431,13 @@ def since_last(card, kind="terra", now=None):
 
 def alert_problems(card, answer, code):
     """A cycle that changes nothing while the scorecard raises an alert (llm cap, surge above the worst cost, forum falling,
-    drift, rules) must answer each alert by name in evidence_gap or grade_summary: no_change cannot pass one over."""
+    drift, rules) must answer each one as "alert <name>: ..." in grade_summary or evidence_gap: no_change cannot pass one
+    over, and a plain word like "forum" in a summary does not count as an answer."""
     if code or not answer:
         return []
-    said = json.dumps({k: answer.get(k) for k in ("grade_summary", "summary", "evidence_gap", "strategy_check")},
-                      ensure_ascii=False)
-    return [f"alert left open with no change: {a}" for a in card.get("alerts") or [] if a.split(":")[0] not in said]
+    said = json.dumps({k: answer.get(k) for k in ("grade_summary", "evidence_gap")}, ensure_ascii=False)
+    return [f"alert left open with no change: {a}" for a in card.get("alerts") or []
+            if f"alert {a.split(':')[0]}:" not in said]
 
 
 def grade_log(rec):

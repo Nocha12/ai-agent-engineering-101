@@ -700,7 +700,7 @@ class ObjectiveTest(unittest.TestCase):
 class AlertProblemsTest(unittest.TestCase):
     def test_no_change_must_name_every_open_alert(self):
         card = {"alerts": ["llm_cap: 4 calls refused", "surge: 2 unit(s)"]}
-        answer = {"grade_summary": "llm_cap refusals are the seller at its own cap; measured next hour"}
+        answer = {"grade_summary": "alert llm_cap: refusals are the seller at its own cap; measured next hour; surge seen"}
         self.assertEqual(mh.alert_problems(card, answer, []), ["alert left open with no change: surge: 2 unit(s)"])
         self.assertEqual(mh.alert_problems(card, answer, ["restock.py"]), [])
         self.assertEqual(mh.alert_problems({"alerts": []}, answer, []), [])
