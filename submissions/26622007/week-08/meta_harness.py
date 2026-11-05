@@ -427,7 +427,7 @@ def since_last(card, kind="terra", now=None):
     delta = {k: (b[k] if rotated else b[k] - a.get(k, 0)) for k in b if isinstance(b[k], int)}
     out = {"previous": packs[-1], "log_rotated": rotated, "log_counts": {k: v for k, v in delta.items() if v},
            "players": [obj(prev).get("players"), obj(card).get("players")], "shop": [prev.get("shop"), card.get("shop")],
-           "across_score_switch": objective_changed(prev, card) or os.path.getmtime(os.path.join(folder, packs[-1])) < SCORE_SWITCH <= now, "baselines": {}}
+           "across_score_switch": os.path.getmtime(os.path.join(folder, packs[-1])) < SCORE_SWITCH <= now, "baselines": {}}
     every = sorted((os.path.getmtime(os.path.join(folder, p)), p) for p in os.listdir(folder)
                    if re.fullmatch(r"(terra|astra)-\d+(-\d+)?\.json", p))
     for h in BASELINE_HOURS:      # the newest pack at least h hours old, any kind: the 6 and 12 hour trend
@@ -441,19 +441,8 @@ def since_last(card, kind="terra", now=None):
                                      "players": [obj(base).get("players"), obj(card).get("players")],
                                      "shop_all": [(obj(base).get("shops") or {}).get("all"), (obj(card).get("shops") or {}).get("all")],
                                      "buyer_all": [(obj(base).get("buyers") or {}).get("all"), (obj(card).get("buyers") or {}).get("all")],
-                                     "across_score_switch": objective_changed(base, card) or t < SCORE_SWITCH <= now}
+                                     "across_score_switch": t < SCORE_SWITCH <= now}
     return out
-
-
-def objective_changed(before, after):
-    """A delayed formula repair also breaks comparability, even after the market patch date."""
-    def signature(card):
-        obj = (card.get("board") or {}).get("objective") or {}
-        return {side: {field: part.get("weight") for field, part in
-                       (obj.get(side, {}).get("parts") or {}).items()}
-                for side in ("shops", "buyers")}
-    a, b = signature(before), signature(after)
-    return any(a[s] and b[s] and a[s] != b[s] for s in a)
 
 
 def alert_problems(card, answer, code):

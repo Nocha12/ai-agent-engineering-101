@@ -1,2 +1,0 @@
-{"source": ".market/decisions.jsonl", "read_rows": 4222, "cutoff_rows": 889, "agents": {"buyer": 804, "forum": 61, "restock": 24}, "note": "ts outside cutoff excluded; economic results use paid ledger, not decisions"}
-{"source": ".market/tools_status.json", "status": {"at": 1793884186, "left_out": {}, "available": ["auto_auto_market_brief", "auto_market_scan", "break_rates", "catalog_search", "cohort_profit", "forum_demand", "forum_read", "ledger_search", "market_demand", "market_opportunity", "my_customers", "my_decisions", "my_memory", "my_purchases", "my_state"]}}

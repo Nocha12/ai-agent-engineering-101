@@ -1,318 +1,368 @@
 {
   "changed": true,
-  "hypothesis": "흑자 SKU의 잔류만을 이유로 축소하지 않고 공급창별 확대 조건을 자동 측정하면 잘못된 축소와 확대 기회 누락을 줄일 수 있다.",
-  "change_summary": "G03 목표를 1→2로 복원했다. 공급창 회전 자동 측정, 점수식 변경 감지, 읽기 전용 forum_demand 도구를 추가했다. 전략·Terra 지침·실험 큐를 갱신하고 G6 가격인하 대기안을 제거했다.",
-  "target_metric": "Everyone Players, book, SKU별 숙성 순기여, 규모 확대 조건 측정률",
-  "expected": "다음 12시간 book +2,000만~3,000만원은 관측 추세에 따른 시나리오다. G03 추가 판매 0~2건이면 약 0~59만원 기여를 기대한다. 자동 측정은 반복된 회전 조회 누락을 줄이고, 수요 도구는 실제 요청과 지급 거래의 연결을 검증한다.",
+  "hypothesis": "추가 재고의 잔류 조건을 실행하면 현금 잠김을 줄이고, 숙성 흑자가 확인된 상품만 한 단위씩 재시험하면 제한된 위험으로 상품 확장을 검증할 수 있다.",
+  "change_summary": "G6·G75 목표를 각각 2→1로 축소하고 Ge62449c9 한 단위 재시험을 설정했다. auto_market_lookup을 삭제하고 auto_market_scan의 SKU 연결·정산 필터를 수정했다. 점수표에 보드와의 차이·Players 격차를 추가하고 전략·Terra 지침·보고서를 갱신했다.",
+  "target_metric": "현금 순이익, Players, SKU별 숙성 순기여·재고 잔류·품절 시간, 검색 정확성",
+  "expected": "다음 12시간 현금 증가 1,400만~2,200만원은 추세 시나리오다. 축소로 약 37만원의 추가 재매입을 억제할 여지가 있다. 재시험 기대 순기여는 0~18,000원이며 환불 시 원가 손실이 가능하다. 검색 fixture는 SKU 검색 0→1, 비정산 행 1→0으로 개선됐다.",
   "evidence": [
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:53","excerpt":"\"sha\": \"ab141e7\"","meaning":"해당 변경 전후30분 정산·순기여·시장거래·미숙성 표본"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:54","excerpt":"\"sha\": \"c06607b\"","meaning":"해당 기록 전후30분 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:55","excerpt":"\"sha\": \"d135021\"","meaning":"해당 기록 전후30분 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:56","excerpt":"\"sha\": \"aef247c\"","meaning":"점수식 수정 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:57","excerpt":"\"sha\": \"8401d18\"","meaning":"공급창 수정 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:58","excerpt":"\"sha\": \"a83df1f\"","meaning":"큐 복구 수정 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:59","excerpt":"\"sha\": \"0903559\"","meaning":"패치 감지 도입 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:60","excerpt":"\"sha\": \"497a10c\"","meaning":"가중치 검사 수정 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:61","excerpt":"\"sha\": \"fee4a9b\"","meaning":"공개 점수식 대조 수정 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:62","excerpt":"\"sha\": \"1836376\"","meaning":"문서 수정 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:63","excerpt":"\"sha\": \"e356a5a\"","meaning":"사람의 거절 정책 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:64","excerpt":"\"sha\": \"58caaa9\"","meaning":"거절 경로 보강 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:65","excerpt":"\"sha\": \"58ec682\"","meaning":"해당 기록 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:66","excerpt":"\"sha\": \"05b3802\"","meaning":"순위·경보 도입 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:67","excerpt":"\"sha\": \"504496c\"","meaning":"복구·별칭 처리 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:68","excerpt":"\"sha\": \"2872bdc\"","meaning":"서지 매입 변경 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:69","excerpt":"\"sha\": \"a8f0786\"","meaning":"서지 방어 보강 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:70","excerpt":"\"sha\": \"c6292b5\"","meaning":"견적 우선순위 변경 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:71","excerpt":"\"sha\": \"251d026\"","meaning":"탐색·서지 제한 보강 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:72","excerpt":"\"sha\": \"2de5c89\"","meaning":"초기 고가 진입 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:73","excerpt":"\"sha\": \"71bb9cb\"","meaning":"매트리스 보충 보호 수정 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:74","excerpt":"\"sha\": \"4972ef3\"","meaning":"실험 큐 도입 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:75","excerpt":"\"sha\": \"ce316e6\"","meaning":"실험 시작·기록 검증 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:76","excerpt":"\"sha\": \"ea105d3\"","meaning":"호출 상한 해제 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:77","excerpt":"\"sha\": \"eafa509\"","meaning":"무상한 호출 처리 보강 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:78","excerpt":"\"sha\": \"8d332f3\"","meaning":"가격동향 게시 도입 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:79","excerpt":"\"sha\": \"f57edce\"","meaning":"게시 근거 정합성 보강 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:80","excerpt":"\"sha\": \"ff56b08\"","meaning":"모델 실행 경로 변경 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:81","excerpt":"\"sha\": \"46c4e27\"","meaning":"사람의 1점 거절 정책 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:82","excerpt":"\"sha\": \"0d5e2ce\"","meaning":"중복 실험 제거 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:83","excerpt":"\"sha\": \"530146b\"","meaning":"영수증 검증 보강 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:84","excerpt":"\"sha\": \"4cc7be4\"","meaning":"URL 타입 방어 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:85","excerpt":"\"sha\": \"8353345\"","meaning":"사람의 한도 변경 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:86","excerpt":"\"sha\": \"bc658fa\"","meaning":"운영 재고 15M 확대 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:87","excerpt":"\"sha\": \"441a08e\"","meaning":"보호 경계 보강 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:88","excerpt":"\"sha\": \"9eb503e\"","meaning":"모델 도구동작 차단 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:89","excerpt":"\"sha\": \"33ddbc3\"","meaning":"사람 설정 보호 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:90","excerpt":"\"sha\": \"6ce25f6\"","meaning":"카펫 시험 도입 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:91","excerpt":"\"sha\": \"8016a1e\"","meaning":"q00 예외 정책 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:92","excerpt":"\"sha\": \"89db408\"","meaning":"150M 허용 경계 변경 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:93","excerpt":"\"sha\": \"8c35842\"","meaning":"규모 확대 세 조건 명문화 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:94","excerpt":"\"sha\": \"3c9fd42\"","meaning":"타입·기준가 우회 방어 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:95","excerpt":"\"sha\": \"1de0cc3\"","meaning":"병합 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:96","excerpt":"\"sha\": \"5387048\"","meaning":"해당 기록 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:97","excerpt":"\"sha\": \"9f22139\"","meaning":"누락된 실험 시작 기록 복구"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:98","excerpt":"\"sha\": \"1dbc1ed\"","meaning":"목표 문서 수정 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:99","excerpt":"\"sha\": \"0782954\"","meaning":"공급 순서 변경 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:100","excerpt":"\"sha\": \"7fb1f34\"","meaning":"캐시 변경과 효과없음 실측 기록"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:101","excerpt":"\"sha\": \"d374122\"","meaning":"고가 SKU 목표 변경 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:102","excerpt":"\"sha\": \"ef1b04b\"","meaning":"해당 기록 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:103","excerpt":"\"sha\": \"42c174b\"","meaning":"견적 적격성·다음 순위 정보 수정 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:104","excerpt":"\"sha\": \"dca2049\"","meaning":"해당 기록 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:105","excerpt":"\"sha\": \"a07ca72\"","meaning":"생성 검색도구 수정 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:106","excerpt":"\"sha\": \"66ce872\"","meaning":"해당 기록 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:107","excerpt":"\"sha\": \"81fd8cc\"","meaning":"공급 마감 재검사 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:108","excerpt":"\"sha\": \"910346f\"","meaning":"해당 기록 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:109","excerpt":"\"sha\": \"fc36f9c\"","meaning":"G03 축소 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:110","excerpt":"\"sha\": \"e0afc2b\"","meaning":"해당 기록 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:111","excerpt":"\"sha\": \"0e5d3c2\"","meaning":"해당 기록 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:112","excerpt":"\"sha\": \"a69b853\"","meaning":"짧은 보증 가게 회피 변경 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:113","excerpt":"\"sha\": \"b3e27e1\"","meaning":"해당 기록 전후 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:114","excerpt":"\"cycle\": \"terra-1105-100025\"","meaning":"Terra 판단과 전후1시간 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:115","excerpt":"\"cycle\": \"terra-1105-111220\"","meaning":"Terra 판단과 전후1시간 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:116","excerpt":"\"cycle\": \"terra-1105-123446\"","meaning":"Terra 판단과 전후1시간 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:117","excerpt":"\"cycle\": \"terra-1105-134555\"","meaning":"Terra 판단과 전후1시간 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:118","excerpt":"\"cycle\": \"terra-1105-145753\"","meaning":"Terra 판단과 전후1시간 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:119","excerpt":"\"cycle\": \"terra-1105-160953\"","meaning":"Terra 판단과 전후1시간 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:120","excerpt":"\"cycle\": \"terra-1105-172227\"","meaning":"Terra 판단과 전후1시간 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:121","excerpt":"\"cycle\": \"terra-1105-183335\"","meaning":"Terra 판단과 전후1시간 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:122","excerpt":"\"cycle\": \"terra-1105-194604\"","meaning":"Terra 판단과 전후1시간 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-audit.jsonl:123","excerpt":"\"cycle\": \"terra-1105-205737\"","meaning":"Terra 판단과 전후1시간 측정"},
-    {"ref":"meta/evidence/astra-1105-214905-measurement.jsonl:2","excerpt":"\"known_net\": 1768035","meaning":"G03 숙성6건 양수 순기여"},
-    {"ref":"meta/evidence/astra-1105-214905-measurement.jsonl:10","excerpt":"\"listed\": 38, \"median\": 0.487","meaning":"가격동향 글의 10분 관측 중앙값"},
-    {"ref":"meta/evidence/astra-1105-214905-measurement.jsonl:11","excerpt":"\"listed\": 56, \"median\": 0.487","meaning":"구매기록 글의 같은 연령 중앙값"},
-    {"ref":"meta/evidence/astra-1105-214905-measurement.jsonl:15","excerpt":"\"G8ec51935\": 0","meaning":"최근 공급창 우선 소파의 상한 차단 없음"},
-    {"ref":"meta/evidence/astra-1105-214905-measurement.jsonl:16","excerpt":"\"G8ec51935\": 0","meaning":"다음 공급창에도 우선 소파의 상한 차단 없음"},
-    {"ref":"meta/evidence/astra-1105-214905-measurement.jsonl:20","excerpt":"\"mixed_baseline_detected\": true","meaning":"이전 현금식과 현재 book식의 혼합을 탐지"},
-    {"ref":"meta/evidence/astra-1105-214905-trials.jsonl:1","excerpt":"\"net_if_no_refund\": 14932.375802707606","meaning":"이전 침구 시험의 실제 원가를 보완한 숙성 기여"},
-    {"ref":"meta/evidence/astra-1105-214905-trials.jsonl:2","excerpt":"\"net_if_no_refund\": 51179.7035530526","meaning":"카펫 시험의 추정보관료 차감 후 숙성 기여"},
-    {"ref":"meta/evidence/astra-1105-214905-history.jsonl:13","excerpt":"\"no_warranty\": 2","meaning":"짧은 보증 회피 수정 후1시간 거절 원인 감소"},
-    {"ref":"meta/evidence/astra-1105-214905-tests-1.txt:608","excerpt":"Ran 437 tests in 33.790s","meaning":"지정 환경 전체 테스트 통과"},
-    {"ref":"meta/evidence/astra-1105-214905-validation-final.jsonl:1","excerpt":"\"citation_errors\": [], \"evidence_count\": 121, \"guard_errors\": [], \"policy_errors\": []","meaning":"전체 보고서 인용·보호·변경폭 검사 통과"}
+    {
+      "ref": "meta/evidence/astra-1105-093817-audit.jsonl:51",
+      "excerpt": "\"paid\": 1362, \"revenue\": 75900204, \"net_after_refunds\": 16993331, \"missing_cost\": 0, \"open_warranty\": 701",
+      "meaning": "검토 구간의 원장 정산과 환불 후 순기여다. 701건은 아직 보증 기간이 끝나지 않았다."
+    },
+    {
+      "ref": "meta/evidence/astra-1105-093817-audit-v2.jsonl:89",
+      "excerpt": "\"cost\": 61963, \"refund\": 0, \"mature\": true",
+      "meaning": "Ge62449c9 시험은 판매가 76,183원에서 원가를 뺀 숙성 순기여 14,220원이다."
+    },
+    {
+      "ref": ".market/ledger_rows.jsonl:225874",
+      "excerpt": "\"order\": \"o-e4ddb664917c\", \"sku\": \"Ge62449c9\", \"amount\": 76183",
+      "meaning": "시험 상품의 실제 지급 원장이다."
+    },
+    {
+      "ref": "meta/evidence/astra-1105-093817-audit-v2.jsonl:90",
+      "excerpt": "\"sku\": \"G1515d951\", \"target\": 5, \"windows\": 37, \"pairs\": []",
+      "meaning": "G1515는 37개 공급창에서 같은 5단위의 연속 잔류가 없어 목표 4를 유지한다."
+    },
+    {
+      "ref": "meta/evidence/astra-1105-093817-audit-v2.jsonl:91",
+      "excerpt": "\"opens\": [1793797399, 1793798543], \"units\": [\"u-edda0f2482be\", \"u-e372bb1a4670\"]",
+      "meaning": "G6의 같은 두 단위가 연속 공급창에 남아 기존 축소 조건을 충족했다."
+    },
+    {
+      "ref": "meta/evidence/astra-1105-093817-audit-v2.jsonl:92",
+      "excerpt": "\"opens\": [1793827216, 1793828625], \"units\": [\"u-fc926f499cfd\", \"u-5b92f959f0b1\"]",
+      "meaning": "G75도 같은 추가 단위의 연속 잔류가 확인됐다."
+    },
+    {
+      "ref": "meta/evidence/astra-1105-093817-audit.jsonl:110",
+      "excerpt": "\"name\": \"auto_market_lookup\", \"calls\": 668, \"failed\": 0",
+      "meaning": "실행 실패 0건이 검색 의미의 정확성을 보장하지 않았다."
+    },
+    {
+      "ref": "meta/evidence/astra-1105-093817-measurement.jsonl:5",
+      "excerpt": "\"matched_products\": 1, \"matched_paid\": 1",
+      "meaning": "수정된 검색은 SKU 상품과 실제 정산을 연결한다."
+    },
+    {
+      "ref": "meta/evidence/astra-1105-093817-measurement.jsonl:7",
+      "excerpt": "\"board_drift\": {\"shops\": 0.019, \"buyers\": 0.0}, \"board_players_gap\": 0.617",
+      "meaning": "별도 공개 스냅샷에서 현금식과 보드식 차이를 확인했다. book 기준 상점 점수는 보드의 .706을 재현한다."
+    },
+    {
+      "ref": "meta/evidence/astra-1105-093817-tests-1.txt:538",
+      "excerpt": "Ran 328 tests in 19.071s",
+      "meaning": "지정된 가상환경에서 전체 328개 테스트가 통과했다."
+    },
+    {
+      "ref": "meta/evidence/astra-1105-093817-validation-final-2.jsonl:1",
+      "excerpt": "\"citation_problems\": [], \"policy_problems\": [], \"guard_problems\": []",
+      "meaning": "저장된 전체 검토의 69개 인용, 설정 변경 폭, 보호 규칙 검증을 통과했다."
+    }
   ],
   "evidence_gap": {
-    "missing": "G03 복원의 독립 효과와 다음 규모 확대의 판매 표본. 최근 두 창의 고가 새 매입 표본은 0이다.",
-    "measurement": "입고·실제 결제·관측 출고를 연결하고 우선 상한 차단 0/0, 동일 소파 4단위 잔류를 확인했다. 이 조회를 scorecard에 추가했다.",
-    "judge_line": {
-      "metric": "G03 복원 후 첫6시간 판매의 숙성 순기여와 12시간 book 변화",
-      "direction": "above",
-      "threshold": "숙성 순기여 > 0 및 book 변화 >= 0",
-      "min_sample": "숙성 판매 5건. 미달이면 효과 미확정으로 종료하고 추가 확대 중지",
-      "expires": "2026-11-06 09:49 KST",
-      "undo": "총상한은 줄이지 않는다. G03 최근 숙성10건 순기여가 0 이하일 때만 목표2→1로 복원한다."
-    }
+    "missing": "축소·재시험의 독립 수익 효과, 구매자 식품 가치까지 포함한 숙성 잉여, 새 시험의 보증 만료 결과.",
+    "measurement": "이번에 37개 공급창과 실제 unit 정산을 연결해 G6·G75 잔류 16쌍·4쌍, 기존 시험 숙성 순기여 14,220원을 확인했다. 구매 상한 변경 전후 100주문의 실제 지급도 56→32건으로 측정했다.",
+    "judge_line": "11/05 21:38에 재시험 매입≤1, 동일 unit 두 창 잔류 없음, 판매 후 6시간 순기여>0이면 다음 한 단위를 검토한다. 미판매·적자면 재시험하지 않는다. 15:38 이후 판매는 판매 시각+6시간에 판정한다."
   },
-  "summary": "61커밋·Terra 10사이클 평가와 유지·폐기 81건을 [전체 보고서](/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/meta/evidence/astra-1105-214905-review.json)에 저장했다. 실제 보드 Players 1.279→1.380, book +26,279,819원. G03 축소를 복원했고 총상한은 조건 미달로 15M을 유지했다. 437테스트 통과. 커밋·push·PR 없음. 아래 순기여 전후값은 원가가 확인된 판매의 환불 차감값이며, 동시 변경·시장 수요·미숙성 때문에 단독 인과효과가 아니다.",
+  "summary": "19개 커밋·10개 Terra 전략 점검·14개 도구를 검토했다. 현금 순이익은 17,178,773원 증가했지만 선두 격차는 269,561,467원이다. 전체 평가와 69개 인용은 meta/evidence/astra-1105-093817-review.json에 저장했다. 328개 테스트와 최종 인용·한도 검증 통과. 커밋·push·PR은 하지 않았다.",
   "strategy": {
     "options": [
       {
-        "direction": "현행 규모 전략과 흑자 G03 복원",
-        "expected_profit": "12시간 book +2,000만~3,000만원. 직전12.18시간 +26,279,819원의 추세 시나리오다. G03 추가0~2판매×숙성294,673원은 약0~59만원이다.",
-        "risk": "미숙성533건·원가결측2건, 환불·보관료·수요 변화. G03 효과는 기본 추세와 중복될 수 있다.",
-        "test": "G03만1→2 복원. 첫6시간 판매의 숙성5건 이상, 순기여 양수와12시간 book 비하락을 판정한다."
+        "direction": "현행 이익 재고 유지·잔류 축소·Ge62449c9 한 단위 재시험",
+        "expected_profit": "12시간 현금 +1,400만~2,200만원 시나리오. 직전 12시간19분 증가 17,178,773원에 근거하며 시험 추가 기대는 0~18,000원이다.",
+        "risk": "환불 원가 손실, 정기 보충 한 창 지연, G6·G75 축소에 따른 품절 가능성.",
+        "test": "두 SKU 목표를 각각 1로 줄이고 Ge62449c9는 한 단위만 시험한다. 기존 인증·보증·협상·포럼 방식을 유지하며 SKU별 결과를 분리한다."
       },
       {
-        "direction": "검증 고가 소파 집중 확대",
-        "expected_profit": "기본 추세 외0~231만원은 추가0~6건×G8 숙성385,720원의 가정이다. 선두 G8은166판매, 우리는18판매다.",
-        "risk": "현재 우선 차단0/0·새 매입 표본0·동일 소파4단위 잔류로 확대 조건이 실패했다. 경쟁사 원가는 비공개다.",
-        "test": "세 조건 충족시에만15M→22.5M 및 판매가 입증된 SKU 목표를 한 단계 늘린다."
+        "direction": "고가 G00327e80 진입",
+        "expected_profit": "기존 흐름에 추가 0~90만원은 0~3판매×가정 30만원이다. 공개 2시간 31판매·11구매자·25% 하한 통과 3건이며 자체 마진은 미확인이다.",
+        "risk": "최악 원가 1,685,100원이 탐색 한도 35만원을 넘는다. 경쟁 원가도 공개되지 않았다.",
+        "test": "매입을 보류하고 수정한 검색으로 등급별 지급가와 상품 연결을 조사한다."
       },
       {
-        "direction": "포럼 미충족 수요 연결",
-        "expected_profit": "직접 추가0~5만원은0~1판매×기존 카펫 기여51,233원의 비교 가정이다. 득표 증가는 입증되지 않았다.",
-        "risk": "구합니다 글은 실제 주문·허용 SKU 증명이 아니다. 식품 기한과 미판매 비용을 확인해야 한다.",
-        "test": "forum_demand로 서로 다른 실제 요청2개를 정산·카탈로그에 연결한 뒤 기존 가드 안에서1줄1단위 제안만 시험한다."
+        "direction": "G6·G75 추가 집중",
+        "expected_profit": "추가 0~42만원은 각각 0~5추가 판매와 숙성 건당 순기여 59,997원·17,991원을 적용한 가정이다.",
+        "risk": "이미 추가 단위 잔류가 각각 16쌍·4쌍 확인돼 회전 증가 없이 현금만 묶일 수 있다.",
+        "test": "확대 대신 기존 철회 조건을 실행한다. 축소 후 품절·창당 판매·숙성 손익을 비교한다."
       }
     ],
-    "chosen": "현행 규모 전략을 유지한다. 대안의 수익 우위와 즉시 확대 조건이 입증되지 않았다. 흑자 G03 복원과 확대 조건 자동 측정을 먼저 적용했다.",
-    "experiment": "카펫은 다음 Terra가 숙성 성공으로 done을 기록한다. 다음 큐는 scale-qualified-growth, 그다음 forum-demand-context-one-line이다. 규모 시험은 세 조건 충족 후 시작하여12시간 book 비하락·숙성5건 순기여 양수로 판정한다. 수요 시험은12시간 실제 요청2개 정확 연결·오인용0으로 판정한다. 동시에 시작하지 않는다."
+    "chosen": "대안이 보수적 수익성과 한도를 함께 통과하지 못해 현행 전략을 유지한다. 선두의 고가 상품 구성과 거래량 우위는 확인했지만 경쟁 마진은 모른다. 잔류 조건을 실행하고 숙성 흑자 시험만 같은 규모로 반복한다.",
+    "experiment": "11/05 21:38 Ge62449c9 한 단위 재시험을 판정한다. G6·G75는 두 시간 연속 품절>12분, 창당 판매 20% 감소, 최근 숙성 10판매 흑자가 함께 확인될 때 1→2를 검토한다. 작은 탐색은 수정된 auto_market_scan으로, 다음 두 Terra 주기에서 실제 원장 인용≥1·비정산 반환0·실행 실패0을 확인한다."
   },
   "grades": [
-    {"change":"ab141e7","reason":"판매47→30, 순기여588870→337189. 여러 변경이 혼재한다. 침구 재시험은 +14,932원으로 성공. 독립효과 결측을 전후30분으로 측정했으며11/06 09:49 숙성20건 시간당 기여가 이전 이상인지 판정한다.","grade":"unclear"},
-    {"change":"c06607b","reason":"판매36→41, 순기여515273→351274. 하네스 기록이며 독립 운영 변경은 없다.","grade":"no_effect"},
-    {"change":"d135021","reason":"판매27→48, 순기여231335→410847. 기록 자체의 경제효과는 없다. Terra 판단은 별도 평가했다.","grade":"no_effect"},
-    {"change":"aef247c","reason":"판매23→57, 순기여272837→468050. 공개 book식으로 수정됐고 현재 가중치 불일치0이다.","grade":"worked"},
-    {"change":"8401d18","reason":"판매23→57, 순기여272837→468050. 시험이 공급창을 막는 경로와 선발송 방어 회귀검증 통과.","grade":"worked"},
-    {"change":"a83df1f","reason":"판매28→52, 순기여288880→452007. 잘린 시험줄의 큐 복구 회귀검증 통과.","grade":"worked"},
-    {"change":"0903559","reason":"판매31→52, 순기여321036→529090. 공개 패치와 점수식 대조가 동작한다. 패치를 사람이 먼저 수정한 점은 별도 감점했다.","grade":"worked"},
-    {"change":"497a10c","reason":"판매29→69, 순기여332126→648398. 공개 가중치 이름·허용오차 검사 유지. 현재 불일치0.","grade":"worked"},
-    {"change":"fee4a9b","reason":"판매75→59, 순기여841279→907378. profit 별칭을 공개 book과 동일시하지 않는 회귀검증 통과.","grade":"worked"},
-    {"change":"1836376","reason":"판매68→61, 순기여794506→915738. 문서 정리의 직접 경제효과는 주장하지 않는다.","grade":"no_effect"},
-    {"change":"e356a5a","reason":"판매63→47, 순기여669190→989540. 사람의 거절 정책이며 회피손실 반사실은 결측이다. 전후 정산을 조회했다.11/06 09:49 숙성20건 기여 비교로 재평가하되 정책은 임의 변경하지 않는다.","grade":"unclear"},
-    {"change":"58caaa9","reason":"판매63→47, 순기여669190→989540. 거절 경로 읽기·잠금 보강 회귀검증 통과.","grade":"worked"},
-    {"change":"58ec682","reason":"판매58→47, 순기여609927→904816. 운영 변경 없는 기록이다.","grade":"no_effect"},
-    {"change":"05b3802","reason":"판매45→53, 순기여621814→770103. 순위·성장·경보가 표시된다. 지연된 점수식 수정의 혼합은 이번에 추가로 고쳤다.","grade":"worked"},
-    {"change":"504496c","reason":"판매45→53, 순기여621814→770103. JSONL 복구·별칭·경보 회귀검증 통과.","grade":"worked"},
-    {"change":"2872bdc","reason":"판매45→53, 순기여621814→770103. 서지 억제로 놓친 주문 반사실은 결측이다. 전후30분을 조회했으며11/06 09:49 동일 SKU 숙성20건 시간당 기여가 이전 이상인지 판정한다.","grade":"unclear"},
-    {"change":"a8f0786","reason":"판매45→53, 순기여621814→770103. 서지 원가·SKU 점유·검증품목 제한 회귀검증 통과.","grade":"worked"},
-    {"change":"c6292b5","reason":"상점판매45→53, 순기여621814→770103. 바이어 지급56/94→63/87이나 동시 수정이 혼재한다. 독립 잉여효과 결측을 주문별로 측정했다.11/06 09:49 후속100주문 지급률≥72.4%·숙성잉여/주문 비하락이면 잠정 유지한다.","grade":"unclear"},
-    {"change":"251d026","reason":"판매48→49, 순기여800687→640188. 검증SKU 합계 제한과 신규가게 탐색 자리 회귀검증 통과.","grade":"worked"},
-    {"change":"2de5c89","reason":"판매58→41, 순기여900480→626846. 초기4M 진입과 이후15M 확대의 독립효과가 결측이다. 전후30분을 측정했고11/06 09:49 숙성20건 시간당 기여 비하락으로 재평가한다.","grade":"unclear"},
-    {"change":"71bb9cb","reason":"판매58→41, 순기여900480→626846. 4M에서 소파가 매트리스 보충을 밀어내는 문제에 대응했다. 이후15M 정책이 보류를 대체했다.","grade":"worked"},
-    {"change":"4972ef3","reason":"판매62→45, 순기여919208→810964. 실험 순서·판정선 검증이 동작한다. 만기를 최소대기로 읽는 지침은 이번에 수정했다.","grade":"worked"},
-    {"change":"ce316e6","reason":"판매62→45, 순기여919208→810964. 코드 없는 시작과 실험로그 직접편집을 거절하는 검증 통과.","grade":"worked"},
-    {"change":"ea105d3","reason":"판매52→51, 순기여1008321→822043. Luna 무상한 정책이 반영됐다. 호출수는 비용 표시로 유지한다.","grade":"worked"},
-    {"change":"eafa509","reason":"판매49→53, 순기여997891→829367. 무상한 시각목록 누적 방지·비용 표시 회귀검증 통과.","grade":"worked"},
-    {"change":"8d332f3","reason":"판매49→52, 순기여913425→839969. 가격동향10분 중앙값.487(n38), 구매기록.487(n56)으로 관측 득표 우위 없음.1시간은 결측이다.","grade":"no_effect"},
-    {"change":"f57edce","reason":"판매53→46, 순기여857267→469732. 게시 근거의 중복seq·거짓등급·0분모 방어 회귀검증 통과.","grade":"worked"},
-    {"change":"ff56b08","reason":"판매45→44, 순기여539630→408127. 실행 경로 검증은 통과했지만 독립 협상효과는 결측이다. 전후 정산을 조회했고11/06 09:49 숙성20건 시간당 기여 비하락을 재평가한다.","grade":"unclear"},
-    {"change":"46c4e27","reason":"판매40→52, 순기여692198→293338. 사람의1점 거절 정책이며 회피손실 반사실은 결측이다. 전후 정산을 측정했다.11/06 09:49 숙성20건 기여 비교로 재평가하되 임의 복원하지 않는다.","grade":"unclear"},
-    {"change":"0d5e2ce","reason":"판매39→52, 순기여688728→293338. 이미 구현된 실험의 중복 대기를 제거했으며 직접 손익 변경은 없다.","grade":"no_effect"},
-    {"change":"530146b","reason":"판매45→49, 순기여810964→208106. 검증 영수증 URL·손상행 복구 회귀검증 통과.","grade":"worked"},
-    {"change":"4cc7be4","reason":"판매45→48, 순기여804183→254422. URL 타입 손상 방어 회귀검증 통과.","grade":"worked"},
-    {"change":"8353345","reason":"판매45→47, 순기여807129→249707. 사람의 허용 경계 변경 자체를 실제 매입 효과로 세지 않는다.","grade":"no_effect"},
-    {"change":"bc658fa","reason":"판매45→47, 순기여807129→249707. 이후 G8 숙성15건+5785807·G052 10건+1354185로 규모 확대의 기대방향이 관측됐다. 다른 수정도 혼재한다.","grade":"worked"},
-    {"change":"441a08e","reason":"판매45→47, 순기여807129→249707. 사람이 수정한 경계·상승폭·부호 방어 회귀검증 통과.","grade":"worked"},
-    {"change":"9eb503e","reason":"판매52→48, 순기여839969→697047. 허용되지 않은 모델 도구동작 차단 회귀검증 통과.","grade":"worked"},
-    {"change":"33ddbc3","reason":"판매46→47, 순기여348072→1105649. 사람의 거절설정 보호 검증 통과. 이번 seller 값도 동일하다.","grade":"worked"},
-    {"change":"6ce25f6","reason":"판매49→43, 순기여281884→1232602. 카펫1단위276396-225163-환불0-추정보관53.30=51179.70으로 숙성 성공.","grade":"worked"},
-    {"change":"8016a1e","reason":"판매52→41, 순기여299124→1238399. q00 예외는 사람의 정책이며 독립 경제효과를 주장하지 않는다.","grade":"no_effect"},
-    {"change":"89db408","reason":"판매49→46, 순기여208106→1803518. 150M 허용 경계는 실제 매입이 아니다. 운영15M 확대 조건은 현재 미달이다.","grade":"no_effect"},
-    {"change":"8c35842","reason":"판매49→46, 순기여208106→1803518. 규모 세 조건을 유지하고 반복 미측정을 막는 자동 조회를 이번에 추가했다.","grade":"worked"},
-    {"change":"3c9fd42","reason":"판매49→46, 순기여208106→1803518. 타입·고가기준가 우회 방어 회귀검증 통과.","grade":"worked"},
-    {"change":"1de0cc3","reason":"판매50→45, 순기여216261→1795363. 병합 자체의 효과는 없으며 카펫 변경은 별도 평가했다.","grade":"no_effect"},
-    {"change":"5387048","reason":"판매47→50, 순기여249707→1701840. 운영 변경 없는 기록이다.","grade":"no_effect"},
-    {"change":"9f22139","reason":"판매45→49, 순기여282342→2061146. 누락된 카펫 시작 기록이 복구돼 현재 실행 상태에 표시된다.","grade":"worked"},
-    {"change":"1dbc1ed","reason":"판매46→55, 순기여678580→2354077. 목표 문서 수정 자체의 직접수익은 없다.","grade":"no_effect"},
-    {"change":"0782954","reason":"판매48→56, 순기여697047→3441195. 공급순서만의 효과는15M·SKU 수정과 혼재한다. 전후 정산을 측정했으며11/06 09:49 동일 SKU 숙성20건 시간당 기여 비하락으로 재평가한다.","grade":"unclear"},
-    {"change":"7fb1f34","reason":"판매50→55, 순기여1701840→4665633. 원래 교차10회 실측에서도 캐시 변화가 없었다. 측정 필드만 유지한다.","grade":"no_effect"},
-    {"change":"d374122","reason":"판매48→54, 순기여2059722→4147355. G8 확대와 Gb5 축소 효과가 혼재한다. 이번 숙성 조회에서 Gb5는3건-8398이다.11/06 09:49 숙성10건≤0이면 해당 SKU만 축소하고 그전에는 확대하지 않는다.","grade":"unclear"},
-    {"change":"ef1b04b","reason":"판매52→48, 순기여2326788→3817331. 운영 변경 없는 기록이다. 수락 실패는 Terra 평가에서 감점했다.","grade":"no_effect"},
-    {"change":"42c174b","reason":"판매58→43, 순기여3748655→1243304. 견적 당시 limit 검사와 next_steps 회귀검증 통과. 바이어 지급44/82→48/80은 혼재된 방향성 증거다.","grade":"worked"},
-    {"change":"dca2049","reason":"판매55→47, 순기여1038571→20695. 운영 변경 없는 기록이다.","grade":"no_effect"},
-    {"change":"a07ca72","reason":"판매48→42, 순기여973591→654066. 생성 검색도구의 SKU·정산·판매자 필터 의미검증 통과.54호출 실패0은 실행성 증거다.","grade":"worked"},
-    {"change":"66ce872","reason":"판매30→53, 순기여765903→787046. 기록 자체의 효과는 없고 도구 수정은 별도 평가했다.","grade":"no_effect"},
-    {"change":"81fd8cc","reason":"판매15→55, 순기여160555→1112376. 공급429가16시16/49→18시0/43→20시1/40으로 줄었다. 창·상품구성 차이는 남는다.","grade":"worked"},
-    {"change":"910346f","reason":"판매15→56, 순기여160555→1119099. 운영 변경 없는 기록이다.","grade":"no_effect"},
-    {"change":"fc36f9c","reason":"판매69→40, 순기여2692012→207709. G03을 손실 없이 잔류만으로 축소했다. 숙성6건+1768035를 확인해 이번에 목표1→2 복원했다. 놓친 매출액은 결측이다.","grade":"harmful"},
-    {"change":"e0afc2b","reason":"판매52→50, 순기여1588585→263233. 기록 자체의 효과는 없고 잘못된 축소는 별도 감점했다.","grade":"no_effect"},
-    {"change":"0e5d3c2","reason":"판매45→50, 순기여1060571→817648. 운영 변경 없는 기록이다.","grade":"no_effect"},
-    {"change":"a69b853","reason":"상점판매54→50, 순기여1134334→1549135. 바이어 지급33/74→52/75, 짧은보증20→2로 기대방향이다. 명목절약3959288→7827085는 숙성잉여가 아니다.","grade":"worked"},
-    {"change":"b3e27e1","reason":"판매38→43, 순기여1510370→943717. 운영 변경 없는 기록이며 수락 실패는 Terra 평가에서 감점했다.","grade":"no_effect"},
-    {"change":"terra-1105-100025","reason":"판매90→107, 순기여1264315→1126890. 공개 book 전환 후에도 이전 Astra의 현금식 오류를 바로잡지 못했다. 이후 사람이 수정했다.","grade":"harmful"},
-    {"change":"terra-1105-111220","reason":"판매111→101, 순기여1151878→1753394. 사람이 수정한 Patch3.3 기준을 적용했다. 최초 발견 성과는 아니다.","grade":"worked"},
-    {"change":"terra-1105-123446","reason":"판매92→104, 순기여1056836→6654589. 당시 창별 지급률이 결측이다. 이번 단위 재조회로 보완했다. 다음2창 차단각1회·과반지급·숙성흑자·book비하락이면 확대, 아니면15M 유지;11/06 09:49 판정.","grade":"unclear"},
-    {"change":"terra-1105-134555","reason":"판매110→106, 순기여6348372→4831258. no_change_unsupported이며 가능한 단위회전 조회를 반복 미완료로 남겼다.","grade":"harmful"},
-    {"change":"terra-1105-145753","reason":"판매98→92, 순기여1988811→893332. 숙성대기는 타당하나 단위회전 조회는 결측이었다. 이번 재조회로 보완했다. 다음2창 세 확대조건 충족시에만 확대하고11/06 09:49 판정한다.","grade":"unclear"},
-    {"change":"terra-1105-160953","reason":"판매91→58, 순기여1390562→832464. 생성도구 의미오류를 실제정산으로 고쳤고 공개식·호출무상한을 유지했다.","grade":"worked"},
-    {"change":"terra-1105-172227","reason":"판매68→110, 순기여947601→3602749. 당시 창별 지급·잔류 조회가 결측이었다. 이번 재조회에서 잔류를 확인했다. 다음2창 세 확대조건 충족시에만 확대,11/06 09:49 판정한다.","grade":"unclear"},
-    {"change":"terra-1105-183335","reason":"판매120→91, 순기여3539063→1156651. 잔류만으로 G03을 축소했다. 현재 숙성손실 규칙에 맞게 목표2로 복원했다.","grade":"harmful"},
-    {"change":"terra-1105-194604","reason":"판매94→105, 순기여1320920→2689036. 카펫 숙성기여 약51180을 계산하고도 만기를 최소대기로 읽어 계속했다. 조기 완료 지침으로 수정했다.","grade":"harmful"},
-    {"change":"terra-1105-205737","reason":"판매101→67, 순기여2417904→1263839. no_change_unsupported와 반복 측정 누락을 감점한다. 확대조건 충족을 입증하지 못했으므로15M 유지 자체를 실패로 단정하지 않는다.","grade":"harmful"}
+    {
+      "change": "24591d8",
+      "reason": "전후30분 유료59→27, 순기여577,749→373,183(audit.jsonl:52). 게시45→174는 성공이나 포럼 .627→.566이다. 동연령 득표가 빠져 이번 게시표본을 확보했다. 다음10개 글의 1시간 중앙점수로 판정한다. 동시 수정·시장 변화가 섞였다.",
+      "grade": "unclear"
+    },
+    {
+      "change": "ca5a2e1",
+      "reason": "유료55→28, 순기여645,996→305,577(audit.jsonl:53). 손상행·대기중 글·자기상품 제외 방어 테스트는 통과했다. 단기 매출 변화는 방어 수정의 인과효과가 아니다.",
+      "grade": "worked"
+    },
+    {
+      "change": "ddf6e37",
+      "reason": "유료51→29, 순기여619,996→347,439(audit.jsonl:54). 이후 G1515 숙성24건+1,558,790, G6 숙성11건+659,962. 독립효과는 빠져 이번 unit 잔류를 측정했다. G6는 잔류 조건으로 축소하며 다음 두 시간 품절·판매 감소·숙성 흑자로 재확대를 판정한다.",
+      "grade": "unclear"
+    },
+    {
+      "change": "512fce1",
+      "reason": "유료51→29, 순기여619,996→347,439(audit.jsonl:55). 병합 자체의 독립 경제 변경은 없으며 양쪽 구현을 별도로 평가했다.",
+      "grade": "no_effect"
+    },
+    {
+      "change": "7bf4096",
+      "reason": "유료46→21, 순기여447,320→168,218(audit.jsonl:56). Astra 실행 기록이며 경제 효과는 ddf6e37에서 평가했다.",
+      "grade": "no_effect"
+    },
+    {
+      "change": "a174e3a",
+      "reason": "유료33→24, 순기여408,562→255,300(audit.jsonl:57). 무변경 기록이며 인용 검증 실패로 수락되지 않았다.",
+      "grade": "no_effect"
+    },
+    {
+      "change": "eb15b65",
+      "reason": "유료31→24, 순기여396,656→255,300(audit.jsonl:58). 현재 현금식 .725와 보드 .706이 다르다. 견적·식품 설정의 독립효과가 빠져 전후와 book 재현을 측정했다. 다음 점수차>.0005이면 재현 실패로 명시한다.",
+      "grade": "unclear"
+    },
+    {
+      "change": "fb6e9b7",
+      "reason": "유료32→26, 순기여398,956→341,193(audit.jsonl:59). 구매100주문 지급56→32, 80만원 초과3→6. 식품 포함 숙성 잉여가 빠져 이번 코호트를 측정했다. 다음 두100주문 잉여/주문20% 연속하락이면 정가비율 축소를 검토한다. 동시 견적 수정과 주문 구성이 혼재한다.",
+      "grade": "unclear"
+    },
+    {
+      "change": "eb0e2a1",
+      "reason": "유료45→65, 순기여345,711→389,479(audit.jsonl:60). 무변경 인용 실패 기록으로 경제 효과는 없다.",
+      "grade": "no_effect"
+    },
+    {
+      "change": "88e3fc4",
+      "reason": "유료58→67, 순기여370,789→502,715(audit.jsonl:61). 무변경 기록이며 상승은 시장과 기존 운영 결과다.",
+      "grade": "no_effect"
+    },
+    {
+      "change": "87a7231",
+      "reason": "유료66→32, 순기여497,307→537,722(audit.jsonl:62). 시험 자체는0→1판매, 숙성 순기여14,220원이다. 기대18,000원에는 못 미쳤지만 양수 판정선을 통과했다.",
+      "grade": "worked"
+    },
+    {
+      "change": "467a45d",
+      "reason": "유료53→34, 순기여355,968→809,716(audit.jsonl:63). 시험 수락 기록이며 실제 효과는87a7231에서 평가했다.",
+      "grade": "no_effect"
+    },
+    {
+      "change": "99162ae",
+      "reason": "유료56→73, 순기여616,856→697,603(audit.jsonl:64). 주문 연결과 보증 만료 대기는 적절했으며 별도 경제 변경은 없다.",
+      "grade": "no_effect"
+    },
+    {
+      "change": "9d860e7",
+      "reason": "유료53→54, 순기여1,182,375→823,329(audit.jsonl:65). 측정 목적의 변경으로 복원 코호트 숙성0→11건·659,962원을 확보했다. 직접 수익 개선으로 평가하지 않는다.",
+      "grade": "worked"
+    },
+    {
+      "change": "6bc2a06",
+      "reason": "유료42→65, 순기여629,762→1,140,578(audit.jsonl:66). 측정 실행 기록이며 직접 경제 변경은 없다.",
+      "grade": "no_effect"
+    },
+    {
+      "change": "91e74ac",
+      "reason": "유료71→60, 순기여1,004,086→1,060,509(audit.jsonl:67). 무변경 기록이다. 잔류 조회 누락은 전략 점검에서 평가했다.",
+      "grade": "no_effect"
+    },
+    {
+      "change": "4763ef2",
+      "reason": "유료60→46, 순기여1,126,206→425,724(audit.jsonl:68). 무변경 기록이며 당시 원장 지연711초에서 확대 보류는 타당했다.",
+      "grade": "no_effect"
+    },
+    {
+      "change": "b0bdda5",
+      "reason": "유료59→58, 순기여473,635→628,107(audit.jsonl:69). 현금 감소와 book 증가를 구분한 무변경 기록이다.",
+      "grade": "no_effect"
+    },
+    {
+      "change": "5b7ae30",
+      "reason": "유료64→63, 순기여1,269,656→1,233,201(audit.jsonl:70). 무변경 기록이며 선두 변경은 반영했지만 창당 판매 조건은 계산하지 않았다.",
+      "grade": "no_effect"
+    },
+    {
+      "change": "Terra 1104-215250 전략 점검",
+      "reason": "유료90→73, 순기여1,187,642→732,842(audit.jsonl:71). 인용 실패로 수락되지 않았다. 경제 손실액은 분리할 수 없다.",
+      "grade": "harmful"
+    },
+    {
+      "change": "Terra 1104-230454 전략 점검",
+      "reason": "유료80→124, 순기여752,421→776,549(audit.jsonl:72). 같은 첫 줄 인용 오류가 반복돼 수락되지 않았다. 매출 상승이 점검 성공을 뜻하지 않는다.",
+      "grade": "harmful"
+    },
+    {
+      "change": "Terra 1105-001634 전략 점검",
+      "reason": "유료125→130, 순기여699,881→925,612(audit.jsonl:73). 창당 판매·잔류 판정이 빠졌다. 이번37창을 계산했으며 다음 두 시간 비증가와 수요·하한 통과가 함께 성립할 때 전환을 판정한다.",
+      "grade": "unclear"
+    },
+    {
+      "change": "Terra 1105-012757 전략 점검",
+      "reason": "유료132→89, 순기여960,368→1,340,399(audit.jsonl:74). 전략 전환 대신 한 단위 탐색을 수행했고 숙성14,220원으로 양수 기준을 통과했다.",
+      "grade": "worked"
+    },
+    {
+      "change": "Terra 1105-023943 전략 점검",
+      "reason": "유료92→124, 순기여1,435,456→1,609,674(audit.jsonl:75). 시험 주문과07:42 보증 만료를 연결했으며 현재 숙성14,220원으로 판정 가능해졌다.",
+      "grade": "worked"
+    },
+    {
+      "change": "Terra 1105-035114 전략 점검",
+      "reason": "유료113→126, 순기여1,789,132→2,052,377(audit.jsonl:76). 숙성 대기는 타당하나 잔류 조회가 빠졌다. 이번 unit 연결로 보완했고 두 창 추가분 잔류면 축소라는 기준을 실행했다.",
+      "grade": "unclear"
+    },
+    {
+      "change": "Terra 1105-050252 전략 점검",
+      "reason": "유료133→114, 순기여2,206,543→1,926,457(audit.jsonl:77). 창당 판매와 동일 unit 잔류가 빠졌다. 이번37창을 조회했으며 다음 두 시간 판매 비증가·수요·하한 통과로 전환을 판단한다.",
+      "grade": "unclear"
+    },
+    {
+      "change": "Terra 1105-061427 전략 점검",
+      "reason": "유료103→99, 순기여1,831,664→827,842(audit.jsonl:78). 원장 지연에 따른 확대 보류는 맞지만 잔류 측정은 빠졌다. 이번 연결 결과로 축소했고 이후 확대는 지연≤120초와 숙성 흑자를 요구한다.",
+      "grade": "unclear"
+    },
+    {
+      "change": "Terra 1105-072551 전략 점검",
+      "reason": "유료115→127, 순기여883,288→1,707,856(audit.jsonl:79). 전략 조건을 반복 미확인으로 남겼다. 이번 시간별 측정을 했으며 두 시간 비증가와 수요·하한 통과가 함께 성립할 때 판단한다.",
+      "grade": "unclear"
+    },
+    {
+      "change": "Terra 1105-083729 전략 점검",
+      "reason": "유료124→116, 순기여1,901,160→2,194,562(audit.jsonl:80). 창당 판매 조건이 빠졌다. 이번37.33→41.67→38.67을 확인해 연속 비증가 미달로 판정했다. 다음 두 시간 같은 기준을 적용한다.",
+      "grade": "unclear"
+    },
+    {
+      "change": "tool_forge의 auto_market_lookup·auto_market_scan",
+      "reason": "668·30호출, 실행 실패0이지만 fixture SKU 상품검색0·미정산행1이었다. 수정 scan은상품1·미정산0이다. 실행 성공을 정보 정확성으로 잘못 평가했다.",
+      "grade": "harmful"
+    },
+    {
+      "change": "G75 목표2 유지",
+      "reason": "직전 검토 확대후56판매·숙성734,039원에서 이번 구간49판매·숙성557,708원이다. 독립효과는 미확인이지만 이번 동일 추가 unit 잔류4쌍으로 철회 조건을 충족했다. 1로 축소하고 두 시간 품절>12분·창당판매20%감소·숙성 흑자일 때 재확대를 검토한다.",
+      "grade": "unclear"
+    }
   ],
   "keep_or_drop": [
     {
-      "item":"fc36f9c의 G03 목표2→1",
-      "reason":"숙성손실 근거가 없어 목표2와 테스트 기대값을 실제 복원했다.",
-      "decision":"drop"
+      "item": "tools/auto_market_lookup",
+      "reason": "SKU 소실·미정산 혼입을 재현했다. 원본을 보존하고 tool.py와 selftest 포함 manifest를 삭제했다. 별도 테스트 파일은 없었다.",
+      "decision": "drop"
     },
     {
-      "item":"g6-a-ask-cap-343k",
-      "reason":"가격실패 주문 표본이 없어 실험 큐에서 제거했다. 운영 호가350000은 유지한다.",
-      "decision":"drop"
+      "item": "tools/auto_market_scan",
+      "reason": "SKU 연결·정산 중복 제거·필터 교집합·판매자 필터를 수정하고 의미 검증과 sandbox 테스트를 추가했다.",
+      "decision": "keep"
     },
     {
-      "item":"나머지60커밋의 현재 코드·설정·프롬프트 변경",
-      "reason":"각 커밋의 변경 파일·설정값과 개별 유지 사유81건을 전체 보고서 keep_or_drop에 기록했다. 혼재된 경제효과는 잠정으로 유지하며 이미 대체된 과거 설정을 재적용하지 않는다.",
-      "decision":"keep"
+      "item": "tools/break_rates",
+      "reason": "18호출·실패0. 기존 읽기 전용 기능을 유지한다.",
+      "decision": "keep"
     },
     {
-      "item":"tools/auto_auto_market_brief",
-      "reason":"54호출·실패0. 수정된 SKU·정산·판매자 필터 의미검증 통과.",
-      "decision":"keep"
+      "item": "tools/catalog_search",
+      "reason": "151호출·실패0.",
+      "decision": "keep"
     },
     {
-      "item":"tools/auto_market_scan",
-      "reason":"372호출·실패0. 정산 중복제거와 카탈로그 연결 회귀검증 통과.",
-      "decision":"keep"
+      "item": "tools/cohort_profit",
+      "reason": "2호출·실패0. 판매 시각과 주문 연결 환불로 숙성 손익을 판단한다.",
+      "decision": "keep"
     },
     {
-      "item":"tools/break_rates",
-      "reason":"10호출·실패0. 환불 위험 조회에 사용됐다.",
-      "decision":"keep"
+      "item": "tools/forum_read",
+      "reason": "60호출·실패0.",
+      "decision": "keep"
     },
     {
-      "item":"tools/catalog_search",
-      "reason":"154호출·실패0. 상품 연결 근거를 제공한다.",
-      "decision":"keep"
+      "item": "tools/ledger_search",
+      "reason": "507호출·실패0.",
+      "decision": "keep"
     },
     {
-      "item":"tools/cohort_profit",
-      "reason":"2호출·실패0. 숙성·미숙성·원가결측을 구분한다.",
-      "decision":"keep"
+      "item": "tools/market_demand",
+      "reason": "38호출·실패0.",
+      "decision": "keep"
     },
     {
-      "item":"tools/forum_read",
-      "reason":"40호출·실패0. 실제 수요글 조회에 필요하다.",
-      "decision":"keep"
+      "item": "tools/market_opportunity",
+      "reason": "2호출·실패0. Terra가 공개 수요와 보증 하한을 판단하는 데 사용했다.",
+      "decision": "keep"
     },
     {
-      "item":"tools/ledger_search",
-      "reason":"114호출·실패0. 지급 근거 조회를 유지한다.",
-      "decision":"keep"
+      "item": "tools/my_customers",
+      "reason": "0호출. 수익 효과를 주장하지 않으며 기존 읽기 전용 기능을 유지한다.",
+      "decision": "keep"
     },
     {
-      "item":"tools/market_demand",
-      "reason":"9호출·실패0. 상품 수요 조회를 유지한다.",
-      "decision":"keep"
+      "item": "tools/my_decisions",
+      "reason": "10호출·실패0.",
+      "decision": "keep"
     },
     {
-      "item":"tools/market_opportunity",
-      "reason":"1호출·실패0. 경쟁 원가를 실제 마진으로 오인하지 않는 시나리오 조회다.",
-      "decision":"keep"
+      "item": "tools/my_memory",
+      "reason": "0호출. 효용은 미입증이며 기존 읽기 전용 기능을 유지한다.",
+      "decision": "keep"
     },
     {
-      "item":"tools/my_customers",
-      "reason":"이번0호출. 유익성 미확정으로 잠정 유지하고 다음12시간 근거 인용을 확인한다.",
-      "decision":"keep"
+      "item": "tools/my_purchases",
+      "reason": "224호출·실패0.",
+      "decision": "keep"
     },
     {
-      "item":"tools/my_decisions",
-      "reason":"3호출·실패0. 결정과 실제 지급을 구별하는 조회를 유지한다.",
-      "decision":"keep"
+      "item": "tools/my_state",
+      "reason": "66호출·실패0.",
+      "decision": "keep"
     },
     {
-      "item":"tools/my_memory",
-      "reason":"이번0호출. 유익성 미확정으로 잠정 유지하고 다음12시간 근거 인용을 확인한다.",
-      "decision":"keep"
+      "item": "G6·G75 목표2",
+      "reason": "같은 추가 단위의 두 창 잔류 조건을 충족해 pricing.json을 각각1로 낮추고 설정 테스트도 수정했다.",
+      "decision": "drop"
     },
     {
-      "item":"tools/my_purchases",
-      "reason":"91호출·실패0. 자신의 구매 근거 조회를 유지한다.",
-      "decision":"keep"
+      "item": "G1515 목표4·식품 우선순위/수량4·현금450만/재고400만·가격/협상",
+      "reason": "G1515 숙성24건+1,558,790원, 동일5단위 두 창 잔류0. 다른 설정의 철회 조건을 입증할 근거는 없다.",
+      "decision": "keep"
     },
     {
-      "item":"tools/my_state",
-      "reason":"17호출·실패0. 재고·잔액 조회를 유지한다.",
-      "decision":"keep"
+      "item": "Ge62449c9 next_window 시험",
+      "reason": "숙성 순기여14,220원. 완료 이력을 보존하고 같은 한 단위 재시험만 설정했다.",
+      "decision": "keep"
     },
     {
-      "item":"auto_market_lookup·auto_catalog_ledger_search의 기존 제거 상태",
-      "reason":"과거 호출 누계를 현재 도구로 오인하지 않고 재도입하지 않는다.",
-      "decision":"keep"
+      "item": "buyer_post.py·review.py·관련 테스트",
+      "reason": "게시45→174와 방어 테스트 성공. 득표 효과는 동연령 추적으로 별도 판단한다.",
+      "decision": "keep"
     },
     {
-      "item":"새 forum_demand 도구와 테스트",
-      "reason":"실제 수요글을 상품·지급건수·보유재고에 연결한다. 샌드박스 검증 통과, 네트워크·결제·게시 기능 없음.",
-      "decision":"keep"
+      "item": "사람의 UNCAPPED·구매자 정가비율1.0",
+      "reason": "보호 정책을 유지한다. 주문 예산·정가·6시간 보증은 계속 적용되며 단기 비교로 독립효과를 단정하지 않는다.",
+      "decision": "keep"
     },
     {
-      "item":"scale_measure·scorecard와 회귀시험",
-      "reason":"반복된 공급창 측정 누락을 자동 조회로 바꿨다. 출고를 지급으로 세지 않고 표본0은 null이다.",
-      "decision":"keep"
+      "item": "market_buyer 견적 묶음·보증 기대가치·관련 테스트",
+      "reason": "상한 안 호가를 찾는 견적 진행과 보증 환급 기대가치 계산을 유지한다.",
+      "decision": "keep"
     },
     {
-      "item":"meta_harness의 점수식 비교와 회귀시험",
-      "reason":"패치 날짜 이후 늦게 수정된 현금식→book식 혼합도 감지한다.",
-      "decision":"keep"
+      "item": "scorecard 모집단·중간순위·가중치 및 meta/astra.md",
+      "reason": "요청식을 유지하고 공개 보드와의 차이·실제 Players 격차를 추가했다.",
+      "decision": "keep"
     },
     {
-      "item":"전략·Terra 지침·실험 큐·REPORT-notes",
-      "reason":"공개식과 규모 정책을 일치시키고 잔류만으로 축소하는 지시와 만기까지 무조건 기다리는 지시를 폐기했다.",
-      "decision":"keep"
+      "item": "profit_cohorts·strategy_screen·관련 도구와 테스트",
+      "reason": "주문별 환불·판매 시각 필터·서지 포함 보증 하한을 유지한다.",
+      "decision": "keep"
     },
     {
-      "item":"15M 총상한·사람의 거절정책·Luna 무상한·보호 한도",
-      "reason":"현재 확대 세 조건이 미달이다. 보호·변경폭 검사 오류0이며 seller 설정은 동일하다.",
-      "decision":"keep"
+      "item": "meta/terra.md·strategy.md·REPORT-notes 및 감사 기록",
+      "reason": "현재 설정·사람 정책·측정 누락 판정선을 갱신했다. 기존 실패 기록은 보존했다.",
+      "decision": "keep"
     }
   ]
 }

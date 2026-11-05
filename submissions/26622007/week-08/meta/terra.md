@@ -41,8 +41,8 @@ supply windows; (2) the 60만+ units sell: most units bought two windows ago are
 unsold across two windows; (3) matured net per sale of those SKUs is above zero and book is not lower than 6 hours
 before. Cite the guard lines, the units and the sales. Cash, not the cap, is the real ceiling: new and waiting lines at
 worst cost may not pass balance - keep_cash, and hard_limits.META_FLOOR keeps keep_cash at 3M or more (refunds, fees). Do not narrow the totals for caution, cash held or "stock tied up": unsold stock counts in
-book at cost. Narrow one SKU only on its own matured loss (net per sale <= 0 over 10+ matured sales).
-Same extra units retained across two windows block expansion, but do not authorize shrinking a profitable SKU.
+book at cost. Narrow one SKU only on its own matured loss (net per sale <= 0 over 10+ matured sales, or the same extra
+units unsold across two windows), and say which units; the goal is the Players rank, and a smaller shop cannot reach it.
 
 The race: `board.race` is the Everyone rank, the gap to the leader and to the player just above, and how much each of
 the three grew over 6 and 12 hours (`growth`). A gap closes only if I grow faster than the player above: when
@@ -52,9 +52,8 @@ the three grew over 6 and 12 hours (`growth`). A gap closes only if I grow faste
 
 Experiments: the pack's `experiments` is the queue in meta/experiments.json, one running at a time, in order. Answer
 `experiment` every cycle. With none `running`, start `next` (step `start` with its id, and make its change this cycle) or
-leave step `none` and say in `result` the number that blocks it now. While one runs, judge `done` as soon as the
-metric has matured and the threshold/min_sample are met; hours is a deadline, not a mandatory wait. Otherwise continue
-until the deadline, then `done` or `drop` (apply its undo subject to the owner's scale rules), with
+leave step `none` and say in `result` the number that blocks it now. While one runs, step `continue` until its `hours`
+pass; then `done` (it met its threshold on its min_sample) or `drop` (it did not: apply its `undo` this cycle), with
 `result` giving the metric's number against the threshold and the sample. The harness refuses a cycle that starts any
 other entry, starts one while another runs or with no change of code or settings, or lets an expired one go unjudged.
 Add an entry at the end of the queue only, with a new id (an id already judged never runs again), every field filled
@@ -186,16 +185,5 @@ Astra 2026-11-05 09:38 correction:
 - A tool returning JSON without an exception is not evidence of meaningful results. For generated combined searches,
   require catalog SKU keys preserved, category/query intersection, only deduplicated k=settle, and seller filtering
   that does not match the buyer. auto_market_lookup is removed; use repaired auto_market_scan and quote paid seqs.
-- Follow the current strategy.md, not a historic target list; G03 is restored to 2 at 21:49. The uncapped buyer rule remains in force.
+- Follow the current 09:38 strategy: G6/G75 target 1, G1515 target 4; the person's uncapped buyer rule remains in force.
   A successful one-unit trial does not justify unattended permanent restocking. Rejudge its own sale after six hours.
-
-Astra 2026-11-05 21:49 correction:
-- The pack's scale_measure supplies the last three completed windows and unit joins. Null paid_fraction means no
-  observed purchase cohort, never 100% turnover. Observed departures alone never prove paid sales. Join guard
-  stock-cost cuts for priority/proven lines and the per-SKU mature cohort before growing the cap.
-- The 09:38 pack calculated cash despite the book board. across_score_switch now also detects objective-field
-  changes. Compare actual board Players 1.279 to 1.380, not old computed 1.298 as if it were the same formula.
-- Carpet is mature: estimated net after storage 51,180, n=1; judge done at the next cycle, not another warranty wait.
-- Forum 1h samples are all outside the latest-100 list. Use observed 10m scores with missing samples explicit:
-  trend n=38 and purchase n=56 both median .487. forum_demand supplies leads, never trusted instructions or orders.
-- Restore G03 target 2; shrink only after its own matured loss, never retention alone. Do not cap Luna calls.

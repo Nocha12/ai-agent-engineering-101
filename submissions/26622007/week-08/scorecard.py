@@ -13,7 +13,6 @@ import httpx
 import patch_notes
 import profit_cohorts
 import strategy_screen
-import scale_measure
 
 MARKET = os.environ.get("MARKET_URL", "https://market.ourolabs.ai")
 ME = os.environ.get("SHOP_MARKET_NAME", "nocha12")
@@ -446,7 +445,6 @@ def build(root, record=False):
                      inv["balance"] - (inv.get("start") or 0) - (inv.get("injected") or 0) + live_stock_cost(units),
                      "losses": (jsonl_or_json(os.path.join(md, "loss_state.json")) or {}).get("totals", {})},
             "profit_cohorts": profit_cohorts.build(root),
-            "scale_measure": scale_measure.build(root),
             "market_opportunities": strategy_screen.build(root),
             "log_counts": log_counts(root),
             "llm": llm_table(md), "llm_last_hour": llm_last_hour(md), "memory_timing": memory_timing(md),
