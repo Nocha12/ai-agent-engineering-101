@@ -239,9 +239,9 @@ class PriceTest(unittest.TestCase):
         # (review/W-20261104-2030, GPT Pro 3판 §4.2)
         self.assertEqual((r["priority_skus"], r["sku_target_units"]),
                          (["G75f11c19", "Gef4d3036", "Gb2392fa9", "G200e39a3", "G66ded25b", "G05277ffe", "Gb5d0dde7",
-                           "G8ec51935", "G03d0199f", "G00327e80"],
+                           "G8ec51935", "G03d0199f", "G00327e80", "G1465c678"],
                           {"G1515d951": 4, "G6b9db161": 1, "G75f11c19": 1, "G05277ffe": 3, "Gb5d0dde7": 3,
-                           "G8ec51935": 3, "G03d0199f": 2, "G00327e80": 2}))   # G1515 4: Astra 21:19, same five units across two supply windows; G6 2: undo the reduction triggered by mislinked refunds
+                           "G8ec51935": 3, "G03d0199f": 2, "G00327e80": 2, "G1465c678": 1}))   # G1515 4: Astra 21:19, same five units across two supply windows; G6 2: undo the reduction triggered by mislinked refunds
         # Patch 3.3 (book): one unit each of two 60만+ goods 12-14 shops sell 39-49/h at 3-4% mature break, after the proven
         # SKUs and food (scale-analysis.md); the 2.32M sofa G8ec51935 waits for a larger cap
         cat = {"G05277ffe": {"kind": "goods", "list_price": 600000}, "Gb5d0dde7": {"kind": "goods", "list_price": 1094400},
@@ -268,7 +268,7 @@ class PriceTest(unittest.TestCase):
         first = p["next_window"]["done_plans"][0]["targets"]          # the review's table: 10 SKUs, 13 units
         self.assertEqual((len(first), sum(first.values())), (10, 13))
         self.assertNotIn("G07ec17d5", first)
-        self.assertEqual(p["next_window"]["targets"], {"Ge62449c9": 1})     # one-unit demand and mature-margin trial
+        self.assertEqual(p["next_window"]["targets"], {"G1465c678": 1})     # one-unit demand and mature-margin trial
 
 
 CAT = {"F1": {"kind": "food", "list_price": 40000}, "F2": {"kind": "food", "list_price": 40000},
@@ -377,6 +377,11 @@ class TrialInMainTest(unittest.TestCase):
         self.assertEqual(self.run_main([], {"open": True, "closes_at": now + 120}), [{"sku": "H2", "qty": 2}])
         self.assertEqual(self.run_main(None, {"open": True, "closes_at": now + 120}),     # no trial: all of the plan
                          [{"sku": "H1", "qty": 2}, {"sku": "H2", "qty": 2}])
+
+    def test_completed_trial_is_not_replenished_when_held_for_judgment(self):
+        pricing = {**self.PRICING, "next_window": {**self.PRICING["next_window"], "hold_after_done": True}}
+        with mock.patch.object(self, "PRICING", pricing):
+            self.assertEqual(self.run_main(None, {"open": True, "closes_at": time.time() + 120}), [{"sku": "H2", "qty": 2}])
 
     def test_a_trial_waiting_for_its_window_keeps_the_lead_time_empty(self):
         self.assertEqual(self.run_main([], {"open": False, "opens_at": time.time() + 30}), [])
