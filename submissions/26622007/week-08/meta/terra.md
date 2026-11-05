@@ -18,8 +18,10 @@ own undo condition holds, quoted; disagreeing with it is a watch, not an act.
 Patch notes first: the pack's `rules` (patch_notes.py) is the market's /rules page read this cycle. When `rules.new`
 lists a patch, or `rules.recent` one you have not graded yet, read it in full (`curl -fsSL https://market.ourolabs.ai/rules`)
 and say in grade_summary what it changes for the score, the costs and the strategy. When `rules.objective_matches` is
-false, the scorecard measures the wrong thing: this cycle's change is scorecard.OBJECTIVE (and the Objective lines below)
-brought to `rules.scoring`, with a test, before any other change. A rule change that makes a setting, a limit or a
+false, confirm it against the patch's written formula ("Shop ALL = 0.5 book + ...") and the board (`board_drift`); if
+they agree, the scorecard measures the wrong thing: this cycle's change is scorecard.OBJECTIVE (and the Objective lines
+below) brought to the published formula, with a test, before any other change. Never loosen patch_notes.compare to make
+a mismatch go away. A rule change that makes a setting, a limit or a
 strategy line wrong (a cost that counted as a loss no longer does, a new fee) is a reason to act on it this cycle, quoted.
 `rules.error` means the page could not be read: say so and go on.
 

@@ -8,7 +8,7 @@ seen (.market/patch_notes.json), and compares the published weights with scoreca
 - scoring: the published parts and weights; objective_matches false and mismatch when scorecard.OBJECTIVE disagrees.
 No model call. A page that cannot be read or parsed gives {"error": ...} and leaves the record alone.
 
-    python patch_notes.py          # prints what a cycle would see (and records it)
+    python patch_notes.py          # prints what a cycle would see (records nothing)
 """
 import html
 import json
@@ -21,6 +21,7 @@ import httpx
 RULES = "https://market.ourolabs.ai/rules"
 STATE = os.path.join(".market", "patch_notes.json")
 RECENT_HOURS = 24
+TOLERANCE = 0.005      # published weights come from drawn bar widths (50%, 30%, ...)
 KINDS = {"Shop ALL": "shops", "Buyer ALL": "buyers"}
 
 
@@ -61,17 +62,29 @@ def compare(scoring, objective):
             out.append(f"{kind}: no published weights found")
             continue
         mine = [(names, w) for names, w in parts]
-        if len(published) != len(mine):
-            out.append(f"{kind}: published {published}, scorecard {[(n[0], w) for n, w in mine]}")
-            continue
-        for (part, w), (names, mw) in zip(published, mine):
-            if part not in names or abs(w - mw) > 1e-6:
-                out.append(f"{kind}: published {part} {w}, scorecard {names[0]} {mw}")
+        for part, w in published:       # by name, in any order; bar widths are drawn, so 0.005 is the same weight
+            match = next((mw for names, mw in mine if part in names), None)
+            if match is None:
+                out.append(f"{kind}: published {part} {w}, not in the scorecard")
+            elif abs(w - match) > TOLERANCE:
+                out.append(f"{kind}: published {part} {w}, scorecard {match}")
+        for names, mw in mine:
+            if not any(part in names for part, _ in published):
+                out.append(f"{kind}: scorecard {names[0]} {mw}, not published")
     return out
 
 
-def check(root=".", page=None, now=None, objective=None):
-    """What this cycle should know about the rules. Never raises."""
+def dated(p):
+    """The patch's own date ("Nov 5, 2026") as local midnight, or None."""
+    try:
+        return time.mktime(time.strptime(p.get("date", ""), "%b %d, %Y"))
+    except (ValueError, OverflowError):
+        return None
+
+
+def check(root=".", page=None, now=None, objective=None, record=True):
+    """What this cycle should know about the rules. Never raises. record=False reads without marking anything seen (a
+    look by hand must not take a patch out of the next cycle's "new")."""
     now = time.time() if now is None else now
     try:
         if page is None:
@@ -89,13 +102,15 @@ def check(root=".", page=None, now=None, objective=None):
         except (OSError, ValueError):
             st = {}
         seen, last = st.get("first_seen") or {}, st.get("checked_at") or 0
-        for p in got["patches"]:
-            seen.setdefault(p["id"], now)
+        for p in got["patches"]:        # the first check dates the patches already listed by their own date, not now
+            seen.setdefault(p["id"], min(now, dated(p) or now) if not last else now)
         mismatch = compare(got["scoring"], objective)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path + ".tmp", "w", encoding="utf-8") as f:
-            json.dump({"first_seen": seen, "checked_at": now, "scoring": got["scoring"]}, f, ensure_ascii=False)
-        os.replace(path + ".tmp", path)
+        if record:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp = f"{path}.{os.getpid()}.tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"first_seen": seen, "checked_at": now, "scoring": got["scoring"]}, f, ensure_ascii=False)
+            os.replace(tmp, path)
         first = lambda p: seen[p["id"]]
         return {"url": RULES, "latest": got["patches"][0]["id"],
                 "new": [p for p in got["patches"] if last and first(p) > last],
@@ -107,4 +122,4 @@ def check(root=".", page=None, now=None, objective=None):
 
 
 if __name__ == "__main__":
-    print(json.dumps(check(os.path.dirname(os.path.abspath(__file__))), ensure_ascii=False, indent=1))
+    print(json.dumps(check(os.path.dirname(os.path.abspath(__file__)), record=False), ensure_ascii=False, indent=1))

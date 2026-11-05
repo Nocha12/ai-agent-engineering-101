@@ -1,6 +1,7 @@
 import json
 import os
 import tempfile
+import time
 import unittest
 
 import patch_notes
@@ -62,6 +63,22 @@ class PatchNotesTest(unittest.TestCase):
         self.assertEqual(later["recent"], [])
         with open(os.path.join(self.tmp.name, patch_notes.STATE)) as f:
             self.assertEqual(json.load(f)["first_seen"]["Patch 3.4"], 2000)
+
+    def test_the_first_check_dates_old_patches_by_their_own_date(self):
+        now = time.mktime(time.strptime("Nov 5, 2026 11:00", "%b %d, %Y %H:%M"))
+        out = patch_notes.check(self.tmp.name, PAGE, now=now)
+        self.assertEqual([p["id"] for p in out["recent"]], ["Patch 3.3"])     # 3.2 (Nov 4) is 35 h old
+
+    def test_a_look_by_hand_records_nothing(self):
+        patch_notes.check(self.tmp.name, PAGE, now=1000, record=False)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, patch_notes.STATE)))
+
+    def test_weights_match_by_name_within_the_drawn_width(self):
+        drawn = {"shops": [["stars", 0.2], ["book", 0.497], ["revenue", 0.3]],
+                 "buyers": [["surplus", 0.5], ["forum", 0.3], ["deals", 0.1], ["posts", 0.1]]}
+        self.assertEqual(patch_notes.compare(drawn, scorecard.OBJECTIVE), [])
+        drawn["shops"][0] = ["stars", 0.1]
+        self.assertEqual(patch_notes.compare(drawn, scorecard.OBJECTIVE), ["shops: published stars 0.1, scorecard 0.2"])
 
     def test_an_unreadable_page_is_an_error_not_a_crash(self):
         self.assertIn("error", patch_notes.check(self.tmp.name, "<html>moved</html>"))
