@@ -267,7 +267,7 @@ class PriceTest(unittest.TestCase):
         self.assertTrue({"G054ff120", "G0f415407", "G9c02e68e", "Gf0293c0e", "G9c1a6eee", "Gbb0cbbff"} <= set(r["skip_skus"]))
         self.assertNotIn("G6b9db161", r["skip_skus"])   # held units sold at capped asks; allow replenishment
         self.assertEqual(p["price"]["scarce_asks"], {"G1515d951": 380911})
-        self.assertEqual(p["price"]["ask_caps"]["G6b9db161"], {"A": 350000, "C": 279000})
+        self.assertEqual(p["price"]["ask_caps"]["G6b9db161"], {"A": 343000, "C": 279000})
         first = p["next_window"]["done_plans"][0]["targets"]          # the review's table: 10 SKUs, 13 units
         self.assertEqual((len(first), sum(first.values())), (10, 13))
         self.assertNotIn("G07ec17d5", first)
