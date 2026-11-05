@@ -478,39 +478,54 @@ def gap_problems(answer, code):
     return []
 
 
+def read_queue(text=None):
+    """The queue's entries (dicts with a string id), from meta/experiments.json or the given text; anything else is []."""
+    try:
+        if text is None:
+            with open(os.path.join(ROOT, EXPERIMENTS), encoding="utf-8") as f:
+                text = f.read()
+        queue = json.loads(text).get("queue")
+    except (OSError, ValueError, AttributeError):
+        return []
+    return [e for e in queue if isinstance(e, dict) and isinstance(e.get("id"), str)] if isinstance(queue, list) else []
+
+
+def hours_of(e):
+    h = e.get("hours")
+    return h if isinstance(h, (int, float)) and not isinstance(h, bool) and 0 < h <= 168 else 12
+
+
 def experiments(now=None):
     """The queue as the pack shows it: the one running (when it started, its expiry, whether that passed), the next one
     queued and how many wait. A queue entry: id, change, evidence, metric, direction, threshold, min_sample, hours, undo.
-    Its state is the last step meta/experiments_log.jsonl holds for it (none yet: queued)."""
+    What runs comes from meta/experiments_log.jsonl alone (its start line keeps the entry as it was), so an entry edited
+    or removed from the queue while it runs is still the one judged; an id the log already holds never starts again."""
     now = time.time() if now is None else now
-    try:
-        with open(os.path.join(ROOT, EXPERIMENTS), encoding="utf-8") as f:
-            queue = json.load(f).get("queue") or []
-    except (OSError, ValueError, AttributeError):
-        queue = []
-    queue = [e for e in queue if isinstance(e, dict) and isinstance(e.get("id"), str)]
-    steps, started = {}, {}
+    queue = read_queue()
+    steps, began = {}, {}
     for r in scorecard.jsonl(os.path.join(ROOT, EXPERIMENT_LOG)):
         if isinstance(r.get("id"), str) and isinstance(r.get("ts"), (int, float)):
             steps[r["id"]] = r.get("step")
             if r.get("step") == "start":
-                started[r["id"]] = r["ts"]
-    run = next((e for e in queue if steps.get(e["id"]) in ("start", "continue")), None)
+                began[r["id"]] = r
+    run = next((i for i, st in steps.items() if st in ("start", "continue") and i in began), None)
     waiting = [e for e in queue if e["id"] not in steps]
     out = {"running": None, "next": waiting[0] if waiting else None, "waiting": len(waiting),
-           "closed": {i: st for i, st in steps.items() if st in ("done", "drop")}}
+           "closed": {i: st for i, st in steps.items() if st in ("done", "drop")},
+           "skipped": [e["id"] for e in queue if steps.get(e["id"]) in ("done", "drop")]}
     if run:
-        hours = run.get("hours") if isinstance(run.get("hours"), (int, float)) and not isinstance(run.get("hours"), bool) else 12
-        ends = started.get(run["id"], now) + hours * 3600
-        out["running"] = {**run, "hours": hours, "started": time.strftime("%m-%d %H:%M", time.localtime(started.get(run["id"], now))),
+        b = began[run]
+        e = b.get("entry") if isinstance(b.get("entry"), dict) else next((q for q in queue if q["id"] == run), {"id": run})
+        hours, ends = hours_of(e), b["ts"] + hours_of(e) * 3600
+        out["running"] = {**e, "id": run, "hours": hours, "started": time.strftime("%m-%d %H:%M", time.localtime(b["ts"])),
                           "expires": time.strftime("%m-%d %H:%M", time.localtime(ends)), "expired": now > ends}
     return out
 
 
-def experiment_problems(kind, answer, view):
+def experiment_problems(kind, answer, view, code=()):
     """One evidenced experiment at a time, from the queue in order (meta/terra.md 'Experiments'): start only the next
-    one and only when none runs, judge the running one once its hours pass, and with none running either start the next
-    or say why not in result. A cycle that breaks this is not accepted."""
+    one, only when none runs and only with its change in this cycle's code; judge the running one once its hours pass;
+    with none running either start the next or say why not in result. A cycle that breaks this is not accepted."""
     if kind != "terra" or not answer:
         return []
     x = answer.get("experiment") or {}
@@ -521,6 +536,8 @@ def experiment_problems(kind, answer, view):
             return [f"experiment {eid}: {run['id']} still runs; judge it (done or drop) before another starts"]
         if not nxt or eid != nxt["id"]:
             return [f"experiment {eid}: only the next one in the queue ({nxt['id'] if nxt else 'none'}) can start"]
+        if not [c for c in code if c not in DOCS_ONLY]:
+            return [f"experiment {eid}: a start makes its change in this cycle (no code or settings changed)"]
         return []
     if step in ("continue", "done", "drop"):
         if not run or eid != run["id"]:
@@ -537,13 +554,37 @@ def experiment_problems(kind, answer, view):
     return []
 
 
+def queue_problems(kind, paths):
+    """Terra only adds at the end of the queue (Astra orders it), and the log is the harness's: a model's write to it is
+    put back and refused."""
+    out = []
+    if EXPERIMENT_LOG in paths:
+        out.append(f"{EXPERIMENT_LOG} is written by the harness only")
+        if git("ls-tree", "HEAD", "--", EXPERIMENT_LOG, check=False):        # in HEAD: back to it
+            git("checkout", "HEAD", "--", EXPERIMENT_LOG, check=False)
+        else:
+            git("rm", "-q", "--cached", "--", EXPERIMENT_LOG, check=False)
+            if os.path.exists(os.path.join(ROOT, EXPERIMENT_LOG)):
+                os.remove(os.path.join(ROOT, EXPERIMENT_LOG))
+    if kind == "terra" and EXPERIMENTS in paths:
+        try:
+            old = read_queue(git("show", f"HEAD:./{EXPERIMENTS}"))
+        except RuntimeError:
+            old = []
+        if read_queue()[:len(old)] != old:
+            out.append(f"Terra changed or removed entries of {EXPERIMENTS}; it may only add at the end")
+    return out
+
+
 def note_experiment(cid, answer):
-    """After an accepted cycle: its experiment step goes into the log the next pack reads."""
+    """After an accepted cycle: its experiment step goes into the log the next pack reads; a start keeps its entry."""
     x = (answer or {}).get("experiment") or {}
     if x.get("step") in ("start", "continue", "done", "drop") and x.get("id"):
+        rec = {"ts": time.time(), "cycle": cid, "id": x["id"], "step": x["step"], "result": x.get("result") or ""}
+        if x["step"] == "start":
+            rec["entry"] = next((e for e in read_queue() if e["id"] == x["id"]), None)
         with open(os.path.join(ROOT, EXPERIMENT_LOG), "a", encoding="utf-8") as f:
-            f.write(json.dumps({"ts": time.time(), "cycle": cid, "id": x["id"], "step": x["step"],
-                                "result": x.get("result") or ""}, ensure_ascii=False) + "\n")
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 
 def last_cycle_time(kind):
@@ -657,8 +698,9 @@ def cycle(kind):
         problems += strategy_problems(kind, answer, code)
         problems += gap_problems(answer, code)
         problems += alert_problems(card, answer, code)
-        problems += experiment_problems(kind, answer, view)
+        problems += experiment_problems(kind, answer, view, code)
     problems += limit_problems(code)
+    problems += queue_problems(kind, paths)
     moved = hard_limits.policy_diff(pricing_at_head(), pricing_now())
     if moved:
         log(f"{cid}: settings moved: {'; '.join(moved)}")

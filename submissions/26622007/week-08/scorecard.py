@@ -125,22 +125,23 @@ def forum_then(past, hours, now=None):
     return row[1] if len(row) > 1 and isinstance(row[1], (int, float)) else None
 
 
-LLM_CAP = 300            # OpenRouter calls an hour, all processes together (harness.OR_MAX_CALLS_PER_HOUR)
+# harness.OR_MAX_CALLS_PER_HOUR (300) is a credit guard of each process (a09b9f0, 10/19), not a market rule: the total
+# over processes is a cost the operator decides, so it is no alert. The seller's own refusals are none either: on a
+# numeric offer it answers by code (1,527 of 1,635 refusals 11/05 04:07-11:20, "cannot answer" 0 times).
+CAP_HARMLESS = ("seller-harness",)
 WORST_COST_SHARE = 0.9   # 0.75 x list x restock.SURGE_HALF: a unit above it was bought deep in a surge
 FORUM_DROP = 0.01
 
 
 def alerts(md, card_board, now=None):
-    """Signals a cycle must not pass over with no_change: the LLM cap broken or refusing, stock bought above the worst cost
-    restock reserves for, the buyer forum falling, the scorecard drifting from the board, the rules disagreeing with it.
-    Each is a short sentence with its numbers. meta_harness refuses a no_change answer that leaves one of them open."""
+    """Signals a cycle must not pass over with no_change: a buyer or restock call refused at its cap, stock bought above
+    the worst cost restock reserves for, the buyer forum falling, the scorecard drifting from the board, the rules
+    disagreeing with it. Each is a short sentence with its numbers. meta_harness refuses a no_change answer that leaves
+    one of them open."""
     now = time.time() if now is None else now
     out = []
-    calls = [c for c in jsonl(os.path.join(md, "llm_calls.jsonl"))[-5000:] if (c.get("ts") or 0) >= now - 3600]
-    if len(calls) > LLM_CAP:
-        tags = collections.Counter(c.get("tag") for c in calls).most_common(4)
-        out.append(f"llm_calls: {len(calls)} OpenRouter calls in the last hour, cap {LLM_CAP} for all processes ({tags})")
-    caps = [c for c in jsonl(os.path.join(md, "measure", "llm_cap.jsonl"))[-5000:] if (c.get("ts") or 0) >= now - 3600]
+    caps = [c for c in jsonl(os.path.join(md, "measure", "llm_cap.jsonl"))[-5000:]
+            if (c.get("ts") or 0) >= now - 3600 and c.get("tag") not in CAP_HARMLESS]
     if caps:
         out.append(f"llm_cap: {len(caps)} calls refused at the cap in the last hour "
                    f"({collections.Counter(c.get('tag') for c in caps).most_common(3)})")

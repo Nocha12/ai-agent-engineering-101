@@ -735,10 +735,15 @@ class ExperimentQueueTest(unittest.TestCase):
         self.assertTrue(p("start", "b"))                    # not the next one
         self.assertTrue(p("none"))                          # idle with a next one and no reason
         self.assertEqual(p("none", result="cash 3.9M of 4M: no room for it until 12:40"), [])
-        self.assertEqual(p("start", "a"), [])
+        self.assertTrue(p("start", "a"))                    # a start with no change in the cycle
+        self.assertTrue(mh.experiment_problems("terra", self.answer("start", "a"), mh.experiments(), [mh.EXPERIMENTS]))
+        self.assertEqual(mh.experiment_problems("terra", self.answer("start", "a"), mh.experiments(), ["pricing.json"]), [])
         mh.note_experiment("terra-1", self.answer("start", "a"))
+        with open(os.path.join(self.tmp.name, mh.EXPERIMENTS), "w") as f:     # removing or stretching it changes nothing
+            json.dump({"queue": [{"id": "b"}]}, f)
         v = mh.experiments()
-        self.assertEqual((v["running"]["id"], v["running"]["expired"], v["next"]["id"]), ("a", False, "b"))
+        self.assertEqual((v["running"]["id"], v["running"]["hours"], v["running"]["expired"], v["next"]["id"]),
+                         ("a", 2, False, "b"))
         self.assertTrue(p("start", "b"))                    # a still runs
         self.assertEqual(p("continue", "a"), [])
         self.assertEqual(p("none"), [])
@@ -755,6 +760,28 @@ class ExperimentQueueTest(unittest.TestCase):
     def test_no_queue_file_asks_nothing(self):
         os.remove(os.path.join(self.tmp.name, mh.EXPERIMENTS))
         self.assertEqual(mh.experiment_problems("terra", self.answer("none"), mh.experiments()), [])
+        with open(os.path.join(self.tmp.name, mh.EXPERIMENTS), "w") as f:
+            json.dump({"queue": 5}, f)
+        self.assertIsNone(mh.experiments()["next"])
+        self.assertEqual(mh.hours_of({"hours": 1e300}), 12)
+
+    def test_terra_only_appends_and_never_writes_the_log(self):
+        g = lambda *a: subprocess.run(["git", *a], cwd=self.tmp.name, check=True, capture_output=True)
+        g("init", "-q")
+        g("-c", "user.email=t@t", "-c", "user.name=t", "add", "-A")
+        g("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "q")
+        with open(os.path.join(self.tmp.name, mh.EXPERIMENTS), "w") as f:
+            json.dump({"queue": [{"id": "a", "hours": 2}, {"id": "b"}, {"id": "c"}]}, f)
+        self.assertEqual(mh.queue_problems("terra", [mh.EXPERIMENTS]), [])
+        with open(os.path.join(self.tmp.name, mh.EXPERIMENTS), "w") as f:
+            json.dump({"queue": [{"id": "b"}, {"id": "a", "hours": 2}]}, f)
+        self.assertTrue(mh.queue_problems("terra", [mh.EXPERIMENTS]))
+        self.assertEqual(mh.queue_problems("astra", [mh.EXPERIMENTS]), [])
+        with open(os.path.join(self.tmp.name, mh.EXPERIMENT_LOG), "w") as f:
+            f.write(json.dumps({"ts": 1, "id": "b", "step": "done"}) + "\n")
+        g("add", "-A")
+        self.assertTrue(mh.queue_problems("terra", [mh.EXPERIMENT_LOG]))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, mh.EXPERIMENT_LOG)))
 
 
 if __name__ == "__main__":

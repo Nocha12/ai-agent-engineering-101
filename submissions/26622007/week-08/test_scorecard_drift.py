@@ -61,17 +61,21 @@ class AlertTest(unittest.TestCase):
                 f.writelines(json.dumps({'ts': now - 10, 'tag': 'seller-harness'}) + '\n' for _ in range(301))
             with open(os.path.join(md, 'measure', 'llm_cap.jsonl'), 'w') as f:
                 f.write(json.dumps({'ts': now - 5, 'tag': 'buyer-agent'}) + '\n')
+                f.write(json.dumps({'ts': now - 5, 'tag': 'seller-harness'}) + '\n')
             json.dump({'G1': {'list_price': 1000}}, open(os.path.join(md, 'catalog.json'), 'w'))
             json.dump({'units': [{'sku': 'G1', 'cost': 950, 'supplied_at': now - 60},
                                  {'sku': 'G1', 'cost': 700, 'supplied_at': now - 60}]}, open(os.path.join(md, 'inventory.json'), 'w'))
             b = {'objective': {'buyers': {'parts': {'forum': {'value': .55}}}, 'board_drift': {'shops': .002, 'buyers': 0}},
                  'forum_6h_ago': .58}
             got = [a.split(':')[0] for a in scorecard.alerts(md, b, now=now)]
-            self.assertEqual(got, ['llm_calls', 'llm_cap', 'surge', 'forum', 'board_drift'])
+            self.assertEqual(got, ['llm_cap', 'surge', 'forum', 'board_drift'])        # 301 calls an hour: no alert
+            first = scorecard.alerts(md, b, now=now)[0]
+            self.assertIn('buyer-agent', first)
+            self.assertNotIn('seller-harness', first)                                    # it answers by code
             b['forum_6h_ago'] = .555
             b['objective']['board_drift'] = {}
-            os.remove(os.path.join(md, 'llm_calls.jsonl'))
-            self.assertEqual([a.split(':')[0] for a in scorecard.alerts(md, b, now=now)], ['llm_cap', 'surge'])
+            os.remove(os.path.join(md, 'measure', 'llm_cap.jsonl'))
+            self.assertEqual([a.split(':')[0] for a in scorecard.alerts(md, b, now=now)], ['surge'])
 
 
 class JsonlTest(unittest.TestCase):

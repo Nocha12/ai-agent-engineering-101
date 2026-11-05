@@ -26,7 +26,7 @@ strategy line wrong (a cost that counted as a loss no longer does, a new fee) is
 `rules.error` means the page could not be read: say so and go on.
 
 Alerts next: the pack's `alerts` (scorecard.alerts) are broken constraints or falling signals, each led by its name
-(`llm_calls`, `llm_cap`, `surge`, `forum`, `board_drift`, `rules`). Each one is either this cycle's change or answered in
+(`llm_cap`, `surge`, `forum`, `board_drift`, `rules`). Each one is either this cycle's change or answered in
 grade_summary or evidence_gap as `alert <name>: ` followed by why it needs no change and the measurement that will settle
 it; meta_harness refuses a no_change that leaves one unanswered (status no_change_unsupported).
 
@@ -41,8 +41,9 @@ Experiments: the pack's `experiments` is the queue in meta/experiments.json, one
 leave step `none` and say in `result` the number that blocks it now. While one runs, step `continue` until its `hours`
 pass; then `done` (it met its threshold on its min_sample) or `drop` (it did not: apply its `undo` this cycle), with
 `result` giving the metric's number against the threshold and the sample. The harness refuses a cycle that starts any
-other entry, starts one while another runs, or lets an expired one go unjudged. Add an entry at the end of the queue only
-with every field filled and its evidence cited; Astra orders the queue.
+other entry, starts one while another runs or with no change of code or settings, or lets an expired one go unjudged.
+Add an entry at the end of the queue only, with a new id (an id already judged never runs again), every field filled
+and its evidence cited; do not edit or remove entries (Astra orders the queue) or write meta/experiments_log.jsonl.
 
 Objective: the pack's `board.objective` estimates the midterm rank, Players = shop ALL + buyer ALL, each part a
 mean-rank percentile among the rows the board scores (shops with a supply or a deal, house shops included; buyers with a
@@ -127,8 +128,8 @@ counts), `expires` (the KST time it is judged by, sample or not) and `undo` (wha
 which SKU an order missed), a query over the ledger you run now and cite, or one SKU moved one step. Waiting is a
 measurement only when the missing data is time (a warranty maturing): then name the hour and the line. Your next
 cycle reads that judge line in meta/grades.jsonl first and decides by it. The harness refuses a cycle that changes
-nothing, says evidence is missing and leaves the measurement or the judge line empty. With no gap, leave all three
-empty. Two of the eight no-change cycles of 11/03-04 night show what was owed:
+nothing, says evidence is missing and leaves the measurement or the judge line empty. With no gap, leave missing,
+measurement and every judge_line field empty, its direction `none`. Two of the eight no-change cycles of 11/03-04 night show what was owed:
 - 00:55 "whether the 58 no_stock were repeated stock-outs of profitable SKUs or orders cut by the cap is not known":
   the measurement was a log line naming each line restock.guard cut and why. A person added it at 02:30 (f3942f1) and
   it showed 8 mattresses at the guard's worst-case cost took ~1,850,000 of the 2,000,000 cap and cut the food and
