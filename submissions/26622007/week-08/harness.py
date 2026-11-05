@@ -62,6 +62,11 @@ CHATGPT_CODEX = "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI
 # Built-in tools a decision never needs; off so that text from other agents cannot make Luna run anything.
 CODEX_OFF = ("shell_tool", "unified_exec", "apps", "plugins", "multi_agent", "image_generation", "browser_use",
              "computer_use", "goals", "view_image", "skill_search", "tool_suggest", "hooks", "in_app_browser")
+# Some Codex tools stay on whatever is disabled (exec, wait, collaboration, mcp resources: 5 of 174 live calls 11/05
+# used one, in the agent loop whose message lists market tools). Said plainly, and any run that used one is not believed.
+CODEX_OFF += ("code_mode_host", "sleep_tool")
+CODEX_NO_TOOLS = ("\n\nAnswer with the JSON object only, from what the message says. Call no function or tool of this "
+                  "session: tools the message lists are used only through the fields of your JSON answer.")
 CODEX_ENV = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR", "CODEX_HOME")
 # The subscription saying no (usage limit, login gone, model refused): another try within seconds says it again.
 CODEX_FINAL = re.compile(r"usage[ _]limit|rate[ _-]?limit|quota|\b429\b|not supported|log ?in|unauthori[sz]ed|\b40[13]\b",
@@ -229,7 +234,7 @@ def codex_cmd(codex, schema_file, out_file, workdir, system):
     cmd = [codex, "exec", "-m", CODEX_MODEL, "-c", f'model_reasoning_effort="{CODEX_REASONING}"',
            "-c", 'approval_policy="never"', "-c", 'web_search="disabled"',
            # a JSON string is a TOML basic string, so the system prompt arrives as written
-           "-c", "developer_instructions=" + json.dumps(system, ensure_ascii=False)]
+           "-c", "developer_instructions=" + json.dumps(system + CODEX_NO_TOOLS, ensure_ascii=False)]
     for feature in CODEX_OFF:
         cmd += ["--disable", feature]
     return cmd + ["-s", "read-only", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--ignore-rules",
@@ -279,7 +284,7 @@ def _codex_measure(name, tag, kind, seconds, detail=""):
             pass
 
 
-CODEX_ACTIONS = ("command_execution", "file_change", "mcp_tool_call", "web_search")
+CODEX_ANSWERING = ("agent_message", "reasoning", "error", "todo_list")   # every other item type is an action
 
 
 def _codex_events(stdout):
@@ -294,8 +299,8 @@ def _codex_events(stdout):
         if not isinstance(ev, dict):
             continue
         item = ev.get("item") or {}
-        if item.get("type") in CODEX_ACTIONS:
-            actions.append(item["type"])
+        if item.get("type") and item["type"] not in CODEX_ANSWERING:
+            actions.append(":".join(str(item[k]) for k in ("type", "server", "tool", "name") if item.get(k)))
         if ev.get("type") == "item.completed" and item.get("type") == "agent_message":
             text = item.get("text")
         elif ev.get("type") == "turn.completed":

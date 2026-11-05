@@ -104,7 +104,7 @@ class CodexHarnessTest(unittest.TestCase):
         self.assertIn("shell_tool", off)
         self.assertIn("unified_exec", off)
         self.assertEqual(run["schema"], SCHEMA)
-        self.assertIn('developer_instructions="You are a shop owner."', argv)
+        self.assertIn("developer_instructions=" + json.dumps("You are a shop owner." + harness.CODEX_NO_TOOLS), argv)
         self.assertEqual(run["stdin"], "the offer is 80")
         self.assertEqual(argv[-1], "-")
         self.assertEqual(run["listing"], [])                                   # an empty folder: no AGENTS.md, no repo
@@ -122,7 +122,7 @@ class CodexHarnessTest(unittest.TestCase):
         harness.ask("p", SCHEMA, system)
         arg = next(a for a in self.runs()[0]["argv"] if a.startswith("developer_instructions="))
         import tomllib
-        self.assertEqual(tomllib.loads(arg)["developer_instructions"], system)
+        self.assertEqual(tomllib.loads(arg)["developer_instructions"], system + harness.CODEX_NO_TOOLS)
 
     def test_an_invalid_answer_is_asked_again_then_fails_to_the_caller(self):
         self.plan({"answer": '{"a": "x"}'}, {"answer": '{"a": 2}'})
@@ -162,6 +162,11 @@ class CodexHarnessTest(unittest.TestCase):
             harness.ask("p", SCHEMA, "s")
         self.assertIn("command_execution", str(e.exception))
         self.assertEqual(len(self.runs()), 1)
+        self.plan({"events": [{"type": "item.completed", "item": {"type": "collab_tool_call", "tool": "spawn_agent"}}],
+                   "answer": '{"a": 1}'})
+        with self.assertRaises(harness.HarnessError) as e:     # a kind not named anywhere here counts too
+            harness.ask("p", SCHEMA, "s")
+        self.assertIn("collab_tool_call:spawn_agent", str(e.exception))
 
     def test_an_os_error_reaches_the_caller_as_harness_error(self):
         with mock.patch.object(harness.tempfile, "TemporaryDirectory", side_effect=OSError("disk full")), \
