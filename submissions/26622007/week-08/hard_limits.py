@@ -4,7 +4,8 @@ Terra and Astra from Round 3's own numbers, a bounded step at a time.
 - Bankruptcy: no stock is bought that could take the balance under STOP_BUYING_BELOW (the market's line is 500,000;
   a bankruptcy's 5,000,000 counts against profit). The kit files only when nothing is left to sell.
 - pricing.json: each numeric setting moves at most MAX_STEP of its value per cycle (MAX_STEP_STRONG once the log holds
-  STRONG_SAMPLE settled deals, so the shop can move fast when its own data is solid), inside BOUNDS where listed.
+  STRONG_SAMPLE settled deals, so the shop can move fast when its own data is solid; a fall at most MAX_STEP_DOWN),
+  inside BOUNDS where listed, and the meta-harness may not take a META_FLOOR setting under its line.
 - Tools the agents run get no keys, no network and no writes outside their folders (agent_tools.py builds the sandbox
   from SANDBOX below).
 
@@ -18,13 +19,23 @@ BANKRUPT_LINE = 500000
 STOP_BUYING_BELOW = 1000000          # a supply that could leave less than this is not sent
 PROTECTED = ("hard_limits.py", "test_hard_limits.py", "run_market.sh", "run_meta.sh", "ensure_running.sh")
 MAX_STEP = 0.5                       # a number may change by at most half its value per cycle (and by 1 when it is small)
-MAX_STEP_STRONG = 1.0                # ... or by its whole value (double it) once the evidence is a real sample
+# ... or rise by twice its value (triple it) once the evidence is a real sample. A fall stays at MAX_STEP_DOWN whatever
+# the sample: Patch 3.3 scores book (cash + unsold stock at cost), the shop held 3.2M of stock against the top ten's
+# 24-158M (11/05 11:09 board), and a strong step of 100% let one cycle cut a cap to nothing (a person, 11/05 11:48).
+MAX_STEP_STRONG = 2.0
+MAX_STEP_DOWN = 0.5
 STRONG_SAMPLE = 40                   # settled deals (shop + buyer) in the Round 3 log that make a sample
+# The meta-harness may not take these under the line (a person may, in pricing.json): scale is the strategy now and a
+# bankruptcy is out of reach (balance 51.7M against the 0.5M line, 11/05 11:50). Narrow per SKU instead.
+META_FLOOR = {"restock.max_stock_cost": 10000000}
 
 # path in pricing.json -> (lowest, highest). Outside these the shop's own data has not earned the risk.
 BOUNDS = {
     "restock.keep_cash": (STOP_BUYING_BELOW, 4500000),
-    "restock.max_stock_cost": (100000, 4000000),
+    # 15M: Patch 3.3 scores book (unsold stock at cost), and the 4M cap was what cut our lines (847 of the last 2,000
+    # guard cuts, 11/05 11:1x) while the 60만+ goods that bring the top ten 82% of their revenue sell in 0.37 h
+    # (review/W-20261105-0953-AX패치3.3/scale-analysis.md). A person raised it.
+    "restock.max_stock_cost": (100000, 15000000),
     "restock.target_per_category": (0, 5),
     "restock.max_lines": (1, 10),
     "restock.max_units_per_sku": (1, 20),
@@ -32,8 +43,10 @@ BOUNDS = {
     "restock.food_explore_qty": (0, 5),
     "restock.food_max_qty": (0, 20),
     "restock.max_break": (0.0, 0.5),
-    "restock.goods_max_price": (5000, 2000000),
-    "restock.food_max_price": (5000, 300000),
+    # 5M / 500k: the dearest goods (4,045,800) and food (435,000) in the 11/05 catalog. Both only pick the two explore
+    # lines; goods over high_price_goods off the proven / priority lists stay out (high_price_listed_only).
+    "restock.goods_max_price": (5000, 5000000),
+    "restock.food_max_price": (5000, 500000),
     "restock.band_low": (0.3, 1.0),
     "restock.band_high": (1.0, 3.0),
     "restock.prior_break": (0.0, 0.5),
@@ -125,8 +138,11 @@ def check_policy_change(old, new, step=MAX_STEP):
             problems.append(f"pricing.json {key}={v} is outside [{lo}, {hi}] (hard_limits.BOUNDS)")
         was = a.get(key)
         step = min(step, MAX_STEP_STRONG)
-        if number(v) and number(was) and v != was and abs(v - was) > max(abs(was) * step, 1 if isinstance(was, int) else 0):
-            problems.append(f"pricing.json {key} {was} -> {v} moves more than {step:.0%} in one cycle")
+        move = step if number(v) and number(was) and abs(v) >= abs(was) else min(step, MAX_STEP_DOWN)
+        if number(v) and number(was) and v != was and abs(v - was) > max(abs(was) * move, 1 if isinstance(was, int) else 0):
+            problems.append(f"pricing.json {key} {was} -> {v} moves more than {move:.0%} in one cycle")
+        if key in META_FLOOR and number(v) and number(was) and v < was and v < META_FLOOR[key]:
+            problems.append(f"pricing.json {key} {was} -> {v} goes under {META_FLOOR[key]} (hard_limits.META_FLOOR, a person's line)")
         if key == "markdown.below_cost" and (not isinstance(v, list) or any(r not in MARKDOWN_REASONS for r in v)):
             problems.append(f"pricing.json markdown.below_cost {v} is not a list of {MARKDOWN_REASONS}")
         if key in BOUNDS and not number(v):
