@@ -324,6 +324,57 @@ class OneStarTest(Base):
         st.scan()
         self.assertEqual(st.counts(), {"grump": 3})
 
+    def test_an_unverified_receipt_does_not_make_a_url_ours(self):
+        r = [{"seq": 1, "kind": "order", "round": 3, "data": {}},
+             result_row(2, "o-f", "x", self.THEM, 3, verified=False)]                  # forged: names us, unverified
+        r += [result_row(3 + i, f"o-{i}", "victim", self.THEM, 1, seller="someone") for i in range(3)]
+        st = self.stars(FakeLedger(r))
+        st.scan()
+        self.assertEqual((st.load()["urls"], st.counts()), ([], {}))
+
+    def test_odd_rows_are_skipped_and_the_count_goes_on(self):
+        r = [{"seq": 1, "kind": "order", "round": 3, "data": {}}]
+        odd = [{"receipt": "Nocha Furniture"}, {"receipt": {"shop": ["Nocha Furniture"]}}, {"order": {"o": 1}},
+               {"shop": 5}, {"buyer": None}]
+        for i, bad in enumerate(odd):
+            row = result_row(2 + i, f"o-x{i}", "grump", self.US, 1)
+            row["data"].update(bad)
+            r.append(row)
+        r += ["not a row", {"seq": 20, "kind": "result", "round": 3, "data": "x"}]
+        r += [result_row(21 + i, f"o-{i}", "grump", self.US, 1) for i in range(3)]
+        led = FakeLedger([x for x in r if isinstance(x, dict)])
+        page = led.__call__
+        led_rows = led.rows
+
+        def get(path, timeout=10):                                            # the odd string goes in a page too
+            out = page(path, timeout)
+            return out + ["not a row"] if "after=-1" not in path else out
+        st = self.stars(get)
+        st.scan()
+        self.assertEqual(st.counts(), {"grump": 5})       # 3 good + the two odd receipts; odd order/shop/buyer drop
+        self.assertEqual(st.load()["after"], led_rows[-1]["seq"])
+
+    def test_a_failed_page_keeps_what_was_read(self):
+        led = self.rows()
+        calls = {"n": 0}
+        os.makedirs(self.md)
+        with open(os.path.join(self.md, acp_gate.OneStars.FILE), "w") as f:      # past the round's start already
+            json.dump({"after": 2, "urls": [], "rows": []}, f)
+
+        def get(path, timeout=10):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise OSError("ledger down")
+            return led(path, timeout)
+        with unittest.mock.patch.object(acp_gate, "PAGE", 3):
+            st = self.stars(get)
+            with self.assertRaises(OSError):
+                st.scan()
+            self.assertGreater(st.load()["after"], 2)                          # the first page was saved
+            while st.scan():
+                pass
+        self.assertEqual(st.counts(), {"grump": 3, "meh": 2})
+
     def test_a_broken_file_counts_nothing(self):
         os.makedirs(self.md)
         with open(os.path.join(self.md, acp_gate.OneStars.FILE), "w") as f:

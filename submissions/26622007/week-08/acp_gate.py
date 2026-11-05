@@ -30,7 +30,7 @@ MAX_ORDERS = 20000
 EVERY = 10              # seconds between background ledger reads
 WAIT = 2                # seconds a payment may spend on the ledger: waiting for the lock, then one page
 ROUND = 3
-SCAN_PAGES = 100        # pages per one-star pass; the first pass of the round's history takes a few minutes
+SCAN_PAGES = 100        # pages per one-star pass (~4 min at ~2.2 s a page); the round's first pass (~1,300 pages) ~50 min
 SCAN_EVERY = 60         # seconds between one-star passes once caught up
 
 
@@ -141,10 +141,12 @@ class OneStars:
     1-star result is kept and counted against the URLs when read, so one seen before its URL was known still counts."""
     FILE = "one_star.json"
 
-    def __init__(self, md=None, get=_get, names=None):
+    def __init__(self, md=None, get=_get, names=None, log=print):
         self.path = os.path.join(_md(md), self.FILE)
         self.get = get
-        self.names = names or {os.environ.get("SHOP_CARD_NAME", "Nocha Furniture"), os.environ.get("SHOP_MARKET_NAME", "nocha12")}
+        self.log = log
+        names = names or {os.environ.get("SHOP_CARD_NAME", "Nocha Furniture"), os.environ.get("SHOP_MARKET_NAME", "nocha12")}
+        self.names = {n for n in names if isinstance(n, str) and n}
 
     def load(self):
         try:
@@ -178,36 +180,59 @@ class OneStars:
                 lo = mid + 1
         return lo
 
+    def _take(self, e, urls, rows):
+        """One ledger row into urls / rows. Only a verified result counts: its receipt is the one its seller signed,
+        so an unverified row naming this shop cannot make another shop's URL ours."""
+        d = e.get("data")
+        if e.get("kind") != "result" or not isinstance(e.get("round"), int) or e["round"] < ROUND \
+                or not isinstance(d, dict) or d.get("verified") is not True:
+            return
+        shop = d.get("shop").rstrip("/") if isinstance(d.get("shop"), str) else ""
+        receipt = d.get("receipt") if isinstance(d.get("receipt"), dict) else {}
+        if shop and isinstance(receipt.get("shop"), str) and receipt["shop"] in self.names:
+            urls.add(shop)
+        stars = d.get("stars")
+        if stars == 1 and not isinstance(stars, bool) and isinstance(d.get("order"), str) and d["order"] \
+                and isinstance(d.get("buyer"), str):
+            rows[d["order"]] = {"buyer": d["buyer"], "order": d["order"], "shop": shop, "seq": e.get("seq"),
+                                "ts": e.get("ts")}
+
     def scan(self, max_pages=SCAN_PAGES):
-        """Reads up to max_pages new pages and saves. True when there may be more to read."""
-        st = self.load() or {"after": self._start(), "urls": [], "rows": []}
+        """Reads up to max_pages new pages and saves what it read, even when a page fails. True when there may be more.
+        A row it cannot read is skipped, so one odd row never stops the count."""
+        st = self.load()
+        if st is None:
+            if os.path.exists(self.path):
+                self.log(f"[acp] refuse_one_star: {self.path} unreadable; counting the round again")
+            st = {"after": self._start(), "urls": [], "rows": []}
         urls, rows = set(st["urls"]), {r.get("order"): r for r in st["rows"] if isinstance(r, dict)}
         more = False
-        for _ in range(max_pages):
-            page = self.get(f"/api/ledger?after={st['after']}", timeout=20)
-            for e in page:
-                d = e.get("data") or {}
-                if e.get("kind") != "result" or e.get("round", 0) < ROUND or not isinstance(d, dict):
-                    continue
-                shop = str(d.get("shop") or "").rstrip("/")
-                if shop and (d.get("receipt") or {}).get("shop") in self.names:
-                    urls.add(shop)
-                stars = d.get("stars")
-                if d.get("verified") is True and stars == 1 and not isinstance(stars, bool) and d.get("order") \
-                        and isinstance(d.get("buyer"), str):
-                    rows[d["order"]] = {"buyer": d["buyer"], "order": d["order"], "shop": shop, "seq": e.get("seq"),
-                                        "ts": e.get("ts")}
-            if page:
-                st["after"] = page[-1]["seq"]
-            more = len(page) == PAGE
-            if not more:
-                break
-        st["urls"], st["rows"] = sorted(urls), sorted(rows.values(), key=lambda r: r.get("seq") or 0)
-        os.makedirs(os.path.dirname(self.path), exist_ok=True)
-        tmp = f"{self.path}.{os.getpid()}.tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(st, f, ensure_ascii=False)
-        os.replace(tmp, self.path)
+        try:
+            for _ in range(max_pages):
+                page = self.get(f"/api/ledger?after={st['after']}", timeout=20)
+                if not isinstance(page, list):
+                    raise ValueError(f"ledger answered {type(page).__name__}, not a list")
+                for e in page:
+                    if isinstance(e, dict):
+                        try:
+                            self._take(e, urls, rows)
+                        except (TypeError, AttributeError, ValueError):
+                            continue
+                seqs = [e["seq"] for e in page if isinstance(e, dict) and isinstance(e.get("seq"), int)]
+                if seqs:
+                    st["after"] = max(st["after"], seqs[-1])
+                more = len(page) == PAGE
+                if not more:
+                    break
+        finally:
+            st["urls"], st["rows"] = sorted(urls), sorted(rows.values(), key=lambda r: r.get("seq") or 0)
+            os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            tmp = f"{self.path}.{os.getpid()}.tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(st, f, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, self.path)
         return more
 
     def warm(self, at, refused, log=print):
@@ -243,7 +268,7 @@ class Gate:
         self.log = log
         if warm:
             self.orders.warm(lambda: bool(refused_buyers(self.pricing, self.md)), log)
-            OneStars(md).warm(lambda: one_star_at(self.pricing), lambda: refused_buyers(self.pricing, self.md), log)
+            OneStars(md, log=log).warm(lambda: one_star_at(self.pricing), lambda: refused_buyers(self.pricing, self.md), log)
 
     def refusal(self, order, session=None):
         """The message to answer this checkout with instead of settling it, or None to settle as usual."""
