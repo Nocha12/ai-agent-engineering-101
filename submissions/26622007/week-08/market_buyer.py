@@ -74,6 +74,10 @@ RECENT_FIT_BYTES = 3000000   # the tail of measure/orders.jsonl read for it (abo
 SETTLED = os.environ.get("BUYER_SETTLED", "memory/settled.jsonl")
 MEMORY_R2 = "memory/market_memory.json"
 MEMORY_R3 = "memory/market_memory_r3.json"
+SHORT_WARRANTY_LAST = 3     # a shop's last goods receipts to me looked at (short_warranty_shops)
+SHORT_WARRANTY_MIN = 2      # of them, this many short of my warranty: goods orders go to other shops
+SHORT_WARRANTY_HOURS = 3    # only receipts this recent count, so a shop that changed is tried again: yms979 sold goods
+#                             with a warranty for days before it turned to 0 h, and a shop that turns back is not lost for long
 
 
 def market_round():
@@ -247,6 +251,35 @@ def unreachable(trades):
     """The shop did not answer my last two visits (dead tunnel, crashed seller)."""
     last = trades[-2:]
     return len(last) == 2 and all(t["result"].startswith(("error", "no_card", "no_interface", "unpaid")) for t in last)
+
+
+def short_warranty_shops(memory, catalog, now=None):
+    """Shops whose recent goods sales to me came with too short a warranty, so I paid for none of them: of a shop's last
+    SHORT_WARRANTY_LAST goods talks that ended with a receipt in the last SHORT_WARRANTY_HOURS, SHORT_WARRANTY_MIN or more
+    ended no_warranty. On 11/05 08:00-19:32 seochanit's receipts said 0 h on 22 of 23 completed goods talks and yms979's on
+    every goods receipt from about 19:00, after 74 goods deals (measure orders, buyer memory): each was an order spent with
+    nothing bought. The quote does not say the warranty, so only these results show it. Food has no warranty to fall short
+    of; after the hours a shop is tried again."""
+    now, out = now or time.time(), {}
+    for t in memory.get("trades") or []:
+        if t.get("result") not in ("deal", "no_warranty") or (catalog.get(t.get("item")) or {}).get("kind") != "goods":
+            continue
+        try:
+            at = time.mktime(time.strptime(t["time"], "%Y-%m-%dT%H:%M:%S"))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if t.get("shop") and now - at <= SHORT_WARRANTY_HOURS * 3600:
+            out.setdefault(t["shop"], []).append(t["result"])
+    return {s for s, r in out.items() if r[-SHORT_WARRANTY_LAST:].count("no_warranty") >= SHORT_WARRANTY_MIN}
+
+
+def skip_short_warranty(shops, memory, catalog, order, now=None):
+    """(shops left, names skipped) for this order: a goods order leaves out short_warranty_shops, unless that is every shop."""
+    if (order or {}).get("kind") != "goods":
+        return list(shops), []
+    brief = sorted(short_warranty_shops(memory, catalog, now) & {s["name"] for s in shops})
+    left = [s for s in shops if s["name"] not in brief]
+    return (left, brief) if left else (list(shops), [])
 
 
 def shop_summary(shop, trades, item=None):
@@ -875,7 +908,9 @@ def main():
     log(f"order: {args.item}, budget {args.budget}; {len(shops)} shops; {len(memory['trades'])} trades in memory")
 
     rnd = market_round()
-    left = list(shops)
+    left, brief = skip_short_warranty(shops, memory, catalog, order) if r3 else (list(shops), [])
+    if brief:
+        log(f"[choose] skip for goods {brief}: their recent receipts to me had too short a warranty to pay for")
     for attempt in range(ACP_TRIES):
         try:
             shop, reason = choose(left, memory, args.item, args.budget)
@@ -973,8 +1008,9 @@ def main():
         if accept_policy(order):
             result["accept"] = accept_policy(order)
         try:
-            records.write(md, "orders", order_record(order, args, shops, quotes, first_choice, first_reason, shop, reason, offer,
-                                                     limit, chance, out, rec, result, problems, warnings, short, why, stages, catalog))
+            records.write(md, "orders", {**order_record(order, args, shops, quotes, first_choice, first_reason, shop, reason, offer,
+                                                        limit, chance, out, rec, result, problems, warnings, short, why, stages,
+                                                        catalog), "skipped_short_warranty": brief})
         except Exception as e:   # noqa: BLE001 - a measurement never stops the result line the kit waits for
             log(f"[measure] order record failed: {type(e).__name__}: {e}")
     print(json.dumps(result, ensure_ascii=False), flush=True)
