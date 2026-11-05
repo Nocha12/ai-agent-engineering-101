@@ -347,8 +347,9 @@ def log_counts(root, name="market-kit.log", start=0):
     """Counts of COUNTERS in the kit log from line `start` on. A tuple needle needs all its parts in the line:
     supply_refused is a refused [supply] line only, not also "[acp] checkout refused:" (11/05 22:25 Astra's watch read
     10 checkout refusals and 1 supply 502 as supply_refused +11).
-    Tracebacks inside a DETACH_NOISE block go to tracebacks_detach_noise, not tracebacks. A block that does not end with
-    the different-Context error, or is cut off at the end of the file, still counts as tracebacks."""
+    The two tracebacks of a DETACH_NOISE block go to tracebacks_detach_noise, not tracebacks. A block with another count
+    of tracebacks, a nested one ("  + Exception Group Traceback"), another ending, or one cut off at the end of the file
+    still counts as tracebacks."""
     counts = collections.Counter()
     pending = {}  # process tag -> tracebacks seen since its "Failed to detach context"
     try:
@@ -362,10 +363,11 @@ def log_counts(root, name="market-kit.log", start=0):
                     pending[tag] = 0
                 elif tag in pending:
                     if DETACH_NOISE[1] in body:
-                        counts["tracebacks_detach_noise"] += pending.pop(tag)
+                        n = pending.pop(tag)
+                        counts["tracebacks_detach_noise" if n == 2 else "tracebacks"] += n
                     elif body.startswith("Traceback"):
                         pending[tag] += 1
-                    elif body.strip() and not body.startswith(TRACE_PARTS):
+                    elif "Traceback" in body or body.strip() and not body.startswith(TRACE_PARTS):
                         counts["tracebacks"] += pending.pop(tag)
                 for k, needle in COUNTERS.items():
                     if k == "tracebacks" and tag in pending:

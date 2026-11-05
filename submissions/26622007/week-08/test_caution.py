@@ -271,7 +271,12 @@ class LogCountTest(unittest.TestCase):
         try:
             os.makedirs(os.path.join(tmp, "logs"))
             cut = "".join(odd.splitlines(True)[:2])
-            for text, want in ((noise, (0, 2)), (noise + real, (1, 2)), (noise + odd, (1, 2)), (cut, (1, 0))):
+            lines = noise.splitlines(True)
+            group = "".join(lines[:3] + ["03:28:36 [seller]   + Exception Group Traceback (most recent call last):\n"] + lines[3:])
+            third = "".join(lines[:3] + ["03:28:36 [seller] Traceback (most recent call last):\n"] + lines[3:])
+            cases = ((noise, (0, 2)), (noise + real, (1, 2)), (noise + odd, (1, 2)), (cut, (1, 0)), (real + noise, (1, 2)),
+                     (group, (3, 0)), (third, (3, 0)))
+            for text, want in cases:
                 with open(os.path.join(tmp, "logs", "market-kit.log"), "w") as f:
                     f.write(text)
                 c = scorecard.log_counts(tmp)
