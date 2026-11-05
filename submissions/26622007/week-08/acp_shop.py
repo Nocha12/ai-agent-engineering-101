@@ -15,6 +15,7 @@ the market knows. In Round 3 it names the SKU shipped and adds unit, cert, claim
 under sig_seller, so they come from what the seller recorded in `terms`, never from the buyer's copy. complete forwards the buyer's closed AP2 mandates to the market's /api/settle, which checks
 the signatures and the limits and moves the credits. The shop never sees the buyer's budget.
 """
+import asyncio
 import base64
 import collections
 import json
@@ -61,7 +62,7 @@ def signed_by(key, receipt):
 class AcpCheckout:
     """Checkout sessions in memory. load_key is called per request, like the seller does for receipts."""
 
-    def __init__(self, public, load_key, log, market=MARKET, transport=None, stock=None):
+    def __init__(self, public, load_key, log, market=MARKET, transport=None, stock=None, gate=None):
         self.public = public.rstrip("/")
         self.load_key, self.log = load_key, log
         self.market = market.rstrip("/")
@@ -69,6 +70,7 @@ class AcpCheckout:
         self.sessions = collections.OrderedDict()
         self.stock = stock                    # shop_stock.StockBook; None or before Round 3: no units
         self.terms = collections.OrderedDict()    # task -> the receipt the seller sent
+        self.gate = gate                      # acp_gate.Gate: buyers refused at payment (pricing.json seller.refuse_buyers)
 
     def note_terms(self, receipt):
         self.terms[receipt["task"]] = receipt
@@ -171,6 +173,16 @@ class AcpCheckout:
         pay = (b or {}).get("payment_data")
         if not isinstance(pay, dict):
             return JSONResponse({"error": "payment_data is missing"}, status_code=400)
+        try:
+            no = await asyncio.to_thread(self.gate.refusal, pay.get("order"), s) if self.gate else None
+        except Exception as e:                # a broken gate never blocks a sale
+            self.log(f"[acp] gate failed: {type(e).__name__}: {e}")
+            no = None
+        if no:
+            s["status"] = "canceled"          # nothing goes to /api/settle; the unit is on sale again
+            if self.stock is not None and s.get("unit"):
+                self.stock.release(s["unit"])
+            return JSONResponse({"error": no}, status_code=409)
         total = s["totals"][0]["amount"]
         amount = ((pay.get("payment_mandate") or {}).get("mandate") or {}).get("amount")
         if amount != total:                   # the market checks this too; refusing here saves a round trip

@@ -50,6 +50,7 @@ from cryptography.hazmat.primitives import serialization
 from acp_shop import AcpCheckout
 from catalog import NUMERIC, Catalog
 from harness import HarnessError, ask
+import acp_gate
 import agent_memory
 import hard_limits
 import market_model
@@ -611,7 +612,7 @@ def build(url, catalog, name):
         )],
     )
     stock = StockBook()
-    acp = AcpCheckout(url, load_shop_key, log, stock=stock)
+    acp = AcpCheckout(url, load_shop_key, log, stock=stock, gate=acp_gate.Gate(log=log, warm=bool(os.environ.get("RENDER_EXTERNAL_URL"))))   # tunneled: the kit serves ACP
     handler = DefaultRequestHandler(agent_executor=Seller(catalog, name, stock, acp), task_store=InMemoryTaskStore(),
                                     agent_card=card)
     return Starlette(routes=create_agent_card_routes(card, card_modifier=fresh_card) + acp.routes() + [Route("/_kitlog", kitlog)]

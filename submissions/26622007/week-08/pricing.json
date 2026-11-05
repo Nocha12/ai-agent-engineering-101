@@ -286,5 +286,8 @@
         "result": "o-e4ddb664917c: paid 76183, cost 61963, matured refund 0; net 14220 at astra-1105-093817 cutoff"
       }
     ]
+  },
+  "seller": {
+    "refuse_buyers": ["totato2203-r3"]
   }
 }

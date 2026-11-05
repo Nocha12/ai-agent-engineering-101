@@ -325,6 +325,7 @@ class AcpShop:
         self.pub = pub_b64(key)
         self.sessions = collections.OrderedDict()
         self.terms = collections.OrderedDict()           # task -> the receipt the seller sent (Proxy.observe)
+        self.gate = None        # optional: (order, session) -> message to refuse this payment with, or None (load_gate)
 
     def card(self, public):
         tools = [("create_checkout_session", "POST", "/checkout_sessions",
@@ -359,6 +360,15 @@ class AcpShop:
             return JSONResponse(s)
         if parts[2] == "complete" and s["status"] == "ready_for_payment":
             pay = b.get("payment_data") or {}
+            if self.gate:
+                try:
+                    no = await asyncio.to_thread(self.gate, pay.get("order"), s)
+                except Exception as e:                  # a broken gate never blocks a sale
+                    log(f"[acp] gate failed: {type(e).__name__}: {e}")
+                    no = None
+                if no:
+                    s["status"] = "canceled"            # nothing goes to /api/settle; the unit is free again
+                    return JSONResponse({"error": no}, status_code=409)
             r = await asyncio.to_thread(self.market.call, "POST", "/api/settle", "shop",
                                         json={"order": pay.get("order"), "checkout_jwt": s["checkout_jwt"],
                                               "checkout_mandate": pay.get("checkout_mandate"),
@@ -438,6 +448,23 @@ class AcpShop:
         while len(self.sessions) > 500:
             self.sessions.popitem(last=False)
         return JSONResponse(s, status_code=201)
+
+
+def load_gate(d):
+    """The shop folder's optional acp_gate.py: refusal(order, session, log) -> message, or None to settle as usual."""
+    f = Path(d) / "acp_gate.py"
+    if not f.exists():
+        return None
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("shop_acp_gate", f)
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        log(f"[acp] checkout gate {f.name} loaded")
+        return lambda order, s: m.refusal(order, s, log=log)
+    except Exception as e:
+        log(f"[acp] {f.name} not loaded: {type(e).__name__}: {e}")
+        return None
 
 
 def check_accept(o, co, accept):
@@ -1010,6 +1037,7 @@ def cmd_join(a):
                 proxy = Proxy(pport)
                 proxy.target(f"http://127.0.0.1:{sport}")
                 proxy.acp = AcpShop(keys["shop"], market, d / ".market")
+                proxy.acp.gate = load_gate(d)
                 if a.tunnel:
                     try:
                         tp, url = open_tunnel(pport)
