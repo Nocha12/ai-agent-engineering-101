@@ -7,9 +7,11 @@ import contextlib
 import io
 import json
 import os
+import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 import profit_price
 import restock
@@ -320,6 +322,45 @@ class WithTrialTest(unittest.TestCase):
         lines = [{"sku": "H1", "qty": 9}]
         self.assertEqual(restock.with_trial(None, lines, {}, CAT, CFG), lines)
         self.assertEqual(restock.with_trial([], lines, {}, CAT, CFG), lines)
+
+
+class TrialInMainTest(unittest.TestCase):
+    """restock.main() with a next_window trial: it joins the window's usual lines instead of replacing them."""
+    CATALOG = {"H1": {"kind": "goods", "category": "a", "list_price": 20000},
+               "H2": {"kind": "goods", "category": "b", "list_price": 20000}}
+    PRICING = {"restock": {"keep_cash": 1500000, "max_stock_cost": 900000}, "next_window": {"id": "t", "targets": {"H1": 1}}}
+
+    def run_main(self, trial, restock_state):
+        with tempfile.TemporaryDirectory() as d:
+            inv = {"round": 3, "balance": 5000000, "units": [], "restock": restock_state}
+            for name, data in (("inventory.json", inv), ("catalog.json", self.CATALOG)):
+                with open(os.path.join(d, name), "w") as f:
+                    json.dump(data, f)
+            printed, real_load = [], restock.load
+            env = {k: v for k, v in os.environ.items() if k != "HARNESS"}
+            with mock.patch.object(restock, "read_model", lambda *a: None), \
+                    mock.patch.object(restock, "load", lambda p, dflt: self.PRICING if p == "pricing.json" else real_load(p, dflt)), \
+                    mock.patch.object(restock.opening, "lines", lambda *a, **k: (None, "test")), \
+                    mock.patch.object(restock, "next_window", lambda *a, **k: (trial, "trial")), \
+                    mock.patch.object(restock, "plan", lambda *a, **k: {"buy": [{"sku": "H1", "qty": 2}, {"sku": "H2", "qty": 2}]}), \
+                    mock.patch.dict(os.environ, env, clear=True), mock.patch.object(sys, "argv", ["x", "--state", d]), \
+                    mock.patch("builtins.print", lambda *a, **k: printed.append(a[0] if a else "")):
+                restock.main()
+        return json.loads(printed[-1])["buy"]
+
+    def test_the_trial_and_the_usual_lines_go_out_together(self):
+        now = time.time()
+        self.assertEqual(self.run_main([{"sku": "H1", "qty": 1}], {"open": True, "closes_at": now + 170}),
+                         [{"sku": "H1", "qty": 1}, {"sku": "H2", "qty": 2}])
+
+    def test_once_the_trial_is_sent_the_window_still_buys_but_not_its_skus(self):
+        now = time.time()
+        self.assertEqual(self.run_main([], {"open": True, "closes_at": now + 120}), [{"sku": "H2", "qty": 2}])
+        self.assertEqual(self.run_main(None, {"open": True, "closes_at": now + 120}),     # no trial: all of the plan
+                         [{"sku": "H1", "qty": 2}, {"sku": "H2", "qty": 2}])
+
+    def test_a_trial_waiting_for_its_window_keeps_the_lead_time_empty(self):
+        self.assertEqual(self.run_main([], {"open": False, "opens_at": time.time() + 30}), [])
 
 
 class PendingAndNextWindowTest(unittest.TestCase):

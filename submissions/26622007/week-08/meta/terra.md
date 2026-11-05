@@ -129,7 +129,7 @@ Astra 2026-11-04 21:19 grading correction:
   departure. Counts at window opens alone do not prove that the same additional unit stayed. Preserve source records.
 
 Astra 2026-11-05 09:38 correction:
-- (11/05 10:xx, superseded) The objective was cash profit and drifted .019 from the board. Since Patch 3.3 the
+- (11/05 10:40, superseded) The objective was cash profit and drifted .019 from the board. Since Patch 3.3 the
   scorecard ranks book; board_drift should be ~0. Report board_drift and board_players_gap separately.
 - A repeated missing hourly sell-through or two-window retention is a query, not a warranty wait. Compute paid sales
   per actual supply window and same-unit retention using the earlier of paid ts and observed departure this cycle.

@@ -4,7 +4,7 @@ Terra adjusts: pricing.json's settings a bounded step at a time, the shop's memo
 numbers against the Players objective. Astra explores: new strategies, tools and data sources (ledger, forum, own sales)
 as hypotheses with small experiments, and grades what Terra did. Strategy comes before dials: Astra compares two or three
 directions and writes the chosen one in meta/strategy.md; Terra checks each hour whether it still leads to first place in
-profit and shifts it only after two cycles point the same way. Both answer to hard_limits.py: a change that moves a
+book (profit until Patch 3.3) and shifts it only after two cycles point the same way. Both answer to hard_limits.py: a change that moves a
 setting out of its bounds or by more than one step, touches a protected file or drops a hard_limits line is undone.
 
     python meta_harness.py terra | astra     one cycle

@@ -492,16 +492,19 @@ def with_formula(agent_lines, formula_lines, keep, limit):
     return keep(list(agent_lines) + [b for b in formula_lines if b["sku"] not in mine])[:limit]
 
 
-def with_trial(trial, buy, inv, catalog, cfg, breaks=None, waiting=()):
+def with_trial(trial, buy, inv, catalog, cfg, breaks=None, waiting=(), hold=()):
     """next_window's one-off lines first, then the run's usual lines in the room the limits leave (the trial's units count
-    as on their way). The trial used to replace the whole window: the 01:40 and 09:40 windows of 11/05 each bought the
-    single trial unit while the windows around them bought 28-53 units (ledger supply rows)."""
+    as on their way), never more than max_lines. The trial used to replace the whole window: the 01:40 and 09:40 windows
+    of 11/05 each bought the single trial unit while the windows around them bought 28-53 units (ledger supply rows).
+    The usual lines leave out the trial's SKUs (hold: all its targets while it runs), so a unit of them that arrives is
+    the trial's and next_window's arrived() check and retry stay true."""
+    skip = set(hold) | {b["sku"] for b in trial or ()}
+    rest = [b for b in buy if b["sku"] not in skip]
     if not trial:
-        return list(buy)
+        return rest
     sent = [{"sku": b["sku"], "qty": b["qty"],
              "worst": ((catalog.get(b["sku"]) or {}).get("list_price") or 0) * WORST_COST} for b in trial]
-    mine = {b["sku"] for b in trial}
-    return list(trial) + guard([b for b in buy if b["sku"] not in mine], inv, catalog, cfg, breaks, list(waiting) + sent)
+    return (list(trial) + guard(rest, inv, catalog, cfg, breaks, list(waiting) + sent))[:max(cfg["max_lines"], len(trial))]
 
 
 def main():
@@ -529,7 +532,7 @@ def main():
             first, why = opening.lines(args.state, inv, catalog, demand, market_model.load_rows(args.state), ocfg, keep=keep)
         except Exception as e:   # noqa: BLE001 - a broken opening leaves the usual plan, not an idle shop
             first, why = None, f"opening failed: {type(e).__name__}: {e}"
-        if first is None:       # next_window adds its lines to this run's (with_trial); it no longer stops the window
+        if first is None:       # next_window's lines join this run's (with_trial); once sent they no longer stop the window
             try:
                 trial, more = next_window(args.state, inv, catalog, pricing.get("next_window") or {}, waiting, keep)
             except Exception as e:   # noqa: BLE001 - the same: the usual plan goes on
@@ -540,10 +543,15 @@ def main():
         except Exception as e:   # noqa: BLE001 - a price log never stops a restock
             print(f"[restock] price log failed: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
     print(f"[restock] {why}", file=sys.stderr, flush=True)
-    if first is not None:                  # the opening or next_window decides this run (already guarded); the agent waits
+    hold = set((pricing.get("next_window") or {}).get("targets") or {}) if trial is not None else set()
+    if first is not None:                  # the opening decides this run (already guarded); the agent waits
         out = {"buy": first}
-    elif opening.window_closed(inv) and not out.get("bankrupt"):
-        out = {"buy": []}                  # nothing can be bought now; the agent's queue keeps its lines for the window
+    elif (opening.window_closed(inv) or trial == [] and opening.window_closed(inv, lead=0)) and not out.get("bankrupt"):
+        out = {"buy": []}                  # nothing can be bought now; the agent's queue keeps its lines for the window.
+        # A trial waiting for its window keeps the lead time empty, as before: a line sent before it opens is refused (429)
+        # but would count as pending and make next_window find its target already bought
+    elif trial:                            # this run sends the trial; the formula fills the room, the agent waits a run
+        out = {"buy": with_trial(trial, out["buy"], inv, catalog, cfg, breaks, waiting, hold)}
     elif os.environ.get("HARNESS") and not out.get("bankrupt"):
         lines = agent_turn(args.state, inv, catalog, demand, cfg, model)
         if lines is not None:
@@ -553,8 +561,8 @@ def main():
             send, back = batch(lines, [] if queued else out["buy"], out["buy"], keep, cfg)
             requeue(args.state, back)
             out = {"buy": send}
-    if trial and not out.get("bankrupt"):
-        out["buy"] = with_trial(trial, out["buy"], inv, catalog, cfg, breaks, waiting)
+    if hold and not trial:                 # the trial was sent earlier in this window: its SKUs stay the trial's
+        out["buy"] = with_trial(None, out["buy"], inv, catalog, cfg, hold=hold)
     agent_memory.maybe_consolidate(args.state)
     if os.environ.get("HARNESS"):
         forum.maybe_run(args.state)     # the kit runs this hook once a minute in Round 3; forum.py keeps its own pace
