@@ -12,6 +12,7 @@ import time
 
 import agent_loop
 import agent_memory
+import buyer_post
 import hard_limits
 import market_model
 from harness import HarnessError
@@ -90,6 +91,11 @@ def maybe_run(md, decide=agent_loop.decide):
             return None
         seqs = {r["seq"] for r in market_model.load_rows(md) if r["k"] == "settle"}
         lines, voted = clean(final, posts if isinstance(posts, list) else [], seqs, set(state["voted"]), cfg)
+        if any("post" in x for x in lines) and not buyer_post.claim_slot(md):
+            # one buyer post per buyer_post.GAP_MINUTES for both writers; the votes still go out
+            print("[forum] post held back: a buyer post went out in the last "
+                  f"{buyer_post.GAP_MINUTES} minutes or waits in the outbox", file=sys.stderr, flush=True)
+            lines = [x for x in lines if "post" not in x]
         with open(os.path.join(md, "outbox.jsonl"), "a", encoding="utf-8") as f:
             for line in lines:
                 f.write(json.dumps(line, ensure_ascii=False) + "\n")

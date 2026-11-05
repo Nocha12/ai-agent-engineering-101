@@ -126,5 +126,73 @@ class BuyerPost(unittest.TestCase):
         self.assertEqual(self.outbox()[0]["refs"], [11])
 
 
+class TrendPost(unittest.TestCase):
+    """[가격 동향]: the market's settles of one SKU x grade x warranty, alternating with the purchase records."""
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.md = os.path.join(self.tmp.name, ".market")
+        os.makedirs(self.md)
+        with open(os.path.join(self.md, "catalog.json"), "w") as f:
+            json.dump({"G9": {"sku": "G9", "name": "소파", "list_price": 400000, "kind": "goods"},
+                       "G8": {"sku": "G8", "name": "생수", "list_price": 10000, "kind": "food"}}, f)
+        rows, seq = [], 100
+        for i in range(12):                           # last 3 hours: 12 x G9 A with a 24h warranty
+            seq += 1
+            rows.append({"k": "settle", "seq": seq, "ts": NOW - 600 - i * 60, "sku": "G9", "amount": 300000 + i * 1000,
+                         "grade": "A", "warranty": 24.0, "shop": "s", "buyer": "b"})
+        for i in range(4):                            # the 3 hours before
+            seq += 1
+            rows.append({"k": "settle", "seq": seq, "ts": NOW - 4 * 3600 - i, "sku": "G9", "amount": 290000,
+                         "grade": "A", "warranty": 24.0})
+        for i in range(9):                            # same SKU without a warranty: another group, too small
+            seq += 1
+            rows.append({"k": "settle", "seq": seq, "ts": NOW - 700, "sku": "G9", "amount": 200000, "grade": "A", "warranty": None})
+        for i in range(10):
+            seq += 1
+            rows.append({"k": "settle", "seq": seq, "ts": NOW - 900, "sku": "G8", "amount": 7000, "grade": "B", "warranty": None})
+        with open(os.path.join(self.md, buyer_post.LEDGER), "w") as f:
+            f.write("{broken\n")
+            for r in rows:
+                f.write(json.dumps(r) + "\n")
+        self.settled = os.path.join(self.tmp.name, "settled.jsonl")
+        with open(self.settled, "w") as f:
+            f.write(json.dumps(deal(11)) + "\n" + json.dumps(deal(12, ago=30)) + "\n")
+        self.memory = os.path.join(self.tmp.name, "mem.json")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_trend_counts_the_biggest_group_against_the_hours_before(self):
+        sku, text, refs = buyer_post.trend(self.md, NOW, set(), set())
+        self.assertEqual(sku, "G9")
+        self.assertIn("[가격 동향] 소파 (G9) 등급 A·보증 6h 이상", text)
+        self.assertIn("12건 정산, 결제액 중앙값 305,500원 (사분위 302,750–308,250원, 정가 400,000원의 76%)", text)
+        self.assertIn("직전 3시간 4건, 중앙값 290,000원 대비 +5.3%", text)
+        self.assertEqual(refs, [101, 112])
+        self.assertIn("원장 #101–#112", text)
+        # my shop's SKU and the last trend posts are left out; food has no warranty term
+        sku, text, _ = buyer_post.trend(self.md, NOW, {"G9"}, set())
+        self.assertEqual(sku, "G8")
+        self.assertIn("(G8) 등급 B |", text)
+        self.assertIn("직전 3시간 정산 없음", text)
+        self.assertIsNone(buyer_post.trend(self.md, NOW, set(), {"G9", "G8"}))
+
+    def test_kinds_alternate_and_share_one_slot(self):
+        gap = buyer_post.GAP_MINUTES * 60 + 1
+        first = buyer_post.maybe_post(self.md, self.settled, self.memory, now=NOW)
+        self.assertTrue(first["post"].startswith("[가격 동향]"))
+        self.assertEqual(first["refs"], [101, 112])
+        os.remove(os.path.join(self.md, "outbox.jsonl"))          # the kit sent it
+        self.assertIsNone(buyer_post.maybe_post(self.md, self.settled, self.memory, now=NOW + 60))
+        second = buyer_post.maybe_post(self.md, self.settled, self.memory, now=NOW + gap)
+        self.assertTrue(second["post"].startswith("[구매 기록]"))
+        os.remove(os.path.join(self.md, "outbox.jsonl"))
+        self.assertFalse(buyer_post.claim_slot(self.md, now=NOW + gap + 60))     # forum.py waits for the same slot
+        self.assertTrue(buyer_post.claim_slot(self.md, now=NOW + 2 * gap))
+        self.assertIsNone(buyer_post.maybe_post(self.md, self.settled, self.memory, now=NOW + 2 * gap + 60))
+        third = buyer_post.maybe_post(self.md, self.settled, self.memory, now=NOW + 3 * gap)
+        self.assertTrue(third["post"].startswith("[가격 동향] 생수"))          # G9 was the last trend
+
+
 if __name__ == "__main__":
     unittest.main()
