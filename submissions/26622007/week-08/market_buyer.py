@@ -76,6 +76,9 @@ MEMORY_R2 = "memory/market_memory.json"
 MEMORY_R3 = "memory/market_memory_r3.json"
 SHORT_WARRANTY_LAST = 3     # a shop's last goods receipts to me looked at (short_warranty_shops)
 SHORT_WARRANTY_MIN = 2      # of them, this many short of my warranty: goods orders go to other shops
+FOOD_TAKE_ASK = True        # food: an ask within my limit is taken as it is. Of 572 food orders in 24 h to 11/05 23:40 whose
+#                             first ask was within the limit, countering saved 559,509 in all and lost 193 deals (616,884 of
+#                             list less first ask): deals are 10% of the rank and food surplus is about 7,000 a deal
 SHORT_WARRANTY_HOURS = 3    # only receipts this recent count, so a shop that changed is tried again: yms979 sold goods
 #                             with a warranty for days before it turned to 0 h, and a shop that turns back is not lost for long
 
@@ -858,6 +861,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "break_chance": round(chance, 4) if isinstance(chance, (int, float)) else None,
         "shelf_hours": (catalog.get((offer or {}).get("sku")) or {}).get("shelf_hours"),
         "state": out.get("state"), "asks": asks, "counters": len(asks), "holds": out.get("holds", 0), "agreed": out.get("agreed"),
+        "took": bool(out.get("took")),
         "price": (rec or {}).get("price"), "unit": (rec or {}).get("unit"), "claim": (rec or {}).get("claim"),
         "warranty_hours": (rec or {}).get("warranty_hours"), "passed_to_kit": result.get("receipt") is not None,
         "accept": result.get("accept"), "problems": problems, "warnings": warnings, "no_warranty": short, "why": why,
@@ -964,7 +968,8 @@ def main():
         resume = (q["url"], q["task"]) if r3 and q.get("task") and not q.get("refused") and q["task"].get("status", {}).get(
             "state") == "TASK_STATE_INPUT_REQUIRED" else None
         out = negotiate(shop["url"], label, limit, note, request_text(label, key, order) if r3 else None, resume=resume,
-                        stop_if=(lambda text: quote_refused(text, order)) if r3 else None)
+                        stop_if=(lambda text: quote_refused(text, order)) if r3 else None,
+                        take_at=limit if r3 and FOOD_TAKE_ASK and order.get("kind") == "food" else None)
         out["asked"] = key if r3 else None
     except Exception as e:  # network errors from a shop that went away
         log(f"trade failed: {type(e).__name__}: {e}")
