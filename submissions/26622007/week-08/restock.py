@@ -576,7 +576,8 @@ def main():
         except Exception as e:   # noqa: BLE001 - a price log never stops a restock
             print(f"[restock] price log failed: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
     print(f"[restock] {why}", file=sys.stderr, flush=True)
-    hold = set((pricing.get("next_window") or {}).get("targets") or {}) if trial is not None else set()
+    trial_cfg = pricing.get("next_window") or {}
+    hold = set(trial_cfg.get("targets") or {}) if trial is not None or trial_cfg.get("hold_after_done") is True else set()
     if first is not None:                  # the opening decides this run (already guarded); the agent waits
         out = {"buy": first}
     elif (opening.window_closed(inv) or trial == [] and opening.window_closed(inv, lead=0)) and not out.get("bankrupt"):

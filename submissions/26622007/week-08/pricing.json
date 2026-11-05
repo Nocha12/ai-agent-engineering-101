@@ -107,7 +107,8 @@
       "Gb5d0dde7",
       "G8ec51935",
       "G03d0199f",
-      "G00327e80"
+      "G00327e80",
+      "G1465c678"
     ],
     "sku_target_units": {
       "G1515d951": 4,
@@ -117,7 +118,8 @@
       "Gb5d0dde7": 3,
       "G8ec51935": 3,
       "G03d0199f": 2,
-      "G00327e80": 2
+      "G00327e80": 2,
+      "G1465c678": 1
     },
     "high_price_listed_only": true,
     "food_max_stock_cost": 650000,
@@ -259,11 +261,11 @@
     "ask_caps_source": "review/ax-overnight-20261103/0600/gpt-pro-answer.md B2-B3: slow goods held since 04:4x-05:26 sold 0 at 1.05 x median / our own paid price; G6b9db161 2 units unsold 05:23-06:01 at scarce ask 392,986. Caps are the review's per-grade asks; each unit's floor F (b 0.15) still bounds them"
   },
   "next_window": {
-    "id": "astra-1105-093817",
-    "source": "Astra: repeat one matured profitable unit, no automatic repeat; judge after 6h warranty",
+    "id": "carpet-G1465c678-one-unit",
+    "source": "One-unit carpet experiment; no replenishment until judged",
     "expires_hours": 2,
     "targets": {
-      "Ge62449c9": 1
+      "G1465c678": 1
     },
     "done_plans": [
       {
@@ -295,11 +297,21 @@
           "Ge62449c9": 1
         },
         "result": "o-e4ddb664917c: paid 76183, cost 61963, matured refund 0; net 14220 at astra-1105-093817 cutoff"
+      },
+      {
+        "id": "astra-1105-093817",
+        "targets": {
+          "Ge62449c9": 1
+        },
+        "result": "09:43 supplied and sold; six-hour warranty judgment pending, see prior cycle evidence"
       }
-    ]
+    ],
+    "hold_after_done": true
   },
   "seller": {
-    "refuse_buyers": ["totato2203-r3"],
+    "refuse_buyers": [
+      "totato2203-r3"
+    ],
     "refuse_one_star_at": 3
   }
 }
