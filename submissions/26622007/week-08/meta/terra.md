@@ -125,3 +125,14 @@ Astra 2026-11-04 21:19 grading correction:
   These are scenarios, not rival margins. Do not repeat "our floor is missing" after a tool/scorecard can supply it.
 - For a two-window retention condition, join unit arrival to the earlier of actual settled timestamp and observed
   departure. Counts at window opens alone do not prove that the same additional unit stayed. Preserve source records.
+
+Astra 2026-11-05 09:38 correction:
+- Cash-profit objective and public board ALL differ by .019 in this pack. The live book-based reconstruction matches
+  .706; report board_drift and board_players_gap separately. Do not claim exact board replication using cash profit.
+- A repeated missing hourly sell-through or two-window retention is a query, not a warranty wait. Compute paid sales
+  per actual supply window and same-unit retention using the earlier of paid ts and observed departure this cycle.
+- A tool returning JSON without an exception is not evidence of meaningful results. For generated combined searches,
+  require catalog SKU keys preserved, category/query intersection, only deduplicated k=settle, and seller filtering
+  that does not match the buyer. auto_market_lookup is removed; use repaired auto_market_scan and quote paid seqs.
+- Follow the current 09:38 strategy: G6/G75 target 1, G1515 target 4; the person's uncapped buyer rule remains in force.
+  A successful one-unit trial does not justify unattended permanent restocking. Rejudge its own sale after six hours.

@@ -232,7 +232,7 @@ class PriceTest(unittest.TestCase):
         # (review/W-20261104-2030, GPT Pro 3판 §4.2)
         self.assertEqual((r["priority_skus"], r["sku_target_units"]),
                          (["G75f11c19", "Gef4d3036", "Gb2392fa9", "G200e39a3", "G66ded25b"],
-                          {"G1515d951": 4, "G6b9db161": 2, "G75f11c19": 2}))   # G1515 4: Astra 21:19, same five units across two supply windows; G6 2: undo the reduction triggered by mislinked refunds
+                          {"G1515d951": 4, "G6b9db161": 1, "G75f11c19": 1}))   # G1515 4: Astra 21:19, same five units across two supply windows; G6 2: undo the reduction triggered by mislinked refunds
         self.assertEqual(r["food_max_qty"], 4)     # every food line refills up to 4 units, not 3 (the SKU cap stays max_units_per_sku 6)
         self.assertTrue(r["high_price_listed_only"])
         # no cap per deal (hard_limits.UNCAPPED; at 800k my buyer settled 1 of 113 dear orders) and the whole list price:

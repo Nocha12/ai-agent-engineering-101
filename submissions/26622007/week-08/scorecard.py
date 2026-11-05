@@ -72,6 +72,16 @@ def objective(b):
                   "board_all": mine.get("all"), "parts": got, "of": len(rows)}
     shop, buyer = out["shops"].get("all"), out["buyers"].get("all")
     out["players"] = None if shop is None and buyer is None else round((shop or 0) + (buyer or 0), 3)
+    # Keep the requested cash-profit objective, but expose drift from the public
+    # board (which can rank book). Do not silently claim exact reproduction.
+    out["board_drift"] = {k: round(out[k]["all"] - out[k]["board_all"], 6)
+                          for k in OBJECTIVE if isinstance(out[k].get("all"), (int, float))
+                          and isinstance(out[k].get("board_all"), (int, float))}
+    players = [r for r in b.get("players", []) if isinstance(r.get("total"), (int, float))]
+    mine_player = next((r for r in players if str(r.get("player", "")).lower() == "nocha12"
+                        or str(r.get("login", "")).lower() == "nocha12"), None)
+    out["board_players_gap"] = (round(max(r["total"] for r in players) - mine_player["total"], 6)
+                                if mine_player else None)
     out["weakest"] = min(((k, f, x["percentile"]) for k in OBJECTIVE for f, x in (out[k].get("parts") or {}).items()
                           if x["percentile"] is not None), key=lambda t: t[2], default=None)
     return out

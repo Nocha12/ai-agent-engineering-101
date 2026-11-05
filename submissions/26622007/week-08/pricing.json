@@ -106,8 +106,8 @@
     ],
     "sku_target_units": {
       "G1515d951": 4,
-      "G6b9db161": 2,
-      "G75f11c19": 2
+      "G6b9db161": 1,
+      "G75f11c19": 1
     },
     "high_price_listed_only": true,
     "food_max_stock_cost": 450000,
@@ -248,8 +248,8 @@
     "ask_caps_source": "review/ax-overnight-20261103/0600/gpt-pro-answer.md B2-B3: slow goods held since 04:4x-05:26 sold 0 at 1.05 x median / our own paid price; G6b9db161 2 units unsold 05:23-06:01 at scarce ask 392,986. Caps are the review's per-grade asks; each unit's floor F (b 0.15) still bounds them"
   },
   "next_window": {
-    "id": "terra-1105-012757",
-    "source": "Terra 2026-11-05 01:27: Ge62449c9 mature paid contribution and public demand; one-unit trial",
+    "id": "astra-1105-093817",
+    "source": "Astra: repeat one matured profitable unit, no automatic repeat; judge after 6h warranty",
     "expires_hours": 2,
     "targets": {
       "Ge62449c9": 1
@@ -277,6 +277,13 @@
           "G1515d951": 1
         },
         "result": "23:03 window: bought; see next_window_state record"
+      },
+      {
+        "id": "terra-1105-012757",
+        "targets": {
+          "Ge62449c9": 1
+        },
+        "result": "o-e4ddb664917c: paid 76183, cost 61963, matured refund 0; net 14220 at astra-1105-093817 cutoff"
       }
     ]
   }
