@@ -247,6 +247,39 @@ class LogCountTest(unittest.TestCase):
         finally:
             shutil.rmtree(tmp)
 
+    def test_a2a_detach_context_noise_is_not_a_traceback(self):
+        import scorecard
+        noise = ("03:28:36 [seller] Failed to detach context\n"
+                 "03:28:36 [seller] Traceback (most recent call last):\n"
+                 "03:28:36 [seller]   File \"/x/a2a/utils/telemetry.py\", line 242, in async_wrapper\n"
+                 "03:28:36 [seller] GeneratorExit\n"
+                 "03:28:36 [seller] \n"
+                 "03:28:36 [seller] During handling of the above exception, another exception occurred:\n"
+                 "03:28:36 [seller] \n"
+                 "03:28:36 [buyer] [03:28:36] buyer <- error -32004\n"
+                 "03:28:36 [seller] Traceback (most recent call last):\n"
+                 "03:28:36 [seller]     self._current_context.reset(token)\n"
+                 "03:28:36 [seller] ValueError: <Token var=<ContextVar name='current_context'> at 0x1> was created in a different Context\n"
+                 "03:28:36 [seller] Task was destroyed but it is pending!\n")
+        real = ("03:29:00 [restock] Traceback (most recent call last):\n"
+                "03:29:00 [restock]   File \"restock.py\", line 1, in <module>\n"
+                "03:29:00 [restock] KeyError: 'sku'\n")
+        odd = ("03:30:00 [seller] Failed to detach context\n"
+               "03:30:00 [seller] Traceback (most recent call last):\n"
+               "03:30:00 [seller] RuntimeError: something else\n")
+        tmp = tempfile.mkdtemp()
+        try:
+            os.makedirs(os.path.join(tmp, "logs"))
+            cut = "".join(odd.splitlines(True)[:2])
+            for text, want in ((noise, (0, 2)), (noise + real, (1, 2)), (noise + odd, (1, 2)), (cut, (1, 0))):
+                with open(os.path.join(tmp, "logs", "market-kit.log"), "w") as f:
+                    f.write(text)
+                c = scorecard.log_counts(tmp)
+                self.assertEqual((c["tracebacks"], c["tracebacks_detach_noise"]), want, text)
+                self.assertEqual(c["lines"], text.count("\n"))
+        finally:
+            shutil.rmtree(tmp)
+
     def test_no_price_is_promised_for_a_review(self):
         with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "seller.py"), encoding="utf-8") as f:
             src = f.read()

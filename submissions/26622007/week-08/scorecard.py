@@ -7,6 +7,7 @@ Counts come from the logs and files as they are; nothing here judges. Astra owns
 import collections
 import json
 import os
+import re
 import time
 
 import httpx
@@ -329,23 +330,53 @@ def file_index(root):
     return out
 
 
+# a2a's opentelemetry wrapper logs "Failed to detach context" and two tracebacks (GeneratorExit, then "ValueError: <Token
+# ...> was created in a different Context") when a buyer drops a seller stream; the seller carries on. 106 such blocks made
+# all 212 tracebacks in the kit log by 11/06 04:30, and Terra's tested a84f87c and dc91249 were undone as "tracebacks +24".
+DETACH_NOISE = ("Failed to detach context", "was created in a different Context")
+TRACE_PARTS = ("  ", "Traceback", "During handling of the above exception", "GeneratorExit")
+
+
+def log_tag(line):
+    """(`[seller]`, rest) from `03:28:36 [seller] rest`, so one process's block is not cut by another's lines."""
+    m = re.match(r"\S+ (\[[^\]]+\]) ?(.*)", line)
+    return (m.group(1), m.group(2)) if m else ("", line)
+
+
 def log_counts(root, name="market-kit.log", start=0):
     """Counts of COUNTERS in the kit log from line `start` on. A tuple needle needs all its parts in the line:
     supply_refused is a refused [supply] line only, not also "[acp] checkout refused:" (11/05 22:25 Astra's watch read
-    10 checkout refusals and 1 supply 502 as supply_refused +11)."""
+    10 checkout refusals and 1 supply 502 as supply_refused +11).
+    Tracebacks inside a DETACH_NOISE block go to tracebacks_detach_noise, not tracebacks. A block that does not end with
+    the different-Context error, or is cut off at the end of the file, still counts as tracebacks."""
     counts = collections.Counter()
+    pending = {}  # process tag -> tracebacks seen since its "Failed to detach context"
     try:
         with open(os.path.join(root, "logs", name), encoding="utf-8", errors="replace") as f:
             for i, line in enumerate(f):
                 if i < start:
                     continue
+                tag, body = log_tag(line.rstrip("\n"))
+                if DETACH_NOISE[0] in body:
+                    counts["tracebacks"] += pending.pop(tag, 0)
+                    pending[tag] = 0
+                elif tag in pending:
+                    if DETACH_NOISE[1] in body:
+                        counts["tracebacks_detach_noise"] += pending.pop(tag)
+                    elif body.startswith("Traceback"):
+                        pending[tag] += 1
+                    elif body.strip() and not body.startswith(TRACE_PARTS):
+                        counts["tracebacks"] += pending.pop(tag)
                 for k, needle in COUNTERS.items():
+                    if k == "tracebacks" and tag in pending:
+                        continue
                     if all(n in line for n in needle) if isinstance(needle, tuple) else needle in line:
                         counts[k] += 1
                 counts["lines"] += 1
     except OSError:
         pass
-    return {k: counts[k] for k in ["lines", *COUNTERS]}
+    counts["tracebacks"] += sum(pending.values())
+    return {k: counts[k] for k in ["lines", *COUNTERS, "tracebacks_detach_noise"]}
 
 
 def llm_table(md, last=2000):
