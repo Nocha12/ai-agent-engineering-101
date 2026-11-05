@@ -20,6 +20,16 @@ class RecentFitsTest(unittest.TestCase):
             got = market_buyer.recent_fits(md, "c", now=now)
             self.assertEqual(dict(got), {"a": 1, "b": 1})
             self.assertEqual(market_buyer.recent_fits(md + "/none", "c"), {})
+            self.assertEqual(market_buyer.recent_fits(md, None), {})
+
+    def test_the_first_batch_keeps_one_slot_for_a_shop_that_has_not_fitted(self):
+        import collections
+        shop = lambda n, r: {"name": n, "reviews": [0] * r}
+        others = [shop("new", 9), shop("fit1", 1), shop("old", 5), shop("fit2", 3)]
+        fits = collections.Counter({"fit1": 52, "fit2": 1})
+        order = [s["name"] for s in market_buyer.quote_order(others, fits, 3)]
+        self.assertEqual(order, ["fit2", "new", "fit1", "old"])      # fitters by reviews, not by their fit count
+        self.assertEqual([s["name"] for s in market_buyer.quote_order(others, fits, 2)], ["new", "fit2", "fit1", "old"])
 
 
 if __name__ == "__main__":

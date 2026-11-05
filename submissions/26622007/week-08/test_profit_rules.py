@@ -457,6 +457,8 @@ class SurgeTest(unittest.TestCase):
         inv = dict(self.inv(("H1", 1.22), ("F1", 1.35)), units=[unit("h", sku="H1", kind="goods")])
         out = restock.guard(buy, inv, CAT, cfg)
         self.assertEqual(out, [{"sku": "H1", "qty": 1}, {"sku": "F1", "qty": 1}, {"sku": "F2", "qty": 2}])   # one held of two; listed keeps one
+        inv["units"].append(unit("f", sku="F1"))
+        self.assertEqual([b["sku"] for b in restock.guard(buy, inv, CAT, cfg)], ["H1", "F2"])          # F1 has its one unit
 
     def test_the_stock_cap_counts_the_surge_cost(self):
         cfg = {**self.CFG, "max_stock_cost": 100000}

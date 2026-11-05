@@ -511,6 +511,8 @@ def recent_fits(md, category, now=None, hours=RECENT_FIT_HOURS):
     quoting the shops with one first finds an ask that can close in the first batch (GPT Pro 11/05 priority 5)."""
     now = time.time() if now is None else now
     out = collections.Counter()
+    if not category:
+        return out
     try:
         with open(os.path.join(md, records.DIR, "orders.jsonl"), "rb") as f:
             f.seek(0, 2)
@@ -528,9 +530,21 @@ def recent_fits(md, category, now=None, hours=RECENT_FIT_HOURS):
                 or not now - hours * 3600 <= r["ts"] <= now:
             continue
         for q in r.get("quotes") or ():
-            if isinstance(q, dict) and isinstance(q.get("ask"), (int, float)) and q.get("lost") in (None, "less expected surplus"):
-                out[q.get("shop")] += 1
+            if isinstance(q, dict) and isinstance(q.get("shop"), str) and isinstance(q.get("ask"), (int, float)) \
+                    and q.get("lost") in (None, "less expected surplus"):
+                out[q["shop"]] += 1
     return out
+
+
+def quote_order(others, fits, k):
+    """The shops quoted after the chosen one: those that fitted lately first, by reviews, but one slot of the first batch
+    goes to a shop that has not, so a cheaper shop can still be found (sorting on the fit count alone let one shop with 52
+    fits take every first batch, and a shop never asked never gets a fit)."""
+    by_reviews = lambda s: -len(s.get("reviews") or [])
+    fitted = sorted((s for s in others if fits[s["name"]] > 0), key=by_reviews)
+    fresh = sorted((s for s in others if fits[s["name"]] <= 0), key=by_reviews)
+    head = max(0, k - 2)          # the first batch: the chosen shop, k - 2 that fitted, one that has not
+    return fitted[:head] + fresh[:1] + fitted[head:] + fresh[1:]
 
 
 def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOTE_WAIT, rounds=QUOTE_ROUNDS):
@@ -863,8 +877,7 @@ def main():
     quotes = {}
     if r3:
         others = [s for s in left if s is not shop and not caught_cheating(my_history(memory, s["name"]))]
-        fits = recent_fits(md, order.get("category"))
-        others.sort(key=lambda s: (-fits[s["name"]], -len(s.get("reviews") or [])))
+        others = quote_order(others, recent_fits(md, order.get("category")), int(buyer_cfg().get("quote_shops", 1)))
         stats = market_model.break_stats(market_model.load_rows(md), catalog) if order.get("kind") == "goods" else None
         chance_of = (lambda sku: market_model.break_chance(stats, sku)) if stats else (lambda sku: None)
         best, quotes = best_quote(shop, others, order, catalog, args.budget, chance_of, buyer_cfg()) \

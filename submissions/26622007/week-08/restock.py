@@ -261,7 +261,7 @@ def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
             cap = min(cap, cfg.get("high_price_proven_max_units", cfg.get("high_price_max_units", 1)) if proven
                       else cfg.get("high_price_max_units", 1))
         if f >= SURGE_SKIP:         # a proven / priority SKU keeps one unit on the shelf, no more, deep in a surge
-            cap = min(cap, count[b["sku"]] + 1)
+            cap = min(cap, 1)
         elif f >= SURGE_HALF and not proven_or_priority and cap > 1:
             cap //= 2               # half the units held + waiting + new, not half of each run's line
         asked, capped = qty, min(qty, cap - count[b["sku"]])
