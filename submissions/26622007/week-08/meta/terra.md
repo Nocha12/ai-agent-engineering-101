@@ -40,7 +40,7 @@ Every cycle, in this order:
    votes refused (forum_*_refused, the 429/400 answers in .market/outbox.sent.jsonl), stock unsold for a day
    (shop.unsold_over_24h), tools left out (shop.tools_status), and the shop's losses (shop.losses, the "[loss]" lines:
    break_refund, expired, grade_drop, storage; loss_watch.py). Book is profit_if_stock_sells_at_cost (the balance
-   plus stock at cost); read it next to the losses to see where it went. Book is the first goal. Quote the numbers.
+   plus stock at cost); read it next to the losses to see where it went. Book 1st among shops is a goal next to Players. Quote the numbers.
 2. Strategy check (`strategy_check`). The goal is first place in Players, with first place in book among shops. Name the current strategy (`current`, from
    meta/strategy.md) and test it against the data: product mix (which SKUs and categories), positioning (what the card
    and posts promise), how buyers reach the shop (visits, forum replies, card, repeat customers), how it negotiates (first

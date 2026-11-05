@@ -64,15 +64,15 @@ def compare(scoring, objective):
         if not published:
             out.append(f"{kind}: no published weights found")
             continue
-        mine = [(names, tuple(n for n in names if n not in LEGACY), w) for names, w in parts]
+        mine = [(names, tuple(n for n in names if n not in LEGACY), w) for names, w in parts]   # (shown, matchable, w)
         for part, w in published:       # by name, in any order; bar widths are drawn, so 0.005 is the same weight
-            match = next((mw for _, names, mw in mine if part in names), None)
+            match = next((mw for _, matchable, mw in mine if part in matchable), None)
             if match is None:
                 out.append(f"{kind}: published {part} {w}, not in the scorecard")
             elif abs(w - match) > TOLERANCE:
                 out.append(f"{kind}: published {part} {w}, scorecard {match}")
-        for shown, names, mw in mine:
-            if not any(part in names for part, _ in published):
+        for shown, matchable, mw in mine:
+            if not any(part in matchable for part, _ in published):
                 out.append(f"{kind}: scorecard {shown[0]} {mw}, not published")
     return out
 
