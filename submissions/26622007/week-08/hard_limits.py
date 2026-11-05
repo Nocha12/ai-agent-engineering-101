@@ -18,43 +18,53 @@ import re
 BANKRUPT_LINE = 500000
 STOP_BUYING_BELOW = 1000000          # a supply that could leave less than this is not sent
 PROTECTED = ("hard_limits.py", "test_hard_limits.py", "run_market.sh", "run_meta.sh", "ensure_running.sh")
-MAX_STEP = 0.5                       # a number may change by at most half its value per cycle (and by 1 when it is small)
-# ... or rise by twice its value (triple it) once the evidence is a real sample. A fall stays at MAX_STEP_DOWN whatever
-# the sample: Patch 3.3 scores book (cash + unsold stock at cost), the shop held 3.2M of stock against the top ten's
-# 24-158M (11/05 11:09 board), and a strong step of 100% let one cycle cut a cap to nothing (a person, 11/05 11:48).
-MAX_STEP_STRONG = 2.0
-MAX_STEP_UNBOUNDED = 1.0             # a setting with no BOUNDS (food_max_stock_cost, sku_target_units) still at most doubles
+MAX_STEP = 1.0                       # a number may rise by at most its value (double) per cycle (and by 1 when it is small)
+# ... or by four times its value (five times it) once the evidence is a real sample, so the stock cap can go from 15M
+# toward the top ten's 78M average in two cycles. A fall stays at MAX_STEP_DOWN whatever the sample: Patch 3.3 scores
+# book (cash + unsold stock at cost), the shop held 3.2M of stock against the top ten's 24-158M (11/05 11:09 board),
+# and a strong step of 100% let one cycle cut a cap to nothing (a person, 11/05 11:48).
+MAX_STEP_STRONG = 4.0
+MAX_STEP_UNBOUNDED = 2.0             # a setting with no BOUNDS (food_max_stock_cost, sku_target_units) still at most triples
 MAX_STEP_DOWN = 0.5
 STRONG_SAMPLE = 40                   # settled deals (shop + buyer) in the Round 3 log that make a sample
 # The meta-harness may not take these under the line (a person may, in pricing.json): scale is the strategy now and a
-# bankruptcy is out of reach (balance 51.7M against the 0.5M line, 11/05 11:50). Narrow per SKU instead.
-META_FLOOR = {"restock.max_stock_cost": 10000000}
+# bankruptcy is out of reach (balance 51.7M against the 0.5M line, 11/05 11:50). Narrow per SKU instead. keep_cash: with
+# the stock cap open to 150M, the cash a restock leaves is what pays the 6 h warranty refunds of goods already sold and
+# the storage fee (1%/day of stock cost) after the buy; 3M covers the dearest listed unit's refund (2.3M) and a day of
+# fees on 70M of stock.
+META_FLOOR = {"restock.max_stock_cost": 10000000, "restock.keep_cash": 3000000}
+# Settings the meta-harness may not change at all (a person may): unlisted dear goods stay out of the explore lines,
+# whose price bound is now 10M.
+FIXED = {"restock.high_price_listed_only": True}
 
 # path in pricing.json -> (lowest, highest). Outside these the shop's own data has not earned the risk.
 BOUNDS = {
-    "restock.keep_cash": (STOP_BUYING_BELOW, 4500000),
-    # 15M: Patch 3.3 scores book (unsold stock at cost), and the 4M cap was what cut our lines (847 of the last 2,000
-    # guard cuts, 11/05 11:1x) while the 60만+ goods that bring the top ten 82% of their revenue sell in 0.37 h
-    # (review/W-20261105-0953-AX패치3.3/scale-analysis.md). A person raised it.
-    "restock.max_stock_cost": (100000, 15000000),
-    "restock.target_per_category": (0, 5),
-    "restock.max_lines": (1, 10),
-    "restock.max_units_per_sku": (1, 20),
+    # The floor is STOP_BUYING_BELOW, the least that keeps supplies going: restock never spends under it whatever
+    # keep_cash says (spendable), so a lower floor would change nothing. The meta-harness stops at META_FLOOR (3M).
+    "restock.keep_cash": (STOP_BUYING_BELOW, 20000000),
+    # 150M: Patch 3.3 scores book (unsold stock at cost); the 4M cap was what cut our lines (847 of the last 2,000 guard
+    # cuts, 11/05 11:1x) while the 60만+ goods that bring the top ten 82% of their revenue sell in 0.37 h, and the top
+    # ten hold 78M of stock on average, 150M at most (review/W-20261105-0953-AX패치3.3/scale-analysis.md). A person set
+    # the bound there (11/05 11:48: "크게크게"); pricing.json holds the working value, grown inside it as sales follow.
+    "restock.max_stock_cost": (100000, 150000000),
+    "restock.target_per_category": (0, 10),
+    "restock.max_lines": (1, 10),     # the kit sends the first 10 lines of a restock (scripts/market_kit.py), no more
+    "restock.max_units_per_sku": (1, 100),
     "restock.cover_hours": (1, 72),
-    "restock.food_explore_qty": (0, 5),
-    "restock.food_max_qty": (0, 20),
+    "restock.food_explore_qty": (0, 20),
+    "restock.food_max_qty": (0, 20),  # units per food line: MAX_LOT (20) cuts a line anyway
     "restock.max_break": (0.0, 0.5),
-    # 5M / 500k: the dearest goods (4,045,800) and food (435,000) in the 11/05 catalog. Both only pick the two explore
-    # lines; goods over high_price_goods off the proven / priority lists stay out (high_price_listed_only).
-    "restock.goods_max_price": (5000, 5000000),
-    "restock.food_max_price": (5000, 500000),
+    # 10M / 1M: over twice the dearest goods (4,045,800) and food (435,000) in the 11/05 catalog. Both only pick the
+    # two explore lines; goods over high_price_goods off the proven / priority lists stay out (high_price_listed_only).
+    "restock.goods_max_price": (5000, 10000000),
+    "restock.food_max_price": (5000, 1000000),
     "restock.band_low": (0.3, 1.0),
     "restock.band_high": (1.0, 3.0),
     "restock.prior_break": (0.0, 0.5),
-    "opening.explore_budget_worst": (0, 1000000),
+    "opening.explore_budget_worst": (0, 10000000),
     "opening.judge_settles": (10, 1000),
     "opening.phase_gap_minutes": (5, 120),
-    "restock.max_sku_share": (0.01, 0.3),
+    "restock.max_sku_share": (0.01, 0.4),
     "warranty.on_request_hours": (0, 6),
     "warranty.max_hours": (0, 6),
     "warranty.max_break": (0.0, 0.5),
@@ -145,11 +155,13 @@ def check_policy_change(old, new, step=MAX_STEP):
             problems.append(f"pricing.json {key} {was} -> {v} moves more than {move:.0%} in one cycle")
         if key in META_FLOOR and number(v) and number(was) and was >= META_FLOOR[key] > v:
             problems.append(f"pricing.json {key} {was} -> {v} goes under {META_FLOOR[key]} (hard_limits.META_FLOOR, a person's line)")
+        if key in FIXED and key in a and v != was:
+            problems.append(f"pricing.json {key} {was!r} -> {v!r} is a person's setting (hard_limits.FIXED)")
         if key == "markdown.below_cost" and (not isinstance(v, list) or any(r not in MARKDOWN_REASONS for r in v)):
             problems.append(f"pricing.json markdown.below_cost {v} is not a list of {MARKDOWN_REASONS}")
         if key in BOUNDS and not number(v):
             problems.append(f"pricing.json {key}={v!r} must stay a number")
-    for key in (*BOUNDS, "markdown.below_cost"):
+    for key in (*BOUNDS, *FIXED, "markdown.below_cost"):
         if key in a and key not in b:
             problems.append(f"pricing.json {key} was removed (bounded settings stay)")
     return problems

@@ -34,10 +34,10 @@ class HardLimitsTest(unittest.TestCase):
         old = self.pricing()
         old["restock"]["max_stock_cost"] = 2000000     # the shipped value may sit at the upper bound; the step rule needs room
         new = json.loads(json.dumps(old))
-        new["restock"]["max_stock_cost"] = old["restock"]["max_stock_cost"] * 1.4
-        self.assertEqual(hl.check_policy_change(old, new), [])
         new["restock"]["max_stock_cost"] = old["restock"]["max_stock_cost"] * 2
-        self.assertIn("more than 50%", hl.check_policy_change(old, new)[0])
+        self.assertEqual(hl.check_policy_change(old, new), [])
+        new["restock"]["max_stock_cost"] = old["restock"]["max_stock_cost"] * 2.1
+        self.assertIn("more than 100%", hl.check_policy_change(old, new)[0])
         new = json.loads(json.dumps(old))
         new["restock"]["keep_cash"] = 900000
         self.assertTrue(any("outside" in p for p in hl.check_policy_change(old, new)))
@@ -51,12 +51,17 @@ class HardLimitsTest(unittest.TestCase):
         self.assertTrue(hl.check_policy_change(old, new))
 
     def test_a_real_sample_allows_a_bigger_step_but_not_more(self):
-        old, new = {"restock": {"max_stock_cost": 1000000}}, {"restock": {"max_stock_cost": 2000000}}
+        old, new = {"restock": {"max_stock_cost": 1000000}}, {"restock": {"max_stock_cost": 3000000}}
         self.assertTrue(hl.check_policy_change(old, new))
         self.assertEqual(hl.check_policy_change(old, new, hl.MAX_STEP_STRONG), [])
-        self.assertEqual(hl.check_policy_change(old, {"restock": {"max_stock_cost": 3000000}}, hl.MAX_STEP_STRONG), [])
-        self.assertTrue(hl.check_policy_change(old, {"restock": {"max_stock_cost": 3100000}}, hl.MAX_STEP_STRONG))
-        self.assertTrue(hl.check_policy_change(old, {"restock": {"max_stock_cost": 3100000}}, 5.0))     # capped at strong
+        self.assertEqual(hl.check_policy_change(old, {"restock": {"max_stock_cost": 5000000}}, hl.MAX_STEP_STRONG), [])
+        self.assertTrue(hl.check_policy_change(old, {"restock": {"max_stock_cost": 5100000}}, hl.MAX_STEP_STRONG))
+        self.assertTrue(hl.check_policy_change(old, {"restock": {"max_stock_cost": 5100000}}, 9.0))     # capped at strong
+        # 15M reaches 75M (about the top ten's 78M average) in one strong cycle and the 150M bound in two
+        self.assertEqual(hl.check_policy_change({"restock": {"max_stock_cost": 15000000}},
+                                                {"restock": {"max_stock_cost": 75000000}}, hl.MAX_STEP_STRONG), [])
+        self.assertEqual(hl.check_policy_change({"restock": {"max_stock_cost": 75000000}},
+                                                {"restock": {"max_stock_cost": 150000000}}, hl.MAX_STEP_STRONG), [])
 
     def test_a_fall_is_half_at_most_whatever_the_sample(self):
         old = {"restock": {"max_break": 0.2, "cover_hours": 6}}
@@ -76,17 +81,19 @@ class HardLimitsTest(unittest.TestCase):
                                                 {"restock": {"max_stock_cost": 1500000}}), [])
         self.assertEqual(hl.clamp_cfg("restock", {"max_stock_cost": 2000000})["max_stock_cost"], 2000000)   # a person's file stands
 
-    def test_settings_without_bounds_still_at_most_double(self):
+    def test_settings_without_bounds_still_at_most_triple(self):
         old = {"restock": {"food_max_stock_cost": 650000, "sku_target_units": {"G1": 3}}}
-        self.assertEqual(hl.check_policy_change(old, {"restock": {"food_max_stock_cost": 1300000, "sku_target_units": {"G1": 6}}},
+        self.assertEqual(hl.check_policy_change(old, {"restock": {"food_max_stock_cost": 1950000, "sku_target_units": {"G1": 9}}},
                                                 hl.MAX_STEP_STRONG), [])
-        self.assertEqual(len(hl.check_policy_change(old, {"restock": {"food_max_stock_cost": 1950000, "sku_target_units": {"G1": 9}}},
+        self.assertEqual(len(hl.check_policy_change(old, {"restock": {"food_max_stock_cost": 2000000, "sku_target_units": {"G1": 10}}},
                                                     hl.MAX_STEP_STRONG)), 2)
+        self.assertEqual(len(hl.check_policy_change(old, {"restock": {"food_max_stock_cost": 1300001, "sku_target_units": {"G1": 7}}})),
+                         2)                                                         # a weak sample: double at most
         self.assertTrue(hl.check_policy_change({"x": {"y": 0.1}}, {"x": {"y": -0.1}}, hl.MAX_STEP_STRONG))   # a sign flip is a fall
 
     def test_explore_price_caps_reach_the_dearest_catalog_items(self):
         self.assertEqual((hl.BOUNDS["restock.goods_max_price"], hl.BOUNDS["restock.food_max_price"]),
-                         ((5000, 5000000), (5000, 500000)))
+                         ((5000, 10000000), (5000, 1000000)))
 
     def test_protected_files_and_guard_lines(self):
         self.assertTrue(hl.guard_problems(["hard_limits.py"], ""))
@@ -121,16 +128,48 @@ class GuardsStayHookedTest(unittest.TestCase):
         out = json.loads(printed[-1])
         self.assertEqual(out["buy"], [{"sku": "H1", "qty": 6}])          # (1,100,000 - 1,000,000) // 15,000
 
-    def test_the_stock_cap_tops_out_at_15m(self):
-        self.assertEqual(hl.BOUNDS["restock.max_stock_cost"], (100000, 15000000))
-        self.assertEqual(hl.clamp_cfg("restock", {"max_stock_cost": 15000000})["max_stock_cost"], 15000000)
-        self.assertEqual(hl.clamp_cfg("restock", {"max_stock_cost": 30000000})["max_stock_cost"], 15000000)
-        self.assertTrue(any("outside" in p for p in hl.check_policy_change({"restock": {"max_stock_cost": 15000000}},
-                                                                           {"restock": {"max_stock_cost": 15000001}})))
+    def test_the_stock_cap_tops_out_at_150m(self):
+        self.assertEqual(hl.BOUNDS["restock.max_stock_cost"], (100000, 150000000))
+        self.assertEqual(hl.clamp_cfg("restock", {"max_stock_cost": 150000000})["max_stock_cost"], 150000000)
+        self.assertEqual(hl.clamp_cfg("restock", {"max_stock_cost": 300000000})["max_stock_cost"], 150000000)
+        self.assertTrue(any("outside" in p for p in hl.check_policy_change({"restock": {"max_stock_cost": 140000000}},
+                                                                           {"restock": {"max_stock_cost": 150000001}})))
+        self.assertEqual(hl.META_FLOOR["restock.max_stock_cost"], 10000000)     # the meta-harness still keeps 10M+
+
+    def test_the_widened_bounds(self):
+        b = hl.BOUNDS
+        self.assertEqual((b["restock.max_units_per_sku"], b["restock.target_per_category"], b["restock.food_explore_qty"],
+                          b["restock.max_sku_share"], b["opening.explore_budget_worst"], b["restock.keep_cash"]),
+                         ((1, 100), (0, 10), (0, 20), (0.01, 0.4), (0, 10000000), (1000000, 20000000)))
+        self.assertEqual((hl.MAX_STEP, hl.MAX_STEP_STRONG, hl.MAX_STEP_UNBOUNDED), (1.0, 4.0, 2.0))
+
+    def test_the_meta_harness_keeps_cash_for_refunds_and_fees(self):
+        old = {"restock": {"keep_cash": 4500000}}
+        self.assertEqual(hl.check_policy_change(old, {"restock": {"keep_cash": 3000000}}, hl.MAX_STEP_STRONG), [])
+        self.assertTrue(any("META_FLOOR" in p for p in
+                            hl.check_policy_change(old, {"restock": {"keep_cash": 2900000}}, hl.MAX_STEP_STRONG)))
+        self.assertIn("more than 50%", hl.check_policy_change({"restock": {"keep_cash": 8000000}},
+                                                              {"restock": {"keep_cash": 3900000}}, hl.MAX_STEP_STRONG)[0])
+
+    def test_unlisted_dear_goods_stay_out_whatever_the_meta_writes(self):
+        old = {"restock": {"high_price_listed_only": True}}
+        self.assertTrue(any("FIXED" in p for p in hl.check_policy_change(old, {"restock": {"high_price_listed_only": False}})))
+        self.assertTrue(any("removed" in p for p in hl.check_policy_change(old, {"restock": {}})))
+        self.assertEqual(hl.check_policy_change(old, old), [])
+        with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
+            self.assertIs(json.load(f)["restock"]["high_price_listed_only"], True)
+
+    def test_the_lines_that_stay(self):
+        self.assertEqual(hl.BOUNDS["restock.keep_cash"][0], hl.STOP_BUYING_BELOW)   # the least that keeps supplies going
+        self.assertEqual((hl.BANKRUPT_LINE, hl.STOP_BUYING_BELOW), (500000, 1000000))
+        self.assertEqual((hl.BUYER_GOODS_WARRANTY_HOURS, hl.SELLER_GOODS_WARRANTY_HOURS), (6, 6))
+        self.assertEqual(hl.PROTECTED, ("hard_limits.py", "test_hard_limits.py", "run_market.sh", "run_meta.sh", "ensure_running.sh"))
+        self.assertEqual(hl.MAX_STEP_DOWN, 0.5)
+        self.assertEqual(hl.BOUNDS["restock.max_lines"], (1, 10))
 
     def test_settings_that_are_not_numbers_fall_back_to_the_cautious_start(self):
         cfg = hl.clamp_cfg("restock", {"food_max_qty": None, "keep_cash": "0", "max_stock_cost": 10 ** 9})
-        self.assertEqual((cfg["food_max_qty"], cfg["keep_cash"], cfg["max_stock_cost"]), (2, 3000000, 15000000))
+        self.assertEqual((cfg["food_max_qty"], cfg["keep_cash"], cfg["max_stock_cost"]), (2, 3000000, 150000000))
         self.assertEqual(hl.clamp_cfg("markdown", {})["below_cost"], ["food_expiry"])
         self.assertTrue(hl.check_policy_change({"restock": {"max_break": 0.1}}, {"restock": {"max_break": None}}))
         self.assertTrue(hl.check_policy_change({"markdown": {"below_cost": ["food_expiry"]}}, {"markdown": {}}))

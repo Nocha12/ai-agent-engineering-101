@@ -218,13 +218,13 @@ class ForgeTest(unittest.TestCase):
 
 class MetaLimitTest(unittest.TestCase):
     def test_a_change_past_the_limits_is_a_problem(self):
-        old = {"restock": {"keep_cash": 3000000}}
+        old = {"restock": {"keep_cash": 4000000}}
         with mock.patch.object(meta_harness, "pricing_at_head", lambda: old), \
                 mock.patch.object(meta_harness, "pricing_now", lambda: {"restock": {"keep_cash": 1000000}}), \
                 mock.patch.object(meta_harness, "git", lambda *a, **k: ""):
             self.assertTrue(meta_harness.limit_problems(["pricing.json"]))
         with mock.patch.object(meta_harness, "pricing_at_head", lambda: old), \
-                mock.patch.object(meta_harness, "pricing_now", lambda: {"restock": {"keep_cash": 2500000}}), \
+                mock.patch.object(meta_harness, "pricing_now", lambda: {"restock": {"keep_cash": 3000000}}), \
                 mock.patch.object(meta_harness, "git", lambda *a, **k: ""):
             self.assertEqual(meta_harness.limit_problems(["pricing.json"]), [])
         self.assertTrue(hard_limits.guard_problems(["hard_limits.py"], ""))
@@ -254,7 +254,7 @@ class TerraGradingTest(unittest.TestCase):
             shutil.rmtree(tmp)
 
     def test_the_strong_step_needs_a_sample(self):
-        old, new = {"restock": {"max_stock_cost": 1000000}}, {"restock": {"max_stock_cost": 2000000}}
+        old, new = {"restock": {"max_stock_cost": 1000000}}, {"restock": {"max_stock_cost": 3000000}}
         for settled, ok in ((10, False), (50, True)):
             with mock.patch.object(meta_harness, "pricing_at_head", lambda: old), mock.patch.object(meta_harness, "pricing_now", lambda: new), \
                     mock.patch.object(meta_harness, "git", lambda *a, **k: ""), \
