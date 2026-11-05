@@ -11,6 +11,7 @@ import os
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 import httpx
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -33,7 +34,7 @@ class FakeLedger:
     def __init__(self, rows):
         self.rows, self.calls = rows, 0
 
-    def __call__(self, path):
+    def __call__(self, path, timeout=10):
         self.calls += 1
         after = int(path.split("after=")[1])
         if after == -1:
@@ -60,6 +61,7 @@ class Base(unittest.TestCase):
         self.ledger = ledger(("o-bad", BAD), ("o-good", "buyer-01"))
         self.logs = []
         self.gate = acp_gate.Gate(acp_gate.OrderBuyers(self.ledger), self.pricing, self.md, self.logs.append)
+        self.gate.orders._read()                                   # what the background thread does first
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -93,6 +95,7 @@ class GateTest(Base):
         self.assertEqual(self.refused_lines(), [])
 
     def test_off_when_the_list_is_empty_or_missing(self):
+        self.ledger.calls = 0
         for names in ([], None):
             self.set_refused(names)
             self.assertIsNone(self.gate.refusal("o-bad", {}))
@@ -100,9 +103,11 @@ class GateTest(Base):
         self.assertEqual(acp_gate.refused_buyers(os.path.join(self.tmp.name, "nope.json")), [])
 
     def test_ledger_failure_never_blocks_a_sale(self):
-        def down(path):
+        def down(path, timeout=10):
             raise OSError("market down")
-        gate = acp_gate.Gate(acp_gate.OrderBuyers(down), self.pricing, self.md, self.logs.append)
+        ob = acp_gate.OrderBuyers(down)
+        ob.seq = 5                                                 # warm before, the market down now
+        gate = acp_gate.Gate(ob, self.pricing, self.md, self.logs.append)
         self.assertIsNone(gate.refusal("o-bad", {}))
         self.assertTrue(any("ledger lookup for o-bad failed" in line for line in self.logs))
 
@@ -110,16 +115,32 @@ class GateTest(Base):
         rows = [order_row(i + 1, f"o-{i}", "buyer-01") for i in range(1200)] + [order_row(1201, "o-late", BAD)]
         led = FakeLedger(rows)
         ob = acp_gate.OrderBuyers(led)
+        self.assertIsNone(ob.buyer("o-late"))                      # cold: a payment never does the first read
+        self.assertEqual(led.calls, 0)
+        ob._read()                                                 # the background's first pass
         self.assertEqual(ob.buyer("o-late"), BAD)
         self.assertEqual(ob.buyer("o-5"), "buyer-01")              # cached: no new read
         calls = led.calls
         led.rows.append(order_row(1202, "o-new", BAD))
         self.assertEqual(ob.buyer("o-new"), BAD)
-        self.assertEqual(led.calls, calls + 2)                     # tail + one page from the last row seen
+        self.assertEqual(led.calls, calls + 1)                     # a payment reads one page from the last row seen
+        self.assertIsNone(ob.buyer("o-never"))
+        self.assertEqual(led.calls, calls + 2)
+
+    def test_a_payment_waits_at_most_wait_for_a_running_read(self):
+        ob = acp_gate.OrderBuyers(FakeLedger([order_row(1, "o-1", BAD)]))
+        ob._read()
+        ob.lock.acquire()                                          # a slow background page
+        try:
+            with unittest.mock.patch.object(acp_gate, "WAIT", 0.05):
+                self.assertIsNone(ob.buyer("o-2"))                 # gave up waiting: settle as usual
+        finally:
+            ob.lock.release()
 
     def test_cold_start_reads_back_a_bounded_window(self):
         rows = [order_row(i + 1, f"o-{i}", "buyer-01") for i in range(acp_gate.BACK + 600)]
         ob = acp_gate.OrderBuyers(FakeLedger(rows))
+        ob._read()
         self.assertIsNone(ob.buyer("o-0"))                         # older than BACK rows: not read
         self.assertEqual(ob.buyer(f"o-{acp_gate.BACK + 599}"), "buyer-01")
 
@@ -193,7 +214,8 @@ class KitAcpShopTest(Base):
         self.assertEqual(self.run_path(f"acp/checkout_sessions/{sid}/complete", pay_body("o-bad")).status_code, 200)
 
     def test_load_gate_finds_this_folder(self):
-        g = kit.load_gate(HERE)
+        with unittest.mock.patch.object(acp_gate.OrderBuyers, "warm"):    # no real ledger thread in tests
+            g = kit.load_gate(HERE)
         self.assertTrue(callable(g))
         self.assertIsNone(kit.load_gate(self.tmp.name))           # a folder without acp_gate.py: no gate
 

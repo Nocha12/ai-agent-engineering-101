@@ -451,7 +451,8 @@ class AcpShop:
 
 
 def load_gate(d):
-    """The shop folder's optional acp_gate.py: refusal(order, session, log) -> message, or None to settle as usual."""
+    """The shop folder's optional acp_gate.py: start(log) returns gate(order, session) -> message to refuse the payment
+    with, or None to settle as usual."""
     f = Path(d) / "acp_gate.py"
     if not f.exists():
         return None
@@ -460,8 +461,9 @@ def load_gate(d):
         spec = importlib.util.spec_from_file_location("shop_acp_gate", f)
         m = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(m)
+        gate = m.start(log)
         log(f"[acp] checkout gate {f.name} loaded")
-        return lambda order, s: m.refusal(order, s, log=log)
+        return gate
     except Exception as e:
         log(f"[acp] {f.name} not loaded: {type(e).__name__}: {e}")
         return None

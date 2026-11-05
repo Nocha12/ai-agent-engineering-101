@@ -25,7 +25,7 @@ PAGE = 500              # rows /api/ledger returns per call
 BACK = 4000             # rows to read back on a cold start or after a long gap: ~15 min at ~4 rows/s; orders last 10 min
 MAX_ORDERS = 20000
 EVERY = 10              # seconds between background ledger reads
-WAIT = 5                # seconds a payment waits for a ledger read already running
+WAIT = 2                # seconds a payment may spend on the ledger: waiting for the lock, then one page
 
 
 def refused_buyers(path=None):
@@ -38,8 +38,8 @@ def refused_buyers(path=None):
     return [n for n in names if isinstance(n, str) and n] if isinstance(names, list) else []
 
 
-def _get(path):
-    with urllib.request.urlopen(MARKET.rstrip("/") + path, timeout=10) as r:
+def _get(path, timeout=10):
+    with urllib.request.urlopen(MARKET.rstrip("/") + path, timeout=timeout) as r:
         return json.loads(r.read())
 
 
@@ -53,33 +53,42 @@ class OrderBuyers:
         self.lock = threading.Lock()
 
     def _read(self):
+        """Background: from the last row seen up to the ledger's end (or BACK rows back on a cold start).
+        The lock is taken per page, so a payment never waits for more than one page."""
         hi = self.get("/api/ledger?after=-1")[-1]["seq"]
-        if self.seq is None or hi - self.seq > BACK:
-            self.seq = max(0, hi - BACK)          # after=-1 would mean "the last row only"
+        with self.lock:
+            if self.seq is None or hi - self.seq > BACK:
+                self.seq = max(0, hi - BACK)      # after=-1 would mean "the last row only"
         while self.seq < hi:
-            rows = self.get(f"/api/ledger?after={self.seq}")
-            if not rows:
+            with self.lock:
+                more = self._page(10)
+            if not more:
                 break
+
+    def _page(self, timeout):
+        """One page after the last row seen; True when there may be more."""
+        rows = self.get(f"/api/ledger?after={self.seq}", timeout=timeout)
+        if rows:
             for e in rows:
                 d = e.get("data") or {}
                 if e.get("kind") == "order" and d.get("order") and d.get("buyer"):
                     self.buyers[d["order"]] = d["buyer"]
             self.seq = rows[-1]["seq"]
-            if len(rows) < PAGE:
-                break
         while len(self.buyers) > MAX_ORDERS:
             self.buyers.pop(next(iter(self.buyers)))
+        return len(rows or ()) == PAGE
 
     def buyer(self, order):
         """The buyer of this order, or None when the ledger does not have it (or cannot be read in time).
         An order is issued minutes before its payment, so with warm() running it is almost always cached already."""
-        if order in self.buyers:
-            return self.buyers[order]
+        found = self.buyers.get(order)
+        if found is not None or self.seq is None:     # cold: the background read has not finished its first pass
+            return found
         if not self.lock.acquire(timeout=WAIT):  # a slow read elsewhere: do not hold the payment up
             return self.buyers.get(order)
-        try:
+        try:                                     # at most one short page here; the rest is the background's job
             if order not in self.buyers:
-                self._read()
+                self._page(WAIT)
             return self.buyers.get(order)
         finally:
             self.lock.release()
@@ -90,8 +99,7 @@ class OrderBuyers:
             while True:
                 try:
                     if on():
-                        with self.lock:
-                            self._read()
+                        self._read()
                 except Exception as e:
                     log(f"[acp] refuse_buyers: ledger read failed ({type(e).__name__}: {e})")
                 time.sleep(EVERY)
@@ -141,9 +149,10 @@ class Gate:
 _gate = None
 
 
-def refusal(order, session=None, log=print):
-    """Module-level entry for the kit: one Gate (and one ledger cache) per process."""
+def start(log=print):
+    """The kit's entry, called once when it loads this file: one Gate per process, its ledger read already running,
+    so a payment never waits for the first read."""
     global _gate
     if _gate is None:
         _gate = Gate(log=log, warm=True)
-    return _gate.refusal(order, session)
+    return _gate.refusal

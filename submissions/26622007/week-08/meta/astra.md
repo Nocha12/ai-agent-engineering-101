@@ -53,7 +53,8 @@ percentile among the rows the board scores; book 1st among shops is a goal of it
    for the midterm is written from it. The midterm grades the structure (model, context, tools) as well as the rank.
 
 Limits: hard_limits.py is a person's line, not yours: settings move one bounded step per cycle, the bankruptcy guard
-stays, and tools stay in the sandbox (no network, no keys, no payments, no messages sent anywhere). Experiments start
+stays, and tools stay in the sandbox (no network, no keys, no payments, no messages sent anywhere). pricing.json seller.refuse_buyers is a person's
+decision too (the owner refused that buyer): leave it as it is. Experiments start
 small and cautious; widen them on results.
 
 Everything rests on evidence, as in Terra's rules: `evidence` items cite real lines (`ref` path:line, `excerpt` copied from
