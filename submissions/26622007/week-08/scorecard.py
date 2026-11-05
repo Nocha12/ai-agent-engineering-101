@@ -310,12 +310,14 @@ def llm_table(md, last=2000):
 
 
 def llm_last_hour(md, now=None):
-    """OpenRouter calls and their cost over the last hour, all processes: shown for cost, not a limit (no hourly cap)."""
+    """Luna calls over the last hour, all processes, by backend (codex on the subscription reports no cost; lines from
+    before 11/05 have no backend and were OpenRouter): shown, not a limit (no hourly cap)."""
     now = time.time() if now is None else now
     calls = [c for c in jsonl(os.path.join(md, "llm_calls.jsonl"))[-20000:] if (c.get("ts") or 0) >= now - 3600]
     return {"calls": len(calls), "failed": sum(1 for c in calls if not c.get("ok")),
             "cost": round(sum(c.get("cost") or 0 for c in calls), 4),
-            "tags": collections.Counter(c.get("tag") for c in calls).most_common(4)}
+            "tags": collections.Counter(c.get("tag") for c in calls).most_common(4),
+            "backends": dict(collections.Counter(c.get("backend") or "openrouter" for c in calls))}
 
 
 def memory_timing(md, last=500):

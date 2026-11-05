@@ -1,7 +1,16 @@
 """Asks the harness for one decision and returns a JSON answer that matches a schema.
 
-The seller and the buyer both decide through ask(). Two backends:
+The seller and the buyer both decide through ask(). Three backends:
 
+- HARNESS=codex (the market account on the Mac mini, agent.json): gpt-6-luna through
+  `codex exec` on the ChatGPT subscription login, reasoning effort low, the schema
+  passed as --output-schema. Each call runs in a fresh empty directory with a
+  read-only sandbox, approvals never, the user config and rules ignored, the shell
+  and every other built-in tool turned off, and an environment holding no key (only
+  PATH, HOME, locale). At most CODEX_CONCURRENCY calls run at once over all processes
+  of a market dir (slot lock files); a call waits up to CODEX_QUEUE_WAIT s for a slot.
+  There is no call cap. A failure raises HarnessError, so each caller falls back to
+  its rules; it never falls over to OpenRouter.
 - HARNESS=claude (default, used by the trade test): Claude Code, `claude -p --model haiku`.
   Every call runs in a fresh empty directory so Claude Code does not pick up this
   repository's CLAUDE.md, and passes --json-schema so the answer comes back as
@@ -15,8 +24,12 @@ The seller and the buyer both decide through ask(). Two backends:
 
 Either way the answer is validated again here (fields, types, enums) before use.
 """
+import fcntl
 import json
 import os
+import re
+import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -39,6 +52,21 @@ TIMEOUT = 90
 RETRIES = 2
 _or_calls = []   # start times of OpenRouter calls in the last hour: per process, so each market_buyer run starts at 0
 CALLS = {"attempts": 0, "ok": 0, "cap": 0}   # this process's requests (measure.py orders.jsonl)
+
+CODEX_MODEL = os.environ.get("CODEX_MODEL", "gpt-6-luna")
+CODEX_REASONING = os.environ.get("CODEX_REASONING", "low")
+CODEX_TIMEOUT = int(os.environ.get("CODEX_TIMEOUT", "60"))
+CODEX_CONCURRENCY = int(os.environ.get("CODEX_CONCURRENCY", "6"))
+CODEX_QUEUE_WAIT = float(os.environ.get("CODEX_QUEUE_WAIT", "30"))
+CHATGPT_CODEX = "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"
+# Built-in tools a decision never needs; off so that text from other agents cannot make Luna run anything.
+CODEX_OFF = ("shell_tool", "unified_exec", "apps", "plugins", "multi_agent", "image_generation", "browser_use",
+             "computer_use", "goals", "view_image", "skill_search", "tool_suggest", "hooks", "in_app_browser")
+CODEX_ENV = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR", "CODEX_HOME")
+# The subscription saying no (usage limit, login gone, model refused): another try within seconds says it again.
+CODEX_FINAL = re.compile(r"usage[ _]limit|rate[ _-]?limit|quota|\b429\b|not supported|log ?in|unauthori[sz]ed|\b40[13]\b",
+                         re.I)
+_codex_path = []
 
 
 class HarnessError(RuntimeError):
@@ -73,6 +101,8 @@ def validate(answer, schema):
 
 def ask(prompt, schema, system, tag="harness"):
     """One decision. Returns the validated structured output as a dict."""
+    if BACKEND == "codex":
+        return _ask_codex(prompt, schema, system, tag)
     if BACKEND == "openrouter":
         return _ask_openrouter(prompt, schema, system, tag)
     if BACKEND != "claude":
@@ -90,7 +120,8 @@ def record_call(tag, prompt, system, seconds, ok, usage=None):
     usage = usage or {}
     try:
         with open(os.path.join(md, "llm_calls.jsonl"), "a", encoding="utf-8") as f:
-            f.write(json.dumps({"ts": int(time.time()), "tag": tag, "chars": len(prompt) + len(system), "seconds": round(seconds, 2), "ok": ok,
+            f.write(json.dumps({"ts": int(time.time()), "tag": tag, "backend": BACKEND, "chars": len(prompt) + len(system),
+                                "seconds": round(seconds, 2), "ok": ok,
                                 "prompt_tokens": usage.get("prompt_tokens"), "completion_tokens": usage.get("completion_tokens"),
                                 "cost": usage.get("cost")}) + "\n")
     except OSError:
@@ -168,6 +199,204 @@ def _ask_openrouter(prompt, schema, system, tag):
                      f"-> {json.dumps(answer, ensure_ascii=False)}")
             return answer
     raise HarnessError(f"no valid answer after {RETRIES} attempts: {last}")
+
+
+def _version(path):
+    try:
+        out = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=20).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    m = re.search(r"(\d+)\.(\d+)\.(\d+)", out)
+    return tuple(map(int, m.groups())) if m else None
+
+
+def find_codex():
+    """HARNESS_CODEX, else the newest of the codex on PATH and the ChatGPT.app one (as meta_harness.find_codex);
+    found once per process, and with a single candidate no version is asked."""
+    if not _codex_path:
+        found = [p for p in (shutil.which("codex"), CHATGPT_CODEX) if p and os.path.exists(p)]
+        if os.environ.get("HARNESS_CODEX"):
+            found = [os.environ["HARNESS_CODEX"]]
+        elif len(found) > 1:
+            found = [p for _, p in sorted(((_version(p), p) for p in found), key=lambda vp: vp[0] or ())[::-1]]
+        if not found:
+            raise HarnessError("HARNESS=codex: no codex on PATH or in ChatGPT.app")
+        _codex_path.append(found[0])
+    return _codex_path[0]
+
+
+def codex_cmd(codex, schema_file, out_file, workdir, system):
+    cmd = [codex, "exec", "-m", CODEX_MODEL, "-c", f'model_reasoning_effort="{CODEX_REASONING}"',
+           "-c", 'approval_policy="never"', "-c", 'web_search="disabled"',
+           # a JSON string is a TOML basic string, so the system prompt arrives as written
+           "-c", "developer_instructions=" + json.dumps(system, ensure_ascii=False)]
+    for feature in CODEX_OFF:
+        cmd += ["--disable", feature]
+    return cmd + ["-s", "read-only", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--ignore-rules",
+                  "-C", workdir, "--output-schema", schema_file, "-o", out_file, "--json", "-"]
+
+
+class _Slot:
+    """One of CODEX_CONCURRENCY lock files in MARKET_DIR, shared by every process of the kit; the lock goes with the
+    process, so a killed call frees its slot. Without MARKET_DIR (a test, a demo) there is no limit."""
+
+    def __init__(self, tag):
+        self.tag, self.fd = tag, None
+
+    def __enter__(self):
+        md = os.environ.get("MARKET_DIR")
+        if not md or CODEX_CONCURRENCY <= 0:
+            return self
+        d = os.path.join(md, "codex-slots")
+        os.makedirs(d, exist_ok=True)
+        deadline = time.time() + CODEX_QUEUE_WAIT
+        while True:
+            for i in range(CODEX_CONCURRENCY):
+                fd = os.open(os.path.join(d, f"{i}.lock"), os.O_RDWR | os.O_CREAT, 0o644)
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    self.fd = fd
+                    return self
+                except OSError:
+                    os.close(fd)
+            if time.time() >= deadline:
+                _codex_measure("llm_codex_fail", self.tag, "busy", 0)
+                raise HarnessError(f"codex busy: {CODEX_CONCURRENCY} calls running for {CODEX_QUEUE_WAIT:.0f} s")
+            time.sleep(0.2)
+
+    def __exit__(self, *exc):
+        if self.fd is not None:
+            os.close(self.fd)       # closing drops the flock
+
+
+def _codex_measure(name, tag, kind, seconds, detail=""):
+    if os.environ.get("MARKET_DIR"):
+        try:
+            import measure
+            measure.write(os.environ["MARKET_DIR"], name, {"tag": tag, "pid": os.getpid(), "kind": kind,
+                                                           "seconds": round(seconds, 2), "detail": detail[:200]})
+        except Exception:   # noqa: BLE001 - the caller expects the HarnessError, not a measurement error
+            pass
+
+
+CODEX_ACTIONS = ("command_execution", "file_change", "mcp_tool_call", "web_search")
+
+
+def _codex_events(stdout):
+    """(last agent message, usage, error messages, failed turn, actions taken) from the --json event lines. An action is
+    anything besides answering: with every tool off there should be none, so one means something was left on."""
+    text, usage, errors, failed, actions = None, {}, [], False, []
+    for line in stdout.splitlines():
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(ev, dict):
+            continue
+        item = ev.get("item") or {}
+        if item.get("type") in CODEX_ACTIONS:
+            actions.append(item["type"])
+        if ev.get("type") == "item.completed" and item.get("type") == "agent_message":
+            text = item.get("text")
+        elif ev.get("type") == "turn.completed":
+            u = ev.get("usage") or {}
+            usage = {"prompt_tokens": u.get("input_tokens"), "completion_tokens": u.get("output_tokens"),
+                     "cached_tokens": u.get("cached_input_tokens")}
+        elif ev.get("type") in ("error", "turn.failed"):
+            failed = failed or ev["type"] == "turn.failed"
+            errors.append(ev.get("message") or (ev.get("error") or {}).get("message") or "")
+    return text, usage, [e for e in errors if e], failed, actions
+
+
+def _run_group(cmd, prompt, cwd, env):
+    """subprocess.run in its own process group: on a timeout the whole group goes, since the npm `codex` is node
+    starting the native binary as a child, which killing node alone would leave running."""
+    with subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                          encoding="utf-8", errors="replace", cwd=cwd, env=env, start_new_session=True) as p:
+        try:
+            out, err = p.communicate(prompt, timeout=CODEX_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except OSError:
+                pass
+            p.communicate()
+            raise
+        return subprocess.CompletedProcess(cmd, p.returncode, out, err)
+
+
+def _ask_codex(prompt, schema, system, tag):
+    """Any error, a full disk or an unreadable slot folder included, reaches the caller as HarnessError: the callers catch
+    only that one to fall back to their rules."""
+    try:
+        return _codex_once(prompt, schema, system, tag)
+    except HarnessError:
+        raise
+    except Exception as e:   # noqa: BLE001 - see above
+        _codex_measure("llm_codex_fail", tag, "error", 0, f"{type(e).__name__}: {e}")
+        raise HarnessError(f"codex call failed: {type(e).__name__}: {e}") from e
+
+
+def _codex_once(prompt, schema, system, tag):
+    codex = find_codex()
+    env = {k: os.environ[k] for k in CODEX_ENV if k in os.environ}
+    last = None
+    first = time.time()
+    with _Slot(tag):
+        for attempt in range(1, RETRIES + 1):
+            if attempt > 1 and time.time() - first > CODEX_TIMEOUT / 2:
+                break           # a slow failure is not tried again: the counterpart is waiting
+            started = time.time()
+            with tempfile.TemporaryDirectory(prefix="harness-codex-") as empty:
+                work = os.path.join(empty, "work")
+                os.mkdir(work)
+                schema_file, out_file = os.path.join(empty, "schema.json"), os.path.join(empty, "answer.json")
+                with open(schema_file, "w", encoding="utf-8") as f:
+                    json.dump(schema, f)
+                try:
+                    proc = _run_group(codex_cmd(codex, schema_file, out_file, work, system), prompt, work, env)
+                except subprocess.TimeoutExpired:
+                    last = f"timeout after {CODEX_TIMEOUT}s"
+                    log(tag, f"attempt {attempt}: {last}")
+                    record_call(tag, prompt, system, time.time() - started, False)
+                    _codex_measure("llm_codex_fail", tag, "timeout", time.time() - started)
+                    break       # a second wait as long would leave the counterpart waiting twice
+                except OSError as e:
+                    raise HarnessError(f"codex did not start: {e}") from e
+                took = time.time() - started
+                text, usage, errors, failed, actions = _codex_events(proc.stdout)
+                if os.path.exists(out_file):
+                    with open(out_file, encoding="utf-8", errors="replace") as f:
+                        text = f.read() or text
+            if actions:
+                last = f"codex took actions {sorted(set(actions))} with every tool off"
+                log(tag, f"attempt {attempt}: {last}")
+                record_call(tag, prompt, system, took, False, usage)
+                _codex_measure("llm_codex_fail", tag, "action", took, last)
+                break           # a setting let a tool through: no answer from that run is used, and no second run
+            # an error event before a good answer (a reconnect) is no failure; a failed turn always is
+            if proc.returncode or failed or (errors and not text):
+                last = f"codex exit {proc.returncode}: {('; '.join(errors) or proc.stderr.strip())[-300:]}"
+                log(tag, f"attempt {attempt}: {last}")
+                record_call(tag, prompt, system, took, False, usage)
+                final = bool(CODEX_FINAL.search(" ".join(errors) or proc.stderr[-500:]))
+                _codex_measure("llm_codex_fail", tag, "refused" if final else "exit", took, last)
+                if final:
+                    break
+                continue
+            try:
+                answer = validate(json.loads(text or ""), schema)
+            except (ValueError, HarnessError) as e:
+                last = f"invalid answer: {e}"
+                log(tag, f"attempt {attempt}: {last}")
+                record_call(tag, prompt, system, took, False, usage)
+                _codex_measure("llm_codex_fail", tag, "invalid", took, last)
+                continue
+            record_call(tag, prompt, system, took, True, usage)
+            log(tag, f"codex {CODEX_MODEL} effort={CODEX_REASONING} output-schema {took:.1f}s "
+                     f"-> {json.dumps(answer, ensure_ascii=False)}")
+            return answer
+    raise HarnessError(f"no valid answer after {attempt} attempt(s): {last}")
 
 
 def _ask_claude(prompt, schema, system, tag):
