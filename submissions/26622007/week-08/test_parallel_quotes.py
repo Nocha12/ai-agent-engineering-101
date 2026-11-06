@@ -291,5 +291,51 @@ class EnoughQuotes(unittest.TestCase):
         self.assertEqual(best["name"], "z")          # one ask is not enough: the cheaper slow shop is waited for
 
 
+class NextBatchEarly(unittest.TestCase):
+    """Most of a batch has answered and no ask is within my limit: the next batch is asked now, not after the slowest shop
+    (11/06 23:29-00:55: 52 of 97 orders had no fit in the first 10, found 17 s on average into the quotes)."""
+
+    def run_batches(self, asks, slow, names="abcdzefghi", k=5):
+        s = [{"name": n, "url": f"https://{n}.example", "usable": [{"sku": "H1", "name": "x", "qty": 1, "list_price": 10000}]}
+             for n in names]
+        seen = []
+
+        def fake_quote(sh, label, key, order, out, ctl=None):
+            seen.append(sh["name"])
+            time.sleep(slow.get(sh["name"], 0))
+            out[sh["name"]] = {"ask": asks.get(sh["name"], 9000), "text": "", "refused": None}
+        with mock.patch.object(market_buyer, "quote", fake_quote), mock.patch.object(market_buyer, "log"), \
+                mock.patch.object(market_buyer, "cancel_quietly", lambda q, n: None), \
+                mock.patch.object(market_buyer, "STARTED", time.time()):
+            t0 = time.time()
+            best, got = market_buyer.best_quote(s[0], s[1:], {}, {}, 20000, lambda x: None, {"quote_shops": k}, wait=5)
+            return best, time.time() - t0, seen
+
+    def test_no_fit_from_most_of_the_batch_asks_the_next_without_the_slow_shop(self):
+        best, took, seen = self.run_batches({"e": 6500}, {"z": 3})
+        self.assertLess(took, 1.5)
+        self.assertEqual(best["name"], "e")
+        self.assertIn("e", seen)
+
+    def test_the_slow_shop_of_the_first_batch_still_counts_when_it_lands(self):
+        best, took, _ = self.run_batches({"z": 5000}, {"z": 0.3, **{n: 1 for n in "efghi"}})
+        self.assertEqual(best["name"], "z")
+        self.assertLess(took, 1.5)          # z fitted while the second batch was out: that ends the wait
+
+    def test_a_fast_last_batch_still_waits_for_the_slow_shop_of_the_first(self):
+        best, _, _ = self.run_batches({"z": 5000}, {"z": 0.5})
+        self.assertEqual(best["name"], "z")
+
+    def test_near_quote_until_the_batch_is_waited_for_as_before(self):
+        with mock.patch.object(market_buyer, "QUOTE_UNTIL", 1):
+            best, _, seen = self.run_batches({"z": 5000}, {"z": 0.5})
+        self.assertEqual(best["name"], "z")
+        self.assertNotIn("e", seen)
+
+    def test_with_no_batch_left_the_slow_shop_is_waited_for(self):
+        best, _, _ = self.run_batches({"z": 5000}, {"z": 0.5}, names="abcdz")
+        self.assertEqual(best["name"], "z")
+
+
 if __name__ == "__main__":
     unittest.main()

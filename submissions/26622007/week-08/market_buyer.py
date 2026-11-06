@@ -669,6 +669,8 @@ def quote(shop, label, key, order, out, ctl=None):
         log(f"[quote] {shop['name']}: {type(e).__name__}: {e}")
 
 
+QUOTE_NEXT_SHARE = 0.7  # share of a batch answered with no ask within my limit before the next batch is asked (11/07 01:00: 52 of
+#                         97 orders had none in the first 10, found 17 s on average into the quotes, the slowest shop setting it)
 QUOTE_ROUNDS = 3       # batches of quote_shops shops asked while none so far had a unit for me (another buyer holds it)
 QUOTE_UNTIL = 100      # seconds into the run by which a further batch must be done: the talk needs the rest of the 300 s
 QUOTE_LATE = 60        # seconds into the run after which no new shop is asked for a quote
@@ -877,10 +879,18 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
         threads += list(new.values())
         pool += batch
         end = time.time() + wait if not (r or late) else min(time.time() + wait, STARTED + QUOTE_UNTIL)
+        more = r + 1 < rounds and bool(rest) and not late
+        if not more:      # no batch after this one: the slow shops of the earlier batches are waited for too
+            threads = [asked[s["name"]] for s in pool]
         while time.time() < end and any(th.is_alive() for th in threads):
             # enough asks with one I can pay: the slowest shop of the batch no longer sets the pace (a late answer
             # cancels its own talk in quote(), since the choice is then made)
             if sum(surplus(s) is not None for s in pool) >= QUOTE_ENOUGH and any(surplus(s) is not None and fits(s) for s in pool):
+                break
+            # most of the batch answered and none within my limit: the next batch goes out now; the slow shops' asks still
+            # land in got and count while it is out
+            if more and time.time() - STARTED < QUOTE_UNTIL - QUOTE_WAIT and not any(surplus(s) is not None and fits(s) for s in pool) \
+                    and sum(not asked[s["name"]].is_alive() for s in batch) >= QUOTE_NEXT_SHARE * len(batch):
                 break
             time.sleep(0.05)
         # stop once an ask closes within my limit, not at the first number: 3판 GPT Pro §4.1, a batch whose asks were all
