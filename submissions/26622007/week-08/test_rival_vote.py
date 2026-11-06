@@ -102,6 +102,16 @@ class RivalVote(unittest.TestCase):
             self.assertEqual(rv.avoid(md), set())
             self.assertIsNone(rv.maybe_run(md, fetch=lambda: {"players": []}, now=10000))
 
+    def test_posts_seen_in_earlier_runs_count(self):
+        state = {}
+        rv.remember_authors(state, [{"id": 5, "author": "mjforge", "role": "buyer"},
+                                    {"id": 6, "author": "mjforge", "role": "shop"}])
+        posts = rv.seen_posts(state, [{"id": 7, "author": "mjforge", "role": "buyer"}])
+        self.assertEqual(sorted(p["id"] for p in posts if p["role"] == "buyer"), [5, 7])
+        authors = {"1": "mjforge"}
+        lines, _ = rv.plan(["mjforge"], posts, authors, [sent(1)], {}, 0, 1000)
+        self.assertEqual([x["vote"] for x in lines], [7, 5])
+
     def test_board_failure_is_quiet(self):
         with tempfile.TemporaryDirectory() as md:
             def boom():

@@ -130,14 +130,28 @@ def plan(targets, posts, authors, sent, state, fee, now, queued=()):
 
 def remember_authors(state, posts, keep=5000):
     """Post id -> author, kept across runs: forum.json holds only the newest 100 posts."""
-    authors = state.setdefault("authors", {})
+    authors, buyers = state.setdefault("authors", {}), state.setdefault("buyer_posts", {})
     for p in posts:
         if p.get("id") is not None and p.get("author"):
             authors[str(p["id"])] = p["author"]
-    if len(authors) > keep:
-        for k in sorted(authors, key=lambda k: int(k) if k.isdigit() else 0)[:len(authors) - keep]:
-            authors.pop(k)
+            if p.get("role") == "buyer":       # a vote on a shop post does not reach the buyer's rating
+                buyers[str(p["id"])] = p["author"]
+    for m in (authors, buyers):
+        if len(m) > keep:
+            for k in sorted(m, key=lambda k: int(k) if k.isdigit() else 0)[:len(m) - keep]:
+                m.pop(k)
     return authors
+
+
+def seen_posts(state, posts):
+    """forum.json's posts and the buyer posts seen in earlier runs: a rival writes a few an hour, forum.json keeps 100."""
+    out = {str(p.get("id")): p for p in posts if p.get("id") is not None}
+    authors = state.setdefault("authors", {})
+    for k, a in (state.get("buyer_posts") or {}).items():
+        if k not in out and k.isdigit():
+            out[k] = {"id": int(k), "author": a, "role": "buyer"}
+            authors.setdefault(k, a)       # a vote on it must count for that author (authors is trimmed separately)
+    return list(out.values())
 
 
 def recheck(state, authors, sent, queued):
@@ -169,7 +183,7 @@ def maybe_run(md, fetch=None, now=None):
             sent = jsonl(os.path.join(md, "outbox.sent.jsonl"))
             queued = jsonl(os.path.join(md, "outbox.jsonl"))      # forum.py's likes of this minute wait here
             recheck(state, authors, sent, queued)
-            lines, why = plan(targets, posts, authors, sent, state, fee, now, queued)
+            lines, why = plan(targets, seen_posts(state, posts), authors, sent, state, fee, now, queued)
             print(f"[rival_vote] rivals {targets}: {why}", file=sys.stderr, flush=True)
             if lines:
                 with open(os.path.join(md, "outbox.jsonl"), "a", encoding="utf-8") as f:
