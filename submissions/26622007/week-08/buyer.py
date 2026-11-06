@@ -172,6 +172,7 @@ def talk(url, t, item, budget, note, out, stop_if=None, take_at=None, reply_to=N
     """reply_to(shop text) -> an answer to a question with no price in it ("use within 360h"), or None."""
     task_id, history = t["id"], out["history"]
     out["task"] = task_id
+    kinds = out["turns"] = {}      # which branch priced each turn: take, fast, code (oneshot) or harness
     turn, holds, answered = 0, 0, set()
     for turn in range(1, MAX_TURNS + 1):
         st = state(t)
@@ -187,6 +188,7 @@ def talk(url, t, item, budget, note, out, stop_if=None, take_at=None, reply_to=N
         if take_at is not None and meta is not None and 0 < meta <= min(take_at, budget) and meta not in taken[-1:]:
             # the same ask again after I offered it: the shop did not take the bare number, so the harness answers
             log(f"TAKE the ask {meta} is within {min(take_at, budget)} -> offering it")
+            kinds["take"] = kinds.get("take", 0) + 1
             history += [("shop asked", meta), ("you offered", meta)]
             out["agreed"], out["took"] = meta, True
             nt = send(url, str(meta), task_id)
@@ -203,6 +205,8 @@ def talk(url, t, item, budget, note, out, stop_if=None, take_at=None, reply_to=N
             log(f"CODE the ask {code['shop_price']} ({'metadata' if meta is not None else 'shop template'}) -> "
                 f"{code['action']} {code['price'] or ''}, no harness call")
         try:
+            kind = "fast" if fast else "code" if code else "harness"
+            kinds[kind] = kinds.get(kind, 0) + 1
             d = fast or code or decide(item, budget, history, text, meta, turn, note)
         except HarnessError as e:
             log(f"harness failed: {e}; walking away")

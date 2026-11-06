@@ -167,6 +167,24 @@ class InTalk(unittest.TestCase):
         self.assertLessEqual(max(p for who, p in out["history"] if who == "you offered"), 10000)
 
 
+class TurnCounts(unittest.TestCase):
+    """Which branch priced each turn (Pro 03:01: talk_mode only says the switch was on): code, fast, take or harness."""
+
+    def test_code_and_harness_turns_are_counted(self):
+        replies = iter([task("TASK_STATE_INPUT_REQUIRED", text="Fine, 9600 and it is yours."),
+                        task("TASK_STATE_COMPLETED", receipt={"price": 9600, "item": "G1"})])
+        lad = lambda meta, text, history: oneshot.turn(meta, text, history, 10000, (0.9,))
+        with mock.patch.object(buyer, "send", lambda *a, **k: next(replies)), \
+                mock.patch.object(buyer, "decide", lambda *a, **k: {"shop_price": 9600, "action": "offer", "price": 9600}):
+            out = buyer.talk("u", task("TASK_STATE_INPUT_REQUIRED", 10000), "x", 10000, "", fresh(), ladder=lad)
+        self.assertEqual(out["turns"], {"code": 1, "harness": 1})
+
+    def test_a_talk_with_no_turn_counts_nothing(self):
+        with mock.patch.object(buyer, "send", lambda *a, **k: None):
+            out = buyer.talk("u", task("TASK_STATE_CANCELED"), "x", 10000, "", fresh())
+        self.assertEqual(out["turns"], {})
+
+
 class TextPrice(unittest.TestCase):
     H = [("shop asked", 20000), ("you offered", 16000)]
 
