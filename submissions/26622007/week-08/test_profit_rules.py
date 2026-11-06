@@ -74,6 +74,32 @@ class EligibleFirstTest(unittest.TestCase):
         self.assertIsNone(u)
         self.assertIn("72 h asked", why)
 
+    def test_goods_offer_the_lowest_floor_unit_not_the_oldest(self):
+        units = [unit("old-dear", kind="goods", cost=7400, supplied_ago=4 * 3600),
+                 unit("new-cheap", kind="goods", cost=5900, supplied_ago=1800)]
+        b = StockBook(lambda: {"round": 3, "units": units})
+        self.assertEqual(b.find("I want to buy (G1)")["unit"], "old-dear")                     # no rank: the oldest
+        u, _ = b.pick("I want to buy (G1)", rank=lambda x: x["cost"])
+        self.assertEqual(u["unit"], "new-cheap")
+        u, _ = b.pick("I want to buy (G1)", rank=lambda x: 1 / 0)                          # a broken rank: the oldest
+        self.assertEqual(u["unit"], "old-dear")
+
+    def test_food_still_goes_by_expiry_with_a_rank(self):
+        b = StockBook(lambda: {"round": 3, "units": [unit("short", hours=100, cost=9000), unit("long", hours=500, cost=1000)]})
+        u, _ = b.pick("I want to buy (G1)", rank=lambda x: x["cost"])
+        self.assertEqual(u["unit"], "short")
+
+    def test_seller_floor_rank_puts_the_cheaper_unit_first_and_counts_the_grade(self):
+        import seller
+        pricing = {"price": {"goods_break": 0.08, "grade_break": {"A": 0.03, "B": 0.122, "C": 0.344}}}
+        with mock.patch.object(seller, "break_chance", lambda sku, grade=None: None):
+            a_dear = seller.floor_rank(unit("a1", kind="goods", cost=2828629, list_price=3816000), pricing)
+            a_cheap = seller.floor_rank(unit("a2", kind="goods", cost=2450000, list_price=3816000), pricing)
+            c_cheap = seller.floor_rank(unit("c1", kind="goods", grade="C", cost=2450000, list_price=3816000), pricing)
+        self.assertEqual(a_dear, 3206719)                       # the floor the 21:11 log line shows for u-adbd67d153e8
+        self.assertLess(a_cheap, a_dear)
+        self.assertGreater(c_cheap, a_cheap)                    # C breaks 34%: its floor is higher at the same cost
+
     def test_grade_and_named_sku(self):
         b = StockBook(lambda: {"round": 3, "units": [unit("c", grade="C"), unit("a", sku="G2", grade="A")]})
         self.assertIsNone(b.find("I want to buy (G1), grade A or B"))

@@ -142,6 +142,15 @@ def markdown(u, cfg=None, ends_at=None, now=None):
     return max(least, round(cost * keep)), keep, why
 
 
+def _rank(rank, u):
+    """rank(u) as a number for sorting; a unit it cannot rank goes last among its SKU."""
+    try:
+        r = rank(u)
+    except Exception:       # a broken rank must not lose the sale: fall back to the oldest unit
+        return float("inf")
+    return r if isinstance(r, (int, float)) and not isinstance(r, bool) and math.isfinite(r) else float("inf")
+
+
 class StockBook:
     """A unit is free, promised to a talk (held, renewed by each message), agreed and waiting for its payment (held for
     PAY_SECONDS), or sold. Payment shows as the unit leaving inventory.json (the kit's checkout) or mark_sold (ours):
@@ -233,9 +242,12 @@ class StockBook:
                 self._drop(unit)
         return [u for u in inv if not expired(u, now) and u["unit"] not in self.held and u["unit"] not in self.sold]
 
-    def pick(self, text, now=None):
+    def pick(self, text, now=None, rank=None):
         """(unit, None) for what the buyer asked (SKU first, then name, then category): among the units that fit the buyer's
-        needs (needs()/unfit()), the one that expires first. (None, why) when none does."""
+        needs (needs()/unfit()), the one that expires first. Among units that never expire (goods), rank(u) (the seller
+        passes the unit's floor) comes before the oldest: 11/06 21:2x the oldest G24f5f979 cost 0.74 of list after a
+        surge, so every quote opened at its floor 0.84 while the market sold the SKU at 0.70 and four units of ours with
+        floors near 0.68 were never offered. (None, why) when none does."""
         want, need = text.lower(), needs(text)
         units = self.units()
         for matches in (lambda u: u["sku"].lower() in want,
@@ -246,7 +258,9 @@ class StockBook:
                 continue
             ok = [u for u in fit if unfit(u, need, now) is None]
             if ok:
-                return min(ok, key=lambda u: (u.get("expires_at") or float("inf"), u.get("supplied_at") or 0)), None
+                return min(ok, key=lambda u: (u.get("expires_at") or float("inf"),
+                                              0 if rank is None or u.get("expires_at") else _rank(rank, u),
+                                              u.get("supplied_at") or 0)), None
             return None, unfit(fit[0], need, now)
         return None, "not in stock"
 

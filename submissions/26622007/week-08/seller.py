@@ -284,6 +284,15 @@ def break_chance(sku, grade=None):
 MEMORY_WRITER = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="seller-memory")
 
 
+def floor_rank(u, pricing):
+    """The floor F a goods unit would open with, for shop_stock.pick to offer the cheapest-to-sell unit of a SKU first.
+    b as in quote(): the SKU x grade rate (break_chance, cached 10 min) or the grade's prior."""
+    cfg = profit_price.cfg_of(pricing)
+    measured = break_chance(u["sku"], u.get("grade")) if u.get("kind") == "goods" else None
+    b = profit_price.break_for(u.get("kind"), measured, cfg, u.get("grade"))
+    return profit_price.floor(u["cost"], u.get("list_price"), u.get("kind"), b, cfg)
+
+
 def flush_memory():
     """Waits for the memory writes queued so far (tests, and anything that reads the file right after a talk)."""
     MEMORY_WRITER.submit(lambda: None).result()
@@ -316,14 +325,14 @@ class Seller(AgentExecutor):
         """Round 3, the first message: which unit, and the opening price. No harness call: nothing here needs one.
         Only a unit that fits the buyer's needs is offered (shop_stock.unfit); the price is profit_price's: the reserve is
         the floor F, the first ask P0. Goods that break too often for the warranty are not sold."""
-        u, miss = self.stock.pick(text)
+        pricing = shop_memory.load_pricing()
+        u, miss = self.stock.pick(text, rank=lambda x: floor_rank(x, pricing))
         if u is None:
             await up.reject(say("Sorry, we have none of that in stock." if miss == "not in stock" else
                                 f"Sorry, none of our units fits your order: {miss}."))
             log(f"task {task.id[:8]} -> REJECTED ({miss})")
             return
         cost, key = math.ceil(u["cost"]), last_segment(u.get("category")) or u["sku"]
-        pricing = shop_memory.load_pricing()
         q = profit_price.quote(u, sku_median(u["sku"], u.get("list_price")),
                                break_chance(u["sku"], u.get("grade")) if u.get("kind") == "goods" else None,
                                shop_memory.paid_prices(u["sku"]), {**pricing, "warranty": self.warranty_cfg()})
