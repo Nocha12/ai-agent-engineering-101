@@ -118,7 +118,7 @@ class MainOverlap(unittest.TestCase):
     CATALOG = {"H1": {"list_price": 10000, "kind": "goods"}}
     ORDER = {"order": "o-1", "item": "청소기", "budget": 20000, "acceptable": ["H1"], "kind": "goods", "category": "가전>청소기"}
 
-    def run_main(self, shops, hopeless=False, choose_s=0.5, quote_s=0.5, choose_fails=False, asks=None):
+    def run_main(self, shops, hopeless=False, choose_s=0.5, quote_s=0.5, choose_fails=False, asks=None, slower=None):
         printed, events, cancelled = [], [], []
         self.cancelled = cancelled
         lock = threading.Lock()
@@ -129,7 +129,7 @@ class MainOverlap(unittest.TestCase):
 
         def fake_quote(s, label, key, order, out, ctl=None):
             note(f"quote {s['name']}")
-            time.sleep(quote_s)
+            time.sleep(quote_s + (slower or {}).get(s["name"], 0))
             q = {"ask": (asks or {}).get(s["name"], 7000 if s["name"] == "c" else 9000), "text": "", "url": s["url"],
                  "task": open_task(s["name"]), "refused": None}
             with ctl["lock"]:            # as quote() does: publish closed when the choice was made first
@@ -194,8 +194,20 @@ class MainOverlap(unittest.TestCase):
         self.assertLess(t["choose start"], min(ts for w, ts in events if w.startswith("quote ")) + 0.3)
         self.assertLess(took, 2.5)                                    # side by side (about 1.0 s), not one after the other
         self.assertEqual(out["shop"], "https://c.example")            # the best ask still wins
-        # 4 prefetched asks that fit are enough (QUOTE_ENOUGH): the chosen shop's own later quote is not waited for
-        self.assertGreaterEqual(len(orders[-1]["quotes"]), 4)
+        # QUOTE_ENOUGH asks with one that fits end the wait: the chosen shop's own later quote is not waited for. How many
+        # of the four prefetched (all at 0.5 s) are in by then is the scheduler's call (">= 4" failed 1 run in 9, 11/07)
+        quoted = [q["shop"] for q in orders[-1]["quotes"] if q.get("ask") is not None]
+        self.assertGreaterEqual(len(quoted), market_buyer.QUOTE_ENOUGH)
+        self.assertIn("c", quoted)
+
+    def test_a_prefetched_shop_a_moment_late_is_not_waited_for(self):
+        # the flaky case made certain: d answers 0.3 s after a, b, c, which already hold an ask that fits
+        shops = [dict(shop(n), offers=[{"sku": "H1", "name": "청소기", "qty": 1}]) for n in "abcdef"]
+        out, events, took, orders = self.run_main(shops, slower={"d": 0.3})
+        quoted = [q["shop"] for q in orders[-1]["quotes"] if q.get("ask") is not None]
+        self.assertEqual(sorted(quoted), ["a", "b", "c"])
+        self.assertEqual(out["shop"], "https://c.example")
+        self.assertLess(took, 0.75)
 
     def test_clear_quotes_do_not_wait_for_a_slow_agent(self):
         shops = [dict(shop(n), offers=[{"sku": "H1", "name": "청소기", "qty": 1}]) for n in "abcdef"]
