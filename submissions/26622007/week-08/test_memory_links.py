@@ -230,6 +230,28 @@ class BriefingTest(unittest.TestCase):
         self.assertIn("My price: 9", seller.fallback_reply(deal))       # the talk stays open
         self.assertIsNone(seller.fallback_reply(dict(deal, rounds=seller.MAX_ROUNDS)))
 
+    def test_first_message_calls_have_a_limit_and_fall_back_to_rules(self):
+        cat = mock.Mock()
+        cat.exact.return_value = None
+        cat.categories = ["seating"]
+        sofa = {"id": "S1", "name": "leather sofa", "category": "seating", "description": "three seats", "reserve": 50}
+        cat.search.return_value = [sofa]
+        limits = []
+
+        def failing(p, *a, timeout=None, **k):
+            limits.append(timeout)
+            raise seller.HarnessError("timed out")
+        shop = seller.Seller.__new__(seller.Seller)
+        shop.catalog = cat
+        with mock.patch.object(seller, "ask", failing):
+            item, d = shop.choose("I want to buy a sofa")
+            self.assertEqual((item["id"], d["ask"]), ("S1", 50))         # keyword search, rule pick at the reserve
+            self.assertEqual(shop.choose("I want to buy a lamp"), (None, None))   # no shared word: no guess
+            cat.exact.return_value = sofa
+            self.assertEqual(shop.choose("leather sofa")[1]["ask"], 50)         # exact name, rule opening
+        self.assertTrue(limits and all(t == seller.FIRST_SECONDS for t in limits))
+        self.assertLess(seller.FIRST_SECONDS, 60)
+
     def test_it_reaches_the_turn_prompt_only_from_round_3(self):
         deal = {"id": "H1", "name": "컵", "reserve": 5, "ask": 9, "rounds": 1, "history": []}
         seen = []

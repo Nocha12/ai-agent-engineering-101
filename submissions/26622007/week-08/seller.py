@@ -49,7 +49,7 @@ from a2a.types import AgentCapabilities, AgentCard, AgentInterface, AgentSkill
 from cryptography.hazmat.primitives import serialization
 
 from acp_shop import AcpCheckout
-from catalog import NUMERIC, Catalog
+from catalog import NUMERIC, STOP, Catalog, words
 from harness import HarnessError, ask
 import acp_gate
 import agent_memory
@@ -64,6 +64,9 @@ MAX_ROUNDS = 10   # hard stop in code; the harness normally ends the talk earlie
 # a turn's harness attempt and its slot wait each at most this long (CODEX_TIMEOUT 60 s otherwise): turns took a median 4 s and a p90 4-6 s
 # (llm_calls.jsonl 11/05-06); from 17:25 on 11/06 p90 31-60 s while the buyer waited
 TURN_SECONDS = 25
+# the first message's harness calls (search, pick, opening) under the same limit each; a failed one falls back to a rule
+# (choose) instead of 'cannot answer', since a buyer comparing quotes leaves within seconds
+FIRST_SECONDS = 15
 CANDIDATES = 15
 MAX_TEXT = 500    # characters of a buyer message that reach the prompts
 # Round 3 goods: a buyer's kit may refuse to pay without a warranty (accept.warranty_hours), so the shop offers one when
@@ -180,7 +183,7 @@ def sku_median(sku, list_price):
 def decide_open(item):
     prompt = (f"A buyer wants: {item['name']} ({item['description']}). Your reserve is {item['reserve']}.\n"
               + memory_line(item["name"]) + "Choose your opening asking price.")
-    return ask(prompt, OPEN_SCHEMA, SYSTEM, tag="seller-harness")
+    return ask(prompt, OPEN_SCHEMA, SYSTEM, tag="seller-harness", timeout=FIRST_SECONDS)
 
 
 def decide_search(catalog, request):
@@ -188,7 +191,7 @@ def decide_search(catalog, request):
               f"Catalog categories: {', '.join(catalog.categories)}.\n"
               f"Numeric fields you can filter on: {', '.join(f for f in NUMERIC if f != 'reserve')}.\n"
               f"Give keywords (materials, use, style), the best category or \"\", and filters.")
-    return ask(prompt, search_schema(catalog.categories), SEARCH_SYSTEM, tag="seller-search")
+    return ask(prompt, search_schema(catalog.categories), SEARCH_SYSTEM, tag="seller-search", timeout=FIRST_SECONDS)
 
 
 def decide_pick(request, candidates):
@@ -197,7 +200,21 @@ def decide_pick(request, candidates):
               f"Candidates from your catalog:\n{lines}\n"
               f"Pick the item that fits the request best (item_id), or \"none\" if nothing fits, "
               f"and choose your opening asking price for it.")
-    return ask(prompt, pick_schema([c["id"] for c in candidates]), SYSTEM, tag="seller-pick")
+    return ask(prompt, pick_schema([c["id"] for c in candidates]), SYSTEM, tag="seller-pick", timeout=FIRST_SECONDS)
+
+
+def rule_open(item):
+    """The opening when the harness failed: the reserve, which shop_memory.choose_opening replaces with its own price."""
+    return {"ask": item["reserve"], "message": "Here is our offer."}
+
+
+def rule_pick(request, candidates):
+    """The pick when the harness failed: the best keyword match, only if it shares a word with the request."""
+    asked = {w for w in words(request) if w not in STOP}
+    for c in candidates[:1]:
+        if asked & set(words(f"{c['name']} {c.get('category', '')} {c.get('description', '')}")):
+            return {"item_id": c["id"], **rule_open(c)}
+    return {"item_id": "none", "ask": 0, "message": ""}
 
 
 def decide_turn(deal, text):
@@ -377,8 +394,16 @@ class Seller(AgentExecutor):
         item = self.catalog.exact(text)
         if item is not None:
             log(f"exact name match -> {item['id']} (reserve {item['reserve']})")
-            return item, decide_open(item)
-        q = decide_search(self.catalog, text)
+            try:
+                return item, decide_open(item)
+            except HarnessError as e:
+                log(f"harness failed on the opening ({e}); rule opening")
+                return item, rule_open(item)
+        try:
+            q = decide_search(self.catalog, text)
+        except HarnessError as e:
+            log(f"harness failed on the search ({e}); keyword search")
+            q = {"keywords": text, "category": "", "filters": []}
         found = self.catalog.search(q["keywords"], q["category"], q["filters"], CANDIDATES)
         if not found and q["filters"]:
             log("no candidates with filters; retrying without them")
@@ -386,7 +411,11 @@ class Seller(AgentExecutor):
         log(f"search {q} -> {len(found)} candidates: {[c['id'] for c in found]}")
         if not found:
             return None, None
-        d = decide_pick(text, found)
+        try:
+            d = decide_pick(text, found)
+        except HarnessError as e:
+            d = rule_pick(text, found)
+            log(f"harness failed on the pick ({e}); rule pick {d['item_id']}")
         if d["item_id"] == "none":
             return None, None
         item = next((c for c in found if c["id"] == d["item_id"]), None)
