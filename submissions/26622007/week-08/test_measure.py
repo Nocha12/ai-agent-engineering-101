@@ -172,5 +172,40 @@ class CapTest(unittest.TestCase):
         self.assertEqual(lines(md, "llm_cap"), [])
 
 
+class TryTimeoutTest(unittest.TestCase):
+    """The buyer's offers get TRY_SECONDS per OpenRouter try and TRY_RETRIES tries: a slow answer (30-60 s for 30 of 258
+    offers, 11/06 17:50-19:50) is asked again instead of holding the order; other tags keep one try with the whole budget."""
+
+    def run_tag(self, tag, answers):
+        md = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, md)
+        client = mock.MagicMock()
+        post = client.__enter__.return_value.post
+        post.side_effect = answers
+        with mock.patch.dict(os.environ, {"MARKET_DIR": md, "OPENROUTER_API_KEY": "x"}), \
+                mock.patch.object(harness, "OR_MAX_CALLS_PER_HOUR", 0), mock.patch.object(harness.httpx, "Client", return_value=client):
+            try:
+                out = harness._ask_openrouter("p", {}, "s", tag)
+            except harness.HarnessError:
+                out = None
+        return out, [c.kwargs["timeout"] for c in post.call_args_list]
+
+    def test_buyer_offers_retry_a_slow_try(self):
+        ok = mock.Mock(status_code=200)
+        ok.json.return_value = {"choices": [{"message": {"content": "{}"}}]}
+        slow = harness.httpx.ReadTimeout("slow")
+        out, timeouts = self.run_tag("buyer-harness", [slow, slow, ok])
+        self.assertEqual(out, {})
+        self.assertEqual(len(timeouts), 3)
+        self.assertTrue(all(t <= harness.TRY_SECONDS["buyer-harness"] for t in timeouts), timeouts)
+
+    def test_other_tags_keep_one_long_try(self):
+        slow = harness.httpx.ReadTimeout("slow")
+        out, timeouts = self.run_tag("seller-harness", [slow, slow, slow])
+        self.assertIsNone(out)
+        self.assertGreater(timeouts[0], harness.TRY_SECONDS["buyer-harness"])
+        self.assertLessEqual(len(timeouts), harness.RETRIES)
+
+
 if __name__ == "__main__":
     unittest.main()

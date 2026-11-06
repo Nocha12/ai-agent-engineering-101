@@ -54,6 +54,11 @@ TIMEOUT = 90
 # One OpenRouter decision's whole budget (both tries and the back-off), like CODEX_TIMEOUT; a caller's timeout wins.
 OR_TIMEOUT = int(os.environ.get("OR_TIMEOUT", "60"))
 RETRIES = 2
+# A tag here gets this many seconds per OpenRouter try and TRY_RETRIES tries in its OR_TIMEOUT, instead of one try that
+# may use it all. The buyer's offers took a median 4.2 s, but 30 of 258 took 30-60 s (11/06 17:50-19:50), and those
+# held a whole order for the one slow answer (talk p90 190 s); a fresh try answers in about 4 s.
+TRY_SECONDS = {"buyer-harness": 12}
+TRY_RETRIES = 3
 _or_calls = []   # start times of OpenRouter calls in the last hour: per process, so each market_buyer run starts at 0
 CALLS = {"attempts": 0, "ok": 0, "cap": 0}   # this process's requests (measure.py orders.jsonl)
 
@@ -204,15 +209,18 @@ def _ask_openrouter(prompt, schema, system, tag, timeout=None):
     }
     last = None
     limit = timeout or OR_TIMEOUT
+    per_try = TRY_SECONDS.get(tag)
+    tries = TRY_RETRIES if per_try else RETRIES
     first = time.time()
     with httpx.Client(timeout=limit, event_hooks={"request": [_log_wire(tag)]}) as http:
-        for attempt in range(1, RETRIES + 1):
+        for attempt in range(1, tries + 1):
             left = limit - (time.time() - first)
-            if attempt > 1 and left < limit / 2:
+            if attempt > 1 and left < (per_try / 2 if per_try else limit / 2):
                 break          # a retry would not fit in what is left of the caller's deadline
             started = time.time()
             try:
-                r = http.post(OR_URL, json=body, headers={"Authorization": f"Bearer {key}"}, timeout=left)
+                r = http.post(OR_URL, json=body, headers={"Authorization": f"Bearer {key}"},
+                              timeout=min(left, per_try) if per_try else left)
             except httpx.HTTPError as e:
                 last = f"{type(e).__name__}: {e}"
                 log(tag, f"attempt {attempt}: {last}")
@@ -224,7 +232,7 @@ def _ask_openrouter(prompt, schema, system, tag, timeout=None):
                 record_call(tag, prompt, system, time.time() - started, False)
                 if r.status_code < 500 and r.status_code != 429:
                     break          # a 4xx (unsupported parameter, bad key) will not fix itself
-                if attempt < RETRIES:
+                if attempt < tries:
                     time.sleep(min(3 * attempt, max(0, limit - (time.time() - first)) / 4))
                 continue
             try:
@@ -239,7 +247,7 @@ def _ask_openrouter(prompt, schema, system, tag, timeout=None):
             log(tag, f"openrouter {OR_MODEL} response_format=json_schema(strict) {time.time() - started:.1f}s "
                      f"-> {json.dumps(answer, ensure_ascii=False)}")
             return answer
-    raise HarnessError(f"no valid answer after {RETRIES} attempts: {last}")
+    raise HarnessError(f"no valid answer after {tries} attempts: {last}")
 
 
 def _version(path):
