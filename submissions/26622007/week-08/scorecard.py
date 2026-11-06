@@ -25,7 +25,7 @@ COUNTERS = {"settled_as_shop": "[acp] settled", "paid_as_buyer": "[acp] paid", "
             "forum_post_refused": "[forum] post as buyer: 4", "forum_vote_refused": "[forum] vote as buyer: 4",
             "sold": "-> COMPLETED", "talks_rejected": "-> REJECTED"}
 SOURCES = ("logs", "memory", ".market", "meta")
-# The midterm's Round 3 rank (week 9, FIG. 07): each part a percentile among shops or buyers, Players = shop ALL + buyer ALL.
+# Round 3: parts are percentiles except buyer forum, which is its raw rating; Players = shop ALL + buyer ALL.
 # Fitted to the board (review/W-20261104-2030, GPT Pro 3판 §2.1): every row of 268 Round 3 snapshots (13,185 shop rows,
 # 12,061 buyer rows) within the board's rounding (0.0005). The rows ranked are those the board scores (all is not None:
 # shops with a supply or a deal, house shops included; buyers with a deal), a tie takes the mean rank, a missing value is 0,
@@ -34,7 +34,7 @@ SOURCES = ("logs", "memory", ".market", "meta")
 # 3 decimals, every row of the 42 boards up to 03:42:05 matches profit (GPT Pro 4판, checked again on the collector's
 # boards). profit stays the fallback for reading a board without book; patch_notes.compare never accepts it as the
 # published part.
-# Patch 3.4 ranks buyers by saved rate, not absolute surplus.
+# Patch 3.4 ranks buyers by saved rate; Patch 3.5 uses the forum rating itself.
 OBJECTIVE = {"shops": [(("book", "profit"), 0.5), (("revenue",), 0.3), (("stars_rank", "stars"), 0.2)],
              "buyers": [(("saved",), 0.5), (("forum", "forum_score", "votes", "score"), 0.3), (("deals",), 0.1),
                         (("posts",), 0.1)]}
@@ -75,9 +75,10 @@ def objective(b):
         got = {}
         for names, w in parts:
             field = next((n for n in names if n in mine), names[0])
-            p = percentile(rows, field, mine)
-            got[field] = {"weight": w, "percentile": None if p is None else round(p, 4), "value": mine.get(field),
-                          "next": next_step(rows, field, mine, w, p), "_p": p}
+            raw_forum = k == "buyers" and "forum" in names
+            p = number(mine, field) if raw_forum else percentile(rows, field, mine)
+            got[field] = {"weight": w, "percentile": None if p is None else round(p, 4), "basis": "rating" if raw_forum else "percentile", "value": mine.get(field),
+                          "next": next_step(rows, field, mine, w, p, raw=raw_forum), "_p": p}
         total = sum(x["weight"] * x["_p"] for x in got.values() if x["_p"] is not None)
         for x in got.values():
             x.pop("_p")
@@ -105,9 +106,9 @@ def objective(b):
     return out
 
 
-def next_step(rows, field, mine, weight, p):
+def next_step(rows, field, mine, weight, p, raw=False):
     """The lowest value above mine among the other rows (the next rival on this part), how much I need to pass it, and
-    what passing it alone adds to Players at today's board (weight x the percentile gained). None when I lead the part."""
+    what reaching it adds to Players: weighted rating gain for forum, percentile gain otherwise. None when I lead."""
     if p is None:
         return None
     x = number(mine, field)
@@ -116,7 +117,7 @@ def next_step(rows, field, mine, weight, p):
     if not above:
         return None
     rival = min(above)
-    passed = sum(v <= rival for v in others) / len(others)      # mine just above the rival, tied with nobody
+    passed = rival if raw else sum(v <= rival for v in others) / len(others)      # mine just above the rival, tied with nobody
     return {"rival_value": rival, "need": round(rival - x, 6), "delta_players": round(weight * (passed - p), 5)}
 
 
