@@ -27,6 +27,9 @@
     "cut_far": 0.05
   },
   "objective": "profit",
+  "negotiate": {
+    "engine": "llm"
+  },
   "concession": [
     0.3,
     0.2,

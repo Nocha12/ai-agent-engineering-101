@@ -24,6 +24,7 @@ import argparse
 import asyncio
 import base64
 import concurrent.futures
+import functools
 import hmac
 import json
 import math
@@ -53,6 +54,7 @@ from catalog import NUMERIC, STOP, Catalog, words
 from harness import HarnessError, ask
 import acp_gate
 import fast_classify
+import negotiate
 import agent_memory
 import hard_limits
 import market_model
@@ -503,9 +505,11 @@ class Seller(AgentExecutor):
             plain = say
             say = lambda text, ask=None: plain(f"{note} {text}", ask)
         # in a thread: the Jev call takes about 0.4 s and must not hold the other talks
-        fast = await asyncio.to_thread(fast_classify.seller_turn, text, deal,
-                                       shop_memory.concession_floor(deal.get("open", deal["ask"]), deal["reserve"], deal["rounds"]),
-                                       fast_classify.jev_offer if fast_classify.JEV_ON else None)
+        turn_floor = shop_memory.concession_floor(deal.get("open", deal["ask"]), deal["reserve"], deal["rounds"])
+        jev = functools.lru_cache(maxsize=1)(fast_classify.jev_offer) if fast_classify.JEV_ON else None   # one call a turn
+        fast = await asyncio.to_thread(fast_classify.seller_turn, text, deal, turn_floor, jev)
+        if not fast and negotiate.engine_on():   # Jev reads, a rule counters (negotiate.py)
+            fast = await asyncio.to_thread(negotiate.seller_turn, text, deal, turn_floor, jev)
         if fast:
             log(f"task {task.id[:8]} FAST {fast['why']}: no harness call")
         try:
