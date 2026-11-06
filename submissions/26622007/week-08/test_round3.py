@@ -489,8 +489,14 @@ class BuyerTest(unittest.TestCase):
                   "It comes with a 3-hour warranty."):
             self.assertTrue(market_buyer.warranty_refused(t, g), t)
         for t in ("grade A, 72-hour full-refund warranty", "Warranty: 6 hours, full refund", "six-hour warranty included",
-                  "warranty of 72 h", "Require 6-hour warranty"):
+                  "warranty of 72 h", "Require 6-hour warranty", "twenty-four-hour warranty", "seventy-two hour warranty",
+                  "Ships in 2 hours with full warranty", "2-hour pickup and warranty", "no warranty claims so far",
+                  "we have no warranty issues; 72 h warranty", "full refund within 3 hours of delivery, 6 h warranty"):
             self.assertIsNone(market_buyer.warranty_refused(t, g), t)
+        self.assertTrue(market_buyer.warranty_refused("warranty period 3 hours", g))
+        started = time.time()
+        self.assertIsNone(market_buyer.warranty_refused("1h" + "-" * 5000 + " ok", g))       # no backtracking blowup
+        self.assertLess(time.time() - started, 0.5)
 
     def test_food_asks_for_its_shelf_life_and_a_short_unit_is_refused_before_any_offer(self):
         self.assertIn("Must last at least 48.1 hours", market_buyer.request_text("김치", "F1", self.ORDER))

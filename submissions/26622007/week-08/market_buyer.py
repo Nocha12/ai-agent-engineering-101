@@ -496,22 +496,28 @@ def request_text(label, key, order):
 
 WORD_HOURS = {w: str(i) for i, w in enumerate(("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
                                                "ten", "eleven", "twelve"))}
+WARRANTY_WORDS = ("full-refund", "full", "refund", "breakage", "money-back", "replacement")   # between "N-hour" and "warranty"
 
 
 def warranty_refused(text, order):
-    """The shop says, before any offer, that this goods unit comes without the warranty I need: stop and cancel."""
+    """The shop says, before any offer, that this goods unit comes without the warranty I need: stop and cancel.
+    11/06 GPT Pro 21:20 B1: "Warranty: 0 hours", "warranty 0 h" and "three-hour full-refund warranty" were missed, and 16
+    orders went on with such a quote (0 paid, 769 s spent). The largest stated warranty counts, so a quote that names 6 h
+    or more anywhere is kept; "no warranty" counts only when no such hours are named (independent review)."""
     if order.get("kind") != "goods":
         return None
-    t = text or ""
-    if re.search(r"without (a |any )?warranty|no (breakage |refund )?warranty|warranty is not|cannot offer a warranty", t, re.I):
-        return "the shop sells it without a warranty"
-    # 11/06 GPT Pro 21:20 B1: "Warranty: 0 hours", "warranty 0 h" and "three-hour full-refund warranty" were missed, and
-    # 16 orders went on with such a quote (0 paid, 769 s spent); numbers in words up to twelve are read too.
-    num = r"(\d+(?:\.\d+)?|" + "|".join(WORD_HOURS) + r")"
-    hours = re.findall(num + r"[\s-]*(?:h|hours?|시간)\b[\s-]*(?:[a-z-]+[\s-]+){0,2}?warranty", t, re.I)
-    hours += re.findall(r"warranty\s*(?:[=:]|of|for|is)?\s*" + num + r"\s*(?:h|hours?|시간)\b", t, re.I)
+    t = (text or "")[:4000]
+    num = r"(?<![\w.-])(\d+(?:\.\d+)?|" + "|".join(WORD_HOURS) + r")"     # "twenty-four" is not read as "four"
+    unit = r"\s*-?\s*(?:h|hours?|시간)\b"
+    hours = re.findall(num + unit + r"(?:[\s-]+(?:" + "|".join(WARRANTY_WORDS) + r")){0,3}[\s-]*warranty", t, re.I)
+    hours += re.findall(r"warranty\s*(?:period\s*)?(?:[=:]|of|for|is)?\s*" + num + unit, t, re.I)
     hours = [float(WORD_HOURS.get(h.lower(), h)) for h in hours]
-    if hours and max(hours) < hard_limits.BUYER_GOODS_WARRANTY_HOURS:
+    if hours and max(hours) >= hard_limits.BUYER_GOODS_WARRANTY_HOURS:
+        return None
+    if re.search(r"without (a |any )?warranty|\bno (breakage |refund )?warranty\b(?!\s+(?:claims?|issues?|problems?|needed))"
+                 r"|warranty is not|cannot offer a warranty", t, re.I):
+        return "the shop sells it without a warranty"
+    if hours:
         return f"the shop offers only a {max(hours):g} h warranty"
     return None
 
