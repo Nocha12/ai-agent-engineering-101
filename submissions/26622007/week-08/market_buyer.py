@@ -70,14 +70,15 @@ MARKET = os.environ.get("MARKET_URL", "https://market.ourolabs.ai")
 ACP_TRIES = 3          # Round 3: shops checked for an ACP checkout before trading anyway
 SHELF_MARGIN = 0.1     # hours of shelf life asked for beyond use_within_hours: the deal settles after the check
 BREAK_WINDOW = 7 * 3600   # goods break up to 6 h after the sale
-CHOOSE_STEPS = 3       # Round 3: the shop-choosing agent's steps, tool calls included
+CHOOSE_STEPS = 2       # Round 3: the shop-choosing agent's steps, tool calls included (3 until 11/06 22:45: a step takes a
+#                        median 4.1 s, the choice 13.3 s of a 45 s order, and best_quote replaced its pick in 120 of 164 orders)
 # The whole choice (agent steps + the single question) has CHOOSE_SECONDS, each call at most CHOOSE_STEP_SECONDS; then
 # code chooses. A step took a median 6-8 s and a p90 9-12 s (llm_calls.jsonl, 11/05-06), but from 17:25 on 11/06 the
 # codex answers took 17-58 s and a choice could wait 3 x 60 + 60 s, past the 60 s that lets best_quote compare shops
 # (orders 69 -> 22/h, 4 of 11 cancelled; review/W-20261106-1525-AX바이어병렬/mem/report.md).
 # 30 -> 20 s on 11/06 19:50: the choice took a median 13.8 s and a p90 31.6 s (92 orders, 17:50-19:50) while best_quote
 # ranks the quotes in code anyway, so the slow tail only held the order (orders/h 46 against 160-173 for the top buyers).
-CHOOSE_SECONDS, CHOOSE_STEP_SECONDS, CHOOSE_MIN_SECONDS = 20, 12, 3
+CHOOSE_SECONDS, CHOOSE_STEP_SECONDS, CHOOSE_MIN_SECONDS = 14, 10, 3   # 20, 12 until 11/06 22:45 (2 steps)
 AGENT_DIR = None       # Round 3: the .market folder, when the shop is chosen by the tool-using agent
 RECENT_FIT_HOURS = 3   # a shop that asked within my limit for the order's category this recently is quoted first
 RECENT_FIT_BYTES = 3000000   # the tail of measure/orders.jsonl read for it (about 750 orders)
