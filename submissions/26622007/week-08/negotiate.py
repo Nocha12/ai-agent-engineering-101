@@ -23,16 +23,30 @@ import re
 import fast_classify
 import shop_memory
 
-# share of (ask - floor) kept by the counter in round 1, 2, 3; the last repeats (medians of the harness, see above)
+# share of (ask - floor) kept by the counter in round 1, 2, 3; the last repeats (medians of the harness, see above).
+# deal["rounds"] counts every buyer message, as concession_floor does, so the two stay in step (the replay used it too)
 COUNTER_SHARE = [0.62, 0.53, 0.46, 0.25]
+# A keyword screen only, easy to get around: the real protection is seller.py's guards after this (never under the
+# reserve, never over our ask without FAIR). Do not relax those on the strength of this list.
 SUSPECT = re.compile(r"\b(?:system|admin|assistant|instruction|ignore|override|prompt|already agreed|you agreed|"
                      r"the shop agreed|market rule|developer)\b", re.I)
 LINES = ["Thanks for your offer of {offer}. I can come down a little.",
          "I appreciate the offer of {offer}. Here is a better price.",
          "Thank you for {offer}. I can meet you partway."]
+# the buyer names our own current ask: taken by Jev only with words of agreement ("OK, 30000 it is. Deal at 30000.");
+# "Your 30000 is too much, I offer 22000" read wrong would close at a price the buyer did not mean (review 11/07, Low)
+AGREE = re.compile(r"\b(?:deal|ok|okay|accept(?:ed)?|it is|fine|works|yes|agreed? to buy)\b", re.I)
+HOLD = ["Thanks for your offer of {offer}. I cannot go lower than this.",
+        "I appreciate the offer of {offer}, but this price stays."]
+LAST = "Thank you for your offer of {offer}."
 FINAL = ["Thanks for your offer of {offer}. This is already the lowest price we can sell it for.",
          "I appreciate the offer of {offer}, but we are already at our floor price for this item.",
          "Thank you for {offer}. Our price is already as low as it goes."]
+
+
+def seller_turn_if_on(text, deal, floor, jev=None, max_rounds=None):
+    """seller_turn when the switch is on, else None; one call for seller.py's thread (pricing.json is read off the loop)."""
+    return seller_turn(text, deal, floor, jev, max_rounds) if engine_on() else None
 
 
 def engine_on():
@@ -64,11 +78,14 @@ def read_offer(text, deal, jev):
     if offer is None or not conf >= fast_classify.JEV_MIN_CONFIDENCE or offer not in fast_classify.written(text):
         return None
     older = {p for who, p in deal.get("history") or [] if who == "you asked"} - {deal["ask"]}
-    return None if offer in older else offer
+    if offer in older or (offer == deal["ask"] and not AGREE.search(text)):
+        return None
+    return offer
 
 
-def seller_turn(text, deal, floor, jev=None):
-    """The turn as seller.py takes it from the harness ({buyer_offer, action, price, message, why}), or None."""
+def seller_turn(text, deal, floor, jev=None, max_rounds=None):
+    """The turn as seller.py takes it from the harness ({buyer_offer, action, price, message, why}), or None.
+    max_rounds: seller.MAX_ROUNDS; at it seller.py turns a counter into a reject that starts with this message."""
     if SUSPECT.search(text or ""):
         return None
     offer = read_offer(text, deal, jev)
@@ -79,7 +96,13 @@ def seller_turn(text, deal, floor, jev=None):
         return {"buyer_offer": offer, "action": "accept", "price": offer, "message": "",
                 "why": f"jevrule offer {offer} >= floor {least}"}
     price = counter_price(deal, floor)
-    lines = FINAL if price <= deal["reserve"] else LINES
-    return {"buyer_offer": offer, "action": "counter", "price": price,
-            "message": random.choice(lines).format(offer=offer),
+    if max_rounds is not None and deal["rounds"] >= max_rounds:
+        line = LAST
+    elif price <= deal["reserve"]:
+        line = random.choice(FINAL)
+    elif price >= deal["ask"]:
+        line = random.choice(HOLD)
+    else:
+        line = random.choice(LINES)
+    return {"buyer_offer": offer, "action": "counter", "price": price, "message": line.format(offer=offer),
             "why": f"jevrule counter {price} to {offer} (round {deal['rounds']}, floor {least})"}

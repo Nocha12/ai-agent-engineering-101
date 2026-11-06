@@ -75,10 +75,26 @@ class SellerTurnTest(unittest.TestCase):
         self.assertEqual((d["action"], d["price"]), ("counter", 20000))
         self.assertNotRegex(d["message"], r"(?i)come down|lower|discount|reduce|meet you|a bit more")
 
-    def test_a_line_that_would_mean_a_counter_at_the_offer_accepts_instead(self):
+    def test_holding_the_ask_at_the_floor_promises_no_discount(self):
         d = negotiate.seller_turn("25999", dict(DEAL, ask=26000), 26000)
-        self.assertEqual(d["action"], "counter")
-        self.assertEqual(d["price"], 26000)
+        self.assertEqual((d["action"], d["price"]), ("counter", 26000))
+        self.assertNotRegex(d["message"], r"(?i)come down|lower|better price|discount|meet you|partway")
+
+    def test_at_the_round_limit_the_line_fits_the_reject_seller_py_adds(self):
+        d = negotiate.seller_turn("21000", dict(DEAL, rounds=10), 26000, max_rounds=10)
+        self.assertNotRegex(d["message"], r"(?i)come down|better price|partway|lowest|floor")
+
+    def test_jev_reading_our_current_ask_needs_words_of_agreement(self):
+        self.assertIsNone(negotiate.seller_turn("Your 30000 is too much, I offer 22000", DEAL, 26000, jev("30000")))
+
+    def test_a_bare_number_at_our_ask_is_an_accept(self):
+        self.assertEqual(negotiate.seller_turn("30000", DEAL, 26000)["action"], "accept")
+
+    def test_switched_off_it_answers_nothing(self):
+        with mock.patch.dict("os.environ", {"NEGOTIATE_ENGINE": "llm"}):
+            self.assertIsNone(negotiate.seller_turn_if_on("21000", DEAL, 26000))
+        with mock.patch.dict("os.environ", {"NEGOTIATE_ENGINE": "jevrule"}):
+            self.assertEqual(negotiate.seller_turn_if_on("21000", DEAL, 26000)["action"], "counter")
 
 
 class SwitchTest(unittest.TestCase):

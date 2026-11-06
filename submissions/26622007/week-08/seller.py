@@ -508,8 +508,8 @@ class Seller(AgentExecutor):
         turn_floor = shop_memory.concession_floor(deal.get("open", deal["ask"]), deal["reserve"], deal["rounds"])
         jev = functools.lru_cache(maxsize=1)(fast_classify.jev_offer) if fast_classify.JEV_ON else None   # one call a turn
         fast = await asyncio.to_thread(fast_classify.seller_turn, text, deal, turn_floor, jev)
-        if not fast and negotiate.engine_on():   # Jev reads, a rule counters (negotiate.py)
-            fast = await asyncio.to_thread(negotiate.seller_turn, text, deal, turn_floor, jev)
+        if not fast:   # NEGOTIATE_ENGINE=jevrule: Jev reads, a rule counters (negotiate.py); None when off
+            fast = await asyncio.to_thread(negotiate.seller_turn_if_on, text, deal, turn_floor, jev, MAX_ROUNDS)
         if fast:
             log(f"task {task.id[:8]} FAST {fast['why']}: no harness call")
         try:
