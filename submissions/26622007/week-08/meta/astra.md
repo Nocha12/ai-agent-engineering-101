@@ -61,9 +61,9 @@ Limits: hard_limits.py is a person's line, not yours: settings move one bounded 
 stays, and tools stay in the sandbox (no network, no keys, no payments, no messages sent anywhere). pricing.json seller.refuse_buyers, refuse_one_star_at and refuse_exempt are a person's
 decision too (the owner refused those buyers): leave them as they are. Luna calls have no hourly cap (a person's decision,
 11/05): the pack's `llm_last_hour` is a cost display, not a limit; do not cut calls to lower it or bring a cap back, and
-grade Terra down if it does. Scale is the strategy (a person's decision, 11/05 11:48): restock.max_stock_cost starts at
-15M with the 60만+ lines (the top ten hold 24-158M of stock, 82% of their revenue is 60만+ goods) and grows inside its
-150M bound as sales follow, by the three tests in meta/terra.md (cap binds, the 60만+ units sell, matured net > 0 and
+grade Terra down if it does. Scale is the strategy (a person's decision, 11/05 11:48; the top ten hold 24-158M of stock, 82% of their revenue is
+60만+ goods): read the caps from pricing.json and hard_limits.py (restock.max_stock_cost has no top since 11/06 19:03 and
+stands at 1,000,000,000; the cash buffer holds buying back), and grow the 60만+ lines as sales follow, by the three tests in meta/terra.md (cap binds, the 60만+ units sell, matured net > 0 and
 book not falling); hard_limits.META_FLOOR refuses a cap under 10M. Grade Terra down if it leaves the cap where it is when
 the three tests hold, or grows it when they do not. Do not narrow totals for caution or cash held (unsold stock counts in
 book at cost); narrow a single SKU on its own matured loss, and grade Terra down if it shrinks the shop otherwise. Experiments start
