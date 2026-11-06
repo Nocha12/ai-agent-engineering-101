@@ -12,6 +12,7 @@
 - each unit is also checked at b = max(0.25, its own b) (stress) and the log says when the first ask would lose money there.
 pricing.json "price" holds the numbers.
 """
+import hashlib
 import math
 
 DEFAULTS = {"min_profit": 1000, "min_profit_share": 0.03, "storage_share": 0.0025, "goods_break": 0.15,
@@ -87,6 +88,19 @@ def ask_cap(cfg, u):
     return round(cap)
 
 
+def _num(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def trial_arm(sku, grade, trial):
+    """Whether this SKU x grade is in price.high_price_trial's lower-price half (GPT Pro 11/06 23:40, 메인 23:40: cuts
+    only on 30만+ goods, tried per SKU x grade). A stable hash of salt|sku|grade under share; False on a bad setting."""
+    if not isinstance(trial, dict) or not _num(trial.get("share")) or not 0 < trial["share"] <= 1:
+        return False
+    h = hashlib.sha1(f"{trial.get('salt', '')}|{sku}|{grade}".encode()).digest()
+    return int.from_bytes(h[:4], "big") / 2 ** 32 < trial["share"]
+
+
 def quote(u, median=None, measured=None, paid=(), pricing=None):
     """Everything a unit's price rests on: {floor, open, b, stress_floor, refuse, why}."""
     cfg = cfg_of(pricing)
@@ -98,6 +112,13 @@ def quote(u, median=None, measured=None, paid=(), pricing=None):
     if isinstance(scarce, bool) or not isinstance(scarce, (int, float)) or scarce <= 0:
         scarce = None       # a bad setting never stops a sale; the list price still caps a good one
     p0, why = opening(f, lp, median, kind, paid, cfg, scarce)
+    trial, high = cfg.get("high_price_trial"), cfg.get("high_median_up")
+    if kind == "goods" and median and scarce is None and isinstance(high, dict) and _num(high.get("min_list")) \
+            and lp >= high["min_list"] and isinstance(trial, dict) and _num(trial.get("factor")) \
+            and 0.8 <= trial["factor"] <= cfg["median_up"] and trial_arm(u.get("sku"), u.get("grade"), trial):
+        t = max(f, math.ceil(trial["factor"] * median))
+        if t < p0:      # the trial half opens lower, never under the floor F; the other half keeps the usual ask
+            p0, why = t, f"trial {trial['factor']:g} x median {round(median)} (was {p0}, {why})"
     cap = ask_cap(cfg, u)
     if cap is not None and cap < p0:     # never under this unit's floor F
         p0, why = max(f, cap), f"ask cap {cap} for grade {u.get('grade')} (was {p0}, {why})"
