@@ -323,7 +323,7 @@ def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
 
 def read_breaks(state, catalog):
     try:
-        return market_model.break_stats(market_model.load_rows(state), catalog)
+        return market_model.break_stats(market_model.load_rows(state), catalog, mature_only=True)
     except Exception:   # noqa: BLE001 - without break rates the guard simply does not use them
         return None
 

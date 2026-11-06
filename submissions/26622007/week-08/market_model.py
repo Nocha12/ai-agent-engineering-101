@@ -173,10 +173,19 @@ def link_broken(rows):
     return out
 
 
-def break_stats(rows, catalog):
-    """How often goods break, measured from the ledger: overall and by SKU, grade and shop. The market does not publish it."""
-    sold = [r for r in rows if r["k"] == "settle" and (catalog.get(r.get("sku")) or {}).get("kind") == "goods"]
-    broke = [s for _, s in link_broken(rows) if (catalog.get(s.get("sku")) or {}).get("kind") == "goods"]
+def break_stats(rows, catalog, mature_only=False):
+    """How often goods break, measured from the ledger: overall and by SKU, grade and shop. The market does not publish it.
+    mature_only (seller and restock, GPT Pro 11/06 23:40): a sale of the last BREAK_WINDOW that has not broken yet is
+    left out, it may still break; one that already broke counts. Never under the rate with every sale (the same breaks
+    over fewer sales; it leans high, the safe side for a floor). The buyer keeps every sale (its own task's call)."""
+    goods = lambda r: (catalog.get(r.get("sku")) or {}).get("kind") == "goods"
+    broke = [s for _, s in link_broken(rows) if goods(s)]
+    sold = [r for r in rows if r["k"] == "settle" and goods(r)]
+    if mature_only:
+        stamps = [r["ts"] for r in rows if isinstance(r.get("ts"), (int, float))]
+        mature = (max(stamps) if stamps else 0) - BREAK_WINDOW
+        gone = {id(s) for s in broke}
+        sold = [r for r in sold if id(r) in gone or not isinstance(r.get("ts"), (int, float)) or r["ts"] <= mature]
     def table(field):
         t = {}
         for r in sold:

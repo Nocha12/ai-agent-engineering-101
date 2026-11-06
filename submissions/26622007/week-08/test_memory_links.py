@@ -64,6 +64,21 @@ class LinkTest(unittest.TestCase):
         self.assertEqual(s["by_shop"]["https://a"], {"sold": 1, "broke": 0})
         self.assertEqual(s["by_sku_grade"]["H1|C"], {"sold": 1, "broke": 1})
 
+    def test_stats_leave_out_recent_sales_that_have_not_broken_yet(self):
+        # GPT Pro 11/06 23:40 (메인 23:40): a sale of the last hours that has not broken may still break; counting it
+        # lowers the rate. One that already broke counts (independent review: else a bad recent batch lowers the rate)
+        rows = [settle(1), broken(2), settle(3, ts=T + 7 * 3600, buyer="c"), settle(4, ts=T + 8 * 3600, buyer="d"),
+                broken(5, ts=T + 8 * 3600 + 60, buyer="d"), settle(6, sku="F1", ts=T + 12 * 3600)]
+        s = mm.break_stats(rows, CATALOG, mature_only=True)   # newest T+12h: 1 old, 4 recent but broken, 3 left out
+        self.assertEqual((s["sold"], s["broke"], s["rate"]), (2, 2, 1.0))
+        self.assertEqual(s["by_sku_grade"]["H1|A"], {"sold": 2, "broke": 2})
+        self.assertEqual(mm.break_stats(rows, CATALOG)["sold"], 3)              # the buyer's default: every sale
+        old = [settle(i, buyer=f"o{i}") for i in range(60)] + [broken(100 + i, buyer=f"o{i}") for i in range(6)]
+        new = [settle(200 + i, ts=T + 6 * 3600, buyer=f"n{i}") for i in range(40)] + \
+            [broken(300 + i, ts=T + 6 * 3600 + 60, buyer=f"n{i}") for i in range(20)]
+        rows = old + new
+        self.assertGreaterEqual(mm.break_stats(rows, CATALOG, mature_only=True)["rate"], mm.break_stats(rows, CATALOG)["rate"])
+
     def test_no_estimate_until_there_is_data_then_it_leans_on_the_overall_rate(self):
         self.assertIsNone(mm.break_chance({"sold": 10, "broke": 1, "rate": 0.1, "by_sku": {}}, "H1"))
         s = {"sold": 100, "broke": 10, "rate": 0.1, "by_sku": {"H1": {"sold": 20, "broke": 10}}}

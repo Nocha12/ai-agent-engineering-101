@@ -278,7 +278,7 @@ def break_chance(sku, grade=None):
         md = os.environ.get("MARKET_DIR", ".market")
         try:
             with open(os.path.join(md, "catalog.json"), encoding="utf-8") as f:
-                _breaks["stats"] = market_model.break_stats(market_model.load_rows(md), json.load(f))
+                _breaks["stats"] = market_model.break_stats(market_model.load_rows(md), json.load(f), mature_only=True)
         except (OSError, ValueError, KeyError, TypeError) as e:
             log(f"break rates unavailable: {type(e).__name__}: {e}")
             _breaks["stats"] = None
