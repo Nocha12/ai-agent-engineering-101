@@ -40,5 +40,40 @@ class RecentFitsTest(unittest.TestCase):
         self.assertEqual([s["name"] for s in market_buyer.quote_order(others, fits, 2)], ["new", "fit2", "fit1", "old"])
 
 
+class HopelessTest(unittest.TestCase):
+    def write(self, md, rows):
+        os.makedirs(os.path.join(md, "measure"), exist_ok=True)
+        with open(os.path.join(md, "measure", "orders.jsonl"), "w") as f:
+            f.writelines(json.dumps(r) + "\n" for r in rows)
+
+    def test_recent_asks_take_quotes_talk_and_receipts_in_the_window_not_refusals(self):
+        now = time.time()
+        rows = [{"ts": now - 60, "sku": "A", "asks": [90, 80], "price": 70,
+                 "quotes": [{"shop": "a", "sku": "A", "ask": 95, "lost": None},
+                            {"shop": "b", "sku": "B", "ask": 50, "lost": "less expected surplus"},
+                            {"shop": "c", "sku": "B", "ask": 1, "lost": "refused: the shop sells it without a warranty"},
+                            {"shop": "d", "sku": "B", "ask": None, "lost": "no ask (no free unit or no answer)"}]},
+                {"ts": now - 4 * 3600, "sku": "B", "asks": [2], "quotes": []}]
+        with tempfile.TemporaryDirectory() as md:
+            self.write(md, rows)
+            got = market_buyer.recent_asks(md, now=now)
+            self.assertEqual(sorted(got["A"]), [70, 80, 90, 95])
+            self.assertEqual(got["B"], [50])
+            self.assertEqual(market_buyer.recent_asks(md + "/none"), {})
+
+    def test_gives_up_only_when_every_shop_sku_asked_over_the_limit_enough_times(self):
+        cfg = {"max_price_share": 1.0}
+        shop = lambda n, sku, lp: {"name": n, "usable": [{"sku": sku, "list_price": lp}]}
+        pool = [shop("a", "A", 100), shop("b", "B", 100)]          # limit 75 each (Saved keeps 25% of list)
+        over = {"A": [80, 90], "B": [76, 99]}
+        self.assertTrue(market_buyer.hopeless(pool, 1000, over, cfg))
+        self.assertFalse(market_buyer.hopeless(pool, 1000, {**over, "B": [75, 99]}, cfg))     # one ask at the limit
+        self.assertFalse(market_buyer.hopeless(pool, 1000, {**over, "B": [99]}, cfg))         # too few asks
+        self.assertFalse(market_buyer.hopeless(pool, 1000, {"A": [80, 90]}, cfg))             # B never asked
+        self.assertFalse(market_buyer.hopeless([], 1000, over, cfg))
+        self.assertTrue(market_buyer.hopeless(pool, 70, {"A": [71, 72], "B": [71, 80]}, cfg))   # the budget is the limit
+        self.assertFalse(market_buyer.hopeless(pool, 70, {"A": [70, 72], "B": [71, 80]}, cfg))
+
+
 if __name__ == "__main__":
     unittest.main()

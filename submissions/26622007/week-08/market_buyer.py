@@ -72,6 +72,10 @@ CHOOSE_STEPS = 3       # Round 3: the shop-choosing agent's steps, tool calls in
 AGENT_DIR = None       # Round 3: the .market folder, when the shop is chosen by the tool-using agent
 RECENT_FIT_HOURS = 3   # a shop that asked within my limit for the order's category this recently is quoted first
 RECENT_FIT_BYTES = 3000000   # the tail of measure/orders.jsonl read for it (about 750 orders)
+HOPELESS_HOURS = 3       # no quote and no talk when every SKU the shops would be asked for asked over my limit this recently
+HOPELESS_MIN_ASKS = 2    # ... in at least this many asks each (quotes, talk, receipts). Replayed on the 361 orders of the 6 h to
+                         # 11/06 15:10: 5 given up (2 cancelled, 2 rejected, 1 completed but not paid), none of the 165 paid
+                         # (with 6 h instead of 3, one paid order was lost); review/W-20261106-1525-AX상한바이어/replay.md
 SETTLED = os.environ.get("BUYER_SETTLED", "memory/settled.jsonl")
 MEMORY_R2 = "memory/market_memory.json"
 MEMORY_R3 = "memory/market_memory_r3.json"
@@ -593,6 +597,18 @@ def recent_fits(md, category, now=None, hours=RECENT_FIT_HOURS):
     out = collections.Counter()
     if not category:
         return out
+    cfg = buyer_cfg()
+    for r in recent_orders(md, now, hours):
+        if r.get("category") != category:
+            continue
+        for q in r.get("quotes") or ():
+            if isinstance(q, dict) and isinstance(q.get("shop"), str) and quote_fitted(q, r.get("budget"), cfg):
+                out[q["shop"]] += 1
+    return out
+
+
+def recent_orders(md, now, hours):
+    """The order lines of measure/orders.jsonl from the last hours (its last RECENT_FIT_BYTES only)."""
     try:
         with open(os.path.join(md, records.DIR, "orders.jsonl"), "rb") as f:
             f.seek(0, 2)
@@ -600,20 +616,47 @@ def recent_fits(md, category, now=None, hours=RECENT_FIT_HOURS):
             f.seek(max(0, size - RECENT_FIT_BYTES))
             lines = f.read().decode("utf-8", "replace").splitlines()
     except OSError:
-        return out
-    cfg = buyer_cfg()
+        return []
+    out = []
     for x in lines[1:] if size > RECENT_FIT_BYTES else lines:      # the first line of a tail may be cut
         try:
             r = json.loads(x)
         except ValueError:
             continue
-        if not isinstance(r, dict) or r.get("category") != category or not isinstance(r.get("ts"), (int, float)) \
-                or not now - hours * 3600 <= r["ts"] <= now:
-            continue
-        for q in r.get("quotes") or ():
-            if isinstance(q, dict) and isinstance(q.get("shop"), str) and quote_fitted(q, r.get("budget"), cfg):
-                out[q["shop"]] += 1
+        if isinstance(r, dict) and isinstance(r.get("ts"), (int, float)) and now - hours * 3600 <= r["ts"] <= now:
+            out.append(r)
     return out
+
+
+def recent_asks(md, now=None, hours=HOPELESS_HOURS):
+    """{sku: [asks]} the shops gave me lately, any shop: opening asks of the quotes that were not refusals, the asks of the
+    talks, and the receipt prices."""
+    now = time.time() if now is None else now
+    out = collections.defaultdict(list)
+    num = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool)
+    for r in recent_orders(md, now, hours):
+        for q in r.get("quotes") or ():
+            if isinstance(q, dict) and q.get("sku") and num(q.get("ask")) and not str(q.get("lost") or "").startswith("refused"):
+                out[q["sku"]].append(q["ask"])
+        if r.get("sku"):
+            out[r["sku"]] += [a for a in r.get("asks") or () if num(a)] + ([r["price"]] if num(r.get("price")) else [])
+    return out
+
+
+def hopeless(pool, budget, asks, cfg, min_asks=HOPELESS_MIN_ASKS):
+    """Whether no shop of the pool is worth asking: the SKU each would be asked for (pick_offer) has min_asks recent asks
+    and even the lowest is over my limit for it (at no chance of breaking, the highest limit). A SKU with fewer asks, or
+    one ask within the limit, keeps the quotes going. Narrow on purpose: shops come down in the talk, so giving up on
+    one shop's past asks would have lost 14-23 of the 165 paid orders of the 6 h replayed (review/W-20261106-1525-AX상한바이어)."""
+    if not pool:
+        return False
+    for s in pool:
+        o = pick_offer(s["usable"], budget)
+        seen = asks.get(o["sku"]) or []
+        cap = min(value_limit(o, budget, 0, cfg), saved_cap(o, 0))
+        if len(seen) < min_asks or min(seen) <= cap:
+            return False
+    return True
 
 
 def quote_fitted(q, budget, cfg):
@@ -1016,14 +1059,20 @@ def main():
     stages = {"choose": time.time()}
     first_choice, first_reason = shop["name"], reason
 
-    quotes = {}
+    quotes, gave_up = {}, False
     if r3:
         others = [s for s in left if s is not shop and not caught_cheating(my_history(memory, s["name"]))]
         others = quote_order(others, recent_fits(md, order.get("category")), int(buyer_cfg().get("quote_shops", 1)))
+        try:
+            gave_up = hopeless([shop] + others, args.budget, recent_asks(md), buyer_cfg())
+        except Exception as e:  # noqa: BLE001 - an odd record line must not end the run before the result line
+            log(f"[quote] give-up check failed: {type(e).__name__}: {e}")
+        if gave_up:
+            log(f"[quote] every SKU of {len(others) + 1} shops asked over my limit in the last {HOPELESS_HOURS} h: no quote, no talk")
         stats = market_model.break_stats(market_model.load_rows(md), catalog) if order.get("kind") == "goods" else None
         chance_of = (lambda sku: market_model.break_chance(stats, sku)) if stats else (lambda sku: None)
         best, quotes = best_quote(shop, others, order, catalog, args.budget, chance_of, buyer_cfg()) \
-            if time.time() - STARTED < 60 else (shop, {})
+            if time.time() - STARTED < 60 and not gave_up else (shop, {})
         if best is not shop:
             reason = f"best quote of {len(quotes)} ({quotes[best['name']]['ask']}); first choice was {shop['name']}"
             shop = best
@@ -1053,6 +1102,8 @@ def main():
             + (f", breaks {chance:.1%} of the time in the ledger" if chance else ""))
     try:
         q = quotes.get(shop["name"]) or {}
+        if r3 and gave_up:
+            raise NoValue()
         if r3 and limit <= 0:      # saved_cap 0: goods that break 75% of the time or more keep nothing in expectation
             log(f"[offer] limit 0 for {offer['sku']}: no talk")
             if resumable(q):
@@ -1119,7 +1170,8 @@ def main():
         try:
             records.write(md, "orders", {**order_record(order, args, shops, quotes, first_choice, first_reason, shop, reason, offer,
                                                         limit, chance, out, rec, result, problems, warnings, short, why, stages,
-                                                        catalog), "skipped_short_warranty": brief})
+                                                        catalog), "skipped_short_warranty": brief,
+                                         "gave_up": gave_up})
         except Exception as e:   # noqa: BLE001 - a measurement never stops the result line the kit waits for
             log(f"[measure] order record failed: {type(e).__name__}: {e}")
     print(json.dumps(result, ensure_ascii=False), flush=True)
