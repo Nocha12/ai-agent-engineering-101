@@ -290,6 +290,9 @@ def floor_rank(u, pricing):
     cfg = profit_price.cfg_of(pricing)
     measured = break_chance(u["sku"], u.get("grade")) if u.get("kind") == "goods" else None
     b = profit_price.break_for(u.get("kind"), measured, cfg, u.get("grade"))
+    max_break = ((pricing or {}).get("warranty") or {}).get("max_break", cfg["stress_break"])
+    if u.get("kind") == "goods" and isinstance(max_break, (int, float)) and b > max_break:
+        return float("inf")     # quote() would refuse it: offer a sellable unit first (independent review)
     return profit_price.floor(u["cost"], u.get("list_price"), u.get("kind"), b, cfg)
 
 
@@ -326,7 +329,8 @@ class Seller(AgentExecutor):
         Only a unit that fits the buyer's needs is offered (shop_stock.unfit); the price is profit_price's: the reserve is
         the floor F, the first ask P0. Goods that break too often for the warranty are not sold."""
         pricing = shop_memory.load_pricing()
-        u, miss = self.stock.pick(text, rank=lambda x: floor_rank(x, pricing))
+        ranked = {**pricing, "warranty": self.warranty_cfg()}
+        u, miss = self.stock.pick(text, rank=lambda x: floor_rank(x, ranked))
         if u is None:
             await up.reject(say("Sorry, we have none of that in stock." if miss == "not in stock" else
                                 f"Sorry, none of our units fits your order: {miss}."))

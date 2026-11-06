@@ -142,11 +142,17 @@ def markdown(u, cfg=None, ends_at=None, now=None):
     return max(least, round(cost * keep)), keep, why
 
 
+_rank_failed = []      # logged once
+
+
 def _rank(rank, u):
     """rank(u) as a number for sorting; a unit it cannot rank goes last among its SKU."""
     try:
         r = rank(u)
-    except Exception:       # a broken rank must not lose the sale: fall back to the oldest unit
+    except Exception as e:  # a broken rank must not lose the sale: fall back to the oldest unit
+        if not _rank_failed:
+            _rank_failed.append(1)
+            print(f"[shop_stock] unit rank failed, oldest unit first: {type(e).__name__}: {e}", flush=True)
         return float("inf")
     return r if isinstance(r, (int, float)) and not isinstance(r, bool) and math.isfinite(r) else float("inf")
 

@@ -99,6 +99,9 @@ class EligibleFirstTest(unittest.TestCase):
         self.assertEqual(a_dear, 3206719)                       # the floor the 21:11 log line shows for u-adbd67d153e8
         self.assertLess(a_cheap, a_dear)
         self.assertGreater(c_cheap, a_cheap)                    # C breaks 34%: its floor is higher at the same cost
+        with mock.patch.object(seller, "break_chance", lambda sku, grade=None: 0.6):
+            self.assertEqual(seller.floor_rank(unit("x", kind="goods", cost=1, list_price=3816000),
+                                               {**pricing, "warranty": {"max_break": 0.5}}), float("inf"))
 
     def test_grade_and_named_sku(self):
         b = StockBook(lambda: {"round": 3, "units": [unit("c", grade="C"), unit("a", sku="G2", grade="A")]})
