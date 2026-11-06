@@ -324,9 +324,16 @@ class TerraGradingTest(unittest.TestCase):
         finally:
             shutil.rmtree(tmp)
 
-    def test_the_strong_step_needs_a_sample(self):
+    def test_a_rise_passes_whatever_the_sample_but_a_fall_is_halved(self):
+        # a person, 11/06 19:03: hard_limits open for compounding (MAX_STEP / MAX_STEP_STRONG unlimited on a rise)
         old, new = {"restock": {"max_stock_cost": 1000000}}, {"restock": {"max_stock_cost": 3000000}}
-        for settled, ok in ((10, False), (50, True)):
+        for settled, ok in ((10, True), (50, True)):
+            with mock.patch.object(meta_harness, "pricing_at_head", lambda: old), mock.patch.object(meta_harness, "pricing_now", lambda: new), \
+                    mock.patch.object(meta_harness, "git", lambda *a, **k: ""), \
+                    mock.patch.dict(meta_harness.SAMPLE, {"settled": settled}):
+                self.assertEqual(meta_harness.limit_problems(["pricing.json"]) == [], ok)
+        old, new = {"restock": {"max_break": 0.2}}, {"restock": {"max_break": 0.05}}
+        for settled, ok in ((10, False), (50, False)):
             with mock.patch.object(meta_harness, "pricing_at_head", lambda: old), mock.patch.object(meta_harness, "pricing_now", lambda: new), \
                     mock.patch.object(meta_harness, "git", lambda *a, **k: ""), \
                     mock.patch.dict(meta_harness.SAMPLE, {"settled": settled}):

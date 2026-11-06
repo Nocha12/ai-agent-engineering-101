@@ -258,7 +258,8 @@ def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
         food += w["worst"] * w["qty"] if kind(w["sku"]) == "food" else 0
     room = cfg.get("max_stock_cost", float("inf")) - held
     food_room = cfg.get("food_max_stock_cost", float("inf")) - food
-    spare = min(balance - cfg["keep_cash"], hard_limits.spendable(balance)) - sum(w["worst"] * w["qty"] for w in waiting)
+    spare = min(balance - cfg["keep_cash"], hard_limits.spendable(balance, cfg.get("cash_buffer", hard_limits.STOP_BUYING_BELOW))) \
+        - sum(w["worst"] * w["qty"] for w in waiting)
     out, factors = [], surge(inv)
     for b in buy:
         x = catalog.get(b["sku"]) or {}
@@ -325,6 +326,40 @@ def read_breaks(state, catalog):
         return market_model.break_stats(market_model.load_rows(state), catalog)
     except Exception:   # noqa: BLE001 - without break rates the guard simply does not use them
         return None
+
+
+SALES_TAIL_BYTES = 15000000      # the ledger's last ~9 h (11/06: 30 MB held 17 h); refunds come within BREAK_HOURS
+
+
+def warranted_sales(state, catalog, now=None):
+    """[(time, price)] of this shop's warranted goods sales in the last hard_limits.BREAK_HOURS, from the tail of the
+    ledger rows (a result row names the seller, the settle row the price and the warranty); None when unreadable, so
+    cash_buffer() keeps its UNKNOWN_EXPOSURE."""
+    now, mine = now or time.time(), market_model.my_shops()
+    since = now - hard_limits.BREAK_HOURS * 3600
+    try:
+        with open(os.path.join(state, market_model.ROWS), "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - SALES_TAIL_BYTES))
+            lines = f.read().decode("utf-8", "replace").splitlines()[1:]
+    except FileNotFoundError:       # no ledger yet (a new or reset shop): no sales of ours to refund
+        return []
+    except OSError:
+        return None
+    ours, sold = set(), []
+    for line in lines:
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(r, dict):
+            continue
+        if r.get("k") == "result" and r.get("seller") in mine:
+            ours.add(r.get("order"))
+        elif r.get("k") == "settle" and isinstance(r.get("ts"), (int, float)) and r["ts"] >= since and r.get("warranty") \
+                and (catalog.get(r.get("sku")) or {}).get("kind") == "goods" and isinstance(r.get("amount"), (int, float)):
+            sold.append(r)
+    return [(r["ts"], r["amount"]) for r in sold if r.get("order") in ours or str(r.get("shop") or "").rstrip("/") in mine]
 
 
 def read_model(state, catalog, cfg):
@@ -614,6 +649,16 @@ def main():
     except Exception as e:   # noqa: BLE001 - an unreadable record of sent lines must not stop the restock
         print(f"[restock] pending lines unreadable: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
         waiting = []
+    try:
+        sales = warranted_sales(args.state, catalog)
+    except Exception as e:   # noqa: BLE001 - the buffer then assumes hard_limits.UNKNOWN_EXPOSURE
+        print(f"[restock] own sales unreadable: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        sales = None
+    stock = sum(u.get("cost") or 0 for u in inv.get("units") or [] if isinstance(u, dict))
+    cfg["cash_buffer"] = hard_limits.cash_buffer(stock, sales)     # a person, 11/06 19:03: no bankruptcy, nothing else
+    print(f"[restock] cash buffer {cfg['cash_buffer']} (balance {inv.get('balance')}, stock {stock:.0f}, "
+          f"{'unknown' if sales is None else len(sales)} warranted goods sales in {hard_limits.BREAK_HOURS} h)",
+          file=sys.stderr, flush=True)
     keep = lambda b: guard(b, inv, catalog, cfg, breaks, waiting)
     out = plan(inv, catalog, demand, cfg, model, breaks, waiting)
     ocfg = hard_limits.clamp_cfg("opening", {**opening.DEFAULTS, **pricing.get("opening", {})})
@@ -669,7 +714,8 @@ def main():
     # reserved by guard() and the waiting lines, and with the balance far above STOP_BUYING_BELOW the line does not bind
     if first is None:
         out["buy"] = late_lines(args.state, inv, out.get("buy"), agent_skus)
-    out["buy"] = hard_limits.final_buy(out.get("buy"), inv.get("balance"), catalog)
+    owed = sum(w["worst"] * w["qty"] for w in waiting)      # lines already sent are bought out of the same cash
+    out["buy"] = hard_limits.final_buy(out.get("buy"), inv.get("balance"), catalog, buffer=cfg["cash_buffer"] + owed)
     if out["buy"]:
         try:
             note_sent(args.state, out["buy"][:10], catalog, factors=surge(inv))    # the kit sends ten lines a run

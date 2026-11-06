@@ -271,7 +271,7 @@ class PriceTest(unittest.TestCase):
         r = p["restock"]
         self.assertEqual((r["max_stock_cost"], r["max_units_per_sku"], r["cover_hours"], r["keep_cash"],
                           r["food_max_stock_cost"], r["high_price_goods"], r["high_price_max_units"]),
-                         (150000000, 20, 6, 4500000, 650000, 100000, 20))   # scale 7 (11/06 19:1x): max_stock_cost 150M (hard_limits top), units caps 10 -> 20, fill_listed fills each listed SKU to its target; scale 6: our 30만+ units sold 98% in 24 h, supply held revenue; each dear SKU stays at its own sku_target_units   # keep_cash: 21.9M open warranties at 05:00
+                         (1000000000, 20, 6, 4500000, 650000, 100000, 20))   # scale 8 (11/06 21:0x): 1B, hard_limits.cash_buffer limits buys; scale 7: units caps 10 -> 20, fill_listed fills each listed SKU to its target; scale 6: our 30만+ units sold 98% in 24 h, supply held revenue; each dear SKU stays at its own sku_target_units   # keep_cash: 21.9M open warranties at 05:00
         # scale 2 (a person's 15M cap, 11/05 11:48): cover 6 h and 3 dear units so the model asks for the 60만+ lines
         # (our share 0.35-0.76/h); six runs without a sale fill ~15.0M, 10.5M of it 60만+ (scale2-result.md)
         # food 65만: food sells in 0.1 h with nothing spoiled, and its 45만 cap cut 416 of the last 2,000 guard lines

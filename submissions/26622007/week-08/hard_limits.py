@@ -1,11 +1,12 @@
 """The lines the meta-harness cannot move. Everything else starts cautious in pricing.json and is widened or narrowed by
 Terra and Astra from Round 3's own numbers, a bounded step at a time.
 
-- Bankruptcy: no stock is bought that could take the balance under STOP_BUYING_BELOW (the market's line is 500,000;
-  a bankruptcy's 5,000,000 counts against profit). The kit files only when nothing is left to sell.
-- pricing.json: each numeric setting moves at most MAX_STEP of its value per cycle (MAX_STEP_STRONG once the log holds
-  STRONG_SAMPLE settled deals, so the shop can move fast when its own data is solid; a fall at most MAX_STEP_DOWN),
-  inside BOUNDS where listed, and the meta-harness may not take a META_FLOOR setting under its line.
+- Bankruptcy: no stock is bought that could take the balance under cash_buffer(): the market's 500,000 line plus the
+  refunds still owed at the worst rate seen, a day of storage and the worst day's loss (never under STOP_BUYING_BELOW;
+  a bankruptcy's 5,000,000 counts against profit). The kit files only when nothing is left to sell. Since 11/06 19:03
+  (a person) this is the only line on stock and capital: the stock cap and the step limits on a rise are open.
+- pricing.json: a rise is not limited; a fall moves at most MAX_STEP_DOWN of its value per cycle, inside BOUNDS where
+  listed, and the meta-harness may not take a META_FLOOR setting under its line.
 - Tools the agents run get no keys, no network and no writes outside their folders (agent_tools.py builds the sandbox
   from SANDBOX below).
 
@@ -14,17 +15,38 @@ pricing.json number further than this file allows. Only a person changes this fi
 """
 import math
 import re
+import time
 
 BANKRUPT_LINE = 500000
 STOP_BUYING_BELOW = 1000000          # a supply that could leave less than this is not sent
+# A person, 11/06 19:03 (대표님): "복리를 진짜 제대로 활용해야해 hard_limits 는 완전 풀어버려 그냥 파산만 안되면 문제없어".
+# So the caps on stock, capital and step size are open, and the one line left is the cash a buy may not cross: the
+# bankruptcy line plus what the shop can still owe. Its numbers, Round 3 11/03 21:12 - 11/06 20:47 (collector ledger and
+# board, review/W-20261106-1900-AX자본투입/buffer.py):
+# - refunds: our goods refunds over our warranted goods sales were 5.4% (29.6M of 546.6M), 13.0% in the worst 6 h
+#   bucket (p90 10.0%); the most refunded in 1 h 2.76M, in 6 h 5.65M, in 24 h 14.58M. A unit breaks within 6 h of the
+#   sale, spread evenly (2,098 market breaks 11/06: median 2.9 h, p90 5.4 h), so a sale a hours old still owes
+#   REFUND_WORST x price x (6 - a) / 6 at worst.
+# - storage: 1% of the stock's cost a day (agent.md); a day of it is kept.
+# - the worst 24 h fall of book was 2.5M (11/04 14:45); cash fell 90.7M in 24 h only because it went into stock.
+REFUND_WORST = 0.13
+BREAK_HOURS = 6
+STORAGE_DAYS = 1.0
+STORAGE_PER_DAY = 0.01
+DAY_LOSS_WORST = 2500000
+# Without the ledger the exposure is not known: 13% of 6 h of goods sales at our 11/06 19:15-20:47 rate (38M/h), halved
+# for the even spread of breaks over the 6 h.
+UNKNOWN_EXPOSURE = 15000000
 PROTECTED = ("hard_limits.py", "test_hard_limits.py", "run_market.sh", "run_meta.sh", "ensure_running.sh")
-MAX_STEP = 1.0                       # a number may rise by at most its value (double) per cycle (and by 1 when it is small)
+# Steps: a rise is no longer limited (a person, 11/06 19:03: compounding should not wait for cycles); a fall still is,
+# since a cut does nothing for growth and one cycle once cut a cap to nothing (11/05 11:48).
+MAX_STEP = math.inf                  # was 1.0: double at most
 # ... or by four times its value (five times it) once the evidence is a real sample, so the stock cap can go from 15M
 # toward the top ten's 78M average in two cycles. A fall stays at MAX_STEP_DOWN whatever the sample: Patch 3.3 scores
 # book (cash + unsold stock at cost), the shop held 3.2M of stock against the top ten's 24-158M (11/05 11:09 board),
 # and a strong step of 100% let one cycle cut a cap to nothing (a person, 11/05 11:48).
-MAX_STEP_STRONG = 4.0
-MAX_STEP_UNBOUNDED = 2.0             # a setting with no BOUNDS (food_max_stock_cost, sku_target_units) still at most triples
+MAX_STEP_STRONG = math.inf           # was 4.0
+MAX_STEP_UNBOUNDED = math.inf        # was 2.0: a setting with no BOUNDS (food_max_stock_cost, sku_target_units)
 MAX_STEP_DOWN = 0.5
 STRONG_SAMPLE = 40                   # settled deals (shop + buyer) in the Round 3 log that make a sample
 # The meta-harness may not take these under the line (a person may, in pricing.json): scale is the strategy now and a
@@ -41,15 +63,16 @@ FIXED = {"restock.high_price_listed_only": True}
 BOUNDS = {
     # The floor is STOP_BUYING_BELOW, the least that keeps supplies going: restock never spends under it whatever
     # keep_cash says (spendable), so a lower floor would change nothing. The meta-harness stops at META_FLOOR (3M).
-    "restock.keep_cash": (STOP_BUYING_BELOW, 20000000),
+    "restock.keep_cash": (STOP_BUYING_BELOW, math.inf),     # was 20M: more kept is never a bankruptcy risk
     # 150M: Patch 3.3 scores book (unsold stock at cost); the 4M cap was what cut our lines (847 of the last 2,000 guard
     # cuts, 11/05 11:1x) while the 60만+ goods that bring the top ten 82% of their revenue sell in 0.37 h, and the top
     # ten hold 78M of stock on average, 150M at most (review/W-20261105-0953-AX패치3.3/scale-analysis.md). A person set
     # the bound there (11/05 11:48: "크게크게"); pricing.json holds the working value, grown inside it as sales follow.
-    "restock.max_stock_cost": (100000, 150000000),
-    "restock.target_per_category": (0, 10),
+    # 11/06 19:03 a person opened it (was 150M): the cash buffer (cash_buffer) is what limits a buy now.
+    "restock.max_stock_cost": (100000, math.inf),
+    "restock.target_per_category": (0, 100),
     "restock.max_lines": (1, 10),     # the kit sends the first 10 lines of a restock (scripts/market_kit.py), no more
-    "restock.max_units_per_sku": (1, 100),
+    "restock.max_units_per_sku": (1, 1000),
     "restock.cover_hours": (1, 72),
     "restock.food_explore_qty": (0, 20),
     "restock.food_max_qty": (0, 20),  # units per food line: MAX_LOT (20) cuts a line anyway
@@ -61,15 +84,15 @@ BOUNDS = {
     "restock.band_low": (0.3, 1.0),
     "restock.band_high": (1.0, 3.0),
     "restock.prior_break": (0.0, 0.5),
-    "opening.explore_budget_worst": (0, 10000000),
+    "opening.explore_budget_worst": (0, math.inf),
     "opening.judge_settles": (10, 1000),
     "opening.phase_gap_minutes": (5, 120),
-    "restock.max_sku_share": (0.01, 0.4),
+    "restock.max_sku_share": (0.01, 1.0),
     # What counts as dear goods (listed only, FIXED above) and how many of each: unbounded, a few cycles of doubling
     # would lift high_price_goods past every price and switch the listed-only rule off.
     "restock.high_price_goods": (50000, 1000000),
-    "restock.high_price_max_units": (0, 20),
-    "restock.high_price_proven_max_units": (0, 20),
+    "restock.high_price_max_units": (0, 1000),
+    "restock.high_price_proven_max_units": (0, 1000),
     "warranty.on_request_hours": (0, 6),
     "warranty.max_hours": (0, 72),
     "warranty.max_break": (0.0, 0.5),
@@ -93,11 +116,12 @@ SELLER_GOODS_WARRANTY_HOURS = 72
 # there is none, and a pricing.json value for it is dropped here whoever wrote it (a person decided this, 2026-11-04).
 UNCAPPED = {"buyer": ("max_spend_per_deal",)}
 # The cautious start, used when a bounded setting is missing a number.
-SAFE = {"restock": {"keep_cash": 3000000, "max_stock_cost": 1000000, "target_per_category": 1, "max_lines": 5,
-                    "max_units_per_sku": 5, "cover_hours": 6, "food_explore_qty": 0, "food_max_qty": 2, "max_break": 0.15,
-                    "goods_max_price": 30000, "max_sku_share": 0.1, "food_max_price": 30000, "band_low": 0.8,
-                    "band_high": 1.2, "prior_break": 0.15, "high_price_goods": 100000, "high_price_max_units": 1,
-                    "high_price_proven_max_units": 2},
+# The working values of 11/06 19:20 (a person, 19:03: not the cautious start of 11/03); the cash buffer still applies.
+SAFE = {"restock": {"keep_cash": 4500000, "max_stock_cost": 150000000, "target_per_category": 1, "max_lines": 10,
+                    "max_units_per_sku": 20, "cover_hours": 6, "food_explore_qty": 1, "food_max_qty": 4, "max_break": 0.15,
+                    "goods_max_price": 45000, "max_sku_share": 0.2, "food_max_price": 30000, "band_low": 0.8,
+                    "band_high": 1.2, "prior_break": 0.15, "high_price_goods": 100000, "high_price_max_units": 20,
+                    "high_price_proven_max_units": 20},
         "warranty": {"on_request_hours": 3, "max_hours": 72, "max_break": 0.25, "prior_break": 0.15},
         "buyer": {"max_price_share": 0.9, "quote_shops": 3},
         "markdown": {"min_floor_share": 0.1, "below_cost": ["food_expiry"]},
@@ -128,9 +152,26 @@ ENV_PASS_PREFIX = ("BUYER_", "SHOP_", "AGENT_", "MARKET_")      # the agents' ow
 ENV_SECRET = r"KEY|TOKEN|SECRET|PASS|OWNER|AUTH|COOKIE|CRED"     # never passed, whatever the prefix
 
 
-def spendable(balance):
-    """The most a restock may spend now without risking the bankruptcy line."""
-    return max(0, (balance or 0) - STOP_BUYING_BELOW)
+def cash_buffer(stock_cost=0, sales=None, now=None):
+    """The cash a buy may not take the balance under: the bankruptcy line, the refunds the shop's warranted goods sales of
+    the last BREAK_HOURS may still bring at the worst observed rate, STORAGE_DAYS of storage on the stock and the worst
+    day's loss. sales: [(unix time, price)] of this shop's warranted goods sales, or None when the ledger could not be
+    read (UNKNOWN_EXPOSURE then). Never under STOP_BUYING_BELOW."""
+    now = now or time.time()
+    span = BREAK_HOURS * 3600
+    if sales is None:
+        owed = UNKNOWN_EXPOSURE
+    else:
+        owed = sum(REFUND_WORST * p * (span - (now - t)) / span for t, p in sales
+                   if number(t) and number(p) and 0 <= now - t < span)
+    stock = stock_cost if number(stock_cost) and stock_cost > 0 else 0
+    return max(STOP_BUYING_BELOW, math.ceil(BANKRUPT_LINE + owed + STORAGE_DAYS * STORAGE_PER_DAY * stock + DAY_LOSS_WORST))
+
+
+def spendable(balance, buffer=STOP_BUYING_BELOW):
+    """The most a restock may spend now without crossing the cash buffer (never less than STOP_BUYING_BELOW)."""
+    floor = buffer if number(buffer) and buffer > STOP_BUYING_BELOW else STOP_BUYING_BELOW
+    return max(0, (balance or 0) - floor)
 
 
 def flat(d, prefix=""):
@@ -159,7 +200,8 @@ def check_policy_change(old, new, step=MAX_STEP):
         step = min(step, MAX_STEP_STRONG)
         rise = number(v) and number(was) and was >= 0 and v >= was
         move = (step if key in BOUNDS else min(step, MAX_STEP_UNBOUNDED)) if rise else min(step, MAX_STEP_DOWN)
-        if number(v) and number(was) and v != was and abs(v - was) > max(abs(was) * move, 1 if isinstance(was, int) else 0):
+        if number(v) and number(was) and v != was and not math.isinf(move) \
+                and abs(v - was) > max(abs(was) * move, 1 if isinstance(was, int) else 0):
             problems.append(f"pricing.json {key} {was} -> {v} moves more than {move:.0%} in one cycle")
         if key in META_FLOOR and number(v) and number(was) and was >= META_FLOOR[key] > v:
             problems.append(f"pricing.json {key} {was} -> {v} goes under {META_FLOOR[key]} (hard_limits.META_FLOOR, a person's line)")
@@ -192,9 +234,10 @@ def clamp_cfg(section, cfg):
     return out
 
 
-def final_buy(buy, balance, catalog, worst=0.75):
-    """The last word on a restock's lines: none that could take the balance under STOP_BUYING_BELOW (at worst cost)."""
-    left, out = spendable(balance), []
+def final_buy(buy, balance, catalog, worst=0.75, buffer=STOP_BUYING_BELOW):
+    """The last word on a restock's lines, just before the kit buys them: none that could take the balance under the cash
+    buffer (cash_buffer, plus what lines already sent will still cost; never under STOP_BUYING_BELOW) at worst cost."""
+    left, out = spendable(balance, buffer), []
     for b in buy if isinstance(buy, list) else []:
         if not isinstance(b, dict) or not isinstance(b.get("qty"), int) or isinstance(b.get("qty"), bool):
             continue
