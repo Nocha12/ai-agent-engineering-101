@@ -16,20 +16,21 @@ def jev(answer, conf=0.97):
     return lambda text: (int(answer) if answer.isdigit() else None, conf)
 
 
+@mock.patch("shop_memory.load_pricing", return_value={})   # the logged shares, whatever pricing.json sets
 class CounterPriceTest(unittest.TestCase):
-    def test_first_round_keeps_most_of_the_gap(self):
+    def test_first_round_keeps_most_of_the_gap(self, _):
         self.assertEqual(negotiate.counter_price(dict(DEAL, rounds=1), 26000), 26000 + round(0.62 * 4000))
 
-    def test_later_rounds_come_closer_to_the_floor(self):
+    def test_later_rounds_come_closer_to_the_floor(self, _):
         prices = [negotiate.counter_price(dict(DEAL, rounds=r), 26000) for r in (1, 2, 3, 4, 9)]
         self.assertEqual(prices, sorted(prices, reverse=True))
         self.assertEqual(prices[-1], 26000 + round(0.25 * 4000))
 
-    def test_never_under_the_reserve_nor_over_the_ask(self):
+    def test_never_under_the_reserve_nor_over_the_ask(self, _):
         self.assertEqual(negotiate.counter_price(dict(DEAL, ask=20000), 15000), 20000)
         self.assertEqual(negotiate.counter_price(DEAL, 40000), 30000)
 
-    def test_at_the_floor_the_price_stays(self):
+    def test_at_the_floor_the_price_stays(self, _):
         self.assertEqual(negotiate.counter_price(dict(DEAL, ask=26000), 26000), 26000)
 
 
@@ -57,7 +58,8 @@ class FormulaSwapTest(unittest.TestCase):
             self.assertEqual(negotiate.counter_price(DEAL, 26000, 99000), 30000)    # over the ask
 
     def test_a_broken_formula_or_bad_shares_fall_back_to_the_logged_one(self):
-        logged = negotiate.counter_price(DEAL, 26000, 21000)
+        with self.with_cfg({}):
+            logged = negotiate.counter_price(DEAL, 26000, 21000)
         for cfg in [{"formula": "no_such_module:f"}, {"formula": "test_negotiate:nothing"},
                     {"formula": "share", "counter_share": ["x"]}, {"formula": "share", "counter_share": [1.5]},
                     {"formula": "share", "counter_share": []}]:

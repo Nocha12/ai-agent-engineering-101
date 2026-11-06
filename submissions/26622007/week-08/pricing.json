@@ -28,7 +28,10 @@
   },
   "objective": "profit",
   "negotiate": {
-    "engine": "jevrule"
+    "engine": "jevrule",
+    "formula": "share",
+    "counter_share": [0.75, 0.6, 0.5, 0.3],
+    "counter_share_source": "메인 11/07 03:22: 역제안 1,755건 재생(replay_formula.py) 1단계 기대 마진 share 지금 [0.62,0.53,0.46,0.25] 10,177 · Pro fitted_counter(negotiate_pro) 10,396 · [0.75,0.6,0.5,0.3] 11,285, 이탈 0.109로 같음. 운영 반영 뒤 30~60분 이탈·결제·마진이 나빠지면 counter_share를 지워 되돌림"
   },
   "concession_food": [0.7, 0.4, 0.15],
   "concession_food_source": "메인 11/07 01:25(가게 협상 점검 2번): 1라운드에 마진 70%까지 받아 줌(Gb2392fa9 18,788에 15,000 즉시 수락; 첫 제안 즉시 수락 121건, 결제 78건 양보 2.07M/6h). 식품부터 [0.7,0.4,0.15]로 시험, 결제율·결렬률을 반영 전후로 비교; 효과 없으면 이 키를 지움",
