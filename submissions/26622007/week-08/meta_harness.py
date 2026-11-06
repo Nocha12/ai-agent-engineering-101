@@ -17,6 +17,7 @@ says so and the shop goes on. The harness commits only under this folder and che
 because the repository's rules forbid both; pushes happen only with META_PUSH=1.
 """
 import datetime
+import importlib
 import json
 import os
 import re
@@ -676,11 +677,19 @@ def strategy_problems(kind, answer, paths):
     return out
 
 
+def refresh_scorecard():
+    """Pick up scorecard changes made while the long-running loop was alive."""
+    importlib.invalidate_caches()
+    return importlib.reload(scorecard)
+
+
 def cycle(kind):
     cid = f"{kind}-{time.strftime('%m%d-%H%M%S')}"
     os.makedirs(os.path.join(ROOT, "meta", "evidence"), exist_ok=True)
     pack = os.path.join(ROOT, "meta", "evidence", f"{cid}.json")
-    card = scorecard.build(ROOT, record=True)
+    # The loop can survive code updates for many hours. Load the current score
+    # formula before each pack rather than retaining the version from startup.
+    card = refresh_scorecard().build(ROOT, record=True)
     card["since_last_cycle"] = since_last(card, kind)
     card["experiments"] = view = experiments()
     lc = card.get("log_counts") or {}

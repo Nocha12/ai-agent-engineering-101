@@ -31,6 +31,17 @@ CATALOG = {"F1": {"name": "포기김치", "kind": "food", "category": "식품>�
 FINAL = restock.FINAL
 
 
+class ScorecardRefreshTest(unittest.TestCase):
+    def test_next_cycle_discards_stale_buyer_formula(self):
+        original = mh.scorecard.OBJECTIVE
+        try:
+            mh.scorecard.OBJECTIVE = {"buyers": [(('surplus',), 0.5)]}
+            refreshed = mh.refresh_scorecard()
+            self.assertEqual(refreshed.OBJECTIVE["buyers"][0], (("saved",), 0.5))
+        finally:
+            mh.scorecard.OBJECTIVE = original
+
+
 def step(action="finish", tool="", args="", evidence=(), final=None):
     return {"reason": "r", "evidence": list(evidence), "action": action, "tool": tool, "args_json": args, "final": final}
 
