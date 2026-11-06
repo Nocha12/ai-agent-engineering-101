@@ -64,15 +64,15 @@ class HopelessTest(unittest.TestCase):
     def test_gives_up_only_when_every_shop_sku_asked_over_the_limit_enough_times(self):
         cfg = {"max_price_share": 1.0}
         shop = lambda n, sku, lp: {"name": n, "usable": [{"sku": sku, "list_price": lp}]}
-        pool = [shop("a", "A", 100), shop("b", "B", 100)]          # limit 75 each (Saved keeps 25% of list)
-        over = {"A": [80, 90], "B": [76, 99]}
+        pool = [shop("a", "A", 100), shop("b", "B", 100)]          # limit 70 each (Saved keeps 30% of list)
+        over = {"A": [80, 90], "B": [71, 99]}
         self.assertTrue(market_buyer.hopeless(pool, 1000, over, cfg))
-        self.assertFalse(market_buyer.hopeless(pool, 1000, {**over, "B": [75, 99]}, cfg))     # one ask at the limit
+        self.assertFalse(market_buyer.hopeless(pool, 1000, {**over, "B": [70, 99]}, cfg))     # one ask at the limit
         self.assertFalse(market_buyer.hopeless(pool, 1000, {**over, "B": [99]}, cfg))         # too few asks
         self.assertFalse(market_buyer.hopeless(pool, 1000, {"A": [80, 90]}, cfg))             # B never asked
         self.assertFalse(market_buyer.hopeless([], 1000, over, cfg))
-        self.assertTrue(market_buyer.hopeless(pool, 70, {"A": [71, 72], "B": [71, 80]}, cfg))   # the budget is the limit
-        self.assertFalse(market_buyer.hopeless(pool, 70, {"A": [70, 72], "B": [71, 80]}, cfg))
+        self.assertTrue(market_buyer.hopeless(pool, 65, {"A": [66, 72], "B": [66, 80]}, cfg))   # the budget is the limit
+        self.assertFalse(market_buyer.hopeless(pool, 65, {"A": [65, 72], "B": [66, 80]}, cfg))
 
     def test_the_give_up_rule_stays_as_replayed(self):
         # pinned (11/06 replay: 3 h and 2 asks gave up 5 of 361 orders and none of the 165 paid; 6 h lost one paid order)

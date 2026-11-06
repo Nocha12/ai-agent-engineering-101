@@ -90,12 +90,15 @@ SHORT_WARRANTY_MIN = 2      # of them, this many short of my warranty: goods ord
 FOOD_TAKE_ASK = True        # food: an ask within my limit is taken as it is. Of 572 food orders in 24 h to 11/05 23:40 whose
 #                             first ask was within the limit, countering saved 559,509 in all and lost 193 deals (616,884 of
 #                             list less first ask): deals are 10% of the rank and food surplus is about 7,000 a deal
-FOOD_TAKE_SHARE = 0.70      # ... but only an ask at or under this share of list. Patch 3.4 (11/06 06:00) scores Saved, the mean
+FOOD_TAKE_SHARE = 0.65      # ... but only an ask at or under this share of list (0.70 until SAVED_MIN_SHARE went to 0.30). Patch 3.4 (11/06 06:00) scores Saved, the mean
 #                             share of list kept per deal over deals + 100, and a deal below my Saved (0.2415) lowers it: food
 #                             taken as asked kept a median 10% in the 6 h to 07:28 (126 of 150 under 0.2415; GPT Pro 11/06 07:30 B1)
-SAVED_MIN_SHARE = 0.25      # the share of list a deal must be expected to keep: the limit is list (1 - 0.25 / (1 - b)), b the
+SAVED_MIN_SHARE = 0.30      # the share of list a deal must be expected to keep: the limit is list (1 - 0.30 / (1 - b)), b the
 #                             chance goods break (a break under warranty refunds and keeps 0). Of our 385 deals in that 6 h,
-#                             the 111 at 25% or more would have raised Saved 0.2415 -> 0.2441, all 385 lowered it to 0.2360
+#                             the 111 at 25% or more would have raised Saved 0.2415 -> 0.2441, all 385 lowered it to 0.2360.
+#                             0.25 -> 0.30 on 11/06 19:50: Saved 0.2465 is our weakest part (0.5 x percentile 0.63 against
+#                             0.92-0.99 for the top 5 buyers). Of our 299 deals in the 8 h to 19:50 (mean share 0.342), the 218
+#                             at 30% or more kept a mean 0.368; a deal at 25-30% adds little now and pulls the final mean down
 SHORT_WARRANTY_HOURS = 3    # only receipts this recent count, so a shop that changed is tried again: yms979 sold goods
 #                             with a warranty for days before it turned to 0 h, and a shop that turns back is not lost for long
 
