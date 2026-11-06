@@ -494,14 +494,23 @@ def request_text(label, key, order):
     return f"I want to buy {label} ({key}){extra}"
 
 
+WORD_HOURS = {w: str(i) for i, w in enumerate(("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+                                               "ten", "eleven", "twelve"))}
+
+
 def warranty_refused(text, order):
     """The shop says, before any offer, that this goods unit comes without the warranty I need: stop and cancel."""
     if order.get("kind") != "goods":
         return None
-    if re.search(r"without (a |any )?warranty|no warranty|warranty is not|cannot offer a warranty", text or "", re.I):
+    t = text or ""
+    if re.search(r"without (a |any )?warranty|no (breakage |refund )?warranty|warranty is not|cannot offer a warranty", t, re.I):
         return "the shop sells it without a warranty"
-    hours = [float(h) for h in re.findall(r"(\d+(?:\.\d+)?)\s*(?:h|hours?|시간)\s*warranty", text or "", re.I)]
-    hours += [float(h) for h in re.findall(r"warranty\s*[=:]\s*(\d+(?:\.\d+)?)\s*h\b", text or "", re.I)]
+    # 11/06 GPT Pro 21:20 B1: "Warranty: 0 hours", "warranty 0 h" and "three-hour full-refund warranty" were missed, and
+    # 16 orders went on with such a quote (0 paid, 769 s spent); numbers in words up to twelve are read too.
+    num = r"(\d+(?:\.\d+)?|" + "|".join(WORD_HOURS) + r")"
+    hours = re.findall(num + r"[\s-]*(?:h|hours?|시간)\b[\s-]*(?:[a-z-]+[\s-]+){0,2}?warranty", t, re.I)
+    hours += re.findall(r"warranty\s*(?:[=:]|of|for|is)?\s*" + num + r"\s*(?:h|hours?|시간)\b", t, re.I)
+    hours = [float(WORD_HOURS.get(h.lower(), h)) for h in hours]
     if hours and max(hours) < hard_limits.BUYER_GOODS_WARRANTY_HOURS:
         return f"the shop offers only a {max(hours):g} h warranty"
     return None
@@ -515,6 +524,7 @@ def shelf_refused(text, order):
     t = text or ""
     hours = [float(h) for h in re.findall(r"(\d+(?:\.\d+)?)\s*(?:h|hours?)\s+(?:of\s+)?shelf[ -]life\s+left", t, re.I)]
     hours += [float(h) for h in re.findall(r"shelf_(?:life_)?left\s*[=:]\s*(\d+(?:\.\d+)?)\s*h\b", t, re.I)]
+    hours += [float(h) for h in re.findall(r"remaining shelf[ -]life\s*(?:is|of|[=:])?\s*(\d+(?:\.\d+)?)\s*(?:h|hours?)\b", t, re.I)]
     need = order["use_within_hours"] + SHELF_MARGIN
     hours = [h + 0.5 if h.is_integer() else h for h in hours]    # "about 48 h" may be 48.4: rounded, not short
     if hours and max(hours) < need:

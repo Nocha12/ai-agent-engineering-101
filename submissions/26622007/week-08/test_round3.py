@@ -481,6 +481,16 @@ class BuyerTest(unittest.TestCase):
         self.assertIsNone(market_buyer.warranty_refused("no warranty", self.ORDER))
         self.assertTrue(market_buyer.warranty_refused("unit=u-1 grade=C | warranty=3h, full refund if it breaks", g))
         self.assertIsNone(market_buyer.warranty_refused("warranty=6h, full refund if it breaks", g))
+        # GPT Pro 21:20 B1: phrasings real shops sent (measure orders.jsonl 11/06)
+        for t in ("Inventory condition: A. Confirm the certificate at checkout. Warranty: 0 hours.",
+                  "cheapest in town, warranty 0 h, asking 120000",
+                  "(grade C, three-hour full-refund warranty, price capped by grade): asking 1624000.",
+                  "Grade C: refurbished. No breakage warranty offered. One unit at the quoted price",
+                  "It comes with a 3-hour warranty."):
+            self.assertTrue(market_buyer.warranty_refused(t, g), t)
+        for t in ("grade A, 72-hour full-refund warranty", "Warranty: 6 hours, full refund", "six-hour warranty included",
+                  "warranty of 72 h", "Require 6-hour warranty"):
+            self.assertIsNone(market_buyer.warranty_refused(t, g), t)
 
     def test_food_asks_for_its_shelf_life_and_a_short_unit_is_refused_before_any_offer(self):
         self.assertIn("Must last at least 48.1 hours", market_buyer.request_text("김치", "F1", self.ORDER))
@@ -488,6 +498,8 @@ class BuyerTest(unittest.TestCase):
         self.assertIn("20.3 h", short("asking 9000. 20.3 hours of shelf life left. Send your offer", self.ORDER))
         self.assertTrue(short("grade A, 12 h of shelf life left, certificate attached", self.ORDER))
         self.assertTrue(short("| 30.5 h shelf life left | no warranty |", self.ORDER))
+        self.assertTrue(short("asking price 6726. Remaining shelf life is 36.96h (not a long-term guarantee)", self.ORDER))
+        self.assertIsNone(short("asking price 6726. Remaining shelf life is 361.96h (not a long-term guarantee)", self.ORDER))
         self.assertTrue(short("grade=C cert=market-signed shelf_left=7h | list=10000", self.ORDER))
         self.assertTrue(short("(sku=G1, grade=C, shelf_life_left=40.2h): asking price 4050", self.ORDER))
         self.assertIsNone(short("asking 9000. 351.1 hours of shelf life left.", self.ORDER))
