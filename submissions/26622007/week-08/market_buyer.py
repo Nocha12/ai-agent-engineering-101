@@ -674,10 +674,12 @@ def quote(shop, label, key, order, out, ctl=None):
         log(f"[quote] {shop['name']}: {type(e).__name__}: {e}")
 
 
-TALK_OVER_SHARE = 0.10  # the best opening ask more than this over my limit: the order ends without a talk. 0.03 from 11/07 02:17;
+TALK_OVER_SHARE = 0.20  # the best opening ask more than this over my limit: the order ends without a talk. 0.03 from 11/07 02:17;
 #                         11/07 05:30 to 0.10: before it asks 3-6% over closed 37 of 56 talks, 6-10% over 17 of 54 (0.34 of list
 #                         kept, above my saved 0.258), 10-20% over 6 of 33; after it 175 orders 3-10% over closed none and my
 #                         conversion fell to 0.24 (market 0.46); a talk is ~8 s now and the 20 s an order floor takes ~3 s of it
+#                         05:30-06:00 at 0.10: 3-10% over closed 8 of 14, deals 37 -> 54/h, conversion 0.26 -> 0.40; 06:00 to 0.20
+#                         for the 25 orders 10-20% over that ended untalked (6 of 33 closed before, 0.32 of list kept)
 QUOTE_NEXT_SHARE = 0.7  # share of a batch answered with no ask within my limit before the next batch is asked (11/07 01:00: 52 of
 #                         97 orders had none in the first 10, found 17 s on average into the quotes, the slowest shop setting it)
 QUOTE_ROUNDS = 3       # batches of quote_shops shops asked while none so far had a unit for me (another buyer holds it)

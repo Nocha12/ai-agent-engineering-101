@@ -220,7 +220,7 @@ class MainOverlap(unittest.TestCase):
 
     def test_no_ask_near_my_limit_ends_the_order_without_a_talk(self):
         shops = [dict(shop(n), offers=[{"sku": "H1", "name": "청소기", "qty": 1}]) for n in "abcdef"]
-        out, events, took, orders = self.run_main(shops, asks={"c": 7800})       # limit 7000: 11% over
+        out, events, took, orders = self.run_main(shops, asks={"c": 8750})       # limit 7000: 25% over
         self.assertNotIn("talk", [w for w, _ in events])
         self.assertEqual(orders[-1]["state"], "NO_VALUE")
         self.assertIsNone(out["receipt"])
@@ -229,6 +229,12 @@ class MainOverlap(unittest.TestCase):
     def test_an_ask_just_over_my_limit_is_still_talked_down(self):
         shops = [dict(shop(n), offers=[{"sku": "H1", "name": "청소기", "qty": 1}]) for n in "abcdef"]
         out, events, took, orders = self.run_main(shops, asks={"c": 7150})       # 2% over
+        self.assertIn("talk", [w for w, _ in events])
+
+    def test_an_ask_15_percent_over_my_limit_is_talked_down(self):
+        # 11/07 05:30-06:00 at 0.10: asks 10-20% over, 25 orders, no talk; before 02:17 they closed 6 of 33 talks
+        shops = [dict(shop(n), offers=[{"sku": "H1", "name": "청소기", "qty": 1}]) for n in "abcdef"]
+        out, events, took, orders = self.run_main(shops, asks={"c": 8050})
         self.assertIn("talk", [w for w, _ in events])
 
     def test_an_ask_7_percent_over_my_limit_is_talked_down(self):
