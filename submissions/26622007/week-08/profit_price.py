@@ -49,11 +49,17 @@ def opening(f, list_price, median=None, kind=None, paid=(), cfg=None, scarce=Non
     scarce: a fixed ask set in pricing.json for a SKU that sells out within minutes of each window (quote()); it is a
     number, not a factor, because our own sales feed the median and a factor would climb from sale to sale."""
     cfg = cfg or DEFAULTS
+    up = cfg["median_up"]
+    high = cfg.get("high_median_up")        # {"min_list", "factor"}: dear goods open at the market's price, not over it
+    if isinstance(high, dict) and kind == "goods" and isinstance(high.get("factor"), (int, float)) \
+            and not isinstance(high.get("factor"), bool) and 0.5 <= high["factor"] <= cfg["median_up"] \
+            and isinstance(high.get("min_list"), (int, float)) and (list_price or 0) >= high["min_list"]:
+        up = high["factor"]
     if median:
-        target, why = cfg["median_up"] * median, f"1.05 x median {round(median)}"
+        target, why = up * median, f"{up:g} x median {round(median)}"
     else:
         ratio = (cfg.get("kind_ratio") or {}).get(kind) or DEFAULTS["kind_ratio"].get(kind, 0.75)
-        target, why = cfg["median_up"] * ratio * list_price, f"1.05 x {ratio:.1%} of list (no SKU median)"
+        target, why = up * ratio * list_price, f"{up:g} x {ratio:.1%} of list (no SKU median)"
     if paid and (median is None or cfg.get("paid_over_median", True)):
         # price.paid_over_median false: with a ledger median our own best price is no longer a floor for the first ask.
         # It held 353 of 433 first asks on 30만+ goods at 0.934 of list (11/06 11:02-17:18) while the top five sold the

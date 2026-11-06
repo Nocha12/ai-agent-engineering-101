@@ -127,6 +127,34 @@ def listed(cfg):
     return out
 
 
+def fill_listed(ranked, model, catalog, have_sku, cfg, factors=None, hours_left=float("inf"), breaks=None):
+    """restock.fill_listed: each listed SKU with a sku_target_units target is asked up to it, not to the demand model's
+    rate x my_share x cover. The model's share is our own past share, so a shop that lost quotes on price asked for
+    1-5 units of goods the market sells 25-56 an hour (G8ec51935: target 10, the model 5, 7 held, 11/06 19:01) and
+    held 53M of stock under a 120M cap with 60M cash idle. Only SKUs whose expected margin at the market's price is
+    positive (refunds at the SKU's ledger break rate when there is one, else prior_break: at 0.15 G8ec51935, 9% in the
+    ledger, came out at -0.4% of list); guard() still applies every cap."""
+    if cfg.get("fill_listed") is not True or not isinstance(cfg.get("sku_target_units"), dict) \
+            or hours_left * cfg.get("end_cover", 0.5) < cfg.get("cover_hours", 6):    # the last day: the model's own targets
+        return ranked
+    want = {sku: q for _, sku, q in ranked}
+    for sku in listed(cfg):
+        t, x, m = cfg["sku_target_units"].get(sku), catalog.get(sku) or {}, (model.get("skus") or {}).get(sku)
+        if not isinstance(t, int) or isinstance(t, bool) or not x.get("list_price") or not m:
+            continue
+        cost = x["list_price"] * EXPECTED_COST.get(x.get("kind"), EXPECTED_COST["goods"]) * (factors or {}).get(sku, 1.0)
+        refund = (cfg.get("prior_break") or 0) if x.get("kind") == "goods" else 0
+        measured = market_model.break_chance(breaks, sku) if breaks and x.get("kind") == "goods" else None
+        refund = measured if measured is not None else refund
+        if x["list_price"] * m["price_ratio"] * (1 - refund) - cost <= 0:
+            continue
+        need = min(MAX_LOT, t - have_sku[sku])
+        if need > want.get(sku, 0):
+            want[sku] = need
+    order = [sku for _, sku, _ in ranked] + [s for s in want if s not in {sku for _, sku, _ in ranked}]
+    return [(0, sku, want[sku]) for sku in order if want[sku] > 0]
+
+
 def plan(inv, catalog, demand, cfg, model=None, breaks=None, waiting=()):
     """The hook's answer for this state."""
     balance, units = inv.get("balance") or 0, inv.get("units") or []
@@ -141,6 +169,7 @@ def plan(inv, catalog, demand, cfg, model=None, breaks=None, waiting=()):
     picks = []
     if active:      # the caps first, over the whole ranked list, then the line limit: a line the food cap empties is
         ranked = wanted(model, catalog, have_sku, balance, cfg, hours_left, surge(inv))   # refilled by the next one that fits
+        ranked = fill_listed(ranked, model, catalog, have_sku, cfg, surge(inv), hours_left, breaks)
         # proven / priority SKUs first, so the guard gives them the stock-cost room and the line limit cannot cut them:
         # ranked per won a mattress came below the cut (04:59 run left out G1515d951 that the guard allowed 3 of, and
         # G75f11c19 got 0 room in every run 04:44-05:02), and proven_first() only sees the lines plan() returns

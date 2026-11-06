@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -313,3 +314,45 @@ class PlanWithModelTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CapitalScale7Test(unittest.TestCase):
+    """W-20261106-1900: the last hours' median prices the dear goods, listed SKUs fill to their targets."""
+
+    def test_price_hours_takes_the_recent_median(self):
+        rows = many(10, amount=18000, age_hours=20) + many(5, 100, amount=14000, age_hours=1)
+        old = mm.estimate(rows, CATALOG, now=NOW, cfg={"min_settles": 1})["skus"]["F1"]["price_ratio"]
+        new = mm.estimate(rows, CATALOG, now=NOW, cfg={"min_settles": 1, "price_hours": 3})["skus"]["F1"]["price_ratio"]
+        self.assertAlmostEqual(old, 0.9)
+        self.assertAlmostEqual(new, 0.7)
+        few = mm.estimate(many(10, amount=18000, age_hours=20) + many(2, 100, amount=14000, age_hours=1), CATALOG, now=NOW,
+                          cfg={"min_settles": 1, "price_hours": 3})["skus"]["F1"]["price_ratio"]
+        self.assertAlmostEqual(few, 0.9)        # under min_prices recent deals: the whole log, as before
+
+    def plan(self, m, units=(), **cfg):
+        base = {**CFG, "explore_lines": 0, "cover_hours": 1, "sku_target_units": {"H2": 6}, "priority_skus": ["H2"]}
+        return restock.plan({"balance": 50000000, "units": list(units)}, CATALOG, DEMAND, {**base, **cfg}, m)["buy"]
+
+    def test_fill_listed_asks_up_to_the_target(self):
+        m = model(H2={"rate": 2.0, "my_share": 0.02, "price_ratio": 0.75})
+        with mock.patch("sys.stderr"):
+            self.assertEqual(self.plan(m), [])                       # 2/h x 2% x 1 h: under min_expected
+            self.assertEqual(self.plan(m, fill_listed=True), [{"sku": "H2", "qty": 6}])
+            held = [{"unit": "u1", "sku": "H2", "kind": "goods", "cost": 500000}]
+            self.assertEqual(self.plan(m, units=held, fill_listed=True), [{"sku": "H2", "qty": 5}])
+
+    def test_fill_listed_skips_a_loss_and_the_last_day(self):
+        with mock.patch("sys.stderr"):
+            self.assertEqual(self.plan(model(H2={"rate": 2.0, "my_share": 0.02, "price_ratio": 0.6}), fill_listed=True, prior_break=0.1), [])
+            late = {"fill_listed": True, "round_ends_at": time.time() + 3600}
+            self.assertEqual(self.plan(model(H2={"rate": 2.0, "my_share": 0.02, "price_ratio": 0.75}), **late), [])
+
+    def test_high_goods_open_at_the_median(self):
+        import profit_price
+        cfg = {**profit_price.DEFAULTS, "high_median_up": {"min_list": 300000, "factor": 1.0}}
+        dear = profit_price.opening(100, 1000000, median=700000, kind="goods", cfg=cfg)
+        cheap = profit_price.opening(100, 100000, median=70000, kind="goods", cfg=cfg)
+        self.assertEqual((dear[0], cheap[0]), (700000, 73500))
+        bad = {**cfg, "high_median_up": {"min_list": 300000, "factor": 0.1}}     # out of range: the usual 1.05
+        self.assertEqual(profit_price.opening(100, 1000000, median=700000, kind="goods", cfg=bad)[0], 735000)
+        self.assertEqual(profit_price.opening(800000, 1000000, median=700000, kind="goods", cfg=cfg)[0], 800000)  # floor

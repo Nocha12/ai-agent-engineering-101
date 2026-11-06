@@ -229,7 +229,10 @@ def estimate(rows, catalog, me_buyers=(), me_shops=(), now=None, cfg=None):
     hl = cfg["half_life_hours"] * 3600
     weight = lambda ts: 0.5 ** (max(0, now - ts) / hl)
 
-    sku = collections.defaultdict(lambda: {"c": 0.0, "mine": 0.0, "ratios": [], "buyers": set(), "sellers": set(), "deals": 0})
+    sku = collections.defaultdict(lambda: {"c": 0.0, "mine": 0.0, "ratios": [], "recent": [], "buyers": set(), "sellers": set(),
+                                           "deals": 0})
+    recent = cfg.get("price_hours")
+    recent = recent * 3600 if isinstance(recent, (int, float)) and not isinstance(recent, bool) and recent > 0 else None
     cat = collections.defaultdict(float)
     prefs = collections.defaultdict(lambda: collections.defaultdict(float))
     used = 0
@@ -237,6 +240,8 @@ def estimate(rows, catalog, me_buyers=(), me_shops=(), now=None, cfg=None):
         x, w = catalog[r["sku"]], weight(r["ts"])
         if isinstance(r.get("amount"), (int, float)) and x.get("list_price"):
             sku[r["sku"]]["ratios"].append(r["amount"] / x["list_price"])
+            if recent and now - r["ts"] <= recent:
+                sku[r["sku"]]["recent"].append(r["amount"] / x["list_price"])
         prefs[r["buyer"]][x["category"]] += w        # favourites are a fact about the buyer, reachable or not
         if r["buyer"] in me_buyers or r["buyer"] in captive:
             continue
@@ -267,7 +272,11 @@ def estimate(rows, catalog, me_buyers=(), me_shops=(), now=None, cfg=None):
         # and stock that really does not sell blocks its own rebuying (restock counts what I have)
         prior = 1 / (1 + len(s["sellers"]))
         skus[k] = {"rate": rate, "my_share": max(prior, s["mine"] / s["c"]),
-                   "price_ratio": statistics.median(s["ratios"]) if len(s["ratios"]) >= cfg["min_prices"] else typical,
+                   # price_hours: the median of the last hours' deals, when there are enough. The whole-round median
+                   # ran 0.73-0.78 of list on the 30만+ goods while their last 2 h settled at 0.65-0.73 (ledger 11/06
+                   # 17:00-19:00), so 1.05 x it opened above every winning quote: 10 of 52 quotes won after 18:22
+                   "price_ratio": statistics.median(s["recent"]) if recent and len(s["recent"]) >= cfg["min_prices"]
+                   else statistics.median(s["ratios"]) if len(s["ratios"]) >= cfg["min_prices"] else typical,
                    "deals": s["deals"], "buyers": len(s["buyers"]), "sellers": len(s["sellers"])}
     return {"active": used >= cfg["min_settles"], "n": used, "skus": skus,
             "cats": {c: {"rate": w / hours} for c, w in cat.items()},
