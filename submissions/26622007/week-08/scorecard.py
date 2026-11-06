@@ -122,7 +122,7 @@ def next_step(rows, field, mine, weight, p, raw=False):
 
 
 HISTORY = os.path.join(".market", "board_history.jsonl")
-GROWTH_HOURS = (6, 12)
+GROWTH_HOURS = (3, 6, 12)  # 3 h: the Pro cycle judges every 3 h (GPT Pro 11/07 01:35 §9, 04:30 §9)
 HISTORY_HOURS = 13         # the history keeps what the longest growth window needs
 FORUM = next(names for names, _ in OBJECTIVE["buyers"] if "forum" in names)
 
@@ -227,7 +227,7 @@ def cache_drop(md, now=None):
 
 def race(b, past, now=None):
     """Where Nocha12 stands among Everyone players: rank, the gap to the leader and to the player just above, and how
-    fast each of the three grew over the last 6 and 12 hours (from .market/board_history.jsonl, one line per cycle). A
+    fast each of the three grew over the last 3, 6 and 12 hours (from .market/board_history.jsonl, one line per cycle). A
     gap closes only if I grow faster than the player above: the growth says whether the current strategy can do it."""
     now = time.time() if now is None else now
     players = [r for r in b.get("players") or [] if isinstance(r.get("total"), (int, float))]

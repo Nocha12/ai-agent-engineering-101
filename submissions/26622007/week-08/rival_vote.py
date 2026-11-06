@@ -56,9 +56,11 @@ def jsonl(path):
         with open(path, encoding="utf-8") as f:
             for line in f:
                 try:
-                    out.append(json.loads(line))
+                    x = json.loads(line)
                 except ValueError:
-                    pass
+                    continue
+                if isinstance(x, dict):      # every run reads these now: a stray non-object line must not stop it
+                    out.append(x)
     except OSError:
         pass
     return out
@@ -141,18 +143,21 @@ def plan(targets, posts, authors, sent, state, fee, now, queued=()):
     return [], "no rival within band with enough unvoted posts"
 
 
-def remember_authors(state, posts, keep=5000):
-    """Post id -> author, kept across runs: forum.json holds only the newest 100 posts."""
+def remember_authors(state, posts, keep=5000, voted=()):
+    """Post id -> author, kept across runs: forum.json holds only the newest 100 posts. The trim keeps the newest
+    `keep` and every post in `voted`: a vote whose post lost its author drops out of my net (11/07 05:30, 98 of 158
+    counted votes had, and four rivals read -1 while the market's net was still +1 to +3)."""
     authors, buyers = state.setdefault("authors", {}), state.setdefault("buyer_posts", {})
     for p in posts:
         if p.get("id") is not None and p.get("author"):
             authors[str(p["id"])] = p["author"]
             if p.get("role") == "buyer":       # a vote on a shop post does not reach the buyer's rating
                 buyers[str(p["id"])] = p["author"]
+    held = {str(v) for v in voted}
     for m in (authors, buyers):
-        if len(m) > keep:
-            for k in sorted(m, key=lambda k: int(k) if k.isdigit() else 0)[:len(m) - keep]:
-                m.pop(k)
+        rest = [k for k in sorted(m, key=lambda k: int(k) if k.isdigit() else 0) if k not in held]
+        for k in rest[:max(0, len(rest) - keep)]:
+            m.pop(k)
     return authors
 
 
@@ -186,15 +191,15 @@ def maybe_run(md, fetch=None, now=None):
         state = state if isinstance(state, dict) else {}
         posts = load(os.path.join(md, "forum.json"), [])
         posts = posts if isinstance(posts, list) else []
-        authors = remember_authors(state, posts)
+        sent = jsonl(os.path.join(md, "outbox.sent.jsonl"))
+        queued = jsonl(os.path.join(md, "outbox.jsonl"))      # forum.py's likes of this minute wait here
+        authors = remember_authors(state, posts, voted=my_votes(sent, {}, queued)[1] | {str(i) for i in state.get("pending", [])})
         lines = []
         if now - state.get("at", 0) >= EVERY_MINUTES * 60:
             state["at"] = now
             board = fetch() if fetch else httpx.get(f"{MARKET}/api/board", timeout=20).json()
             targets = rivals(board)
             fee = load(os.path.join(md, "inventory.json"), {}).get("next_dislike_fee")
-            sent = jsonl(os.path.join(md, "outbox.sent.jsonl"))
-            queued = jsonl(os.path.join(md, "outbox.jsonl"))      # forum.py's likes of this minute wait here
             recheck(state, authors, sent, queued)
             lines, why = plan(targets, seen_posts(state, posts), authors, sent, state, fee, now, queued)
             print(f"[rival_vote] rivals {targets}: {why}", file=sys.stderr, flush=True)

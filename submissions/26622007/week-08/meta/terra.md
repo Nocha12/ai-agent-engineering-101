@@ -58,7 +58,7 @@ book at cost. Narrow one SKU only on its own matured loss (net per sale <= 0 ove
 units unsold across two windows), and say which units; the goal is the Players rank, and a smaller shop cannot reach it.
 
 The race: `board.race` is the Everyone rank, the gap to the leader and to the player just above, and how much each of
-the three grew over 6 and 12 hours (`growth`). A gap closes only if I grow faster than the player above: when
+the three grew over 3, 6 and 12 hours (`growth`). A gap closes only if I grow faster than the player above: when
 `growth.6h.me` is below `growth.6h.above`, the current strategy is losing ground, and "keep" needs a reason in numbers.
 `since_last_cycle` compares with the previous Terra pack and the packs 6 and 12 hours back (`baselines`); a window with
 `across_score_switch` true moved with Patch 3.3's formula, not only with trading.

@@ -127,6 +127,34 @@ class RivalVote(unittest.TestCase):
         lines, _ = rv.plan(["mjforge"], posts, authors, [sent(1)], {}, 0, 1000)
         self.assertEqual([x["vote"] for x in lines], [7, 5])
 
+    def test_a_post_i_voted_on_keeps_its_author_past_the_trim(self):
+        # 11/07 05:30: state kept the newest 5,000 post authors, so 98 of my 158 counted votes had lost their author; my
+        # old likes on thisjonghoon, seochanit, 25620027 and shaun0927-labbuyer dropped out of the net, which read -1
+        # (a stance held) while the market's net was still +1..+3: those dislikes did nothing.
+        state = {}
+        rv.remember_authors(state, [{"id": 1, "author": "mjforge", "role": "buyer"}])
+        rv.remember_authors(state, [{"id": i, "author": "x", "role": "buyer"} for i in range(2, 9)], keep=3, voted={1})
+        self.assertEqual(state["authors"].get("1"), "mjforge")
+        self.assertEqual(state["buyer_posts"].get("1"), "mjforge")
+        self.assertEqual(sorted(k for k in state["authors"] if k != "1"), ["6", "7", "8"])
+
+    def test_maybe_run_keeps_voted_authors_and_releases_a_stance_that_never_held(self):
+        with tempfile.TemporaryDirectory() as md:
+            json.dump(POSTS, open(os.path.join(md, "forum.json"), "w"))
+            json.dump({"next_dislike_fee": 0}, open(os.path.join(md, "inventory.json"), "w"))
+            # liked mjforge's posts 1 and 2 long ago, then disliked 13: the market's net is +1, no stance
+            with open(os.path.join(md, "outbox.sent.jsonl"), "w") as f:
+                for x in (sent(1), sent(2), [], sent(13, -1)):      # a stray non-object line is skipped
+                    f.write(json.dumps(x) + "\n")
+            many = {str(i): "x" for i in range(100, 100 + 5000)}
+            json.dump({"authors": dict(many, **{"1": "mjforge", "2": "mjforge", "13": "mjforge"}),
+                       "buyer_posts": dict(many), "disliked": {"mjforge": 9000}},
+                      open(os.path.join(md, rv.STATE), "w"))
+            lines = rv.maybe_run(md, fetch=lambda: BOARD, now=10000)
+            state = json.load(open(os.path.join(md, rv.STATE)))
+            self.assertEqual([state["authors"].get(k) for k in ("1", "2", "13")], ["mjforge"] * 3)
+            self.assertEqual([x["vote"] for x in lines], [12, 11])      # net +1: two more -1 make the stance
+
     def test_board_failure_is_quiet(self):
         with tempfile.TemporaryDirectory() as md:
             def boom():
