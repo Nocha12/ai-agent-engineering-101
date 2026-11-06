@@ -15,7 +15,14 @@ same price guards after this as after the harness.
 
 Switch: NEGOTIATE_ENGINE=jevrule|llm in the environment, else pricing.json "negotiate": {"engine": ...}, read at every
 turn so it goes off without a restart.
+
+The counter price formula is swappable, also read at every turn (메인 11/07 02:10: GPT Pro writes one from the logs):
+  "negotiate": {"formula": "share", "counter_share": [0.62, 0.53, 0.46, 0.25]}   the logged formula (default)
+  "negotiate": {"formula": "module:function"}   function(state) -> price; state is the deal plus floor, offer, round
+Whatever a formula returns is held inside [max(floor, reserve), ask]; a formula that fails, or shares that are not
+numbers in [0, 1], fall back to the logged one. Both keys are a person's settings (hard_limits.FIXED).
 """
+import importlib
 import os
 import random
 import re
@@ -57,11 +64,46 @@ def engine_on():
     return isinstance(cfg, dict) and str(cfg.get("engine", "")).lower() == "jevrule"
 
 
-def counter_price(deal, floor):
-    """The counter for this round: inside [max(floor, reserve), ask]."""
+def share_price(state, shares=COUNTER_SHARE):
+    """floor + share[round] x (ask - floor), the last share repeating."""
+    share = shares[min(max(state["round"], 1), len(shares)) - 1]
+    return state["floor"] + share * (state["ask"] - state["floor"])
+
+
+def _shares(v):
+    ok = isinstance(v, list) and v and all(isinstance(s, (int, float)) and not isinstance(s, bool) and 0 <= s <= 1 for s in v)
+    return v if ok else COUNTER_SHARE
+
+
+def formula():
+    """The counter price function named in pricing.json negotiate.formula (see the module docstring)."""
+    cfg = shop_memory.load_pricing().get("negotiate")
+    cfg = cfg if isinstance(cfg, dict) else {}
+    name = str(cfg.get("formula") or "share")
+    if ":" in name:
+        mod, _, fn = name.partition(":")
+        try:
+            f = getattr(importlib.import_module(mod), fn)
+            if callable(f):
+                return f
+        except Exception:  # noqa: BLE001 - a broken formula falls back to the logged one
+            pass
+        return share_price
+    shares = _shares(cfg.get("counter_share"))
+    return lambda state: share_price(state, shares)
+
+
+def counter_price(deal, floor, offer=0):
+    """The counter for this round from the configured formula, held inside [max(floor, reserve), ask]."""
     least = max(floor, deal["reserve"])
-    share = COUNTER_SHARE[min(max(deal["rounds"], 1), len(COUNTER_SHARE)) - 1]
-    return int(min(max(round(floor + share * (deal["ask"] - floor)), least), deal["ask"]))
+    state = dict(deal, floor=floor, offer=offer, round=deal["rounds"])
+    try:
+        p = float(formula()(state))
+        if p != p or p in (float("inf"), float("-inf")):
+            raise ValueError(p)
+    except Exception:  # noqa: BLE001
+        p = share_price(state)
+    return int(min(max(round(p), least), deal["ask"]))
 
 
 def read_offer(text, deal, jev):
@@ -95,7 +137,7 @@ def seller_turn(text, deal, floor, jev=None, max_rounds=None):
     if offer >= least:
         return {"buyer_offer": offer, "action": "accept", "price": offer, "message": "",
                 "why": f"jevrule offer {offer} >= floor {least}"}
-    price = counter_price(deal, floor)
+    price = counter_price(deal, floor, offer)
     if max_rounds is not None and deal["rounds"] >= max_rounds:
         line = LAST
     elif price <= deal["reserve"]:

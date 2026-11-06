@@ -32,6 +32,38 @@ class CounterPriceTest(unittest.TestCase):
         self.assertEqual(negotiate.counter_price(dict(DEAL, ask=26000), 26000), 26000)
 
 
+def pro_formula(state):
+    """A stand-in for a formula module (negotiate.formula "module:function")."""
+    return state["offer"] + 1000
+
+
+class FormulaSwapTest(unittest.TestCase):
+    def with_cfg(self, cfg):
+        return mock.patch("shop_memory.load_pricing", return_value={"negotiate": cfg})
+
+    def test_the_shares_come_from_pricing_json(self):
+        with self.with_cfg({"formula": "share", "counter_share": [0.9, 0.5]}):
+            self.assertEqual(negotiate.counter_price(dict(DEAL, rounds=1), 26000, 21000), 26000 + round(0.9 * 4000))
+            self.assertEqual(negotiate.counter_price(dict(DEAL, rounds=7), 26000, 21000), 26000 + round(0.5 * 4000))
+
+    def test_a_formula_module_replaces_the_price(self):
+        with self.with_cfg({"formula": "test_negotiate:pro_formula"}):
+            self.assertEqual(negotiate.counter_price(DEAL, 26000, 27000), 28000)
+
+    def test_any_formula_stays_inside_floor_and_ask(self):
+        with self.with_cfg({"formula": "test_negotiate:pro_formula"}):
+            self.assertEqual(negotiate.counter_price(DEAL, 26000, 1000), 26000)     # under the floor
+            self.assertEqual(negotiate.counter_price(DEAL, 26000, 99000), 30000)    # over the ask
+
+    def test_a_broken_formula_or_bad_shares_fall_back_to_the_logged_one(self):
+        logged = negotiate.counter_price(DEAL, 26000, 21000)
+        for cfg in [{"formula": "no_such_module:f"}, {"formula": "test_negotiate:nothing"},
+                    {"formula": "share", "counter_share": ["x"]}, {"formula": "share", "counter_share": [1.5]},
+                    {"formula": "share", "counter_share": []}]:
+            with self.with_cfg(cfg):
+                self.assertEqual(negotiate.counter_price(DEAL, 26000, 21000), logged, cfg)
+
+
 class SellerTurnTest(unittest.TestCase):
     def test_a_bare_offer_under_the_floor_gets_the_rule_counter_without_jev(self):
         called = []
@@ -123,6 +155,9 @@ class MetaHarnessTest(unittest.TestCase):
         for was, now in [("llm", "jevrule"), ("jevrule", "llm")]:
             problems = hard_limits.check_policy_change({"negotiate": {"engine": was}}, {"negotiate": {"engine": now}})
             self.assertTrue(any("FIXED" in p for p in problems), (was, now))
+        for old, new in [({"formula": "share"}, {"formula": "x:y"}), ({"counter_share": [0.6]}, {"counter_share": [0.1]})]:
+            problems = hard_limits.check_policy_change({"negotiate": old}, {"negotiate": new})
+            self.assertTrue(any("FIXED" in p for p in problems), new)
 
 
 if __name__ == "__main__":
