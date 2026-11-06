@@ -588,11 +588,26 @@ def clean_lines(buy, catalog, limit):
     return out[:limit]
 
 
-def agent_turn(state, inv, catalog, demand, cfg, model, decide=agent_loop.decide):
-    """The lines to send now: from the agent's queue, after a new decision when one is due. None: use the formula."""
+AHEAD_SECONDS = 150      # a due agent decision is made on a closed run this close to the window: ~2 runs, the LLM's ~30 s done
+
+
+def ahead_due(inv, now=None):
+    """True when supply is closed and opens within AHEAD_SECONDS. Earlier, the decision would land just after a window
+    closed (its lines still pending) and a failing agent would be asked again every minute (independent review 11/07)."""
+    r, now = inv.get("restock"), now or time.time()
+    if not isinstance(r, dict) or r.get("open") is not False or not isinstance(r.get("opens_at"), (int, float)):
+        return False
+    return 0 < r["opens_at"] - now <= AHEAD_SECONDS
+
+
+def agent_turn(state, inv, catalog, demand, cfg, model, decide=agent_loop.decide, send=True, due_minutes=None):
+    """The lines to send now: from the agent's queue, after a new decision when one is due. None: use the formula.
+    send=False (outside a supply window) only makes a due decision and queues all its lines. due_minutes (inside one)
+    puts a new decision off: at 07:44 (11/07) the 20-min decision fell on the window's first run and its ~30 s of LLM
+    came before the first supply call (first line 16-18 s after the window opened in 3 of the 6 windows 06:21-08:05)."""
     path = os.path.join(state, "restock_queue.json")
     q = load(path, {"at": 0, "lines": []})
-    if time.time() - q["at"] >= cfg["agent_every_minutes"] * 60:
+    if time.time() - q["at"] >= (cfg["agent_every_minutes"] if due_minutes is None else due_minutes) * 60:
         proposal = plan(inv, catalog, demand, {**cfg, "max_lines": cfg["agent_max_lines"]}, model)
         results = decision_memory.outcomes(state, inv)
         agent_memory.learn_from_outcomes(state, results, catalog)
@@ -609,12 +624,14 @@ def agent_turn(state, inv, catalog, demand, cfg, model, decide=agent_loop.decide
             return None
         q = {"at": time.time(), "lines": clean_lines(final["buy"], catalog, cfg["agent_max_lines"])}
         agent_memory.daily(state, "restock", f"bought {q['lines']} because {final.get('why', '')[:300]}")
-    now, q["lines"] = q["lines"][:cfg["max_lines"]], q["lines"][cfg["max_lines"]:]
+    elif not send:
+        return None
+    now, q["lines"] = (q["lines"][:cfg["max_lines"]], q["lines"][cfg["max_lines"]:]) if send else ([], q["lines"])
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(q, f, ensure_ascii=False)
     os.replace(tmp, path)
-    return now
+    return now if send else None
 
 
 def proven_first(agent_lines, formula_lines, cfg, order=None):
@@ -767,10 +784,15 @@ def main():
         out = {"buy": []}                  # nothing can be bought now; the agent's queue keeps its lines for the window.
         # A trial waiting for its window keeps the lead time empty, as before: a line sent before it opens is refused (429)
         # but would count as pending and make next_window find its target already bought
+        if os.environ.get("HARNESS") and ahead_due(inv):     # a due decision is made now, not on the window's first run
+            try:
+                agent_turn(args.state, inv, catalog, demand, cfg, model, send=False)
+            except Exception as e:   # noqa: BLE001 - the window run decides then, as before
+                print(f"[restock] agent ahead failed: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
     elif trial:                            # this run sends the trial; the formula fills the room, the agent waits a run
         out = {"buy": with_trial(trial, out["buy"], inv, catalog, cfg, breaks, waiting, hold)}
     elif os.environ.get("HARNESS") and not out.get("bankrupt"):
-        lines = agent_turn(args.state, inv, catalog, demand, cfg, model)
+        lines = agent_turn(args.state, inv, catalog, demand, cfg, model, due_minutes=2 * cfg["agent_every_minutes"])
         if lines is not None:
             queued = load(os.path.join(args.state, "restock_queue.json"), {}).get("lines") or []
             # the formula fills only once the agent's queue is sent, except the proven / priority SKUs it proposes:

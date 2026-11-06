@@ -178,6 +178,47 @@ class RestockAgentTest(unittest.TestCase):
             out, calls = self.turn(d, {"buy": [], "why": ""})
             self.assertEqual((out, calls), (lines[2:], []))
 
+    def test_a_decision_made_ahead_keeps_its_lines_for_the_window(self):
+        # 11/07 07:44 window: the 20-min decision fell on the window's first run, ~30 s of LLM before the first supply call
+        # (first line +18 s after it opened, in 3 of 6 windows 06:21-08:05); outside the window it decides, sends nothing
+        lines = [{"sku": f"S{i}", "qty": 1} for i in range(3)]
+        inv, cat, calls = {"balance": 5000000, "units": []}, {f"S{i}": CATALOG["F1"] for i in range(5)}, []
+
+        def decide(goal, schema, md, agent, given):
+            calls.append(given)
+            return {"buy": lines, "why": ""}
+        with tempfile.TemporaryDirectory() as d:
+            self.assertIsNone(restock.agent_turn(d, inv, cat, [], self.CFG, None, decide, send=False))
+            self.assertEqual(len(calls), 1)
+            self.assertIsNone(restock.agent_turn(d, inv, cat, [], self.CFG, None, decide, send=False))
+            self.assertEqual(len(calls), 1)                       # not due again
+            self.assertEqual(restock.agent_turn(d, inv, cat, [], self.CFG, None, decide), lines[:2])
+            self.assertEqual(len(calls), 1)                       # the window run sends the queue, no new decision
+
+    def test_a_decision_ahead_only_in_the_last_minutes_before_the_window(self):
+        # independent review 11/07 08:3x: deciding on every closed run moved the decision to just after a window closed
+        # (~17 min before its lines go out, last window's lines still pending) and retried a failing agent each minute
+        now = 1000000
+        closed = lambda opens: {"restock": {"open": False, "opens_at": now + opens, "closes_at": now + opens + 180}}
+        self.assertFalse(restock.ahead_due(closed(17 * 60), now))
+        self.assertFalse(restock.ahead_due(closed(restock.AHEAD_SECONDS + 1), now))
+        self.assertTrue(restock.ahead_due(closed(restock.AHEAD_SECONDS), now))
+        self.assertTrue(restock.ahead_due(closed(70), now))
+        self.assertFalse(restock.ahead_due({"restock": {"open": True, "closes_at": now + 60}}, now))
+        self.assertFalse(restock.ahead_due({}, now))
+
+    def test_in_the_window_a_decision_waits_for_due_minutes(self):
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "restock_queue.json"), "w") as f:
+                json.dump({"at": time.time() - 1.5 * self.CFG["agent_every_minutes"] * 60, "lines": []}, f)
+            calls = []
+            decide = lambda *a: calls.append(a) or {"buy": [], "why": ""}
+            inv, cat = {"balance": 5000000, "units": []}, {"S0": CATALOG["F1"]}
+            restock.agent_turn(d, inv, cat, [], self.CFG, None, decide, due_minutes=2 * self.CFG["agent_every_minutes"])
+            self.assertEqual(calls, [])                           # 1.5 intervals old: not yet due inside the window
+            restock.agent_turn(d, inv, cat, [], self.CFG, None, decide)   # the plain interval: due
+            self.assertEqual(len(calls), 1)
+
     def test_no_decision_leaves_it_to_the_formula(self):
         with tempfile.TemporaryDirectory() as d:
             self.assertIsNone(self.turn(d, None)[0])
