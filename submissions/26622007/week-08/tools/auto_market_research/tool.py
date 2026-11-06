@@ -1,45 +1,36 @@
-"""Public paid-deal search with explicit own-payment provenance."""
-import json
-import os
-import sys
-
+import json, os, sys
 import market_model
-from tools.auto_market_scan.tool import search as public_search
-
-
-def search(catalog, ledger, payments, args):
-    public = public_search(catalog, ledger, args)
-    out = {'catalog_count': public['matched_products'], 'catalog': public['catalog'],
-           'paid_deal_count': public['matched_paid'], 'paid_deals': public['ledger']}
-    if args.get('include_purchases'):
-        # Apply filters before pagination; only our confirmed payments establish ownership.
-        eligible = {p.get('ledger') for p in payments if p.get('paid') is True}
-        own = public_search(catalog, [r for r in ledger if r.get('seq') in eligible], args)
-        out['personal_history'] = own['ledger']
-        out['personal_history_count'] = own['matched_paid']
-    out['basis'] = 'deduplicated settle; catalog SKU/category intersection; personal rows require paid=true payment ledger id'
-    return out
-
 
 def main():
-    args = json.load(sys.stdin)
-    md = os.environ['MARKET_DIR']
-    with open(os.path.join(md, 'catalog.json'), encoding='utf-8') as f:
-        catalog = json.load(f)
-    payments = []
-    try:
-        with open(os.path.join(md, 'payments.jsonl'), encoding='utf-8') as f:
-            for line in f:
-                try:
-                    p = json.loads(line)
-                    if isinstance(p, dict):
-                        payments.append(p)
-                except ValueError:
-                    continue
-    except FileNotFoundError:
-        pass
-    print(json.dumps(search(catalog, market_model.load_rows(md), payments, args), ensure_ascii=False))
+    a = json.load(sys.stdin)
+    md = os.environ["MARKET_DIR"]
+    limit = max(1, min(100, int(a.get("limit", 20))))
+    category = str(a.get("category", "")).lower()
+    query = str(a.get("query", "")).lower()
+    shop = str(a.get("shop", "")).lower()
+    def read(name, default):
+        try:
+            with open(os.path.join(md, name), encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return default
+    catalog = read("catalog.json", [])
+    if isinstance(catalog, dict):
+        catalog = catalog.get("items", catalog.get("catalog", []))
+    def val(x, *keys):
+        return next((x[k] for k in keys if isinstance(x, dict) and k in x), "")
+    matches = [x for x in catalog if category in str(val(x,"category")).lower() and query in (str(val(x,"sku")).lower()+" "+str(val(x,"name")).lower()+" "+str(val(x,"category")).lower())]
+    skus = {str(val(x,"sku")) for x in matches}
+    rows = market_model.load_rows(md)
+    deals = [r for r in rows if str(val(r,"sku")) in skus and (not shop or shop in str(val(r,"shop","seller")).lower())]
+    deals.sort(key=lambda r: val(r,"timestamp","time","created_at"), reverse=True)
+    out = {"catalog_count":len(matches),"catalog":matches[:limit],"paid_deal_count":len(deals),"paid_deals":deals[:limit]}
+    if a.get("include_purchases"):
+        purchases = read("ledger_rows.jsonl", [])
+        if isinstance(purchases, list):
+            out["personal_history"] = [r for r in purchases if (not shop or shop in str(val(r,"shop","seller")).lower())][:limit]
+        else:
+            out["personal_history"] = []
+    print(json.dumps(out, default=str))
 
-
-if __name__ == '__main__':
-    main()
+main()

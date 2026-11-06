@@ -1,27 +1,27 @@
 {
-  "about": "Evidenced experiments, one at a time, in order (meta/terra.md 'Experiments'). Add at the end with every field filled and the evidence cited; meta/experiments_log.jsonl holds which one runs.",
-  "queue": [
-    {
-      "id": "g6-a-ask-cap-343k",
-      "change": "price.ask_caps.G6b9db161.A 350,000 -> 343,000 (first ask 2% lower), nothing else.",
-      "evidence": "meta/evidence/astra-1106-101510-cohorts.jsonl:4 (변경 전 A20건 순기여1098330, 이후 A3건·숙성0); meta/experiments_log.jsonl:9 (시작/판정선); meta/evidence/astra-1106-101510-cohort-exposure.jsonl:5 (A등급 가용시간17.1658→4.1191h, 기준63983.78원/h, 이후숙성0)",
-      "metric": "G6 A units sold per hour and net contribution per hour, same grade and stock hours, against the 20 mature sales before",
-      "direction": "above",
-      "threshold": "net contribution per hour >= the previous 20 sales' rate",
-      "min_sample": "20 mature sales after the change",
-      "hours": 24,
-      "undo": "price.ask_caps.G6b9db161.A back to 350000"
-    },
-    {
-      "id": "forum-demand-context-101510",
-      "change": "주 실험 종료 후 restock.forum_demand_context=true; 새 c3에 최근 포럼 요청 최대3개와 카탈로그/실재고 연결을 제공한다. 가격과 재고한도는 동결.",
-      "evidence": "meta/evidence/astra-1106-101510-measurement.jsonl:10 — 글19843 소스/양념/조미료 요청, 161종, 보유0. 글은 미검증 수요이며 직접 이익 아님.",
-      "metric": "6회 보충결정 중 실제 post_id와 정확한 SKU를 함께 인용한 결정 수 및 잘못된 연결 수",
-      "direction": "above",
-      "threshold": "정확한 연결 인용 >=1, 잘못된 연결=0",
-      "min_sample": "보충결정6회",
-      "hours": 12,
-      "undo": "restock.forum_demand_context=false; 자동 매입확대 없이 도구 효용 재검토"
-    }
-  ]
+ "about": "Evidenced experiments, one at a time, in order (meta/terra.md 'Experiments'). Add at the end with every field filled and the evidence cited; meta/experiments_log.jsonl holds which one runs.",
+ "queue": [
+  {
+   "id": "carpet-G1465c678-one-unit",
+   "change": "One unit of G1465c678 (list 307,000; worst cost at the highest surge 345,375): next_window target 1, priority_skus gets it with sku_target_units 1 so the guard lets one high-price unit through, no repeat until judged.",
+   "evidence": "GPT Pro 11/05 product candidates: the next high-price candidate in the current exploration budget; market mature sales 29 at 3 shops, 0 refunds, 21 of them at one shop, so whether we sell it is unknown.",
+   "metric": "the unit's net contribution 6 h after its sale (settled price - cost - refund - storage), or unsold after two supply windows",
+   "direction": "above",
+   "threshold": "net contribution > 0 and sold within 2 supply windows",
+   "min_sample": "1 unit",
+   "hours": 12,
+   "undo": "drop it from next_window, priority_skus and sku_target_units; no repeat"
+  },
+  {
+   "id": "g6-a-ask-cap-343k",
+   "change": "price.ask_caps.G6b9db161.A 350,000 -> 343,000 (first ask 2% lower), nothing else.",
+   "evidence": "GPT Pro 11/05 priority 7: G6 A 64 mature sales, 5 refunds, mean paid 345,584, contribution 52,388 per sale; book breaks even at +13.9% units, revenue at +2.04%; the data has no count of orders lost on price, so it is a test.",
+   "metric": "G6 A units sold per hour and net contribution per hour, same grade and stock hours, against the 20 mature sales before",
+   "direction": "above",
+   "threshold": "net contribution per hour >= the previous 20 sales' rate",
+   "min_sample": "20 mature sales after the change",
+   "hours": 24,
+   "undo": "price.ask_caps.G6b9db161.A back to 350000"
+  }
+ ]
 }

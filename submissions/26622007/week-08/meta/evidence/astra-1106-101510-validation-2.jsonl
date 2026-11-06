@@ -1,4 +1,0 @@
-{"check": "harness_scope_limits", "problems": [], "seller_unchanged": true, "pricing_changes": ["restock.sku_target_units.G00327e80 1 -> 2", "restock.sku_target_units.G03d0199f 1 -> 2"], "note": "First audit incorrectly guarded DOCS_ONLY and pre-existing meta/last-*; retained its failure unchanged. This uses harness filtering."}
-{"check": "citations", "count": 97, "problems": []}
-{"check": "tests", "result": "458 passed", "source": "meta/evidence/astra-1106-101510-tests-3.txt", "failed_runs_preserved": ["meta/evidence/astra-1106-101510-tests-1.txt", "meta/evidence/astra-1106-101510-tests-2.txt"]}
-{"check": "experiment_queue", "problems": [], "running_preserved": "g6-a-ask-cap-343k", "next": "forum-demand-context-101510"}

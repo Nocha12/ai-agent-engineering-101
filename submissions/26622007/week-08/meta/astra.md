@@ -5,7 +5,7 @@ Read AGENTS.md at the repository root, the market's rules with `curl -fsSL https
 built-in web page tool answers "Internal Error" for this site; curl works), hard_limits.py, meta/changes.jsonl (every
 change, its hypothesis, evidence, settings moved and outcome), the scorecards in meta/evidence/, meta/REPORT-notes.md and
 any log the pack below lists. The objective is the pack's `board.objective`: Players = shop ALL (0.5 book + 0.3
-revenue + 0.2 stars_rank; Patch 3.3, 11/05: book = cash profit + unsold stock at cost) + buyer ALL (0.5 saved (Patch 3.4: 절감률, 0% 거래 100건 추가 평균) + 0.3 forum votes + 0.1 deals + 0.1 posts), each a mean-rank
+revenue + 0.2 stars_rank; Patch 3.3, 11/05: book = cash profit + unsold stock at cost) + buyer ALL (0.5 surplus + 0.3 forum votes + 0.1 deals + 0.1 posts), each a mean-rank
 percentile among the rows the board scores; book 1st among shops is a goal of its own.
 
 0. Rules: read the pack's `rules` (patch_notes.py, the market's /rules page) and every patch in `rules.recent`. Check that
