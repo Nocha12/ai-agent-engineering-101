@@ -716,7 +716,7 @@ def close_prefetch(pre):
         closing = [(n, q) for n, q in pre["got"].items() if not q.get("closed")]
         for _, q in closing:
             q["closed"] = True
-    for n, q in closing:
+    for n, q in closing:          # one after another: the run is ending, and daemon threads would die with it unsent
         cancel_quietly(dict(q, closed=False), n)
 
 
@@ -1160,8 +1160,12 @@ def main():
     if r3:
         others = [s for s in quotable if s is not shop]
         # with quotes already asked, best_quote runs even late: it waits for them and closes every talk but the one kept
-        best, quotes = best_quote(shop, others, order, catalog, args.budget, chance_of, buyer_cfg(), pre=pre) \
-            if (pre or time.time() - STARTED < 60) and not gave_up else (shop, {})
+        try:
+            best, quotes = best_quote(shop, others, order, catalog, args.budget, chance_of, buyer_cfg(), pre=pre) \
+                if (pre or time.time() - STARTED < 60) and not gave_up else (shop, {})
+        except BaseException:
+            close_prefetch(pre)
+            raise
         if best is not shop:
             reason = f"best quote of {len(quotes)} ({quotes[best['name']]['ask']}); first choice was {shop['name']}"
             shop = best
