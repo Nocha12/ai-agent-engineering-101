@@ -322,67 +322,6 @@ class OneStarTest(Base):
         self.assertEqual(self.gate.refusal("o-b", {}), acp_gate.OUT_OF_STOCK)    # refuse_buyers wins over exempt
         self.assertIsNone(self.gate.refusal("o-m", {}))
 
-    def share_rows(self):
-        r = [{"seq": 1, "kind": "order", "round": 3, "data": {}}]
-        n = 2
-        for i in range(3):                                                     # grump: 3 of 3 ratings are 1 star
-            r.append(result_row(n, f"o-g{i}", "grump", self.US, 1)); n += 1
-        for i in range(3):                                                     # fan: 3 of 13 (shaun0927-labbuyer)
-            r.append(result_row(n, f"o-f{i}", "fan", self.US, 1)); n += 1
-        for i in range(10):
-            r.append(result_row(n, f"o-f5{i}", "fan", self.US2, 5)); n += 1
-        for i in range(10):                                                    # fan's 5 stars elsewhere: not ours
-            r.append(result_row(n, f"o-x{i}", "fan", self.THEM, 5, seller="someone")); n += 1
-        return FakeLedger(r)
-
-    def set_share(self, at=3, share=0.5):
-        with open(self.pricing, "w", encoding="utf-8") as f:
-            json.dump({"tiers": [], "seller": {"refuse_buyers": [BAD], "refuse_one_star_at": at,
-                                               "refuse_one_star_share": share}}, f)
-
-    def test_the_share_rule_refuses_only_buyers_whose_ratings_here_are_mostly_one_star(self):
-        # 메인 01:25 (가게 협상 점검 1번): 3 one-stars refused shaun0927-labbuyer (5 stars 272 times, 177.6M refused)
-        st = self.stars(self.share_rows())
-        self.assertFalse(st.scan())
-        self.assertEqual(st.rated(), {"grump": 3, "fan": 13})
-        self.set_share()
-        self.assertEqual(acp_gate.refused_buyers(self.pricing, self.md), [BAD, "grump"])
-        self.set_at(3)                                                          # no share set: the count alone
-        self.assertEqual(acp_gate.refused_buyers(self.pricing, self.md), [BAD, "grump", "fan"])
-        for bad in (0, 1.5, True, "x"):                                          # a bad share: the count alone
-            self.set_share(share=bad)
-            self.assertEqual(acp_gate.refused_buyers(self.pricing, self.md), [BAD, "grump", "fan"], bad)
-
-    def test_an_old_file_counts_the_ratings_again_and_refuses_no_one_by_stars_meanwhile(self):
-        led = self.share_rows()
-        st = self.stars(led)
-        st.scan()
-        old = st.load()
-        del old["rated"]                                                        # a file from before the share rule
-        with open(st.path, "w", encoding="utf-8") as f:
-            json.dump(old, f)
-        self.set_share()
-        self.assertIsNone(st.rated())
-        self.assertEqual(acp_gate.refused_buyers(self.pricing, self.md), [BAD])   # not counted yet: no 1-star refusal
-        with unittest.mock.patch.object(acp_gate, "PAGE", 5):
-            self.assertTrue(st.scan(max_pages=1))                               # back from the round's start
-            self.assertIsNone(st.rated())                                       # not caught up yet
-            self.assertEqual(acp_gate.refused_buyers(self.pricing, self.md), [BAD])
-            self.assertEqual(st.counts(), {"grump": 3, "fan": 3})               # the rows kept meanwhile
-            while st.scan(max_pages=1):
-                pass
-        self.assertEqual(st.rated(), {"grump": 3, "fan": 13})
-        self.assertEqual(acp_gate.refused_buyers(self.pricing, self.md), [BAD, "grump"])
-
-    def test_large_refusals_are_warned_in_the_log(self):
-        self.gate.orders.buyers.update({f"o-w{i}": BAD for i in range(4)})
-        with unittest.mock.patch.object(acp_gate.time, "time", return_value=1800000000.0):
-            for i in range(4):
-                self.gate.refusal(f"o-w{i}", {"line_items": [{"id": "G1"}], "totals": [{"amount": 2000000}]})
-        warn = [line for line in self.logs if "WARNING" in line]
-        self.assertEqual(len(warn), 1)                                           # once past 5M in an hour, not per refusal
-        self.assertIn("6.0M", warn[0])
-
     def test_scan_pages_and_resumes(self):
         led = self.rows()
         with unittest.mock.patch.object(acp_gate, "PAGE", 3):
@@ -436,7 +375,7 @@ class OneStarTest(Base):
         calls = {"n": 0}
         os.makedirs(self.md)
         with open(os.path.join(self.md, acp_gate.OneStars.FILE), "w") as f:      # past the round's start already
-            json.dump({"after": 2, "urls": [], "rows": [], "rated": {}}, f)
+            json.dump({"after": 2, "urls": [], "rows": []}, f)
 
         def get(path, timeout=10):
             calls["n"] += 1
@@ -494,7 +433,6 @@ class MetaGuardTest(unittest.TestCase):
         self.assertIn("gom31-certified-goods", seller["refuse_exempt"])
         self.assertIn("q00", seller["refuse_exempt"])
         self.assertEqual(seller["refuse_buyers"], ["totato2203-r3"])
-        self.assertEqual((seller["refuse_one_star_at"], seller["refuse_one_star_share"]), (0, 0.5))   # 대표님 01:23: off
 
     def test_seller_settings_and_the_gate_are_the_owners(self):
         head = {"seller": {"refuse_buyers": ["totato2203-r3"], "refuse_one_star_at": 3}}
