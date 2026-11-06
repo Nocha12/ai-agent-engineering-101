@@ -23,7 +23,10 @@ MARKET = os.environ.get("MARKET_URL", "https://market.ourolabs.ai")
 ME_PLAYER = "nocha12"
 STATE = "rival_vote_state.json"
 EVERY_MINUTES = 10
-BAND = 0.003             # about ten stances: a player farther than this does not swap places over one stance
+# Measured 11/06 19:41: our one stance (2 votes, net +1 -> -1) took buzllightyear's rating 0.878 -> 0.861, buyer ALL
+# 0.839 -> 0.834, so a stance moves a total by about 0.005, not the 0.0003 guessed from inextro. A player within 0.006
+# swaps places over one stance; thisjonghoon 0.055 above would take about 11 paid votes (121 units, 440M): not sent.
+BAND = 0.006
 MAX_NEW_PER_HOUR = 2     # the market opens 3 new dislike stances on buyers an hour for free (patch 3.4); one spare
 MAX_DISLIKES_PER_HOUR = 3  # -1 votes an hour, in case the market counted votes rather than stances as the free 3
 MAX_STANCES = 8
