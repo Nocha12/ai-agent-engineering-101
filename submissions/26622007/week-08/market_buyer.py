@@ -685,7 +685,9 @@ QUOTE_NEXT_SHARE = 1.0  # share of a batch answered with no ask within my limit 
 #                         97 orders had none in the first 10, found 17 s on average into the quotes, the slowest shop setting it).
 #                         0.7 from 01:03; 06:40 back to 1.0 (the whole batch): market steady at 0.44-0.45, my conversion 0.57 ->
 #                         0.45 and deals 40 -> 35/h (00:04-01:02 vs 01:02-02:01); orders with a 2nd batch fit 8 of 31 -> 1 of 35
-QUOTE_ROUNDS = 3       # batches of quote_shops shops asked while none so far had a unit for me (another buyer holds it)
+QUOTE_ROUNDS = 2       # batches of quote_shops shops asked while none so far had a unit for me (another buyer holds it)
+#                        3 until 11/07 07:20: from 06:07 a 3rd batch came in 23 orders, 3 deals, each 40+ s of quotes, while 1-batch
+#                        orders closed 40 of 52 at a median 6.6 s; the market hands the next order 20 s after the last at the earliest
 QUOTE_UNTIL = 100      # seconds into the run by which a further batch must be done: the talk needs the rest of the 300 s
 QUOTE_LATE = 60        # seconds into the run after which no new shop is asked for a quote
 

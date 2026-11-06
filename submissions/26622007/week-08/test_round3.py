@@ -554,9 +554,13 @@ class BuyerTest(unittest.TestCase):
             seen.clear()
             asks.clear()
             best, got = market_buyer.best_quote(shops[0], shops[1:], {"kind": "goods"}, {}, 20000, lambda s: None,
-                                                {"quote_shops": 3}, wait=5)
+                                                {"quote_shops": 3}, wait=5, rounds=3)
             self.assertIs(best, shops[0])                          # nobody quoted: the first choice, as before
-            self.assertEqual(len(seen), len(shops))                # all eight, within QUOTE_ROUNDS batches of three
+            self.assertEqual(len(seen), len(shops))                # all eight, within 3 batches of three
+            seen.clear()
+            best, got = market_buyer.best_quote(shops[0], shops[1:], {"kind": "goods"}, {}, 20000, lambda s: None,
+                                                {"quote_shops": 3}, wait=5)
+            self.assertEqual(len(seen), 3 * market_buyer.QUOTE_ROUNDS)   # QUOTE_ROUNDS 2: six of the eight
         with mock.patch.object(market_buyer, "quote", fake_quote), mock.patch.object(market_buyer, "log"), \
                 mock.patch.object(market_buyer, "STARTED", time.time() - market_buyer.QUOTE_UNTIL - 1):
             seen.clear()
