@@ -113,6 +113,39 @@ SHORT_WARRANTY_HOURS = 3    # only receipts this recent count, so a shop that ch
 #                             with a warranty for days before it turned to 0 h, and a shop that turns back is not lost for long
 
 
+_LEDGER = {}                  # {(md, "rows" | "breaks"): value} for this run: the rows file is 141 MB (0.73 s to read, 11/07)
+_LEDGER_LOCK = threading.Lock()
+
+
+def ledger_rows(md):
+    """market_model.load_rows(md), read once per run (a goods order read it three times, ~1.7 s before its talk)."""
+    with _LEDGER_LOCK:
+        if (md, "rows") not in _LEDGER:
+            _LEDGER[(md, "rows")] = market_model.load_rows(md)
+        return _LEDGER[(md, "rows")]
+
+
+def ledger_breaks(md, catalog):
+    """market_model.break_stats on ledger_rows(md), once per run (one catalog per run)."""
+    rows = ledger_rows(md)
+    with _LEDGER_LOCK:
+        if (md, "breaks") not in _LEDGER:
+            _LEDGER[(md, "breaks")] = market_model.break_stats(rows, catalog)
+        return _LEDGER[(md, "breaks")]
+
+
+def warm_ledger(md):
+    """Reads the rows in a thread while the quotes and the choice run; returns the thread. Never raises."""
+    def run():
+        try:
+            ledger_rows(md)
+        except Exception:  # noqa: BLE001 - the first real use reads it again and reports
+            pass
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    return t
+
+
 def market_round():
     """The market's current round, or None if it does not answer."""
     try:
@@ -447,7 +480,7 @@ def choose(shops, memory, item, budget, hurry=None, stop=None):
               f"Pick one shop by name and give a one-sentence reason.")
     if AGENT_DIR:
         try:
-            fails = market_model.break_stats(market_model.load_rows(AGENT_DIR), load_json(os.path.join(AGENT_DIR, "catalog.json"), {}))["by_shop"]
+            fails = ledger_breaks(AGENT_DIR, load_json(os.path.join(AGENT_DIR, "catalog.json"), {}))["by_shop"]
             known = "\n\n".join(f"{shop_summary(x, my_history(memory, x['name']), item)}\n  ledger name: {x['url']}" + break_line(fails.get(x["url"]))
                                   for x in by_name.values())
             final = agent_loop.decide(
@@ -1248,6 +1281,8 @@ def main():
     md = os.path.dirname(args.shops) or "."
     catalog = load_json(os.path.join(md, "catalog.json"), {}) if r3 else {}
     if r3:
+        warm_ledger(md)      # food reads the rows only before its talk (shop_pattern): read them while the quotes run
+    if r3:
         for s in shops:
             s["usable"] = usable_offers(s, order, catalog)
         shops = [s for s in shops if s["usable"]]
@@ -1292,7 +1327,7 @@ def main():
             log(f"[quote] give-up check failed: {type(e).__name__}: {e}")
         if gave_up:
             log(f"[quote] every SKU of {len(quotable)} shops asked over my limit in the last {HOPELESS_HOURS} h: no quote, no talk")
-        stats = market_model.break_stats(market_model.load_rows(md), catalog) if order.get("kind") == "goods" else None
+        stats = ledger_breaks(md, catalog) if order.get("kind") == "goods" else None
         chance_of = (lambda sku: market_model.break_chance(stats, sku)) if stats else (lambda sku: None)
         if PREFETCH_QUOTES and not gave_up and k >= 2 and early:
             pre = {"got": {}, "ctl": quote_ctl()}
@@ -1345,10 +1380,10 @@ def main():
     label = offer["name"] if r3 else args.item
     chance = None
     if r3 and order.get("kind") == "goods":
-        chance = market_model.break_chance(market_model.break_stats(market_model.load_rows(md), catalog), key)
+        chance = market_model.break_chance(ledger_breaks(md, catalog), key)
     limit = min(value_limit(offer, args.budget, chance, buyer_cfg()), saved_cap(offer, chance)) if r3 else args.budget
     mine = my_history(memory, shop["name"])
-    pattern = shop_pattern(market_model.load_rows(md), shop["url"], catalog) if r3 else None
+    pattern = shop_pattern(ledger_rows(md), shop["url"], catalog) if r3 else None
     deals, low = item_stats(mine, key)
     note = "; ".join(x for x in (
         f"it sold {label} to you at {', '.join(map(str, deals[-3:]))}" if deals else "",
