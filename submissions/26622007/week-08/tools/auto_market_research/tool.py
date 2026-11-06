@@ -1,36 +1,46 @@
-import json, os, sys
+"""Combined paid market search and matching buyer purchase history."""
+import json
+import os
+import sys
+
 import market_model
+from tools.auto_market_scan.tool import search
+
+
+def research(catalog, rows, trades, args):
+    found = search(catalog, rows, args)
+    limit = max(1, min(100, int(args.get('limit', 20))))
+    out = {'catalog_count': found['matched_products'], 'catalog': found['catalog'],
+           'paid_deal_count': found['matched_paid'], 'paid_deals': found['ledger']}
+    if args.get('include_purchases'):
+        # Match against the complete catalog, not its presentation-limited slice.
+        products = ([dict(v, sku=k) for k, v in catalog.items() if isinstance(v, dict)]
+                    if isinstance(catalog, dict) else catalog)
+        query = str(args.get('query', '')).strip().lower()
+        category = str(args.get('category', '')).strip().lower()
+        shop = str(args.get('shop', '')).strip().lower()
+        skus = {p.get('sku') for p in products if isinstance(p, dict)
+                and (not query or query in json.dumps(p, ensure_ascii=False).lower())
+                and (not category or category in str(p.get('category', '')).lower())}
+        out['personal_history'] = [t for t in reversed(trades)
+            if t.get('result') == 'deal' and t.get('order') is not None
+            and (not (query or category) or t.get('item') in skus)
+            and (not shop or shop in str(t.get('shop', '')).lower())][:limit]
+    return out
+
 
 def main():
-    a = json.load(sys.stdin)
-    md = os.environ["MARKET_DIR"]
-    limit = max(1, min(100, int(a.get("limit", 20))))
-    category = str(a.get("category", "")).lower()
-    query = str(a.get("query", "")).lower()
-    shop = str(a.get("shop", "")).lower()
-    def read(name, default):
-        try:
-            with open(os.path.join(md, name), encoding="utf-8") as f:
-                return json.load(f)
-        except (OSError, ValueError):
-            return default
-    catalog = read("catalog.json", [])
-    if isinstance(catalog, dict):
-        catalog = catalog.get("items", catalog.get("catalog", []))
-    def val(x, *keys):
-        return next((x[k] for k in keys if isinstance(x, dict) and k in x), "")
-    matches = [x for x in catalog if category in str(val(x,"category")).lower() and query in (str(val(x,"sku")).lower()+" "+str(val(x,"name")).lower()+" "+str(val(x,"category")).lower())]
-    skus = {str(val(x,"sku")) for x in matches}
-    rows = market_model.load_rows(md)
-    deals = [r for r in rows if str(val(r,"sku")) in skus and (not shop or shop in str(val(r,"shop","seller")).lower())]
-    deals.sort(key=lambda r: val(r,"timestamp","time","created_at"), reverse=True)
-    out = {"catalog_count":len(matches),"catalog":matches[:limit],"paid_deal_count":len(deals),"paid_deals":deals[:limit]}
-    if a.get("include_purchases"):
-        purchases = read("ledger_rows.jsonl", [])
-        if isinstance(purchases, list):
-            out["personal_history"] = [r for r in purchases if (not shop or shop in str(val(r,"shop","seller")).lower())][:limit]
-        else:
-            out["personal_history"] = []
-    print(json.dumps(out, default=str))
+    args = json.load(sys.stdin)
+    md = os.environ['MARKET_DIR']
+    with open(os.path.join(md, 'catalog.json'), encoding='utf-8') as f:
+        catalog = json.load(f)
+    try:
+        with open(os.environ.get('BUYER_MEMORY') or 'memory/market_memory_r3.json', encoding='utf-8') as f:
+            trades = json.load(f).get('trades', [])
+    except (OSError, ValueError):
+        trades = []
+    print(json.dumps(research(catalog, market_model.load_rows(md), trades, args), ensure_ascii=False))
 
-main()
+
+if __name__ == '__main__':
+    main()
