@@ -401,6 +401,19 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(self.deal("G1")["state"], "TASK_STATE_REJECTED")
 
 
+class GradeMedianTest(unittest.TestCase):
+    """A unit opens against its own grade's median when the briefing has one (W-20261106-2225-AX극단상향)."""
+
+    def test_sku_median_uses_the_units_grade(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"MARKET_DIR": d}):
+            with open(os.path.join(d, "briefing.json"), "w") as f:
+                json.dump({"skus": {"H1": {"price_ratio": 0.68, "grade_ratio": {"A": 0.7, "B": 0.64}}}}, f)
+            self.assertAlmostEqual(seller.sku_median("H1", 1000000, "A"), 700000)
+            self.assertAlmostEqual(seller.sku_median("H1", 1000000, "B"), 640000)
+            self.assertAlmostEqual(seller.sku_median("H1", 1000000, "C"), 680000)     # no C median: the SKU's
+            self.assertAlmostEqual(seller.sku_median("H1", 1000000), 680000)
+
+
 class RoundTwoStillWorks(EndToEnd):
     """Kit v4 trades as in Round 2 until Round 3 opens, and the shop goes on selling from catalog.json until then."""
 

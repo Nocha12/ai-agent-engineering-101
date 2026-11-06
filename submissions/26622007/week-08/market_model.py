@@ -215,6 +215,25 @@ def unit_break_chance(stats, sku, grade, min_sold=50, strength=20):
     return (s["broke"] + strength * g["broke"] / g["sold"]) / (s["sold"] + strength)
 
 
+GRADE_MIN_PRICES = 5        # a grade's own median needs this many deals (independent review: 3 swing too much)
+
+
+def grade_ratios(s, recent, min_prices):
+    """{grade: median price / list} for one SKU's deals (estimate()). The last price_hours' deals of that grade when there
+    are enough; else the SKU's recent median moved by the grade's whole-log premium (its median over the SKU's), so an old
+    price never outranks a recent one (independent review); a grade with too few deals either way is left out."""
+    need = max(min_prices, GRADE_MIN_PRICES)
+    everything = statistics.median(s["ratios"]) if s["ratios"] else None
+    now_all = statistics.median(s["recent"]) if recent and len(s["recent"]) >= min_prices else everything
+    out = {}
+    for g, (every, new) in sorted(s["grades"].items()):
+        if recent and len(new) >= need:
+            out[g] = statistics.median(new)
+        elif len(every) >= need and everything and now_all:
+            out[g] = now_all * statistics.median(every) / everything
+    return out
+
+
 def estimate(rows, catalog, me_buyers=(), me_shops=(), now=None, cfg=None):
     """{"active", "n", "skus": {sku: {rate, my_share, price_ratio, deals, buyers, sellers}}, "cats": {category: {...}},
     "buyers": {buyer: [favourite categories]}, "captive": {buyer: shop}}. rate is reachable deals per hour."""
@@ -230,7 +249,7 @@ def estimate(rows, catalog, me_buyers=(), me_shops=(), now=None, cfg=None):
     weight = lambda ts: 0.5 ** (max(0, now - ts) / hl)
 
     sku = collections.defaultdict(lambda: {"c": 0.0, "mine": 0.0, "ratios": [], "recent": [], "buyers": set(), "sellers": set(),
-                                           "deals": 0})
+                                           "deals": 0, "grades": collections.defaultdict(lambda: ([], []))})
     recent = cfg.get("price_hours")
     recent = recent * 3600 if isinstance(recent, (int, float)) and not isinstance(recent, bool) and recent > 0 else None
     cat = collections.defaultdict(float)
@@ -240,8 +259,13 @@ def estimate(rows, catalog, me_buyers=(), me_shops=(), now=None, cfg=None):
         x, w = catalog[r["sku"]], weight(r["ts"])
         if isinstance(r.get("amount"), (int, float)) and x.get("list_price"):
             sku[r["sku"]]["ratios"].append(r["amount"] / x["list_price"])
+            by_grade = sku[r["sku"]]["grades"][r["grade"]] if r.get("grade") in ("A", "B", "C") else None
+            if by_grade is not None:
+                by_grade[0].append(r["amount"] / x["list_price"])
             if recent and now - r["ts"] <= recent:
                 sku[r["sku"]]["recent"].append(r["amount"] / x["list_price"])
+                if by_grade is not None:
+                    by_grade[1].append(r["amount"] / x["list_price"])
         prefs[r["buyer"]][x["category"]] += w        # favourites are a fact about the buyer, reachable or not
         if r["buyer"] in me_buyers or r["buyer"] in captive:
             continue
@@ -277,6 +301,10 @@ def estimate(rows, catalog, me_buyers=(), me_shops=(), now=None, cfg=None):
                    # 17:00-19:00), so 1.05 x it opened above every winning quote: 10 of 52 quotes won after 18:22
                    "price_ratio": statistics.median(s["recent"]) if recent and len(s["recent"]) >= cfg["min_prices"]
                    else statistics.median(s["ratios"]) if len(s["ratios"]) >= cfg["min_prices"] else typical,
+                   # the same per grade (A new, B damaged box, C refurbished): 11/06 20:4x-23:4x G8ec51935 sold at A 0.700,
+                   # B 0.637, C 0.580 of list against 0.681 for all, so B units opened at the SKU median were agreed and
+                   # paid elsewhere while A units sold under their market. A grade without min_prices deals is left out.
+                   "grade_ratio": grade_ratios(s, recent, cfg["min_prices"]),
                    "deals": s["deals"], "buyers": len(s["buyers"]), "sellers": len(s["sellers"])}
     return {"active": used >= cfg["min_settles"], "n": used, "skus": skus,
             "cats": {c: {"rate": w / hours} for c, w in cat.items()},

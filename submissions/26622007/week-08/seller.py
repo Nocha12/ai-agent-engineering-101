@@ -170,12 +170,16 @@ def briefing_line(sku):
             f"{m['sellers']} other shops sell it.\n")
 
 
-def sku_median(sku, list_price):
-    """The median price buyers paid for this SKU in the ledger (briefing.json), or None when it is not there."""
+def sku_median(sku, list_price, grade=None):
+    """The median price buyers paid for this SKU in the ledger (briefing.json), for the unit's grade when the briefing
+    has that grade's median, or None when it is not there."""
     try:
         with open(os.path.join(os.environ.get("MARKET_DIR", ".market"), "briefing.json"), encoding="utf-8") as f:
-            ratio = (json.load(f)["skus"].get(sku) or {}).get("price_ratio")
-    except (OSError, ValueError, KeyError, AttributeError):
+            m = json.load(f)["skus"].get(sku) or {}
+        by_grade = m.get("grade_ratio") if isinstance(m.get("grade_ratio"), dict) else {}
+        ratio = by_grade.get(grade) if isinstance(by_grade.get(grade), (int, float)) and by_grade.get(grade) > 0 \
+            else m.get("price_ratio")
+    except (OSError, ValueError, KeyError, AttributeError, TypeError):
         return None
     return ratio * list_price if ratio and list_price else None
 
@@ -337,7 +341,7 @@ class Seller(AgentExecutor):
             log(f"task {task.id[:8]} -> REJECTED ({miss})")
             return
         cost, key = math.ceil(u["cost"]), last_segment(u.get("category")) or u["sku"]
-        q = profit_price.quote(u, sku_median(u["sku"], u.get("list_price")),
+        q = profit_price.quote(u, sku_median(u["sku"], u.get("list_price"), u.get("grade")),
                                break_chance(u["sku"], u.get("grade")) if u.get("kind") == "goods" else None,
                                shop_memory.paid_prices(u["sku"]), {**pricing, "warranty": self.warranty_cfg()})
         if q["refuse"]:

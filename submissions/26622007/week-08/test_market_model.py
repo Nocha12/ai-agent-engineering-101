@@ -329,6 +329,21 @@ class CapitalScale7Test(unittest.TestCase):
                           cfg={"min_settles": 1, "price_hours": 3})["skus"]["F1"]["price_ratio"]
         self.assertAlmostEqual(few, 0.9)        # under min_prices recent deals: the whole log, as before
 
+    def test_each_grade_gets_its_own_median(self):
+        # 11/06 20:4x-23:4x ledger: G8ec51935 A 0.700, B 0.637, C 0.580 of list against 0.681 for all grades, so a B unit
+        # opened at the all-grade median was agreed and then paid elsewhere (W-20261106-2225-AX극단상향)
+        rows = many(5, amount=18000, age_hours=1) + [dict(r, grade="B") for r in many(5, 100, amount=14000, age_hours=1)] \
+            + [dict(r, grade="C") for r in many(4, 200, amount=10000, age_hours=1)]
+        m = mm.estimate(rows, CATALOG, now=NOW, cfg={"min_settles": 1, "price_hours": 3})["skus"]["F1"]
+        self.assertAlmostEqual(m["grade_ratio"]["A"], 0.9)
+        self.assertAlmostEqual(m["grade_ratio"]["B"], 0.7)
+        self.assertNotIn("C", m["grade_ratio"])           # under 5 deals: the SKU's own median serves
+        # no recent B deals: the SKU's recent median (A 0.9 now) x B's whole-log premium (0.6 / 0.9 over 20 h ago's 0.9 all)
+        old = [dict(r, grade="B") for r in many(5, 300, amount=12000, age_hours=20)] + many(5, 400, amount=18000, age_hours=20)
+        m = mm.estimate(many(5, amount=16000, age_hours=1) + old, CATALOG, now=NOW,
+                        cfg={"min_settles": 1, "price_hours": 3})["skus"]["F1"]
+        self.assertAlmostEqual(m["grade_ratio"]["B"], 0.8 * 0.6 / 0.8)
+
     def plan(self, m, units=(), **cfg):
         base = {**CFG, "explore_lines": 0, "cover_hours": 1, "sku_target_units": {"H2": 6}, "priority_skus": ["H2"]}
         return restock.plan({"balance": 50000000, "units": list(units)}, CATALOG, DEMAND, {**base, **cfg}, m)["buy"]
