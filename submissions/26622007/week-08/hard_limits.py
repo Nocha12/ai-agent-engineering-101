@@ -98,7 +98,7 @@ SAFE = {"restock": {"keep_cash": 3000000, "max_stock_cost": 1000000, "target_per
                     "goods_max_price": 30000, "max_sku_share": 0.1, "food_max_price": 30000, "band_low": 0.8,
                     "band_high": 1.2, "prior_break": 0.15, "high_price_goods": 100000, "high_price_max_units": 1,
                     "high_price_proven_max_units": 2},
-        "warranty": {"on_request_hours": 3, "max_hours": 6, "max_break": 0.25, "prior_break": 0.15},
+        "warranty": {"on_request_hours": 3, "max_hours": 72, "max_break": 0.25, "prior_break": 0.15},
         "buyer": {"max_price_share": 0.9, "quote_shops": 3},
         "markdown": {"min_floor_share": 0.1, "below_cost": ["food_expiry"]},
         "forum": {"max_votes": 5, "every_minutes": 15},

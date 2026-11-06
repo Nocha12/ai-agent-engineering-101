@@ -319,7 +319,7 @@ class EndToEnd(unittest.TestCase):
             market_buyer.quote({"name": "s", "url": self.url}, "청소기", "G2", {"kind": "goods"}, got)
         q = got["s"]
         self.assertIsInstance(q["ask"], (int, float))
-        self.assertIsNone(q["refused"])                               # our shop gives goods 6 h
+        self.assertIsNone(q["refused"])                               # our shop gives goods its standard warranty
         self.assertIsNone(self.stock.find("G2"))                      # held for the open talk
         out = buyer.negotiate(self.url, "청소기", 10000, "", resume=(q["url"], q["task"]))
         self.assertEqual((out["state"], out["receipt"]["warranty_hours"]), ("TASK_STATE_COMPLETED", hard_limits.SELLER_GOODS_WARRANTY_HOURS))

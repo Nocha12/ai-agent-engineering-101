@@ -216,7 +216,7 @@ def card_text(md, now=None):
             + (f" ({have})" if have else "") + ". Every unit carries the "
             f"market's signed certificate and we state its true grade"
             + (f" (ledger: {honest} of {claims} grade claims honest over {len(sales)} sales, {broken} broke)" if claims else "")
-            + f". Goods come with a {WARRANTY_HOURS} h full-refund warranty, the market's longest, as standard (a SKU that breaks too often "
+            + f". Goods come with a {WARRANTY_HOURS} h full-refund warranty, the market's maximum, as standard (a SKU that breaks too often "
               "to cover is not sold). Prices are negotiable; every deal gets an Ed25519-signed receipt for the agreed price.")
     skill = ("Ask for an item by name and SKU, optionally with the shelf life you need (e.g. 'need 24 h'), then send offers "
              "as numbers on the same task. Each answer ends with the shop's current price, or closes the deal with a signed "
