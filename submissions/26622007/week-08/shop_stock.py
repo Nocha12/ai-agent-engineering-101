@@ -23,10 +23,42 @@ GRADES = re.compile(r"\bgrades?\s*(?:of\s*|:\s*)?([ABC](?:\s*(?:,|/|or|and)\s*[A
                     r"|\b((?-i:[ABC]))\s*(?:등급|grade\b)(\s*(?:or (?:better|above|higher)|이상))?", re.I)
 
 
+POLICY = re.compile(r"\{[^{}]*\}")
+
+
+def policy_needs(text):
+    """The needs a buyer sends as JSON in its words: 'Required checkout policy: {"cert": true, "grades": ["A", "B"],
+    "min_hours_left": 42.05}' (4 such asks from 09:26 to 13:30 on 11/06; the words alone read none of it, GPT Pro 11/06
+    07:30 S2). {"hours", "grades", "cert", "skus"}, each None/empty when not given."""
+    hours, grades, cert, skus = [], set(), False, set()
+    for m in POLICY.finditer(text or ""):
+        try:
+            d = json.loads(m.group(0))
+        except (ValueError, RecursionError):
+            continue
+        if not isinstance(d, dict):
+            continue
+        for k in ("min_hours_left", "min_shelf_hours", "shelf_hours_left"):
+            v = d.get(k)
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and 0 < v < 10 ** 5:     # not inf, not 1e400
+                hours.append(float(v))
+        g = d.get("grades", d.get("grade"))
+        for x in ([g] if isinstance(g, str) else g if isinstance(g, list) else []):
+            if isinstance(x, str) and x.strip().upper() in ("A", "B", "C"):
+                grades.add(x.strip().upper())
+        cert = cert or d.get("cert") is True or d.get("certificate") is True
+        for k in ("sku", "skus"):
+            v = d.get(k)
+            skus |= {x for x in ([v] if isinstance(v, str) else v if isinstance(v, list) else []) if isinstance(x, str) and SKU.fullmatch(x)}
+    return {"hours": max(hours) if hours else None, "grades": grades or None, "cert": cert, "skus": skus}
+
+
 def needs(text):
     """What the buyer's words ask of a unit: {"skus", "hours", "grades", "cert"}. SKUs named are the only acceptable ones;
-    hours is the shelf life asked for (food), grades the grades allowed. Words about a warranty's hours are not shelf life."""
+    hours is the shelf life asked for (food), grades the grades allowed. Words about a warranty's hours are not shelf life.
+    A JSON policy in the words (policy_needs) adds to them: the longer shelf life, its grades, its certificate."""
     t = text or ""
+    pol = policy_needs(t)
     hours = [float(m.group(1)) for m in HOURS.finditer(t)
              if SHELF_WORDS.search(t[max(0, m.start() - 40):m.end() + 25])
              and not re.search(r"warrant|guarantee|보증", t[max(0, m.start() - 25):m.end() + 12], re.I)]
@@ -36,8 +68,12 @@ def needs(text):
         if m.group(2) or m.group(4):          # "grade B or better": B and every grade above it
             got |= {g for g in "ABC" if g <= max(got)}
         grades |= got
-    return {"skus": set(SKU.findall(t)), "hours": max(hours) if hours else None, "grades": grades or None,
-            "cert": bool(re.search(r"certif|cert\s*=\s*true|인증서", t, re.I))}
+    if pol["hours"] is not None:
+        hours.append(pol["hours"])
+    if pol["grades"]:
+        grades = pol["grades"]          # the policy states the grades outright: it wins over grade words around it
+    return {"skus": set(SKU.findall(t)) | pol["skus"], "hours": max(hours) if hours else None, "grades": grades or None,
+            "cert": bool(re.search(r"certif|cert\s*=\s*true|인증서", t, re.I)) or pol["cert"]}
 
 
 def unfit(u, need, now=None):

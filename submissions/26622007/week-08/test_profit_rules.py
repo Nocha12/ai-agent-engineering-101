@@ -47,6 +47,20 @@ class NeedsTest(unittest.TestCase):
         self.assertEqual(needs("B등급 이상")["grades"], {"A", "B"})
         self.assertIsNone(needs("Quote price, a grade and warranty")["grades"])
 
+    def test_a_json_checkout_policy_is_read(self):
+        # 11/06 09:26 task e6e6f95a: the words alone gave hours None, grades None, cert False (GPT Pro 07:30 S2)
+        n = needs('I want to buy [더싱싱] 깍두기 2kg (G37da7a5c). Required checkout policy: '
+                  '{"cert": true, "grades": ["A", "B"], "min_hours_left": 42.05}')
+        self.assertEqual((n["hours"], n["grades"], n["cert"], n["skus"]), (42.05, {"A", "B"}, True, {"G37da7a5c"}))
+        n = needs('I want to buy 앞치마 (G53e73f8c). Required checkout policy: {"cert": true, "grades": ["A", "B"], "warranty_hours": 6}')
+        self.assertEqual((n["hours"], n["grades"], n["cert"]), (None, {"A", "B"}, True))     # warranty hours are not shelf life
+        self.assertEqual(needs('policy: {"min_hours_left": 30} and at least 50 hours of shelf life')["hours"], 50.0)
+        self.assertEqual(needs('{not json} grade A or B')["grades"], {"A", "B"})
+        self.assertEqual(needs('{"grades": "c"}')["grades"], {"C"})
+        self.assertFalse(needs('{"cert": false}')["cert"])
+        self.assertIsNone(needs('{"min_hours_left": 1e400}')["hours"])
+        self.assertEqual(needs('grade B or better. {"grades": ["B", "C"]}')["grades"], {"B", "C"})   # the policy wins
+
 
 class EligibleFirstTest(unittest.TestCase):
     def test_a_unit_that_will_not_last_is_skipped_even_though_it_expires_first(self):

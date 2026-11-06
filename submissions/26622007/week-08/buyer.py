@@ -82,6 +82,19 @@ def metadata_ask(t):
     return round(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
 
+ASK_IN_TEXT = re.compile(r"(?<!not )\basking(?:[ \t]+price)?(?:[ \t]+is)?[ \t]*(?:[:=][ \t]*)?(?:KRW[ \t]*|\u20a9[ \t]*)?"
+                         r"([1-9][0-9]{0,2}(?:,[0-9]{3})+|[1-9][0-9]{0,11})(?![0-9A-Za-z_]|[.,][0-9])(?![ \t]*(?:%|units?\b|pcs\b|개))", re.I)
+TEXT_ASK_CHARS = 2000      # a shop's text is read this far: the ask comes first, and a long text must not stall a quote
+
+
+def text_ask(text):
+    """The ask a shop writes only in its text ("asking 9708", "asking price 6802"), when the text names exactly one; else
+    None. 112 of the quotes from 11/06 08:45 to 13:35 had a price within my limit in their text and none in metadata, and
+    were dropped as "no ask": in 78 of 303 orders no other quote fitted (13:30 cycle, review/W-20261106-1330-AXPro주기)."""
+    found = {int(n.replace(",", "")) for n in ASK_IN_TEXT.findall((text or "")[:TEXT_ASK_CHARS])}
+    return found.pop() if len(found) == 1 else None
+
+
 def numbers(text):
     return {round(float(n)) for n in re.findall(r"\d+(?:\.\d+)?", re.sub(r"(?<=\d),(?=\d)", "", text))}
 

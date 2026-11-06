@@ -131,5 +131,124 @@ class SavedCap(unittest.TestCase):
         self.assertEqual(best["name"], "a")
 
 
+class TextAsk(unittest.TestCase):
+    """13:30 cycle: shops that write their ask only in the text ("asking 9708") were dropped as "no ask" at the quote."""
+
+    def test_reads_one_asking_number(self):
+        import buyer
+        self.assertEqual(buyer.text_ask("국산콩 두부과자: asking 9708. SKU G762d9d25; grade B"), 9708)
+        self.assertEqual(buyer.text_ask("(sku=G9a240832), asking price 6802. Remaining shelf life is 347.72h"), 6802)
+        self.assertEqual(buyer.text_ask("A등급 상품입니다. Asking 1,590,000."), 1590000)
+
+    def test_review_cases(self):
+        import buyer
+        self.assertEqual(buyer.text_ask("asking price is 1,590,000 for grade C"), 1590000)
+        self.assertIsNone(buyer.text_ask("asking 9,708.60 KRW"))             # a decimal ask is not read
+        self.assertEqual(buyer.text_ask("asking ₩12,000원"), 12000)
+        self.assertEqual(buyer.text_ask("asking 9708 KRW"), 9708)
+        self.assertIsNone(buyer.text_ask("asking 12.5%"))
+        self.assertIsNone(buyer.text_ask("asking 12.5 units"))
+        self.assertIsNone(buyer.text_ask("asking 1.5k"))
+        self.assertEqual(buyer.text_ask("Asking: 12199. Send your offer as a number."), 12199)
+        import time
+        t0 = time.time()
+        self.assertIsNone(buyer.text_ask("asking" + " " * 50000 + "5"))     # read only the first 2000 characters
+        self.assertLess(time.time() - t0, 1)
+        self.assertIsNone(buyer.text_ask("asking 10% off the list"))
+        self.assertIsNone(buyer.text_ask("I am asking 2 units at 9000"))
+        self.assertIsNone(buyer.text_ask("asking 1,2,3"))
+        self.assertIsNone(buyer.text_ask("not asking 5000"))
+        self.assertIsNone(buyer.text_ask("asking G762d9d25"))
+
+    def test_no_or_two_asks_is_none(self):
+        import buyer
+        self.assertIsNone(buyer.text_ask("grade B, 571 h of shelf life left. List price 28900"))
+        self.assertIsNone(buyer.text_ask("asking 9000, or asking 8000 for two"))
+        self.assertIsNone(buyer.text_ask(""))
+        self.assertEqual(buyer.text_ask("asking 9000. Reply ok to take the ask: 9000"), 9000)   # the same number twice
+
+    def test_checked_against_the_list_price(self):
+        import market_buyer as mb
+        shop = {"_offer": {"list_price": 28900}}
+        self.assertEqual(mb.text_ask_checked("asking 20000", shop), 20000)
+        self.assertIsNone(mb.text_ask_checked("asking 1000", shop))          # under 5% of list: a misread
+        self.assertIsNone(mb.text_ask_checked("asking 30000", shop))         # over list
+        self.assertIsNone(mb.text_ask_checked("asking 20000", {}))           # no list price to check it with
+        shop = {"_offer": {"list_price": 28900, "sku": "G07ec17d5"}}
+        self.assertEqual(mb.text_ask_checked("매트리스 (G07ec17d5): asking 20000", shop), 20000)
+        self.assertIsNone(mb.text_ask_checked("마녀스프 (G5e83d126): asking 20000", shop))   # another SKU's price
+        self.assertIsNone(mb.text_ask_checked("G07ec17d5 none; G5e83d126 asking 20000", shop))  # two SKUs: whose price?
+
+    def test_a_receipt_over_my_limit_is_not_paid(self):
+        import market_buyer as mb
+        offer = {"sku": "G4c4977ca", "list_price": 18120}
+        self.assertIn("over my limit", mb.over_limit({"item": "G4c4977ca", "price": 13532.0}, offer, 13415, {}, 13600))
+        self.assertIsNone(mb.over_limit({"item": "G4c4977ca", "price": 13400.0}, offer, 13415, {}, 13600))
+        cat = {"G0df4f56f": {"list_price": 14900}}
+        self.assertIn("over my limit", mb.over_limit({"item": "G0df4f56f", "price": 11324.0}, offer, 13415, cat, 20000))
+        self.assertIsNone(mb.over_limit({"item": "Gffffffff", "price": 11324.0}, offer, 13415, cat, 20000))   # unknown SKU
+        self.assertIsNone(mb.over_limit({"item": "G4c4977ca"}, offer, 13415, {}, 13600))
+
+    def test_a_metadata_ask_wins_a_tie_with_a_text_ask(self):
+        import market_buyer as mb
+        a = {"name": "a", "usable": [{"sku": "S1", "name": "snack", "qty": 1, "list_price": 10000}]}
+        b = {"name": "b", "usable": [{"sku": "S1", "name": "snack", "qty": 1, "list_price": 10000}]}
+        closed = []
+
+        def quote(s, name, sku, order, got, ctl):
+            got[s["name"]] = {"ask": 6000, "ask_src": "text" if s["name"] == "a" else "metadata", "url": "u", "task": "t"}
+        with mock.patch.object(mb, "quote", quote), mock.patch.object(mb, "cancel_quote", lambda q, n: closed.append(n)), \
+                mock.patch.object(mb, "log", lambda *a: None):
+            best, got = mb.best_quote(a, [b], {}, {}, 10 ** 7, lambda sku: None, {"quote_shops": 2}, wait=1)
+        self.assertEqual(best["name"], "b")
+        self.assertTrue(got["a"]["closed"])
+
+    def test_a_cheaper_text_ask_still_wins(self):
+        import market_buyer as mb
+        a = {"name": "a", "usable": [{"sku": "S1", "name": "snack", "qty": 1, "list_price": 10000}]}
+        b = {"name": "b", "usable": [{"sku": "S1", "name": "snack", "qty": 1, "list_price": 10000}]}
+
+        def quote(s, name, sku, order, got, ctl):
+            got[s["name"]] = {"ask": 5000 if s["name"] == "a" else 7000, "ask_src": "text" if s["name"] == "a" else "metadata",
+                              "url": "u", "task": "t"}
+        with mock.patch.object(mb, "quote", quote), mock.patch.object(mb, "cancel_quote", lambda *a: None), \
+                mock.patch.object(mb, "log", lambda *a: None):
+            best, _ = mb.best_quote(b, [a], {}, {}, 10 ** 7, lambda sku: None, {"quote_shops": 2}, wait=1)
+        self.assertEqual(best["name"], "a")
+
+    def quote(self, task, offer=True):
+        import market_buyer as mb
+        card = mock.Mock(**{"json.return_value": {"supportedInterfaces": [
+            {"protocolBinding": "JSONRPC", "protocolVersion": "1.0", "url": "http://s/rpc"}]}})
+        got = {}
+        shop = {"name": "s", "url": "http://s", **({"_offer": {"list_price": 13900}} if offer else {})}
+        with mock.patch.object(mb, "serves_acp", lambda u: True), mock.patch.object(mb.httpx, "get", lambda *a, **k: card), \
+                mock.patch.object(mb, "buyer_send", lambda *a, **k: task), mock.patch.object(mb, "log", lambda *a: None):
+            mb.quote(shop, "두부과자", "G762d9d25", {"kind": "food"}, got)
+        return got["s"]
+
+    def test_quote_uses_the_text_ask_when_metadata_has_none(self):
+        q = self.quote({"status": {"state": "TASK_STATE_INPUT_REQUIRED",
+                                   "message": {"parts": [{"text": "두부과자: asking 9708. Send your offer as a number."}]}}})
+        self.assertEqual((q["ask"], q["ask_src"]), (9708, "text"))
+
+    def test_metadata_ask_wins_over_the_text(self):
+        q = self.quote({"status": {"state": "TASK_STATE_INPUT_REQUIRED",
+                                   "message": {"metadata": {"ask": 9000}, "parts": [{"text": "asking 9708"}]}}})
+        self.assertEqual((q["ask"], q["ask_src"]), (9000, "metadata"))
+
+    def test_without_an_offer_or_out_of_range_the_text_ask_is_only_recorded(self):
+        t = {"status": {"state": "TASK_STATE_INPUT_REQUIRED", "message": {"parts": [{"text": "asking 9708"}]}}}
+        q = self.quote(t, offer=False)
+        self.assertEqual((q["ask"], q["ask_src"], q["text_ask_raw"]), (None, "text_rejected", 9708))
+        t = {"status": {"state": "TASK_STATE_INPUT_REQUIRED", "message": {"parts": [{"text": "asking 99999"}]}}}
+        q = self.quote(t)
+        self.assertEqual((q["ask"], q["ask_src"]), (None, "text_rejected"))
+
+    def test_a_closed_task_has_no_ask_even_with_a_number_in_text(self):
+        q = self.quote({"status": {"state": "TASK_STATE_COMPLETED", "message": {"parts": [{"text": "asking 9708"}]}}})
+        self.assertEqual((q["ask"], q["ask_src"]), (None, None))
+
+
 if __name__ == "__main__":
     unittest.main()

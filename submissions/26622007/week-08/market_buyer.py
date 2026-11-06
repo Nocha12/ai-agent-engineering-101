@@ -51,6 +51,7 @@ import market_model
 import measure as records    # measure.py; measure() below is the memory timing
 from buyer import log, negotiate
 from buyer import HEADERS as BUYER_HEADERS, message_text as buyer_message_text, metadata_ask as buyer_metadata_ask
+from buyer import text_ask as buyer_text_ask
 from buyer import rpc as buyer_rpc, send as buyer_send
 
 STARTED = time.time()      # the kit stops market_buyer after 300 s: quotes only early in the run
@@ -511,6 +512,24 @@ def warranty_short(rec, order):
     return None if w >= need else f"warranty {w} h, I buy goods only with {need} h"
 
 
+TEXT_ASK_MIN_SHARE = 0.05   # a text ask under 5% of list is taken for a misread (a cut "list price 28900"), not a price
+
+
+def text_ask_checked(text, shop):
+    """buyer.text_ask, kept only when it is a believable price for the SKU quoted (5% to 100% of its list price, and no
+    other SKU named in the text). 214 of 214 quotes with both a metadata ask and one text ask agreed (GPT Pro 13:30). The talk
+    still reads the shop's price from its text, and the receipt price is what is paid, so a wrong number only misranks."""
+    v = buyer_text_ask(text)
+    o = shop.get("_offer") or {}
+    lp = o.get("list_price")
+    if v is None or not isinstance(lp, (int, float)) or lp <= 0:
+        return None
+    named = set(re.findall(r"\bG[0-9a-f]{8}\b", text or ""))
+    if named - {o.get("sku")}:
+        return None               # the price of another SKU: a mattress asked for, a soup's price answered (GPT Pro 13:30)
+    return v if TEXT_ASK_MIN_SHARE * lp <= v <= lp else None
+
+
 QUOTE_WAIT = 45        # seconds the quotes may take together; a shop slower than that is left out
 
 
@@ -544,9 +563,18 @@ def quote(shop, label, key, order, out, ctl=None):
         t = buyer_send(iface["url"], request_text(label, key, order))
         if t is None:
             return
-        ask = buyer_metadata_ask(t) if t.get("status", {}).get("state") == "TASK_STATE_INPUT_REQUIRED" else None
-        out[shop["name"]] = q = {"ask": ask, "text": buyer_message_text(t)[:300], "url": iface["url"], "task": t,
-                                 "refused": quote_refused(buyer_message_text(t), order)}
+        text = buyer_message_text(t)
+        open_ = t.get("status", {}).get("state") == "TASK_STATE_INPUT_REQUIRED"
+        ask, src = (buyer_metadata_ask(t), "metadata") if open_ else (None, None)
+        raw = None
+        if open_ and ask is None:
+            raw = buyer_text_ask(text)
+            ask, src = text_ask_checked(text, shop), "text"
+            if ask is None and raw is not None:
+                src = "text_rejected"       # a number read but outside 5%..100% of list: kept for the record only
+        out[shop["name"]] = q = {"ask": ask, "ask_src": src if ask is not None or src == "text_rejected" else None,
+                                 "text_ask_raw": raw, "text": text[:300], "url": iface["url"], "task": t,
+                                 "refused": quote_refused(text, order)}
         if ctl is not None and ctl.get("done") and ctl.get("winner") != shop["name"]:
             cancel_quote(q, shop["name"])
     except Exception as e:  # noqa: BLE001 - a shop that cannot quote is just not compared
@@ -661,7 +689,10 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
         if any(surplus(s) is not None and fits(s) for s in pool):
             break
     scored = [(surplus(s), i, s) for i, s in enumerate(pool) if surplus(s) is not None]
-    best = max(scored, key=lambda x: (fits(x[2]), x[0], -x[1]))[2] if scored else None
+    # an ask read from the text ranks after a metadata ask of the same fit and share (a misread or made-up text ask
+    # must not take the trade from a shop that stated its price in data; independent review 11/06 13:30)
+    meta = lambda s: (got.get(s["name"]) or {}).get("ask_src") != "text"
+    best = max(scored, key=lambda x: (fits(x[2]), x[0], meta(x[2]), -x[1]))[2] if scored else None
     keep = best["name"] if best else chosen["name"] if resumable(got.get(chosen["name"])) else None
     ctl.update(done=True, winner=keep)    # a late quote thread of the kept shop must not cancel it either
     for name, q in list(got.items()):
@@ -827,6 +858,23 @@ def check_receipt(rec, out, item, budget, order=None, catalog=None):
     return problems, warnings
 
 
+def over_limit(rec, offer, limit, catalog, budget):
+    """Why a receipt is not one I pay for: its price is over my limit for its SKU (saved_cap, patch 3.4). A shop that
+    sends a receipt at once, with no offer from me, skipped the talk where the limit is kept: 3 of the receipts paid from
+    11/06 08:45 to 13:35 (Jaehoonang, agreed None) were over it, e.g. 13,532 for a limit of 13,415 (GPT Pro 11/06 13:30
+    B2). None when the price is within it. Not cheating: the shop may ask what it likes; I just do not pay it."""
+    price = (rec or {}).get("price")
+    if not isinstance(price, (int, float)) or isinstance(price, bool) or not isinstance(limit, (int, float)):
+        return None
+    sku = rec.get("item")
+    if sku and sku != (offer or {}).get("sku"):
+        lp = ((catalog or {}).get(sku) or {}).get("list_price")
+        if not isinstance(lp, (int, float)):
+            return None               # another SKU of the order, its list price unknown: the budget check stays
+        limit = min(value_limit({"list_price": lp}, budget, 0, buyer_cfg()), saved_cap({"list_price": lp}, 0))
+    return f"receipt price {price:g} is over my limit {limit:g} for {sku}" if round(price) > limit else None
+
+
 def rate(out, problems, item, budget, warnings=(), limit=None):
     """Stars and review from the facts of the trade. limit is what I would pay (saved_cap may hold it under the budget):
     a talk that ended over it is my price, not the shop's fault, and gets the neutral 3."""
@@ -882,7 +930,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
             "refused: " + q["refused"] if q.get("refused") else "no ask (no free unit or no answer)" if not isinstance(ask_, (int, float))
             else "over my limit (budget / share / deal cap)" if lim is not None and ask_ > lim
             else "less expected surplus")
-        qs.append({"shop": s["name"], "sku": o.get("sku"), "list_price": o.get("list_price"), "ask": ask_, "lost": lost,
+        qs.append({"shop": s["name"], "sku": o.get("sku"), "list_price": o.get("list_price"), "ask": ask_, "src": q.get("ask_src"), "raw": q.get("text_ask_raw") if q.get("ask_src") == "text_rejected" else None, "lost": lost,
                    "limit": lim, "fit": not q.get("refused") and isinstance(ask_, (int, float)) and lim is not None and ask_ <= lim,
                    "text": (q.get("text") or "")[:120]})
     qs = qs[:12]      # one small line: a single append, so overlapping buyer runs do not interleave
@@ -995,7 +1043,8 @@ def main():
         f"it sold {label} to you at {', '.join(map(str, deals[-3:]))}" if deals else "",
         f"its lowest ask for {label} so far was {low}" if low is not None else "",
         pattern or "",
-        f"it opened at {quotes[shop['name']]['ask']}" if isinstance((quotes.get(shop["name"]) or {}).get("ask"), (int, float)) else "")
+        f"it opened at {quotes[shop['name']]['ask']}" + (" (read from its text)" if quotes[shop["name"]].get("ask_src") == "text" else "")
+        if isinstance((quotes.get(shop["name"]) or {}).get("ask"), (int, float)) else "")
         if x)
     if note:
         log(f"memory note for the harness: {note}")
@@ -1035,6 +1084,9 @@ def main():
     short = warranty_short(rec, order) if r3 and rec is not None else None    # not cheating: just not a deal I pay for
     if short:
         warnings.append(short)
+    over = over_limit(rec, offer, limit, catalog, args.budget) if r3 and rec is not None and not problems and not short else None
+    if over:
+        warnings.append(over)
     for p in problems:
         log(f"[receipt] PROBLEM {shop['name']}: {p}")
     for w in warnings:
@@ -1045,11 +1097,13 @@ def main():
         log(f"[memory] no deal, on the {why} side" + (f" (lowest ask {min(asks)}, limit {limit})" if asks else ""))
     stars, review = rate(out, problems, args.item, args.budget, warnings, limit if r3 else None) if rec is not None or not problems \
         else (1, f"Said the deal was done but sent no receipt for {args.item}.")
+    if over:
+        stars, review = 3, f"No deal on {args.item}: the receipt at {rec['price']:g} was over what I pay for it now ({limit:g})."
 
     memory["trades"].append({
         "time": time.strftime("%Y-%m-%dT%H:%M:%S"), "shop": shop["name"], "item": key, "budget": args.budget,
         **({"order": order.get("order"), "category": args.item, "list_price": offer["list_price"]} if r3 else {}),
-        "result": "no_warranty" if short else "deal" if rec is not None else (out["state"] or "error").replace("TASK_STATE_", "").lower(),
+        "result": "no_warranty" if short else "over_limit" if over else "deal" if rec is not None else (out["state"] or "error").replace("TASK_STATE_", "").lower(),
         "price": rec.get("price") if rec else None,
         "asks": asks, "holds": out.get("holds", 0), "problems": problems, "warnings": warnings, "why": why,
         "signed": bool(rec.get("sig_seller")) if rec else None})
@@ -1058,7 +1112,7 @@ def main():
 
     result = {"shop": shop["url"], "receipt": rec, "stars": stars, "review": review}
     if r3:
-        if problems or short:
+        if problems or short or over:
             result["receipt"] = None            # the kit pays any receipt that verifies: this one does not go through
         if accept_policy(order):
             result["accept"] = accept_policy(order)
