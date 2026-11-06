@@ -187,6 +187,8 @@ class TextAsk(unittest.TestCase):
         cat = {"G0df4f56f": {"list_price": 14900}}
         self.assertIn("over my limit", mb.over_limit({"item": "G0df4f56f", "price": 11324.0}, offer, 13415, cat, 20000))
         self.assertIsNone(mb.over_limit({"item": "Gffffffff", "price": 11324.0}, offer, 13415, cat, 20000))   # unknown SKU
+        # an unknown SKU's list price cannot raise the limit: the asked SKU's limit holds, not the budget
+        self.assertIn("over my limit", mb.over_limit({"item": "Gffffffff", "price": 14000.0}, offer, 13415, cat, 20000))
         self.assertIsNone(mb.over_limit({"item": "G4c4977ca"}, offer, 13415, {}, 13600))
 
     def test_a_metadata_ask_wins_a_tie_with_a_text_ask(self):

@@ -1123,9 +1123,8 @@ def over_limit(rec, offer, limit, catalog, budget):
     sku = rec.get("item")
     if sku and sku != (offer or {}).get("sku"):
         lp = ((catalog or {}).get(sku) or {}).get("list_price")
-        if not isinstance(lp, (int, float)):
-            return None               # another SKU of the order, its list price unknown: the budget check stays
-        limit = min(value_limit({"list_price": lp}, budget, 0, buyer_cfg()), saved_cap({"list_price": lp}, 0))
+        if isinstance(lp, (int, float)):   # its list price unknown: the asked SKU's limit holds, not the budget
+            limit = min(value_limit({"list_price": lp}, budget, 0, buyer_cfg()), saved_cap({"list_price": lp}, 0))
     return f"receipt price {price:g} is over my limit {limit:g} for {sku}" if round(price) > limit else None
 
 
@@ -1440,7 +1439,7 @@ def main():
                                                         limit, chance, out, rec, result, problems, warnings, short, why, stages,
                                                         catalog), "skipped_short_warranty": brief,
                                          "gave_up": gave_up, "rival_shop": shop["name"] in rival,
-                                         "talk_mode": talk_mode})
+                                         "talk_mode": talk_mode, "turns": (out or {}).get("turns")})
         except Exception as e:   # noqa: BLE001 - a measurement never stops the result line the kit waits for
             log(f"[measure] order record failed: {type(e).__name__}: {e}")
     print(json.dumps(result, ensure_ascii=False), flush=True)
