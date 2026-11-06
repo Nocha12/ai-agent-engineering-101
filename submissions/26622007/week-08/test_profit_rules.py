@@ -323,7 +323,7 @@ class PriceTest(unittest.TestCase):
         self.assertEqual(r["priority_skus"][after:after + 10], new)      # before the last food line (independent review)
         for sku in new:
             self.assertGreaterEqual(r["sku_target_units"][sku], 2)
-        self.assertEqual((r["food_max_stock_cost"], r["food_max_qty"], r["sku_target_units"]["G75f11c19"]), (3000000, 10, 8))
+        self.assertEqual((r["food_max_stock_cost"], r["food_max_qty"], r["sku_target_units"]["G75f11c19"]), (3000000, 20, 8))
 
     def test_shipped_settings(self):
         with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
@@ -381,7 +381,7 @@ class PriceTest(unittest.TestCase):
             self.assertEqual(restock.guard(buy, {**inv, "units": []}, cat, cfg),
                              [{"sku": "G05277ffe", "qty": 5}, {"sku": "Gb5d0dde7", "qty": 5}, {"sku": "G8ec51935", "qty": 5},
                               {"sku": "G8095ddd6", "qty": 5}])   # scale 6 lists G8095ddd6; each line is the asked 5 under its target
-        self.assertEqual(r["food_max_qty"], 10)    # scale 9: 10 (food sold out 76 times, 0 expired); was: every food line refills up to 4 units, not 3 (the SKU cap stays max_units_per_sku 6)
+        self.assertEqual(r["food_max_qty"], 20)    # 11/07 04:4x: 20 (one line a sold-out food per window, ~10 s a line), scale 9: 10 (food sold out 76 times, 0 expired); was: every food line refills up to 4 units, not 3 (the SKU cap stays max_units_per_sku 6)
         self.assertTrue(r["high_price_listed_only"])
         # no cap per deal (hard_limits.UNCAPPED; at 800k my buyer settled 1 of 113 dear orders) and the whole list price:
         # 27 orders in 4.5 h ended with the shop's lowest ask between 0.9 and 1.0 of list, while only 6 of 271 deals paid
