@@ -701,7 +701,11 @@ class BuyerTest(unittest.TestCase):
                 calls.append(a)
                 return dict(result)
 
+            # SETTLED is relative to the working folder: the meta harness runs these tests in the live checkout, where
+            # memory/settled.jsonl is real, so post_when_free queued a buyer post and its log line came after the result
+            # (terra 11/07 04:15 and 05:24 rejected for this alone)
             with mock.patch.object(market_buyer, "MEMORY", os.path.join(d, "m.json")), \
+                    mock.patch.object(market_buyer, "SETTLED", os.path.join(d, "settled.jsonl")), \
                     mock.patch.object(market_buyer, "market_round", lambda: 3), \
                     mock.patch.object(market_buyer, "serves_acp", lambda u: True), \
                     mock.patch.object(market_buyer, "buyer_cfg", lambda: dict(self.BUYER_CFG)), \
