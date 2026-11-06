@@ -175,6 +175,7 @@ class EndToEnd(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
         self.addCleanup(self.tmp.cleanup)
+        self.addCleanup(seller.flush_memory)     # the writer thread may still be writing into tmp
         self.port = free_port()
         self.url = f"http://127.0.0.1:{self.port}"
         cat = Catalog("catalog.json")
@@ -296,7 +297,7 @@ class EndToEnd(unittest.TestCase):
         rec = out["receipt"]
         self.assertEqual(rec["warranty_hours"], 6)
         self.assertGreaterEqual(int(rec["price"]), 6667)      # cost 6000 / (1 - 0.1)
-        self.assertEqual(shop_memory.load()["negotiations"][-1]["warranty"], 6)
+        self.assertEqual((seller.flush_memory() or shop_memory.load())["negotiations"][-1]["warranty"], 6)
 
     def test_goods_that_break_too_often_are_not_sold_without_a_warranty(self):
         with mock.patch.object(seller, "break_chance", lambda sku: 0.5):
@@ -337,12 +338,12 @@ class EndToEnd(unittest.TestCase):
         out = buyer.negotiate(self.url, "포기김치", 4000, "", "I want to buy (G1)")
         self.assertEqual(out["state"], "TASK_STATE_COMPLETED")
         self.assertLess(out["receipt"]["price"], 6000)
-        got = shop_memory.load()["negotiations"][-1]
+        got = (seller.flush_memory() or shop_memory.load())["negotiations"][-1]
         self.assertEqual((got["cost"], got["arm"]), (6000, None))
         self.assertLess(got["reserve"], 6000)
 
     def results(self):
-        return [(n["result"], n.get("price")) for n in shop_memory.load()["negotiations"]]
+        return [(n["result"], n.get("price")) for n in (seller.flush_memory() or shop_memory.load())["negotiations"]]
 
     def pay(self, rec, acceptable=("G1",)):
         return kit.acp_pay(self.order(list(acceptable)), self.url, kit.pub_b64(self.key), rec, Ed25519PrivateKey.generate())
@@ -384,11 +385,11 @@ class EndToEnd(unittest.TestCase):
 
     def test_reserve_is_the_floor_and_the_first_ask_is_p0(self):
         self.deal("G1")                           # food cost 6000, list 10000, no ledger median
-        n = shop_memory.load()["negotiations"][-1]
+        n = (seller.flush_memory() or shop_memory.load())["negotiations"][-1]
         self.assertEqual((n["reserve"], n["open"]), (7015, 7434))
         with mock.patch.object(seller, "break_chance", lambda sku: 0.1):
             buyer.negotiate(self.url, "청소기", 10000, "", "I want to buy (G2)")
-        n = shop_memory.load()["negotiations"][-1]
+        n = (seller.flush_memory() or shop_memory.load())["negotiations"][-1]
         self.assertEqual((n["reserve"], n["open"], n["warranty"]), (8253, 8253, 6))   # (6000+15+1000)/0.85
 
     def test_unit_is_not_promised_twice_and_out_of_stock_is_refused(self):

@@ -23,6 +23,7 @@ talk at a time. The receipt names the SKU and carries the unit, the honest grade
 import argparse
 import asyncio
 import base64
+import concurrent.futures
 import hmac
 import json
 import math
@@ -247,6 +248,16 @@ def break_chance(sku):
             _breaks["stats"] = None
     return market_model.break_chance(_breaks["stats"], sku) if _breaks["stats"] else None
 
+
+
+# the seller's memory writes, in order, off the event loop (Shop.remember). Its worker is not a daemon: the writes
+# queued when the seller stops are still made before it exits.
+MEMORY_WRITER = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="seller-memory")
+
+
+def flush_memory():
+    """Waits for the memory writes queued so far (tests, and anything that reads the file right after a talk)."""
+    MEMORY_WRITER.submit(lambda: None).result()
 
 class Seller(AgentExecutor):
     def __init__(self, catalog, name, stock=None, acp=None):
@@ -542,6 +553,13 @@ class Seller(AgentExecutor):
             log(f"task {task.id[:8]} -> INPUT_REQUIRED ask {price}")
 
     def remember(self, task_id, deal, result, price=None):
+        """Hands the write to one writer thread and returns at once. shop_memory.record rewrites the whole Round 3 file
+        (10.5 MB, 26,865 talks on 11/06 16:24: 0.28 s a write, and growing) and was called on the event loop at the end of
+        every talk, so every other buyer's talk with this shop stood still meanwhile. One worker keeps the writes in order."""
+        entry = (task_id, dict(deal, history=list(deal.get("history") or [])), result, price)
+        MEMORY_WRITER.submit(self._remember_now, *entry)
+
+    def _remember_now(self, task_id, deal, result, price=None):
         try:
             shop_memory.record({"task": task_id, "item": deal.get("key") or deal["name"], "sku": deal["id"],
                                 "unit": deal.get("unit"), "cost": deal.get("cost"), "reserve": deal["reserve"],
@@ -549,11 +567,14 @@ class Seller(AgentExecutor):
                                 "asks": [p for who, p in deal["history"] if who == "you asked"],
                                 "offers": [p for who, p in deal["history"] if who == "buyer offered"],
                                 "warranty": deal.get("warranty"), "result": result, "price": price})
-        except OSError as e:
-            log(f"memory write failed: {e}")
+        except Exception as e:  # noqa: BLE001 - in the writer thread nobody else would see it
+            log(f"memory write failed: {type(e).__name__}: {e}")
         if deal.get("unit") and result == "deal":
-            agent_memory.daily(None, "sale", f"{deal['id']} {deal.get('name', '')[:40]} sold at {price}, cost {deal.get('cost')}"
-                               + (f", warranty {deal['warranty']} h" if deal.get("warranty") else ""))
+            try:
+                agent_memory.daily(None, "sale", f"{deal['id']} {deal.get('name', '')[:40]} sold at {price}, cost {deal.get('cost')}"
+                                   + (f", warranty {deal['warranty']} h" if deal.get("warranty") else ""))
+            except Exception as e:  # noqa: BLE001
+                log(f"daily note failed: {type(e).__name__}: {e}")
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         task = context.current_task
