@@ -63,6 +63,64 @@ class SellerTurnTest(unittest.TestCase):
         self.assertIsNone(fast_classify.seller_turn("26000. It must last at least 85 hours.", DEAL, 26000))
 
 
+class JevTurnTest(unittest.TestCase):
+    """A message that is not a bare number goes to Jev (typesafe/jev-1.14 on OpenRouter, 0.41 s median on 15 logged
+    turns, 11/07 00:55): a confident offer at or above the floor is an accept; anything else goes to the harness."""
+    MSG = "Another shop quoted me a lower price. My offer: 27000"
+
+    def test_a_confident_offer_at_the_floor_is_accepted(self):
+        d = fast_classify.seller_turn(self.MSG, DEAL, 26000, jev=lambda text: (27000, 0.98))
+        self.assertEqual((d["action"], d["buyer_offer"]), ("accept", 27000))
+
+    def test_an_unsure_answer_goes_to_the_harness(self):
+        self.assertIsNone(fast_classify.seller_turn(self.MSG, DEAL, 26000, jev=lambda text: (27000, 0.84)))
+
+    def test_an_offer_under_the_floor_or_none_goes_to_the_harness(self):
+        self.assertIsNone(fast_classify.seller_turn(self.MSG, DEAL, 28000, jev=lambda text: (27000, 1.0)))
+        self.assertIsNone(fast_classify.seller_turn(self.MSG, DEAL, 26000, jev=lambda text: (None, 1.0)))
+
+    def test_a_number_not_in_the_message_is_never_taken(self):
+        self.assertIsNone(fast_classify.seller_turn(self.MSG, DEAL, 26000, jev=lambda text: (27500, 1.0)))
+
+    def test_a_failed_call_goes_to_the_harness(self):
+        def boom(text):
+            raise RuntimeError("down")
+        self.assertIsNone(fast_classify.seller_turn(self.MSG, DEAL, 26000, jev=boom))
+
+    def test_bare_numbers_do_not_call_jev(self):
+        calls = []
+        fast_classify.seller_turn("27000", DEAL, 26000, jev=lambda text: calls.append(text) or (None, 0))
+        fast_classify.seller_turn("no digits here", DEAL, 26000, jev=lambda text: calls.append(text) or (None, 0))
+        self.assertEqual(calls, [])
+
+    def test_the_request_reads_the_choice(self):
+        answer = {"answers": {"offer": {"type": "choice", "choice": "27000", "confidence": 0.97}}, "usage": {}}
+        seen = {}
+
+        def post(url, json=None, headers=None, timeout=None):
+            seen.update(json)
+            return mock.Mock(status_code=200, json=lambda: answer)
+        with mock.patch.object(fast_classify.httpx, "post", post), \
+                mock.patch.object(fast_classify.harness, "_openrouter_key", lambda: "k"), \
+                mock.patch.object(fast_classify.harness, "record_call"):
+            self.assertEqual(fast_classify.jev_offer("I can do 7500, or 27000 with the warranty"), (27000, 0.97))
+        self.assertEqual(seen["model"], fast_classify.JEV_MODEL)
+        self.assertEqual(sorted(seen["questions"]["offer"]["criteria"]), ["27000", "7500", "none"])
+
+    def test_none_and_errors(self):
+        none = {"answers": {"offer": {"choice": "none", "confidence": 1}}}
+        with mock.patch.object(fast_classify.httpx, "post", lambda *a, **k: mock.Mock(status_code=200, json=lambda: none)), \
+                mock.patch.object(fast_classify.harness, "_openrouter_key", lambda: "k"), \
+                mock.patch.object(fast_classify.harness, "record_call"):
+            self.assertEqual(fast_classify.jev_offer("I cannot pay 30000."), (None, 1))
+        with mock.patch.object(fast_classify.httpx, "post", lambda *a, **k: mock.Mock(status_code=500, json=lambda: {})), \
+                mock.patch.object(fast_classify.harness, "_openrouter_key", lambda: "k"), \
+                mock.patch.object(fast_classify.harness, "record_call"):
+            self.assertEqual(fast_classify.jev_offer("I can do 30000."), (None, 0))
+        with mock.patch.object(fast_classify.harness, "_openrouter_key", lambda: None):
+            self.assertEqual(fast_classify.jev_offer("I can do 30000."), (None, 0))
+
+
 class BuyerTurnTest(unittest.TestCase):
     def test_an_ask_at_or_under_my_last_offer_is_taken(self):
         h = [("shop asked", 30000), ("you offered", 25000)]

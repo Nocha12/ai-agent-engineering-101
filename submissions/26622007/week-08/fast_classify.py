@@ -1,15 +1,31 @@
 """Turns whose outcome the code already fixes, read without a harness call.
 
-Week 4 names Jev (TypeSafe AI): classify a message's act and price with a cheap judgment instead of a full LLM call. Jev
-needs a paid API key, so these are plain rules, used only where the code after the harness would end the same whatever
-the harness said; every other turn still goes to the harness, and the price guards run after both.
+Week 4 names Jev (TypeSafe AI): classify a message's act and price with a cheap judgment instead of a full LLM call. A
+bare number is read by a rule; any other seller-turn message with a digit goes to Jev (typesafe/jev-1.14 on the
+OpenRouter Decisions API, the kit's OpenRouter key: 0.41 s median and $0.000016 a call on 15 logged turns, against 3.6 s
+for the harness). Both are used only where the code after the harness would end the same whatever the harness said;
+every other turn still goes to the harness, and the price guards run after both.
 
 Seller (seller.py): any offer at or above the round's floor is accepted by the code, so a bare number there is an accept
 (204 of 473 seller-harness turns, 23:29-00:35 on 11/07, answered accept at a median 3.6 s each). A message without a
 digit has no offer the code would take, so it is asked again. Buyer (buyer.py): a shop asking my last offer or less is
 taken at its ask (4 of 273 buyer-harness turns; the harness offered the ask in all 4).
 """
+import os
 import re
+import time
+
+import httpx
+
+import harness
+
+JEV_URL = "https://openrouter.ai/api/alpha/decisions"
+JEV_MODEL = "typesafe/jev-1.14"
+JEV_SECONDS = 3          # one try; a slow or failed call goes to the harness (its own limit is TURN_SECONDS)
+# Jev's own confidence, at or above which its offer is taken: on 12 made-up hard messages (11/07 00:55) every wrong or
+# doubtful read ("24000. No." 0.04, "I will not go above 20000, final." 0.84, "21000. Can you match?" 0.42) was under it
+JEV_MIN_CONFIDENCE = 0.9
+JEV_ON = os.environ.get("FAST_JEV", "1") != "0"    # FAST_JEV=0: no Jev call, those turns go to the harness again
 
 BARE_OFFER = re.compile(r"\s*([1-9][0-9]{0,2}(?:,[0-9]{3})+|[1-9][0-9]*)\s*(?:\.(?!\d)(\D*))?")
 # words after the number that may make it something other than an offer ("30000. Too expensive, can you go lower?"),
@@ -29,14 +45,58 @@ def bare_offer(text):
     return int(m[1].replace(",", ""))
 
 
-def seller_turn(text, deal, floor):
-    """The seller's turn decided without the harness, or None. floor: shop_memory.concession_floor for this round."""
+def written(text):
+    """The numbers in a message, as seller.py reads them for its guard (commas between digits dropped)."""
+    return {int(n) for n in re.findall(r"\d+", re.sub(r"(?<=\d),(?=\d)", "", text or ""))}
+
+
+def jev_offer(text):
+    """(the price the buyer offers now, Jev's confidence) for a message, by one Choice question over the numbers written
+    in it and "none"; (None, 0) when the call fails. Each call is a line in llm_calls.jsonl (tag seller-jev)."""
+    nums = sorted(written(text))
+    key = harness._openrouter_key()
+    if not nums or not key:
+        return None, 0
+    crit = {str(n): f"The buyer offers to pay {n} now." for n in nums}
+    crit["none"] = "The message offers no price to pay now (a question, a refusal, or only other numbers)."
+    body = {"model": JEV_MODEL, "state": {"buyer_message_to_shop": text},
+            "questions": {"offer": {"type": "choice", "instructions": "Which price does the buyer offer to pay the shop now?",
+                                    "criteria": crit}}}
+    started = time.time()
+    try:
+        r = httpx.post(JEV_URL, json=body, headers={"Authorization": f"Bearer {key}"}, timeout=JEV_SECONDS)
+        j = r.json() if r.status_code == 200 else None
+        a = j["answers"]["offer"] if j else None
+        choice, conf = (a["choice"], float(a.get("confidence") or 0)) if a else (None, 0)
+    except Exception:  # noqa: BLE001 - any failure goes to the harness
+        j, choice, conf = None, None, 0
+    harness.record_call("seller-jev", text, "", time.time() - started, j is not None, (j or {}).get("usage"))
+    if choice is None:
+        return None, 0
+    return (int(choice) if choice != "none" and choice.isdigit() else None), conf
+
+
+def seller_turn(text, deal, floor, jev=None):
+    """The seller's turn decided without the harness, or None. floor: shop_memory.concession_floor for this round;
+    jev(text) -> (offer or None, confidence) reads a message that is not a bare number (jev_offer; None: no call)."""
     if not re.search(r"\d", text or ""):
         return {"buyer_offer": 0, "action": "counter", "price": deal["ask"], "message": "", "why": "no digit, no offer"}
+    least = max(floor, deal["reserve"])
     offer = bare_offer(text)
-    if offer is not None and offer >= max(floor, deal["reserve"]):
+    if offer is not None:
+        if offer >= least:
+            return {"buyer_offer": offer, "action": "accept", "price": offer, "message": "",
+                    "why": f"bare offer {offer} >= floor {least}"}
+        return None
+    if jev is None:
+        return None
+    try:
+        offer, conf = jev(text)
+    except Exception:  # noqa: BLE001
+        return None
+    if offer is not None and conf >= JEV_MIN_CONFIDENCE and offer in written(text) and offer >= least:
         return {"buyer_offer": offer, "action": "accept", "price": offer, "message": "",
-                "why": f"bare offer {offer} >= floor {max(floor, deal['reserve'])}"}
+                "why": f"Jev read the offer {offer} (confidence {conf:.2f}) >= floor {least}"}
     return None
 
 

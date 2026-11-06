@@ -502,8 +502,10 @@ class Seller(AgentExecutor):
         if note:
             plain = say
             say = lambda text, ask=None: plain(f"{note} {text}", ask)
-        fast = fast_classify.seller_turn(text, deal, shop_memory.concession_floor(deal.get("open", deal["ask"]), deal["reserve"],
-                                                                                  deal["rounds"]))
+        # in a thread: the Jev call takes about 0.4 s and must not hold the other talks
+        fast = await asyncio.to_thread(fast_classify.seller_turn, text, deal,
+                                       shop_memory.concession_floor(deal.get("open", deal["ask"]), deal["reserve"], deal["rounds"]),
+                                       fast_classify.jev_offer if fast_classify.JEV_ON else None)
         if fast:
             log(f"task {task.id[:8]} FAST {fast['why']}: no harness call")
         try:
