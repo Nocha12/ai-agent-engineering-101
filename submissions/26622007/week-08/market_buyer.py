@@ -570,7 +570,10 @@ def text_ask_checked(text, shop):
     return v if TEXT_ASK_MIN_SHARE * lp <= v <= lp else None
 
 
-QUOTE_WAIT = 45        # seconds the quotes may take together; a shop slower than that is left out
+QUOTE_WAIT = 25        # seconds the quotes may take together; a shop slower than that is left out (45 until 11/06 22:40)
+QUOTE_ENOUGH = 3       # asks in hand, one within my limit, and best_quote stops waiting: best share kept 0.274 with 2 asks,
+#                        0.314 with 3, 0.316 with 4, 0.31 with 5 (orders 11/06 11:50-19:50), while the wait for the slowest
+#                        of 10 shops took a median 12.9 s of a 45 s order (22:11-22:42)
 PREFETCH_QUOTES = True  # quote quote_shops - 1 shops while the harness chooses: the choice took a median 13.4 s of the 55 s
                         # an order took (149 orders 11/06 13:00-15:30), with no shop asked meanwhile (start_quotes)
 
@@ -828,8 +831,12 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
         threads += list(new.values())
         pool += batch
         end = time.time() + wait if not (r or late) else min(time.time() + wait, STARTED + QUOTE_UNTIL)
-        for th in threads:
-            th.join(max(0.0, end - time.time()))
+        while time.time() < end and any(th.is_alive() for th in threads):
+            # enough asks with one I can pay: the slowest shop of the batch no longer sets the pace (a late answer
+            # cancels its own talk in quote(), since the choice is then made)
+            if sum(surplus(s) is not None for s in pool) >= QUOTE_ENOUGH and any(surplus(s) is not None and fits(s) for s in pool):
+                break
+            time.sleep(0.05)
         # stop once an ask closes within my limit, not at the first number: 3판 GPT Pro §4.1, a batch whose asks were all
         # over the limit ended the search while the next batch was never asked
         if any(surplus(s) is not None and fits(s) for s in pool):

@@ -572,7 +572,8 @@ class BuyerTest(unittest.TestCase):
         self.assertTrue(market_buyer.resumable(got["a"]))                     # the fallback goes on with its talk
         self.assertEqual([got[n].get("closed") for n in "bc"], [True, True])  # closed before best_quote returns
         self.assertFalse(market_buyer.resumable(got["b"]))
-        self.assertEqual(sorted(cancelled), ["t-b", "t-c"])
+        # only this test's talks: a daemon closing thread of an earlier test (shops a-f) may land in the patched rpc
+        self.assertEqual(sorted(x for x in cancelled if x in ("t-a", "t-b", "t-c")), ["t-b", "t-c"])
         self.assertFalse(market_buyer.resumable(dict(got["a"], closed=True)))
         self.assertFalse(market_buyer.resumable(dict(got["a"], refused="no warranty")))
         self.assertFalse(market_buyer.resumable({"task": {"status": {"state": "TASK_STATE_REJECTED"}}}))

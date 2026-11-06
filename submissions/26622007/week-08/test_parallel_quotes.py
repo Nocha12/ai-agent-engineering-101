@@ -193,7 +193,8 @@ class MainOverlap(unittest.TestCase):
         self.assertLess(t["choose start"], min(ts for w, ts in events if w.startswith("quote ")) + 0.3)
         self.assertLess(took, 2.5)                                    # side by side (about 1.0 s), not one after the other
         self.assertEqual(out["shop"], "https://c.example")            # the best ask still wins
-        self.assertEqual(len(orders[-1]["quotes"]), 5)
+        # 4 prefetched asks that fit are enough (QUOTE_ENOUGH): the chosen shop's own later quote is not waited for
+        self.assertGreaterEqual(len(orders[-1]["quotes"]), 4)
 
     def test_a_hopeless_order_asks_no_shop_and_skips_the_choice(self):
         shops = [dict(shop(n), offers=[{"sku": "H1", "name": "청소기", "qty": 1}]) for n in "abc"]
@@ -249,6 +250,45 @@ class LateAndRace(unittest.TestCase):
         self.assertTrue(got["z"]["closed"])
         self.assertFalse(market_buyer.resumable(got["z"]))
         self.assertEqual(cancelled, ["t-z"])
+
+
+
+class EnoughQuotes(unittest.TestCase):
+    """best_quote stops waiting once QUOTE_ENOUGH asks are in and one fits: the slowest of 10 shops no longer sets the
+    pace (quotes stage median 12.9 s, p90 33.9 s at quote_shops 10, 11/06 22:11-22:42); a late shop closes its own talk."""
+
+    def test_a_slow_shop_is_not_waited_for_when_enough_asks_fit(self):
+        s = [{"name": n, "url": f"https://{n}.example", "usable": [{"sku": "H1", "name": "x", "qty": 1, "list_price": 10000}]}
+             for n in "abcdz"]
+        slow = threading.Event()
+
+        def fake_quote(sh, label, key, order, out, ctl=None):
+            if sh["name"] == "z":
+                slow.wait(3)
+            out[sh["name"]] = {"ask": 6500 if sh["name"] != "z" else 5000, "text": "", "refused": None}
+        with mock.patch.object(market_buyer, "quote", fake_quote), mock.patch.object(market_buyer, "log"), \
+                mock.patch.object(market_buyer, "cancel_quietly", lambda q, n: None), \
+                mock.patch.object(market_buyer, "STARTED", time.time()):
+            t0 = time.time()
+            best, got = market_buyer.best_quote(s[0], s[1:], {}, {}, 20000, lambda x: None, {"quote_shops": 5}, wait=5)
+            took = time.time() - t0
+            slow.set()
+        self.assertLess(took, 1.5)
+        self.assertNotEqual(best["name"], "z")
+
+    def test_with_too_few_asks_it_still_waits(self):
+        s = [{"name": n, "url": f"https://{n}.example", "usable": [{"sku": "H1", "name": "x", "qty": 1, "list_price": 10000}]}
+             for n in "az"]
+
+        def fake_quote(sh, label, key, order, out, ctl=None):
+            if sh["name"] == "z":
+                time.sleep(0.5)
+            out[sh["name"]] = {"ask": 6500 if sh["name"] == "a" else 5000, "text": "", "refused": None}
+        with mock.patch.object(market_buyer, "quote", fake_quote), mock.patch.object(market_buyer, "log"), \
+                mock.patch.object(market_buyer, "cancel_quietly", lambda q, n: None), \
+                mock.patch.object(market_buyer, "STARTED", time.time()):
+            best, _ = market_buyer.best_quote(s[0], s[1:], {}, {}, 20000, lambda x: None, {"quote_shops": 2}, wait=5)
+        self.assertEqual(best["name"], "z")          # one ask is not enough: the cheaper slow shop is waited for
 
 
 if __name__ == "__main__":
