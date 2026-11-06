@@ -128,9 +128,12 @@ def listed(cfg):
     return out
 
 
-def urgent_listed(cfg, inv, catalog, waiting=()):
+def urgent_listed(cfg, inv, catalog, waiting=(), model=None):
     """listed(cfg) with the SKUs that have no live unit held or on its way first (food before goods), then the refills
-    (food before goods), each in list order.
+    (food before goods), each in list order. With the demand model the refills go by the hours their stock lasts at
+    rate x my_share, lowest first, and those it has no rate for after them in list order: in the 06:23 window (11/07) run 2
+    spent two of its ~10 s calls on 3 apples and 1 kimchi (16 and 15 held) and held back G021aae64 (1 held, 7 sold/h)
+    and G03d0199f when the window closed; the window ends 2-4 lines short every time, never short of cash.
     A window serves ~14 lines (one about every 10 s): at 04:44 (11/07) the runs refilled SKUs that still held 2-12 units
     while G75f11c19 (8.5 sold/h), G0667d440 and G19a70f63 sat at 0, held back in every window, with ~39M over the cash
     buffer (main 01:30: sold-out food, then the new high-price SKUs, then the fast sellers)."""
@@ -139,7 +142,19 @@ def urgent_listed(cfg, inv, catalog, waiting=()):
     for w in waiting or ():
         have[w.get("sku")] += w.get("qty") or 0
     food = lambda s: (catalog.get(s) or {}).get("kind") == "food"
-    return sorted(listed(cfg), key=lambda s: (have[s] > 0, not food(s)))     # stable: list order within each group
+    skus = (model or {}).get("skus") if isinstance(model, dict) else None
+
+    def lasts(s):       # hours the held units last; None when the model has no usable rate for the SKU
+        m = skus.get(s) if isinstance(skus, dict) else None
+        r = m.get("rate") if isinstance(m, dict) else None
+        sh = m.get("my_share") if isinstance(m, dict) else None
+        ok = all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in (r, sh))
+        return have[s] / (r * sh) if ok and math.isfinite(r * sh) and r * sh > 0 else None
+    if not isinstance(skus, dict):
+        return sorted(listed(cfg), key=lambda s: (have[s] > 0, not food(s)))     # stable: list order within each group
+    # empty (food first), then refills with a rate by hours left, then refills without one as before (food first)
+    return sorted(listed(cfg), key=lambda s: (0, not food(s), 0) if have[s] <= 0
+                  else (1, 0, lasts(s)) if lasts(s) is not None else (2, not food(s), 0))
 
 
 def fill_listed(ranked, model, catalog, have_sku, cfg, factors=None, hours_left=float("inf"), breaks=None):
@@ -188,7 +203,7 @@ def plan(inv, catalog, demand, cfg, model=None, breaks=None, waiting=()):
         # proven / priority SKUs first, so the guard gives them the stock-cost room and the line limit cannot cut them:
         # ranked per won a mattress came below the cut (04:59 run left out G1515d951 that the guard allowed 3 of, and
         # G75f11c19 got 0 room in every run 04:44-05:02), and proven_first() only sees the lines plan() returns
-        first = urgent_listed(cfg, inv, catalog, waiting)
+        first = urgent_listed(cfg, inv, catalog, waiting, model)
         ranked.sort(key=lambda r: first.index(r[1]) if r[1] in first else len(first))     # stable: the rest keep their order
         fit = guard([{"sku": sku, "qty": qty} for _, sku, qty in ranked], inv, catalog, cfg, breaks, waiting)
         picks = [(0, b["sku"], b["qty"]) for b in fit[:cfg["max_lines"] - cfg["explore_lines"]]]
@@ -755,7 +770,7 @@ def main():
             # the formula fills only once the agent's queue is sent, except the proven / priority SKUs it proposes:
             # those go first in either case (proven_first); agent lines they push past max_lines are queued again
             send, back = batch(lines, [] if queued else out["buy"], out["buy"], keep, cfg,
-                               urgent_listed(cfg, inv, catalog, waiting))
+                               urgent_listed(cfg, inv, catalog, waiting, model if model and model.get("active") else None))
             agent_skus = {x.get("sku") for x in lines}
             if hold and not trial:         # agent lines for the trial's SKUs wait in the queue until the trial ends
                 back += [x for x in send if x["sku"] in hold and x["sku"] in agent_skus]

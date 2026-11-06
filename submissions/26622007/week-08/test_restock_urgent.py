@@ -52,6 +52,23 @@ class UrgentListedTest(unittest.TestCase):
         send, back = restock.batch(agent, [], formula, keep, dict(CFG, max_lines=2), ["H2", "P1"])
         self.assertEqual((send, back), ([{"sku": "H2", "qty": 1}, {"sku": "P1", "qty": 2}], [{"sku": "X1", "qty": 1}]))
 
+    def test_with_the_model_refills_go_by_hours_of_stock_left_lowest_first(self):
+        # 11/07 06:23 window: run 2 sent 3 apples and 1 kimchi (held 16, 15) and held back G021aae64 (held 1, 7 sold/h)
+        model = {"skus": {"F1": {"rate": 100, "my_share": 0.1}, "P1": {"rate": 40, "my_share": 0.05},
+                          "H1": {"rate": 10, "my_share": 0.1}}}
+        got = restock.urgent_listed(CFG, inv("P1", "H1", *["F1"] * 15), CATALOG, model=model)
+        self.assertEqual(got, ["F2", "H2", "P1", "H1", "F1"])      # cover 0.5 h, 1 h, 1.5 h; empty ones first as before
+
+    def test_a_refill_the_model_does_not_know_goes_after_the_known_ones(self):
+        model = {"skus": {"H1": {"rate": 10, "my_share": 0.1}, "F1": {"rate": "x", "my_share": 0.1}}}
+        got = restock.urgent_listed(CFG, inv("P1", "F1", "H1", "H2", "F2"), CATALOG, model=model)
+        self.assertEqual(got, ["H1", "F1", "F2", "P1", "H2"])      # unknown rates after the known, food first as before
+        for bad in (0, float("nan"), True, None, 1e308):
+            m = {"skus": {"H1": {"rate": bad, "my_share": 1e308 if bad == 1e308 else 0.1}}}
+            self.assertEqual(restock.urgent_listed(CFG, inv("P1", "F1", "H1"), CATALOG, model=m), ["F2", "H2", "F1", "P1", "H1"])
+        self.assertEqual(restock.urgent_listed(CFG, inv("P1", "F1", "H1"), CATALOG, model={"skus": {}}),
+                         restock.urgent_listed(CFG, inv("P1", "F1", "H1"), CATALOG))
+
     def test_a_malformed_setting_lists_nothing(self):
         self.assertEqual(restock.urgent_listed({"priority_skus": "F1"}, inv(), CATALOG), [])
 
