@@ -52,6 +52,7 @@ from acp_shop import AcpCheckout
 from catalog import NUMERIC, STOP, Catalog, words
 from harness import HarnessError, ask
 import acp_gate
+import fast_classify
 import agent_memory
 import hard_limits
 import market_model
@@ -501,8 +502,12 @@ class Seller(AgentExecutor):
         if note:
             plain = say
             say = lambda text, ask=None: plain(f"{note} {text}", ask)
+        fast = fast_classify.seller_turn(text, deal, shop_memory.concession_floor(deal.get("open", deal["ask"]), deal["reserve"],
+                                                                                  deal["rounds"]))
+        if fast:
+            log(f"task {task.id[:8]} FAST {fast['why']}: no harness call")
         try:
-            d = await asyncio.to_thread(decide_turn, deal, text)
+            d = fast or await asyncio.to_thread(decide_turn, deal, text)
         except HarnessError as e:
             log(f"harness failed: {e}")
             # Only a bare number is unambiguous; keep the normal price guards below.

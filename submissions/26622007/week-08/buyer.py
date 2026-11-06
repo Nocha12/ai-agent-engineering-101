@@ -17,6 +17,7 @@ import uuid
 
 import httpx
 
+import fast_classify
 from harness import HarnessError, ask
 
 MAX_TURNS = 10
@@ -184,8 +185,11 @@ def talk(url, t, item, budget, note, out, stop_if=None, take_at=None, reply_to=N
                 break
             t = nt
             continue
+        fast = fast_classify.buyer_turn(meta if meta is not None else text_ask(text), history)
+        if fast:
+            log(f"FAST the ask {fast['shop_price']} is at or under my last offer -> offering it, no harness call")
         try:
-            d = decide(item, budget, history, text, meta, turn, note)
+            d = fast or decide(item, budget, history, text, meta, turn, note)
         except HarnessError as e:
             log(f"harness failed: {e}; walking away")
             break
