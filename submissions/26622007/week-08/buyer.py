@@ -130,8 +130,7 @@ def negotiate(card_url, item, budget, note="", request=None, resume=None, stop_i
     talk before any offer (it is cancelled, nothing was promised).
     take_at: a machine-readable ask (message metadata) at or under it is offered back at once, with no counter and no
     harness call (market_buyer sets it for food, where countering lost more deals than it saved).
-    ladder(ask, history): the turn priced by code (oneshot.code_turn) when the shop states its ask in metadata, or None
-    for the harness.
+    ladder(metadata ask, shop text, history): the turn priced by code (oneshot.turn), or None for the harness.
     """
     out = {"state": "", "task": None, "receipt": None, "history": [], "agreed": None, "holds": 0}
     if resume:
@@ -192,7 +191,7 @@ def talk(url, t, item, budget, note, out, stop_if=None, take_at=None, reply_to=N
         fast = fast_classify.buyer_turn(seen, history)
         if fast:
             log(f"FAST the ask {fast['shop_price']} is at or under my last offer -> offering it, no harness call")
-        code = ladder(meta, history) if ladder and meta is not None and not fast else None    # a text read: the harness
+        code = ladder(meta, text, history) if ladder and not fast else None
         if code:
             log(f"CODE the ask {seen} -> {code['action']} {code['price'] or ''}, no harness call")
         try:
