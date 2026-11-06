@@ -197,6 +197,13 @@ class MainOverlap(unittest.TestCase):
         # 4 prefetched asks that fit are enough (QUOTE_ENOUGH): the chosen shop's own later quote is not waited for
         self.assertGreaterEqual(len(orders[-1]["quotes"]), 4)
 
+    def test_clear_quotes_do_not_wait_for_a_slow_agent(self):
+        shops = [dict(shop(n), offers=[{"sku": "H1", "name": "청소기", "qty": 1}]) for n in "abcdef"]
+        out, events, took, orders = self.run_main(shops, choose_s=3, quote_s=0.2, asks={"a": 6500, "b": 6800})
+        self.assertIn("choose start", [w for w, _ in events])        # the agent still runs
+        self.assertLess(took, 1.5)                                    # but its answer is not waited for
+        self.assertEqual(out["shop"], "https://a.example")
+
     def test_no_ask_near_my_limit_ends_the_order_without_a_talk(self):
         shops = [dict(shop(n), offers=[{"sku": "H1", "name": "청소기", "qty": 1}]) for n in "abcdef"]
         out, events, took, orders = self.run_main(shops, asks={"c": 7500})       # limit 7000: 7% over

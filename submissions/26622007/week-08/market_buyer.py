@@ -820,6 +820,33 @@ def hurried(pre):
         return False
 
 
+def choose_racing(pick, memory, item, budget, pre):
+    """choose() runs in a thread; when the prefetched quotes are enough (QUOTE_ENOUGH asks, one within my limit) before it
+    answers, the quotes decide and the agent's answer is not waited for (HarnessError: the most reviewed shop goes first and
+    best_quote picks by price). 11/07 02:00: fitting orders spent a median 7.5 s choosing though the quote, not the agent,
+    picked the shop in 74% of orders; the run's exit ends the abandoned thread (daemon)."""
+    if not (pre and pre.get("enough")):
+        return choose(pick, memory, item, budget)
+    if hurried(pre):          # already clear: no agent call at all (its first step is never cut short)
+        raise HarnessError("the quotes are in: the agent's choice is not waited for")
+    box = {}
+
+    def run():
+        try:
+            box["r"] = choose(pick, memory, item, budget, hurry=lambda: hurried(pre))
+        except BaseException as e:  # noqa: BLE001 - raised again in the caller's thread
+            box["e"] = e
+    th = threading.Thread(target=run, daemon=True)
+    th.start()
+    while th.is_alive():
+        if hurried(pre):
+            raise HarnessError("the quotes are in: the agent's choice is not waited for")
+        th.join(0.05)
+    if "e" in box:
+        raise box["e"]
+    return box["r"]
+
+
 def quotes_enough(shops, got, budget, cfg):
     """QUOTE_ENOUGH asks in got from shops (start_quotes set their _offer), one within my limit: what ends the wait."""
     asks, fit = 0, False
@@ -1259,8 +1286,7 @@ def main():
                 try:
                     if attempt and hurried(pre):     # a retry after a shop with no ACP: the quotes decide, no new agent run
                         raise HarnessError("the quotes are in")
-                    shop, reason = choose(pick, memory, args.item, args.budget,
-                                          **({"hurry": lambda: hurried(pre)} if pre and pre.get("enough") else {}))
+                    shop, reason = choose_racing(pick, memory, args.item, args.budget, pre)
                 except HarnessError as e:
                     unknown = [s for s in pick if not caught_cheating(my_history(memory, s["name"]))] or pick
                     shop, reason = max(unknown, key=lambda s: len(s.get("reviews") or [])), f"harness failed ({e}); most reviewed"
