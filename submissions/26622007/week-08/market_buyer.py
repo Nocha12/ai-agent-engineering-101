@@ -788,12 +788,20 @@ def prefetch_pool(left, memory, md, category, k, rival=frozenset()):
     return others[:max(0, k - 1)], others
 
 
+def hurried(pre):
+    """pre["enough"]() for choose(hurry=...); False when there is none or it fails (a check never ends the run)."""
+    try:
+        return bool(pre and pre.get("enough") and pre["enough"]())
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def quotes_enough(shops, got, budget, cfg):
     """QUOTE_ENOUGH asks in got from shops (start_quotes set their _offer), one within my limit: what ends the wait."""
     asks, fit = 0, False
     for s in shops:
         q, o = got.get(s["name"]) or {}, s.get("_offer")
-        if not o or q.get("refused") or not isinstance(q.get("ask"), (int, float)):
+        if not o or q.get("refused") or not isinstance(q.get("ask"), (int, float)) or isinstance(q.get("ask"), bool):
             continue
         asks += 1
         b = s.get("_b") or 0
@@ -1217,8 +1225,10 @@ def main():
             pick = [s for s in left if s["name"] not in rival] or left     # the harness chooses among non-rivals when any
             for attempt in range(ACP_TRIES):
                 try:
+                    if attempt and hurried(pre):     # a retry after a shop with no ACP: the quotes decide, no new agent run
+                        raise HarnessError("the quotes are in")
                     shop, reason = choose(pick, memory, args.item, args.budget,
-                                          **({"hurry": pre["enough"]} if pre and pre.get("enough") else {}))
+                                          **({"hurry": lambda: hurried(pre)} if pre and pre.get("enough") else {}))
                 except HarnessError as e:
                     unknown = [s for s in pick if not caught_cheating(my_history(memory, s["name"]))] or pick
                     shop, reason = max(unknown, key=lambda s: len(s.get("reviews") or [])), f"harness failed ({e}); most reviewed"
