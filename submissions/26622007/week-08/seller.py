@@ -564,9 +564,7 @@ class Seller(AgentExecutor):
             offer_text = text.strip()
             if re.fullmatch(r"(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)", offer_text):
                 offer = int(offer_text.replace(",", ""))
-                fallback_floor = shop_memory.concession_floor(deal.get("open", deal["ask"]),
-                                                               deal["reserve"], deal["rounds"], deal.get("kind"))
-                d = {"action": "counter", "price": min(deal["ask"], fallback_floor),
+                d = {"action": "counter", "price": floor_now,     # turn_floor: never above our ask
                      "buyer_offer": offer, "message": "Thank you for your offer."}
                 log(f"fallback: unambiguous numeric offer {offer}")
             elif fallback_reply(deal):

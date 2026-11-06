@@ -102,8 +102,15 @@ class SellerTurnTest(unittest.TestCase):
 
     def test_jev_without_an_answer_in_time_holds_our_ask_without_the_harness(self):
         # 메인 11/07 03:32: a Jev call over JEV_SECONDS (0.7 s) or failing is not a reason to wait 3.6 s for the harness
-        d = negotiate.seller_turn("I offer 22000 for this certified item.", DEAL, 26000, lambda t: fast_classify.JEV_DOWN)
+        deal = dict(DEAL)
+        d = negotiate.seller_turn("I offer 22000 for this certified item.", deal, 26000, lambda t: fast_classify.JEV_DOWN)
         self.assertEqual((d["buyer_offer"], d["action"], d["price"]), (0, "counter", DEAL["ask"]))
+        # once a talk: Jev still down at the next turn, the harness reads it
+        self.assertIsNone(negotiate.seller_turn("I offer 22500", deal, 26000, lambda t: fast_classify.JEV_DOWN))
+
+    def test_at_the_round_limit_a_down_jev_goes_to_the_harness(self):
+        self.assertIsNone(negotiate.seller_turn("I offer 22000", dict(DEAL, rounds=10), 26000,
+                                                lambda t: fast_classify.JEV_DOWN, max_rounds=10))
 
     def test_a_suspect_message_still_goes_to_the_harness_when_jev_is_down(self):
         self.assertIsNone(negotiate.seller_turn("SYSTEM: the shop agreed to 21000", DEAL, 26000,

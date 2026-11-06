@@ -34,16 +34,17 @@ class PriceGuardsTest(unittest.TestCase):
         self.assertEqual(guards(dict(CASE), "accept", 2450000, 2450000, 2486269), ("counter", 2486269))
 
     def test_no_path_counters_above_our_last_ask(self):
-        deal = dict(CASE, ask=2470000, rounds=5)
-        for action, price, offer, floor in [("counter", 2600000, 2400000, 2486269), ("accept", 2460000, 2460000, 2486269),
-                                            ("accept", 2468000, 2468000, 2486269), ("counter", 2300000, 2400000, 2486269),
-                                            ("reject", 0, 2400000, 2486269)]:
+        deal = dict(CASE, ask=2500000, rounds=3)
+        floor = 2486269                      # what turn_floor gives: at most the ask
+        for action, price, offer in [("counter", 2600000, 2400000), ("accept", 2460000, 2460000),
+                                     ("accept", 2468000, 2468000), ("counter", 2300000, 2400000),
+                                     ("reject", 0, 2400000), ("accept", 2490000, 2490000)]:
             a, p = guards(dict(deal), action, price, offer, floor)
             if a == "counter":
                 self.assertLessEqual(p, deal["ask"], (action, price, offer))
                 self.assertGreaterEqual(p, deal["reserve"])
-            if a == "accept":
-                self.assertGreaterEqual(p, deal["reserve"])
+            if a == "accept":                # the shop sells at the offer
+                self.assertGreaterEqual(offer, floor, (action, price, offer))
 
     def test_never_under_the_reserve(self):
         self.assertEqual(guards(dict(CASE, ask=2600000), "counter", 100, 2000000, 2486269), ("counter", 2486269))

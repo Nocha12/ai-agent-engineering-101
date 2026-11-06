@@ -21,8 +21,9 @@ import harness
 
 JEV_URL = "https://openrouter.ai/api/alpha/decisions"
 JEV_MODEL = "typesafe/jev-1.14"
-# one try. 0.7 s (메인 11/07 03:32): 110 logged calls took 0.40 s median, 0.55 s p99, 0.57 s at most. A call that is
-# slower or fails returns JEV_DOWN: the jevrule engine then holds our ask (negotiate.py), otherwise the harness answers
+# one try. 0.7 s (메인 11/07 03:32): 110 logged calls took 0.40 s median, 0.55 s p99, 0.57 s at most. httpx applies it to
+# each phase (connect, write, read), so a call can take somewhat longer in all. A call that times out or fails returns
+# JEV_DOWN: the jevrule engine then holds our ask once a talk (negotiate.py), otherwise the harness answers
 JEV_SECONDS = 0.7
 JEV_DOWN = (None, -1.0)   # no answer from Jev (timeout, error, bad status); a real "none" answer has confidence >= 0
 # Jev's own confidence, at or above which its offer is taken: on 12 made-up hard messages (11/07 00:55) every wrong or

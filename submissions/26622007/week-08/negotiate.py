@@ -138,6 +138,11 @@ def seller_turn(text, deal, floor, jev=None, max_rounds=None):
         return None
     offer = read_offer(text, deal, jev)
     if offer == HOLD_TURN:   # seller.py answers "Please tell me the price you offer. My price: <ask>."
+        # once a talk: a longer Jev outage, or the round limit, goes to the harness instead of asking again and again
+        # (independent review 11/07, Low/Medium)
+        if deal.get("jev_held") or (max_rounds is not None and deal["rounds"] >= max_rounds):
+            return None
+        deal["jev_held"] = True
         return {"buyer_offer": 0, "action": "counter", "price": deal["ask"], "message": "",
                 "why": f"Jev gave no answer in {fast_classify.JEV_SECONDS} s: hold the ask {deal['ask']}"}
     if not offer or offer > deal["ask"]:
