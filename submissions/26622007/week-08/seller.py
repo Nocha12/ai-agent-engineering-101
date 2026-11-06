@@ -557,7 +557,10 @@ class Seller(AgentExecutor):
         (10.5 MB, 26,865 talks on 11/06 16:24: 0.28 s a write, and growing) and was called on the event loop at the end of
         every talk, so every other buyer's talk with this shop stood still meanwhile. One worker keeps the writes in order."""
         entry = (task_id, dict(deal, history=list(deal.get("history") or [])), result, price)
-        MEMORY_WRITER.submit(self._remember_now, *entry)
+        try:
+            MEMORY_WRITER.submit(self._remember_now, *entry)
+        except RuntimeError:          # the interpreter is shutting down: write it here, as before
+            self._remember_now(*entry)
 
     def _remember_now(self, task_id, deal, result, price=None):
         try:
