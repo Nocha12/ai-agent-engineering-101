@@ -207,5 +207,28 @@ class TryTimeoutTest(unittest.TestCase):
         self.assertLessEqual(len(timeouts), harness.RETRIES)
 
 
+class EffortTest(unittest.TestCase):
+    """The buyer's offers go out at reasoning effort none, every other tag at OR_REASONING (low): 80 logged offer turns
+    replayed 11/07 03:40 took a median 1.22 s at none against 4.19 s at low, with the same action in 80 of 80."""
+
+    def effort(self, tag):
+        client = mock.MagicMock()
+        ok = mock.Mock(status_code=200)
+        ok.json.return_value = {"choices": [{"message": {"content": "{}"}}]}
+        post = client.__enter__.return_value.post
+        post.return_value = ok
+        with mock.patch.dict(os.environ, {"OPENROUTER_API_KEY": "x"}), mock.patch.object(harness, "OR_MAX_CALLS_PER_HOUR", 0), \
+                mock.patch.object(harness.httpx, "Client", return_value=client):
+            harness._ask_openrouter("p", {}, "s", tag)
+        return post.call_args.kwargs["json"]["reasoning"]["effort"]
+
+    def test_buyer_offers_use_none(self):
+        self.assertEqual(self.effort("buyer-harness"), "none")
+
+    def test_the_seller_and_the_agents_keep_or_reasoning(self):
+        for tag in ("seller-harness", "seller-jev", "buyer-agent", "buyer-choose", "forum-agent"):
+            self.assertEqual(self.effort(tag), harness.OR_REASONING, tag)
+
+
 if __name__ == "__main__":
     unittest.main()

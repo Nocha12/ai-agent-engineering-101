@@ -20,7 +20,8 @@ The seller and the buyer both decide through ask(). Three backends:
   openai/gpt-6-luna on OpenRouter with OPENROUTER_API_KEY from the environment or
   the submission's .env, within OR_TIMEOUT s per decision (or the caller's timeout),
   pinned to the OpenAI endpoint without fallbacks, require_parameters so an
-  unsupported parameter fails instead of being dropped, reasoning effort low, no
+  unsupported parameter fails instead of being dropped, reasoning effort low (none for
+  the buyer's offer turns, TAG_REASONING), no
   temperature, and response_format = strict json_schema on every request. The body
   is read back as sent and its relevant fields are logged; the key never is.
 
@@ -47,6 +48,10 @@ OR_URL = "https://openrouter.ai/api/v1/chat/completions"
 OR_MODEL = os.environ.get("OR_MODEL", "openai/gpt-6-luna")
 OR_PROVIDER = os.environ.get("OR_PROVIDER", "openai")
 OR_REASONING = os.environ.get("OR_REASONING", "low")
+# The buyer's offer turns at effort none (luna takes none..max on OpenRouter, no minimal): 80 logged turns replayed 11/07
+# 03:40 took a median 1.22 s (p90 1.58) at none against 4.19 s (p90 4.99) at low, the same action in 80 of 80, the same
+# shop price read in 80 of 80, offers 0.873 against 0.872 of the limit. OR_REASONING_BUYER=low brings low back.
+TAG_REASONING = {"buyer-harness": os.environ.get("OR_REASONING_BUYER", "none")}
 # Off by default (a person's call, 11/05): at 300 the long-lived seller gave up thousands of negotiations a day. Luna is
 # cheap; calls and cost stay measured (CALLS, llm_calls.jsonl). OR_MAX_CALLS_PER_HOUR=300 in the environment brings it back.
 OR_MAX_CALLS_PER_HOUR = int(os.environ.get("OR_MAX_CALLS_PER_HOUR", "0"))   # 0 or less: no hourly cap
@@ -204,7 +209,7 @@ def _ask_openrouter(prompt, schema, system, tag, timeout=None):
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
         "response_format": {"type": "json_schema",
                             "json_schema": {"name": "decision", "strict": True, "schema": schema}},
-        "reasoning": {"effort": OR_REASONING},
+        "reasoning": {"effort": TAG_REASONING.get(tag, OR_REASONING)},
         "provider": {"only": [OR_PROVIDER], "allow_fallbacks": False, "require_parameters": True},
     }
     last = None
