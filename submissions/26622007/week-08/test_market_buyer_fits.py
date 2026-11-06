@@ -74,6 +74,18 @@ class HopelessTest(unittest.TestCase):
         self.assertTrue(market_buyer.hopeless(pool, 70, {"A": [71, 72], "B": [71, 80]}, cfg))   # the budget is the limit
         self.assertFalse(market_buyer.hopeless(pool, 70, {"A": [70, 72], "B": [71, 80]}, cfg))
 
+    def test_the_give_up_rule_stays_as_replayed(self):
+        # pinned (11/06 replay: 3 h and 2 asks gave up 5 of 361 orders and none of the 165 paid; 6 h lost one paid order)
+        # and called by main before the quotes; meta/terra.md says the meta-harness keeps it
+        import inspect
+        self.assertEqual((market_buyer.HOPELESS_HOURS, market_buyer.HOPELESS_MIN_ASKS), (3, 2))
+        src = inspect.getsource(market_buyer.main)
+        self.assertIn("hopeless(", src)
+        self.assertIn("not gave_up", src)
+        here = os.path.dirname(os.path.abspath(market_buyer.__file__))
+        with open(os.path.join(here, "meta", "terra.md"), encoding="utf-8") as fh:
+            self.assertIn("market_buyer.hopeless()", fh.read())
+
 
 if __name__ == "__main__":
     unittest.main()
