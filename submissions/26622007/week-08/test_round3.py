@@ -205,7 +205,7 @@ class EndToEnd(unittest.TestCase):
             "ledger": 7, "unit": co.get("unit"), "name": "x", "grade": "A", "claim": co.get("claim"), "claim_honest": True}})
 
     @staticmethod
-    def shop_rule(prompt, schema, system, tag=""):
+    def shop_rule(prompt, schema, system, tag="", timeout=None):
         offer = int(prompt.rsplit("<<<\n", 1)[1].split("\n")[0])
         return {"buyer_offer": offer, "action": "accept", "price": offer, "message": "Deal."}
 
@@ -407,7 +407,7 @@ class RoundTwoStillWorks(EndToEnd):
         self.stock.load = lambda: {"round": 2, "units": []}
 
     @staticmethod
-    def shop_rule(prompt, schema, system, tag=""):
+    def shop_rule(prompt, schema, system, tag="", timeout=None):
         if "ask" in schema["properties"]:
             return {"ask": 100, "message": "Welcome."}
         return EndToEnd.shop_rule(prompt, schema, system, tag)

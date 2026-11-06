@@ -61,6 +61,9 @@ import shop_memory
 from shop_stock import StockBook, last_segment, markdown
 
 MAX_ROUNDS = 10   # hard stop in code; the harness normally ends the talk earlier
+# a turn's harness attempt and its slot wait each at most this long (CODEX_TIMEOUT 60 s otherwise): turns took a median 4 s and a p90 4-6 s
+# (llm_calls.jsonl 11/05-06); from 17:25 on 11/06 p90 31-60 s while the buyer waited
+TURN_SECONDS = 25
 CANDIDATES = 15
 MAX_TEXT = 500    # characters of a buyer message that reach the prompts
 # Round 3 goods: a buyer's kit may refuse to pay without a warranty (accept.warranty_hours), so the shop offers one when
@@ -210,7 +213,15 @@ def decide_turn(deal, text):
               + f"The buyer's new message:\n<<<\n{text}\n>>>\n"
               f"buyer_offer: the price the buyer offers now (0 if none). action: accept (sell at buyer_offer), "
               f"counter (price = your new asking price), or reject (end the talk).")
-    return ask(prompt, TURN_SCHEMA, SYSTEM, tag="seller-harness")
+    return ask(prompt, TURN_SCHEMA, SYSTEM, tag="seller-harness", timeout=TURN_SECONDS)
+
+
+def fallback_reply(deal):
+    """What the shop says when the harness failed on a message that is not a bare number, or None to end the talk (the
+    last round). 17:30-19:00 on 11/06, 89 of 423 turns failed (codex 17-60 s) and each one ended a talk."""
+    if deal["rounds"] >= MAX_ROUNDS:
+        return None
+    return f"Sorry for the wait. Please send only the price you offer, as a number. My price: {deal['ask']}."
 
 
 def lessons_line(deal):
@@ -457,6 +468,11 @@ class Seller(AgentExecutor):
                 d = {"action": "counter", "price": min(deal["ask"], fallback_floor),
                      "buyer_offer": offer, "message": "Thank you for your offer."}
                 log(f"fallback: unambiguous numeric offer {offer}")
+            elif fallback_reply(deal):
+                # the talk stays open: a bare number next turn reaches the fallback above without the harness
+                await up.requires_input(say(fallback_reply(deal), deal["ask"]))
+                log(f"task {task.id[:8]} -> INPUT_REQUIRED (harness failed; asked for a bare number)")
+                return
             else:
                 await up.failed(say("The shop cannot answer right now."))
                 self.free(task.id, deal)

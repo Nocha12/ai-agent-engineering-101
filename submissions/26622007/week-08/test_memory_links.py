@@ -219,6 +219,17 @@ class BriefingTest(unittest.TestCase):
             self.assertIn("3 other shops", line)
             self.assertEqual(seller.briefing_line("H2"), "")
 
+    def test_a_turn_has_its_own_limit_and_a_failed_turn_asks_for_a_number(self):
+        deal = {"id": "H1", "name": "컵", "reserve": 5, "ask": 9, "rounds": 1, "history": []}
+        limits = []
+        with mock.patch.object(seller, "memory_line", lambda n: ""), \
+                mock.patch.object(seller, "ask", lambda p, *a, timeout=None, **k: limits.append(timeout)):
+            seller.decide_turn(deal, "8")
+        self.assertEqual(limits, [seller.TURN_SECONDS])
+        self.assertLess(seller.TURN_SECONDS, 60)
+        self.assertIn("My price: 9", seller.fallback_reply(deal))       # the talk stays open
+        self.assertIsNone(seller.fallback_reply(dict(deal, rounds=seller.MAX_ROUNDS)))
+
     def test_it_reaches_the_turn_prompt_only_from_round_3(self):
         deal = {"id": "H1", "name": "컵", "reserve": 5, "ask": 9, "rounds": 1, "history": []}
         seen = []
