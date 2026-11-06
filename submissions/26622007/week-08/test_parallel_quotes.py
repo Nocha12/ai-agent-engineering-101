@@ -138,7 +138,8 @@ class MainOverlap(unittest.TestCase):
             if late:
                 market_buyer.cancel_quietly(q, s["name"])
 
-        def fake_choose(s, m, i, b, hurry=None):
+        def fake_choose(s, m, i, b, hurry=None, stop=None):
+            self.stop = stop
             note("choose start")
             time.sleep(choose_s)
             note("choose end")
@@ -215,6 +216,7 @@ class MainOverlap(unittest.TestCase):
         self.assertIn("choose start", [w for w, _ in events])        # the agent still runs
         self.assertLess(took, 1.5)                                    # but its answer is not waited for
         self.assertEqual(out["shop"], "https://a.example")
+        self.assertTrue(self.stop.is_set())                           # and it is told to stop: no step after the order moved on
 
     def test_no_ask_near_my_limit_ends_the_order_without_a_talk(self):
         shops = [dict(shop(n), offers=[{"sku": "H1", "name": "청소기", "qty": 1}]) for n in "abcdef"]

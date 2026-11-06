@@ -362,7 +362,7 @@ def break_line(row):
     return f"\n  goods it sold that broke, in the ledger: {row['broke']} of {row['sold']}" if row and row["sold"] else ""
 
 
-def choose(shops, memory, item, budget, hurry=None):
+def choose(shops, memory, item, budget, hurry=None, stop=None):
     """Returns (shop, reason).
 
     Code removes cheaters, dead shops, shops whose receipts were unsigned and shops with clearly bad
@@ -431,6 +431,10 @@ def choose(shops, memory, item, budget, hurry=None):
         left = deadline - time.time()
         if left < CHOOSE_MIN_SECONDS:
             raise HarnessError(f"choice took over {CHOOSE_SECONDS} s")
+        # stop: choose_racing has moved on without this choice; an abandoned thread asks nothing more (11/07 04:27-04:50:
+        # 37 of 61 runs had 1-2 agent calls after the order had left the choice)
+        if stop is not None and stop.is_set():
+            raise HarnessError("the choice is no longer waited for")
         # hurry(): enough quotes are in, so best_quote will pick by price anyway; the agent keeps its first step only
         if steps and hurry is not None and hurry():
             raise HarnessError("the quotes are in: no further choice step")
@@ -829,17 +833,18 @@ def choose_racing(pick, memory, item, budget, pre):
         return choose(pick, memory, item, budget)
     if hurried(pre):          # already clear: no agent call at all (its first step is never cut short)
         raise HarnessError("the quotes are in: the agent's choice is not waited for")
-    box = {}
+    box, stop = {}, threading.Event()
 
     def run():
         try:
-            box["r"] = choose(pick, memory, item, budget, hurry=lambda: hurried(pre))
+            box["r"] = choose(pick, memory, item, budget, hurry=lambda: hurried(pre), stop=stop)
         except BaseException as e:  # noqa: BLE001 - raised again in the caller's thread
             box["e"] = e
     th = threading.Thread(target=run, daemon=True)
     th.start()
     while th.is_alive():
         if hurried(pre):
+            stop.set()
             raise HarnessError("the quotes are in: the agent's choice is not waited for")
         th.join(0.05)
     if "e" in box:

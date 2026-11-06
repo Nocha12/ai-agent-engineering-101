@@ -6,6 +6,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -240,6 +241,45 @@ class ChooseAgentTest(unittest.TestCase):
             calls.clear()
             mb.choose(self.SHOPS, {"trades": []}, "김치", 9000, hurry=lambda: False)
             self.assertEqual(len(calls), 3)
+
+    def test_a_stopped_choice_asks_no_further_step(self):
+        # 11/07 04:27-04:50: 37 of 61 runs had 1-2 agent calls after main had moved on; the abandoned thread kept stepping
+        calls = []
+
+        def ask(*a, timeout=None, **k):
+            calls.append(k.get("tag"))
+            return {"shop": "a", "reason": "fallback"}
+
+        def decide(goal, schema, md, agent, given, max_steps, ask_fn=None):
+            ask_fn("p", schema, "s", tag="buyer-agent")
+            return None
+        stop = threading.Event()
+        stop.set()
+        with mock.patch.object(mb, "AGENT_DIR", "x"), mock.patch.object(mb.agent_loop, "decide", decide), \
+                mock.patch.object(mb.market_model, "load_rows", lambda d: []), mock.patch.object(mb, "log"), \
+                mock.patch.object(mb, "ask", ask):
+            with self.assertRaises(mb.HarnessError):
+                mb.choose(self.SHOPS, {"trades": []}, "김치", 9000, stop=stop)
+        self.assertEqual(calls, [])
+
+    def test_a_choice_stopped_after_its_first_step_asks_no_second(self):
+        stop, calls = threading.Event(), []
+
+        def ask(*a, timeout=None, **k):
+            calls.append(k.get("tag"))
+            stop.set()                     # main moves on while this step is out
+            return {"shop": "a", "reason": "fallback"}
+
+        def decide(goal, schema, md, agent, given, max_steps, ask_fn=None):
+            ask_fn("p", schema, "s", tag="buyer-agent")
+            ask_fn("p", schema, "s", tag="buyer-agent")
+            return None
+        with mock.patch.object(mb, "AGENT_DIR", "x"), mock.patch.object(mb.agent_loop, "decide", decide), \
+                mock.patch.object(mb.market_model, "load_rows", lambda d: []), mock.patch.object(mb, "log"), \
+                mock.patch.object(mb, "ask", ask):
+            with self.assertRaises(mb.HarnessError):
+                mb.choose(self.SHOPS, {"trades": []}, "김치", 9000, stop=stop)
+        self.assertEqual(calls, ["buyer-agent"])
 
     def test_round_2_never_uses_it(self):
         self.assertEqual(self.run_choose(lambda *a, **k: self.fail("agent in round 2"), md=None)[1].split(": ")[1], "fallback")
