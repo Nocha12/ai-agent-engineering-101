@@ -32,7 +32,9 @@ class BareOfferTest(unittest.TestCase):
 
     def test_anything_less_clear_goes_to_the_harness(self):
         for text in ["24000 is too much", "I can pay 24000", "24000. It must last at least 85 hours.", "24000?",
-                     "24000 or 23000", "", "about 66% of list: 24000", "24000.5", "-24000", "0"]:
+                     "24000 or 23000", "", "about 66% of list: 24000", "24000.5", "-24000", "0",
+                     "30000. Too expensive, can you go lower?", "24000. No.", "24000. Two units please",
+                     "24000. twenty thousand", "24000. I can't go higher", "24000. ２ units", "２４０００"]:
             self.assertIsNone(fast_classify.bare_offer(text), text)
 
 
@@ -53,6 +55,9 @@ class SellerTurnTest(unittest.TestCase):
     def test_a_message_without_any_digit_has_no_offer(self):
         d = fast_classify.seller_turn("Can you do better?", DEAL, 26000)
         self.assertEqual((d["buyer_offer"], d["action"]), (0, "counter"))
+
+    def test_a_message_with_unicode_digits_goes_to_the_harness(self):
+        self.assertIsNone(fast_classify.seller_turn("２６０００", DEAL, 26000))
 
     def test_a_message_with_other_numbers_goes_to_the_harness(self):
         self.assertIsNone(fast_classify.seller_turn("26000. It must last at least 85 hours.", DEAL, 26000))

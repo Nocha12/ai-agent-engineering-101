@@ -11,19 +11,27 @@ taken at its ask (4 of 273 buyer-harness turns; the harness offered the ask in a
 """
 import re
 
-BARE_OFFER = re.compile(r"\s*([1-9][0-9]{0,2}(?:,[0-9]{3})+|[1-9][0-9]*)\s*(?:\.(?![0-9])[^0-9]*)?")
+BARE_OFFER = re.compile(r"\s*([1-9][0-9]{0,2}(?:,[0-9]{3})+|[1-9][0-9]*)\s*(?:\.(?!\d)(\D*))?")
+# words after the number that may make it something other than an offer ("30000. Too expensive, can you go lower?"),
+# a count ("24000. Two units") or a number in words: those turns go to the harness (independent review 11/07, Medium)
+NOT_PLAIN = re.compile(r"\?|n't|\b(?:no|not|never|lower|less|cheaper|discount|expensive|too (?:much|high|pricey)|can you|"
+                       r"could you|would you|units?|pieces?|pcs|half|instead|rather|but|reject|refuse|decline|counter|"
+                       r"one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty|forty|fifty|sixty|"
+                       r"seventy|eighty|ninety|hundred|thousand|million)\b", re.I)
 
 
 def bare_offer(text):
-    """The offer of a message that is a number alone, or a number and a full stop then words without any digit
+    """The offer of a message that is a number alone, or a number and a full stop then plain words without any digit
     ("24000. I pay the moment the receipt arrives."); else None."""
     m = BARE_OFFER.fullmatch(text or "")
-    return int(m[1].replace(",", "")) if m else None
+    if not m or NOT_PLAIN.search(m[2] or ""):
+        return None
+    return int(m[1].replace(",", ""))
 
 
 def seller_turn(text, deal, floor):
     """The seller's turn decided without the harness, or None. floor: shop_memory.concession_floor for this round."""
-    if not re.search(r"[0-9]", text or ""):
+    if not re.search(r"\d", text or ""):
         return {"buyer_offer": 0, "action": "counter", "price": deal["ask"], "message": "", "why": "no digit, no offer"}
     offer = bare_offer(text)
     if offer is not None and offer >= max(floor, deal["reserve"]):
