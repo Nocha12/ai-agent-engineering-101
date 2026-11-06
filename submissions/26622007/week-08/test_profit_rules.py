@@ -302,14 +302,25 @@ class PriceTest(unittest.TestCase):
         cheap = {**u, "cost": 1500000}
         self.assertEqual(profit_price.quote(cheap, median=2070000, pricing=p)["open"], round(0.97 * 2070000))
 
+    def test_selling_food_comes_first_and_dear_skus_we_do_not_sell_are_left_out(self):
+        # 메인 11/07 01:25 (가게 협상 점검 4번): Gb2392fa9 was cut 106 times by "cash kept" behind the dear lines while it
+        # sold out 52 times; since 01:07 G6cd0e9d4 sold 1 of the market's 45 (ours 1,930,007 vs 1,781,496) and G8adbc159
+        # 1 of 15, while G4a12722c (3 of 35) and G00327e80 (3 of 18) sell at the market's median and stay
+        with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
+            r = json.load(f)["restock"]
+        self.assertEqual(r["priority_skus"][:3], ["Gef4d3036", "Gb2392fa9", "G200e39a3"])
+        self.assertNotIn("G6cd0e9d4", r["priority_skus"] + r["high_price_proven_skus"])
+        self.assertNotIn("G8adbc159", r["priority_skus"] + r["high_price_proven_skus"])
+        self.assertIn("G4a12722c", r["priority_skus"])
+
     def test_idle_cash_goes_to_the_markets_top_unlisted_dear_skus(self):
         # main 11/06 23:25: proceeds back into stock; dear goods were short of quote requests, not units, so breadth
         with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
             r = json.load(f)["restock"]
         new = ["Ge5fe0d41", "G19a70f63", "G0667d440", "G85a1a856", "G9f7c7d1b", "Gd289350f", "G6b0fd5bc", "G2c023a8c",
                "G7978c65e", "G9357d6c2"]
-        food = r["priority_skus"].index("Gef4d3036")
-        self.assertEqual(r["priority_skus"][food - 10:food], new)         # before the food lines (independent review)
+        after = r["priority_skus"].index("G75f11c19") + 1
+        self.assertEqual(r["priority_skus"][after:after + 10], new)      # before the last food line (independent review)
         for sku in new:
             self.assertGreaterEqual(r["sku_target_units"][sku], 2)
         self.assertEqual((r["food_max_stock_cost"], r["food_max_qty"], r["sku_target_units"]["G75f11c19"]), (3000000, 10, 8))
@@ -353,8 +364,8 @@ class PriceTest(unittest.TestCase):
                                                            "Gd289350f", "G6b0fd5bc", "G2c023a8c", "G7978c65e", "G9357d6c2")]
         self.assertEqual((old, {k: v for k, v in r["sku_target_units"].items() if k in old
                           or k in r["high_price_proven_skus"]}, r["fill_listed"], r["price_hours"]),
-                         (["G8ec51935", "G24f5f979", "Gbec2b68f", "Gf6b70da8", "Gb5d0dde7", "G2698c6f8", "G8095ddd6", "G021aae64", "G03d0199f", "G05277ffe", "G00327e80", "G3e0d6c67", "G8adbc159", "Gc1297f36", "G429bd69e", "G754bf0ca", "G47788edd", "G4a12722c", "G6cd0e9d4", "G445ada94", "G2607d1f6", "G9c9f8f94", "G7a341425", "G9718023b", "G75f11c19", "Gef4d3036", "Gb2392fa9", "G200e39a3", "G66ded25b", "G1465c678"],
-                          {"G1515d951": 12, "G6b9db161": 2, "G75f11c19": 8, "G8ec51935": 12, "G24f5f979": 8, "Gbec2b68f": 4, "Gf6b70da8": 5, "Gb5d0dde7": 6, "G2698c6f8": 4, "G8095ddd6": 8, "G021aae64": 11, "G03d0199f": 6, "G05277ffe": 7, "G00327e80": 3, "G3e0d6c67": 3, "G8adbc159": 3, "Gc1297f36": 4, "G429bd69e": 4, "G754bf0ca": 8, "G47788edd": 2, "G1465c678": 1, "G4a12722c": 3, "G6cd0e9d4": 2, "G7a341425": 2, "G445ada94": 3, "G9c9f8f94": 4, "G2607d1f6": 3, "G9718023b": 2}, True, 3))
+                         (["Gef4d3036", "Gb2392fa9", "G200e39a3", "G8ec51935", "G24f5f979", "Gbec2b68f", "Gf6b70da8", "Gb5d0dde7", "G2698c6f8", "G8095ddd6", "G021aae64", "G03d0199f", "G05277ffe", "G00327e80", "G3e0d6c67", "Gc1297f36", "G429bd69e", "G754bf0ca", "G47788edd", "G4a12722c", "G445ada94", "G2607d1f6", "G9c9f8f94", "G7a341425", "G9718023b", "G75f11c19", "G66ded25b", "G1465c678"],
+                          {"G1515d951": 12, "G6b9db161": 2, "G75f11c19": 8, "G8ec51935": 12, "G24f5f979": 8, "Gbec2b68f": 4, "Gf6b70da8": 5, "Gb5d0dde7": 6, "G2698c6f8": 4, "G8095ddd6": 8, "G021aae64": 11, "G03d0199f": 6, "G05277ffe": 7, "G00327e80": 3, "G3e0d6c67": 3, "Gc1297f36": 4, "G429bd69e": 4, "G754bf0ca": 8, "G47788edd": 2, "G1465c678": 1, "G4a12722c": 3, "G7a341425": 2, "G445ada94": 3, "G9c9f8f94": 4, "G2607d1f6": 3, "G9718023b": 2}, True, 3))
         # scale 3 (12:24-13:05): G8ec51935 sold 2 in 40 min and was refilled each window -> 4; Gb5d0dde7's 3 units from
         # 12:27 sat unsold across the 12:41 and 13:01 windows -> 2 (scale2-result.md §8)   # G1515 4: Astra 21:19, same five units across two supply windows; G6 2: undo the reduction triggered by mislinked refunds
         # Patch 3.3 (book): one unit each of two 60만+ goods 12-14 shops sell 39-49/h at 3-4% mature break, after the proven
