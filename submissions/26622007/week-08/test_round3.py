@@ -599,6 +599,12 @@ class BuyerTest(unittest.TestCase):
         self.assertFalse(market_buyer.resumable({"task": {"status": {"state": "TASK_STATE_REJECTED"}}}))
         self.assertFalse(market_buyer.resumable(None))
 
+    def test_goods_ask_one_batch_food_the_usual_rounds(self):
+        self.assertEqual(market_buyer.quote_rounds({"kind": "goods"}), market_buyer.GOODS_QUOTE_ROUNDS)
+        self.assertEqual(market_buyer.GOODS_QUOTE_ROUNDS, 1)
+        self.assertEqual(market_buyer.quote_rounds({"kind": "food"}), market_buyer.QUOTE_ROUNDS)
+        self.assertEqual(market_buyer.quote_rounds({}), market_buyer.QUOTE_ROUNDS)
+
     def test_a_batch_whose_asks_are_all_over_my_limit_asks_the_next_batch(self):
         # 3판 GPT Pro §4.1: the search stopped at the first numeric ask, even one over the limit
         shops = [{"name": n, "url": f"https://{n}.example", "usable": [{"sku": "H1", "name": "청소기", "list_price": 10000}]}

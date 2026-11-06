@@ -688,6 +688,17 @@ QUOTE_NEXT_SHARE = 1.0  # share of a batch answered with no ask within my limit 
 QUOTE_ROUNDS = 2       # batches of quote_shops shops asked while none so far had a unit for me (another buyer holds it)
 #                        3 until 11/07 07:20: from 06:07 a 3rd batch came in 23 orders, 3 deals, each 40+ s of quotes, while 1-batch
 #                        orders closed 40 of 52 at a median 6.6 s; the market hands the next order 20 s after the last at the earliest
+GOODS_QUOTE_ROUNDS = 1  # goods: one batch. In the kit log 05:51-07:45, goods orders that asked a further batch closed 21 deals, 2 of
+#                         them with a later-batch shop, and 214 none (the 6 h warranty and the break chance keep my limit near 0.68
+#                         of list against asks at 0.72-0.90); each further batch held the order ~10 s past the market's 20 s.
+#                         Food keeps QUOTE_ROUNDS: its later batches closed 6 of its 9 such deals
+
+
+def quote_rounds(order):
+    """Quote batches for this order: GOODS_QUOTE_ROUNDS for goods, QUOTE_ROUNDS otherwise."""
+    return GOODS_QUOTE_ROUNDS if (order or {}).get("kind") == "goods" else QUOTE_ROUNDS
+
+
 QUOTE_UNTIL = 100      # seconds into the run by which a further batch must be done: the talk needs the rest of the 300 s
 QUOTE_LATE = 60        # seconds into the run after which no new shop is asked for a quote
 
@@ -1318,7 +1329,8 @@ def main():
         others = [s for s in quotable if s is not shop]
         # with quotes already asked, best_quote runs even late: it waits for them and closes every talk but the one kept
         try:
-            best, quotes = best_quote(shop, others, order, catalog, args.budget, chance_of, buyer_cfg(), pre=pre, rival=rival) \
+            best, quotes = best_quote(shop, others, order, catalog, args.budget, chance_of, buyer_cfg(), pre=pre, rival=rival,
+                                      rounds=quote_rounds(order)) \
                 if (pre or time.time() - STARTED < 60) and not gave_up else (shop, {})
         except BaseException:
             close_prefetch(pre)
