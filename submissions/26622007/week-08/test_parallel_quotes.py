@@ -57,7 +57,7 @@ class BestQuoteWithPrefetch(unittest.TestCase):
         with mock.patch.object(market_buyer, "quote", fake_quote), mock.patch.object(market_buyer, "log"), \
                 mock.patch.object(market_buyer, "buyer_rpc", lambda url, m, p: cancelled.append(p["id"])), \
                 mock.patch.object(market_buyer, "STARTED", time.time()):
-            pre = {"got": {}, "ctl": {"done": False, "winner": None}}
+            pre = {"got": {}, "ctl": market_buyer.quote_ctl()}
             pre["threads"] = market_buyer.start_quotes(prefetched, {"kind": "goods"}, 20000, lambda s: None,
                                                        pre["got"], pre["ctl"])
             best, got = market_buyer.best_quote(chosen, others, {"kind": "goods"}, {}, 20000, lambda s: None,
@@ -102,7 +102,7 @@ class BestQuoteWithPrefetch(unittest.TestCase):
         with mock.patch.object(market_buyer, "quote", fake_quote), mock.patch.object(market_buyer, "log"), \
                 mock.patch.object(market_buyer, "buyer_rpc", lambda url, m, p: cancelled.append(p["id"])), \
                 mock.patch.object(market_buyer, "STARTED", time.time()):
-            pre = {"got": {}, "ctl": {"done": False, "winner": None}}
+            pre = {"got": {}, "ctl": market_buyer.quote_ctl()}
             pre["threads"] = market_buyer.start_quotes(s[1:], {}, 20000, lambda x: None, pre["got"], pre["ctl"])
             best, got = market_buyer.best_quote(s[0], s[1:], {}, {}, 20000, lambda x: None, {"quote_shops": 3},
                                                 wait=0.3, pre=pre)
@@ -118,8 +118,8 @@ class MainOverlap(unittest.TestCase):
     CATALOG = {"H1": {"list_price": 10000, "kind": "goods"}}
     ORDER = {"order": "o-1", "item": "청소기", "budget": 20000, "acceptable": ["H1"], "kind": "goods", "category": "가전>청소기"}
 
-    def run_main(self, shops, hopeless=False, choose_s=0.5, quote_s=0.5):
-        printed, events = [], []
+    def run_main(self, shops, hopeless=False, choose_s=0.5, quote_s=0.5, choose_fails=False):
+        printed, events, cancelled = [], [], []
         lock = threading.Lock()
 
         def note(what):
@@ -129,13 +129,20 @@ class MainOverlap(unittest.TestCase):
         def fake_quote(s, label, key, order, out, ctl=None):
             note(f"quote {s['name']}")
             time.sleep(quote_s)
-            out[s["name"]] = {"ask": 7000 if s["name"] == "c" else 9000, "text": "", "url": s["url"],
-                              "task": open_task(s["name"]), "refused": None}
+            q = {"ask": 7000 if s["name"] == "c" else 9000, "text": "", "url": s["url"],
+                 "task": open_task(s["name"]), "refused": None}
+            with ctl["lock"]:            # as quote() does: publish closed when the choice was made first
+                late = ctl["done"] and ctl["winner"] != s["name"]
+                out[s["name"]] = dict(q, closed=True) if late else q
+            if late:
+                market_buyer.cancel_quietly(q, s["name"])
 
         def fake_choose(s, m, i, b):
             note("choose start")
             time.sleep(choose_s)
             note("choose end")
+            if choose_fails:
+                raise RuntimeError("boom")
             return s[0], "t"
 
         def neg(*a, **k):
@@ -156,13 +163,18 @@ class MainOverlap(unittest.TestCase):
                     mock.patch.object(market_buyer, "buyer_cfg", lambda: {"quote_shops": 5}), \
                     mock.patch.object(market_buyer, "choose", fake_choose), \
                     mock.patch.object(market_buyer, "quote", fake_quote), \
-                    mock.patch.object(market_buyer, "buyer_rpc", lambda *a: None), \
+                    mock.patch.object(market_buyer, "buyer_rpc", lambda url, m, p: cancelled.append(p["id"])), \
                     mock.patch.object(market_buyer, "hopeless", lambda *a, **k: hopeless), \
                     mock.patch.object(market_buyer, "negotiate", neg), \
                     mock.patch.object(market_buyer, "log"), \
                     mock.patch("builtins.print", lambda *a, **k: printed.append(a[0])), \
                     mock.patch.object(sys, "argv", ["x", "--shops", sp, "--item", "청소기", "--budget", "20000", "--order", op]):
                 t0 = time.time()
+                if choose_fails:
+                    with self.assertRaises(RuntimeError):
+                        market_buyer.main()
+                    time.sleep(0.6)       # the prefetched quotes answer late and close themselves
+                    return None, events, cancelled, []
                 market_buyer.main()
                 took = time.time() - t0
             with open(os.path.join(d, "measure", "orders.jsonl"), encoding="utf-8") as f:
@@ -178,7 +190,8 @@ class MainOverlap(unittest.TestCase):
         self.assertEqual(len(set(quoted)), 5)
         early = [ts for w, ts in events if w.startswith("quote ") and ts < t["choose end"]]
         self.assertEqual(len(early), 4)                               # quote_shops - 1 asked while choosing
-        self.assertLess(took, 0.5 + 0.5 + 0.3)                        # side by side, not one after the other
+        self.assertLess(t["choose start"], min(ts for w, ts in events if w.startswith("quote ")) + 0.3)
+        self.assertLess(took, 2.5)                                    # side by side (about 1.0 s), not one after the other
         self.assertEqual(out["shop"], "https://c.example")            # the best ask still wins
         self.assertEqual(len(orders[-1]["quotes"]), 5)
 
@@ -188,6 +201,54 @@ class MainOverlap(unittest.TestCase):
         self.assertEqual(events, [])                                  # no quote, no harness, no talk
         self.assertIsNone(out["receipt"])
         self.assertTrue(orders[-1]["gave_up"])
+        self.assertEqual(orders[-1]["how"], "gave_up")
+
+    def test_a_choice_that_fails_closes_every_prefetched_talk(self):
+        shops = [dict(shop(n), offers=[{"sku": "H1", "name": "청소기", "qty": 1}]) for n in "abcdef"]
+        _, events, cancelled, _ = self.run_main(shops, choose_fails=True, choose_s=0.0, quote_s=0.3)
+        quoted = sorted(w.split()[1] for w, _ in events if w.startswith("quote "))
+        self.assertEqual(len(quoted), 4)
+        self.assertEqual(sorted(cancelled), [f"t-{n}" for n in quoted])
+
+
+class LateAndRace(unittest.TestCase):
+    def test_past_quote_late_no_new_shop_is_asked_but_the_prefetched_are_read(self):
+        s = [shop(n) for n in "abcdef"]
+        seen = []
+
+        def fake_quote(sh, label, key, order, out, ctl=None):
+            seen.append(sh["name"])
+            out[sh["name"]] = {"ask": 7000 if sh["name"] == "c" else 9000, "text": "", "url": sh["url"],
+                               "task": open_task(sh["name"]), "refused": None}
+        with mock.patch.object(market_buyer, "quote", fake_quote), mock.patch.object(market_buyer, "log"), \
+                mock.patch.object(market_buyer, "buyer_rpc", lambda *a: None), \
+                mock.patch.object(market_buyer, "STARTED", time.time() - market_buyer.QUOTE_LATE - 1):
+            pre = {"got": {}, "ctl": market_buyer.quote_ctl()}
+            pre["threads"] = market_buyer.start_quotes(s[1:4], {}, 20000, lambda x: None, pre["got"], pre["ctl"])
+            best, got = market_buyer.best_quote(s[0], s[1:], {}, {}, 20000, lambda x: None, {"quote_shops": 5},
+                                                wait=5, pre=pre)
+        self.assertEqual(sorted(seen), list("bcd"))       # the chosen a and e, f were not asked
+        self.assertEqual(best["name"], "c")
+
+    def test_the_real_quote_lands_closed_when_the_choice_was_made_first(self):
+        sh = shop("z")
+        card = mock.Mock()
+        card.json.return_value = {"supportedInterfaces": [{"protocolBinding": "JSONRPC", "protocolVersion": "1.0",
+                                                           "url": "https://z.example/a2a"}]}
+        ctl = market_buyer.quote_ctl()
+        ctl.update(done=True, winner="a")
+        got, cancelled = {}, []
+        with mock.patch.object(market_buyer, "serves_acp", lambda u: True), \
+                mock.patch.object(market_buyer.httpx, "get", lambda *a, **k: card), \
+                mock.patch.object(market_buyer, "buyer_send", lambda url, text: open_task("z")), \
+                mock.patch.object(market_buyer, "buyer_message_text", lambda t: "asking 7000"), \
+                mock.patch.object(market_buyer, "buyer_metadata_ask", lambda t: 7000), \
+                mock.patch.object(market_buyer, "buyer_rpc", lambda url, m, p: cancelled.append(p["id"])), \
+                mock.patch.object(market_buyer, "log"):
+            market_buyer.quote(sh, "청소기", "H1", {"kind": "goods"}, got, ctl)
+        self.assertTrue(got["z"]["closed"])
+        self.assertFalse(market_buyer.resumable(got["z"]))
+        self.assertEqual(cancelled, ["t-z"])
 
 
 if __name__ == "__main__":

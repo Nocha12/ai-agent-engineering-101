@@ -34,6 +34,7 @@ What the code does and what the harness does:
 import argparse
 import json
 import collections
+import contextlib
 import os
 import random
 import sys
@@ -556,6 +557,20 @@ def cancel_quote(q, name):
         buyer_rpc(q["url"], "CancelTask", {"id": q["task"]["id"]})
 
 
+def cancel_quietly(q, name):
+    """cancel_quote from a thread: a shop that went away must not leave a traceback (its talk times out on its side)."""
+    try:
+        cancel_quote(q, name)
+    except Exception as e:  # noqa: BLE001
+        log(f"[quote] closing {name} failed: {type(e).__name__}: {e}")
+
+
+def quote_ctl():
+    """What best_quote and the quote threads share. The lock makes "publish my quote" and "the choice is made, close the
+    rest" one step each, so a quote can never land open after the closing pass has looked (review 11/06 15:5x)."""
+    return {"done": False, "winner": None, "lock": threading.Lock()}
+
+
 def quote(shop, label, key, order, out, ctl=None):
     """Asks one shop its opening price for this SKU, with no offer from me, so nothing is promised. The talk stays open:
     the winner goes on with it, the others are cancelled (by best_quote, or here when the answer comes after the choice)."""
@@ -578,17 +593,22 @@ def quote(shop, label, key, order, out, ctl=None):
             ask, src = text_ask_checked(text, shop), "text"
             if ask is None and raw is not None:
                 src = "text_rejected"       # a number read but outside 5%..100% of list: kept for the record only
-        out[shop["name"]] = q = {"ask": ask, "ask_src": src if ask is not None or src == "text_rejected" else None,
-                                 "text_ask_raw": raw, "text": text[:300], "url": iface["url"], "task": t,
-                                 "refused": quote_refused(text, order)}
-        if ctl is not None and ctl.get("done") and ctl.get("winner") != shop["name"]:
-            cancel_quote(q, shop["name"])
+        q = {"ask": ask, "ask_src": src if ask is not None or src == "text_rejected" else None,
+             "text_ask_raw": raw, "text": text[:300], "url": iface["url"], "task": t,
+             "refused": quote_refused(text, order)}
+        lock = (ctl or {}).get("lock")
+        with lock if lock is not None else contextlib.nullcontext():
+            late = ctl is not None and ctl.get("done") and ctl.get("winner") != shop["name"]
+            out[shop["name"]] = dict(q, closed=True) if late else q      # closed before anyone can read it
+        if late:
+            cancel_quietly(q, shop["name"])
     except Exception as e:  # noqa: BLE001 - a shop that cannot quote is just not compared
         log(f"[quote] {shop['name']}: {type(e).__name__}: {e}")
 
 
 QUOTE_ROUNDS = 3       # batches of quote_shops shops asked while none so far had a unit for me (another buyer holds it)
 QUOTE_UNTIL = 100      # seconds into the run by which a further batch must be done: the talk needs the rest of the 300 s
+QUOTE_LATE = 60        # seconds into the run after which no new shop is asked for a quote
 
 
 def recent_fits(md, category, now=None, hours=RECENT_FIT_HOURS):
@@ -687,6 +707,19 @@ def quote_order(others, fits, k):
     return fitted[:head] + fresh[:1] + fitted[head:] + fresh[1:]
 
 
+def close_prefetch(pre):
+    """The run is failing before best_quote: close every talk the prefetch opened, so no shop holds a unit for me."""
+    if not pre:
+        return
+    with pre["ctl"]["lock"]:
+        pre["ctl"].update(done=True, winner=None)
+        closing = [(n, q) for n, q in pre["got"].items() if not q.get("closed")]
+        for _, q in closing:
+            q["closed"] = True
+    for n, q in closing:
+        cancel_quietly(dict(q, closed=False), n)
+
+
 def start_quotes(shops, order, budget, chance_of, got, ctl):
     """Starts one quote thread per shop now, into got; returns {name: thread} for best_quote(pre=...).
     The market hands a buyer one open order at a time and the next one 20 s after the last at the earliest (ledger
@@ -721,12 +754,16 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
     if k < 2 or (not others and not pre):
         return chosen, {}
     got, pool = (pre["got"], []) if pre else ({}, [])
-    ctl = pre["ctl"] if pre else {"done": False, "winner": None}
+    ctl = pre["ctl"] if pre else quote_ctl()
     asked = dict(pre["threads"]) if pre else {}
     early = [s for s in others if s["name"] in asked and s["name"] != chosen["name"]]
     later = [s for s in others if s["name"] not in asked and s["name"] != chosen["name"]]
     rest = [chosen] + early + later
     first = max(k, 1 + len(early))
+    # a slow choice: the quotes already asked are read (until QUOTE_UNTIL), no new shop is asked (377c7da quoted none past 60 s)
+    late = bool(pre) and time.time() - STARTED > QUOTE_LATE     # without pre, main() calls this only before 60 s
+    if late:
+        rest, rounds = [s for s in rest if s["name"] in asked], 1
 
     def surplus(s):
         q = got.get(s["name"]) or {}
@@ -754,7 +791,7 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
         asked.update(new)
         threads += list(new.values())
         pool += batch
-        end = time.time() + wait if not r else min(time.time() + wait, STARTED + QUOTE_UNTIL)
+        end = time.time() + wait if not (r or late) else min(time.time() + wait, STARTED + QUOTE_UNTIL)
         for th in threads:
             th.join(max(0.0, end - time.time()))
         # stop once an ask closes within my limit, not at the first number: 3판 GPT Pro §4.1, a batch whose asks were all
@@ -767,11 +804,13 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
     meta = lambda s: (got.get(s["name"]) or {}).get("ask_src") != "text"
     best = max(scored, key=lambda x: (fits(x[2]), x[0], meta(x[2]), -x[1]))[2] if scored else None
     keep = best["name"] if best else chosen["name"] if resumable(got.get(chosen["name"])) else None
-    ctl.update(done=True, winner=keep)    # a late quote thread of the kept shop must not cancel it either
-    for name, q in list(got.items()):
-        if name != keep:
+    with ctl.get("lock") or contextlib.nullcontext():
+        ctl.update(done=True, winner=keep)    # a late quote thread of the kept shop must not cancel it either
+        closing = [(name, q) for name, q in got.items() if name != keep and not q.get("closed")]
+        for name, q in closing:
             q["closed"] = True            # before the thread runs, so the trade can never go on with it
-            threading.Thread(target=cancel_quote, args=(dict(q, closed=False), name), daemon=True).start()
+    for name, q in closing:
+        threading.Thread(target=cancel_quietly, args=(dict(q, closed=False), name), daemon=True).start()
     if not best:
         return chosen, got
     log("[quote] " + ", ".join(f"{s['name']} {got[s['name']]['ask']}" for _, _, s in scored) + f" -> {best['name']}")
@@ -979,6 +1018,8 @@ def choose_path(reason):
     r = reason or ""
     if r.startswith("harness failed"):
         return "code_fallback"
+    if r.startswith("gave up before choosing"):
+        return "gave_up"
     if r.startswith("best quote of"):
         return "quote"
     if " agent: " in r:
@@ -1006,7 +1047,10 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         qs.append({"shop": s["name"], "sku": o.get("sku"), "list_price": o.get("list_price"), "ask": ask_, "src": q.get("ask_src"), "raw": q.get("text_ask_raw") if q.get("ask_src") == "text_rejected" else None, "lost": lost,
                    "limit": lim, "fit": not q.get("refused") and isinstance(ask_, (int, float)) and lim is not None and ask_ <= lim,
                    "text": (q.get("text") or "")[:120]})
-    qs = qs[:12]      # one small line: a single append, so overlapping buyer runs do not interleave
+    # the kept shop and the asks within my limit first: with quote_shops 5 a run can hold 15 quotes, and recent_fits and
+    # recent_asks (hopeless) read these
+    qs.sort(key=lambda x: (x["lost"] is not None, not x["fit"]))
+    qs = qs[:15]      # one small line: a single append, so overlapping buyer runs do not interleave
     asks = [p for who, p in out.get("history") or [] if who == "shop asked"]
     t0 = STARTED
     since = lambda k: round(stages[k] - t0, 2) if k in stages else None
@@ -1080,7 +1124,7 @@ def main():
         k = int(buyer_cfg().get("quote_shops", 1))
         early, quotable = prefetch_pool(left, memory, md, order.get("category"), k)
         try:
-            gave_up = hopeless(quotable, args.budget, recent_asks(md), buyer_cfg())
+            gave_up = hopeless(quotable or left, args.budget, recent_asks(md), buyer_cfg())
         except Exception as e:  # noqa: BLE001 - an odd record line must not end the run before the result line
             log(f"[quote] give-up check failed: {type(e).__name__}: {e}")
         if gave_up:
@@ -1088,23 +1132,27 @@ def main():
         stats = market_model.break_stats(market_model.load_rows(md), catalog) if order.get("kind") == "goods" else None
         chance_of = (lambda sku: market_model.break_chance(stats, sku)) if stats else (lambda sku: None)
         if PREFETCH_QUOTES and not gave_up and k >= 2 and early:
-            pre = {"got": {}, "ctl": {"done": False, "winner": None}}
+            pre = {"got": {}, "ctl": quote_ctl()}
             pre["threads"] = start_quotes(early, order, args.budget, chance_of, pre["got"], pre["ctl"])
             log(f"[quote] asking {', '.join(s['name'] for s in early)} while choosing")
     if gave_up:       # no talk follows, so the harness is not asked to choose either (it took a median 13.4 s)
         shop = max(quotable or left, key=lambda s: len(s.get("reviews") or []))
         reason = "gave up before choosing: every SKU asked over my limit lately; most reviewed"
     else:
-        for attempt in range(ACP_TRIES):
-            try:
-                shop, reason = choose(left, memory, args.item, args.budget)
-            except HarnessError as e:
-                unknown = [s for s in left if not caught_cheating(my_history(memory, s["name"]))] or left
-                shop, reason = max(unknown, key=lambda s: len(s.get("reviews") or [])), f"harness failed ({e}); most reviewed"
-            if rnd is None or rnd < 3 or serves_acp(shop["url"]):
-                break
-            log(f"[choose] skip {shop['name']!r}: round {rnd} and no /.well-known/acp.json, so a deal there cannot settle")
-            left = [s for s in left if s["name"] != shop["name"]] or left
+        try:
+            for attempt in range(ACP_TRIES):
+                try:
+                    shop, reason = choose(left, memory, args.item, args.budget)
+                except HarnessError as e:
+                    unknown = [s for s in left if not caught_cheating(my_history(memory, s["name"]))] or left
+                    shop, reason = max(unknown, key=lambda s: len(s.get("reviews") or [])), f"harness failed ({e}); most reviewed"
+                if rnd is None or rnd < 3 or serves_acp(shop["url"]):
+                    break
+                log(f"[choose] skip {shop['name']!r}: round {rnd} and no /.well-known/acp.json, so a deal there cannot settle")
+                left = [s for s in left if s["name"] != shop["name"]] or left
+        except BaseException:
+            close_prefetch(pre)
+            raise
     log(f"[choose] {shop['url']}: {shop['name']} - {reason}")
     stages = {"choose": time.time()}
     first_choice, first_reason = shop["name"], reason
