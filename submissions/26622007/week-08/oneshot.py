@@ -24,8 +24,8 @@ STEPS = (0.9,)
 MAX_STEPS = 5
 # a later turn's whole text, as shops in the log write it (logs/market-kit.log 11/06 21:3x - 11/07 01:13); nothing else
 TEMPLATE = re.compile(
-    r"\s*(?:(?P<mine>[0-9]+) is too low\.\s*Counteroffer price:|(?:[0-9]{1,2} offers? left\.\s*)?Counteroffer:"
-    r"|Our lowest price for this unit:)\s*(?P<p>[0-9]+)\.?"
+    r"\s*(?:(?P<mine>[0-9]{1,12}) is too low\.\s*Counteroffer price:|(?:[0-9]{1,2} offers? left\.\s*)?Counteroffer:"
+    r"|Our lowest price for this unit:)\s*(?P<p>[0-9]{1,12})\.?"
     r"(?:\s*SKU G[0-9a-f]{8}, grade [ABC]; market certificate at checkout\."
     r"(?:\s*Includes a [0-9]{1,3}-hour warranty: market-enforced full refund if the goods break during warranty; "
     r"the quote includes the warranty surcharge\.)?)?"

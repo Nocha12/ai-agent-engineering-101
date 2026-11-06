@@ -181,6 +181,9 @@ class TextPrice(unittest.TestCase):
             "market-enforced full refund if the goods break during warranty; the quote includes the warranty surcharge.",
             self.H), 18500)
 
+    def test_a_long_digit_run_goes_to_the_harness(self):
+        self.assertIsNone(oneshot.text_price("Counteroffer: " + "1" * 5000 + ".", self.H))
+
     def test_too_low_must_name_my_last_offer(self):
         self.assertIsNone(oneshot.text_price("15000 is too low. Counteroffer price: 18500.", self.H))
 
