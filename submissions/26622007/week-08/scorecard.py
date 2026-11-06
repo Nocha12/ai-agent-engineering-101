@@ -205,9 +205,11 @@ CACHE_DROP = 0.5         # the last hour under half of the 6 hours before it
 def cache_drop(md, now=None):
     """The LLM cache hit share falling: the last hour under CACHE_FLOOR, or under CACHE_DROP of the 6 hours before. Only an
     alert to look at what changed in the prompt (a system prompt with a time or a price in it, a new codex): a person
-    forbade a call cap, so the answer is never fewer calls. Codex calls only: another backend may cache nothing."""
+    forbade a call cap, so the answer is never fewer calls. Only the backend in use now (the newest call's), so a switch (codex -> openrouter, 11/06) is not read as a drop."""
     now = time.time() if now is None else now
-    rows = [c for c in jsonl(os.path.join(md, "llm_calls.jsonl"))[-40000:] if c.get("backend") == "codex"
+    calls = jsonl(os.path.join(md, "llm_calls.jsonl"))[-40000:]
+    backend = next((c.get("backend") for c in reversed(calls) if c.get("backend")), "codex")
+    rows = [c for c in calls if c.get("backend") == backend
             and isinstance(c.get("ts"), (int, float)) and c["ts"] >= now - 7 * 3600]
     hour = cache_share([c for c in rows if c["ts"] >= now - 3600])
     before = cache_share([c for c in rows if c["ts"] < now - 3600])

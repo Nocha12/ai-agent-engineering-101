@@ -2,7 +2,7 @@
 
 The seller and the buyer both decide through ask(). Three backends:
 
-- HARNESS=codex (the market account on the Mac mini, agent.json): gpt-6-luna through
+- HARNESS=codex (the market account on the Mac mini until 11/06): gpt-6-luna through
   `codex exec` on the ChatGPT subscription login, reasoning effort low, the schema
   passed as --output-schema. Each call runs in an empty directory outside any repository,
   one fixed per tag (codex_workdir) so the prompt codex builds keeps one prefix, with a
@@ -16,8 +16,9 @@ The seller and the buyer both decide through ask(). Three backends:
   Every call runs in a fresh empty directory so Claude Code does not pick up this
   repository's CLAUDE.md, and passes --json-schema so the answer comes back as
   structured output. Needs a `claude` login on this machine.
-- HARNESS=openrouter (for the deployed seller, where no `claude` login exists):
-  openai/gpt-6-luna on OpenRouter with OPENROUTER_API_KEY from the environment,
+- HARNESS=openrouter (agent.json since 11/06: codex got 429 and 35 s retries there):
+  openai/gpt-6-luna on OpenRouter with OPENROUTER_API_KEY from the environment or
+  the submission's .env, within OR_TIMEOUT s per decision (or the caller's timeout),
   pinned to the OpenAI endpoint without fallbacks, require_parameters so an
   unsupported parameter fails instead of being dropped, reasoning effort low, no
   temperature, and response_format = strict json_schema on every request. The body
@@ -50,6 +51,8 @@ OR_REASONING = os.environ.get("OR_REASONING", "low")
 # cheap; calls and cost stay measured (CALLS, llm_calls.jsonl). OR_MAX_CALLS_PER_HOUR=300 in the environment brings it back.
 OR_MAX_CALLS_PER_HOUR = int(os.environ.get("OR_MAX_CALLS_PER_HOUR", "0"))   # 0 or less: no hourly cap
 TIMEOUT = 90
+# One OpenRouter decision's whole budget (both tries and the back-off), like CODEX_TIMEOUT; a caller's timeout wins.
+OR_TIMEOUT = int(os.environ.get("OR_TIMEOUT", "60"))
 RETRIES = 2
 _or_calls = []   # start times of OpenRouter calls in the last hour: per process, so each market_buyer run starts at 0
 CALLS = {"attempts": 0, "ok": 0, "cap": 0}   # this process's requests (measure.py orders.jsonl)
@@ -109,12 +112,12 @@ def validate(answer, schema):
 
 
 def ask(prompt, schema, system, tag="harness", timeout=None):
-    """One decision. Returns the validated structured output as a dict. timeout (codex only): this call's limit in
-    seconds instead of CODEX_TIMEOUT, for a caller with a deadline of its own (the buyer's shop choice)."""
+    """One decision. Returns the validated structured output as a dict. timeout (codex, openrouter): this call's limit in
+    seconds instead of CODEX_TIMEOUT / OR_TIMEOUT, for a caller with a deadline of its own (the buyer's shop choice)."""
     if BACKEND == "codex":
         return _ask_codex(prompt, schema, system, tag, timeout)
     if BACKEND == "openrouter":
-        return _ask_openrouter(prompt, schema, system, tag)
+        return _ask_openrouter(prompt, schema, system, tag, timeout)
     if BACKEND != "claude":
         raise HarnessError(f"unknown HARNESS={BACKEND!r}")
     return _ask_claude(prompt, schema, system, tag)
@@ -156,10 +159,28 @@ def _log_wire(tag):
     return hook
 
 
-def _ask_openrouter(prompt, schema, system, tag):
+def _openrouter_key():
+    """OPENROUTER_API_KEY from the environment, else from the submission's .env (OPENROUTER_ENV_FILE, default ../.env
+    next to this file), so agent.json can switch HARNESS without putting the key on a command line."""
     key = os.environ.get("OPENROUTER_API_KEY")
+    if key:
+        return key
+    path = os.environ.get("OPENROUTER_ENV_FILE") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env")
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                name, sep, value = line.strip().partition("=")
+                if sep and name.strip().removeprefix("export ").strip() == "OPENROUTER_API_KEY":
+                    return value.strip().strip("'\"") or None
+    except OSError:
+        return None
+    return None
+
+
+def _ask_openrouter(prompt, schema, system, tag, timeout=None):
+    key = _openrouter_key()
     if not key:
-        raise HarnessError("HARNESS=openrouter needs OPENROUTER_API_KEY in the environment")
+        raise HarnessError("HARNESS=openrouter needs OPENROUTER_API_KEY in the environment or OPENROUTER_ENV_FILE")
     if OR_MAX_CALLS_PER_HOUR > 0:
         now = time.time()
         _or_calls[:] = [t for t in _or_calls if now - t < 3600]
@@ -182,11 +203,16 @@ def _ask_openrouter(prompt, schema, system, tag):
         "provider": {"only": [OR_PROVIDER], "allow_fallbacks": False, "require_parameters": True},
     }
     last = None
-    with httpx.Client(timeout=TIMEOUT, event_hooks={"request": [_log_wire(tag)]}) as http:
+    limit = timeout or OR_TIMEOUT
+    first = time.time()
+    with httpx.Client(timeout=limit, event_hooks={"request": [_log_wire(tag)]}) as http:
         for attempt in range(1, RETRIES + 1):
+            left = limit - (time.time() - first)
+            if attempt > 1 and left < limit / 2:
+                break          # a retry would not fit in what is left of the caller's deadline
             started = time.time()
             try:
-                r = http.post(OR_URL, json=body, headers={"Authorization": f"Bearer {key}"})
+                r = http.post(OR_URL, json=body, headers={"Authorization": f"Bearer {key}"}, timeout=left)
             except httpx.HTTPError as e:
                 last = f"{type(e).__name__}: {e}"
                 log(tag, f"attempt {attempt}: {last}")
@@ -198,7 +224,8 @@ def _ask_openrouter(prompt, schema, system, tag):
                 record_call(tag, prompt, system, time.time() - started, False)
                 if r.status_code < 500 and r.status_code != 429:
                     break          # a 4xx (unsupported parameter, bad key) will not fix itself
-                time.sleep(3 * attempt)
+                if attempt < RETRIES:
+                    time.sleep(min(3 * attempt, max(0, limit - (time.time() - first)) / 4))
                 continue
             try:
                 content = r.json()["choices"][0]["message"]["content"]

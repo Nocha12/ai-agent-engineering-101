@@ -1,16 +1,16 @@
 {
-  "harness": "market agents: HARNESS=codex, gpt-6-luna through `codex exec` on the ChatGPT subscription login (reasoning effort low, --output-schema, read-only sandbox, no tools, no keys in its environment); meta_harness.py improves them",
+  "harness": "market agents: HARNESS=openrouter, openai/gpt-6-luna on OpenRouter pinned to the OpenAI endpoint (reasoning effort low, strict json_schema, key from the environment or ../.env); switched from HARNESS=codex on 11/06 because the codex path on the Mac mini got 429 and 35 s retries on every call; meta_harness.py improves them",
   "seller": {
-    "cmd": "HARNESS=codex python seller.py --port {port}"
+    "cmd": "HARNESS=openrouter python seller.py --port {port}"
   },
   "buyer": {
-    "cmd": "HARNESS=codex python buyer.py --url {url} --item {item} --budget {budget}"
+    "cmd": "HARNESS=openrouter python buyer.py --url {url} --item {item} --budget {budget}"
   },
   "market_buyer": {
-    "cmd": "HARNESS=codex python market_buyer.py --shops {shops} --item {item} --budget {budget} --order {order}"
+    "cmd": "HARNESS=openrouter python market_buyer.py --shops {shops} --item {item} --budget {budget} --order {order}"
   },
   "restock": {
-    "cmd": "HARNESS=codex python restock.py --state {state}"
+    "cmd": "HARNESS=openrouter python restock.py --state {state}"
   },
   "review": {
     "cmd": "python review.py --deal {deal}"
