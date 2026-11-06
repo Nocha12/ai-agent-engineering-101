@@ -403,6 +403,21 @@ SCORE_SWITCH = datetime.datetime(2026, 11, 5, 3, 45, tzinfo=datetime.timezone(da
 BASELINE_HOURS = (6, 12)
 
 
+def score_comparable(a, b):
+    """Reject stale in-process formulas and patch aggregation changes alike."""
+    def signature(card):
+        rules = card.get("rules") or {}
+        obj = (card.get("board") or {}).get("objective") or {}
+        parts = {k: {name: v.get("weight") for name, v in (obj.get(k, {}).get("parts") or {}).items()}
+                 for k in ("shops", "buyers")}
+        drift = obj.get("board_drift") or {}
+        valid = (all(parts.values()) and rules.get("objective_matches") is True
+                 and all(abs(v) <= .0005 for v in drift.values() if isinstance(v, (int, float))))
+        return (rules.get("latest"), parts) if valid else None
+    sa, sb = signature(a), signature(b)
+    return sa is not None and sa == sb
+
+
 def since_last(card, kind="terra", now=None):
     """What changed since the previous scorecard of the same kind (Terra hourly, Astra twelve-hourly: one window each),
     and against the packs 6 and 12 hours back: the log counters (failures included) and the objective. Terra grades the
@@ -436,7 +451,8 @@ def since_last(card, kind="terra", now=None):
     delta = {k: (b[k] + old.get(k, 0) if rotated else b[k] - a.get(k, 0)) for k in b if isinstance(b[k], int) and k != "tracebacks_open"}
     out = {"previous": packs[-1], "log_rotated": rotated, "log_counts": {k: v for k, v in delta.items() if v},
            "players": [obj(prev).get("players"), obj(card).get("players")], "shop": [prev.get("shop"), card.get("shop")],
-           "across_score_switch": os.path.getmtime(os.path.join(folder, packs[-1])) < SCORE_SWITCH <= now, "baselines": {}}
+           "across_score_switch": (os.path.getmtime(os.path.join(folder, packs[-1])) < SCORE_SWITCH <= now
+                                   or not score_comparable(prev, card)), "baselines": {}}
     every = sorted((os.path.getmtime(os.path.join(folder, p)), p) for p in os.listdir(folder)
                    if re.fullmatch(r"(terra|astra)-\d+(-\d+)?\.json", p))
     for h in BASELINE_HOURS:      # the newest pack at least h hours old, any kind: the 6 and 12 hour trend
@@ -450,7 +466,7 @@ def since_last(card, kind="terra", now=None):
                                      "players": [obj(base).get("players"), obj(card).get("players")],
                                      "shop_all": [(obj(base).get("shops") or {}).get("all"), (obj(card).get("shops") or {}).get("all")],
                                      "buyer_all": [(obj(base).get("buyers") or {}).get("all"), (obj(card).get("buyers") or {}).get("all")],
-                                     "across_score_switch": t < SCORE_SWITCH <= now}
+                                     "across_score_switch": t < SCORE_SWITCH <= now or not score_comparable(base, card)}
     return out
 
 

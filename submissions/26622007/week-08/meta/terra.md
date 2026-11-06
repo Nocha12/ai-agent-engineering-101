@@ -41,8 +41,7 @@ supply windows; (2) the 60만+ units sell: most units bought two windows ago are
 unsold across two windows; (3) matured net per sale of those SKUs is above zero and book is not lower than 6 hours
 before. Cite the guard lines, the units and the sales. Cash, not the cap, is the real ceiling: new and waiting lines at
 worst cost may not pass balance - keep_cash, and hard_limits.META_FLOOR keeps keep_cash at 3M or more (refunds, fees). Do not narrow the totals for caution, cash held or "stock tied up": unsold stock counts in
-book at cost. Narrow one SKU only on its own matured loss (net per sale <= 0 over 10+ matured sales, or the same extra
-units unsold across two windows), and say which units; the goal is the Players rank, and a smaller shop cannot reach it.
+book at cost. Narrow one SKU only on its own matured loss (net per sale after refunds and storage <= 0 over 10+ matured sales; retention alone pauses expansion, not replenishment cuts), and say which units; the goal is the Players rank, and a smaller shop cannot reach it.
 
 The race: `board.race` is the Everyone rank, the gap to the leader and to the player just above, and how much each of
 the three grew over 6 and 12 hours (`growth`). A gap closes only if I grow faster than the player above: when
@@ -62,7 +61,7 @@ and its evidence cited; do not edit or remove entries (Astra orders the queue) o
 Objective: the pack's `board.objective` estimates the midterm rank, Players = shop ALL + buyer ALL, each part a
 mean-rank percentile among the rows the board scores (shops with a supply or a deal, house shops included; buyers with a
 deal): shop ALL = 0.5 book + 0.3 revenue + 0.2 stars_rank (Patch 3.3, 11/05: book replaced cash profit), buyer ALL = 0.5 saved (절감률, 거래 100건을 0%로 추가한 평균; Patch 3.4) + 0.3 forum votes (on posts
-written as a buyer) + 0.1 deals + 0.1 posts. This reproduces every board row; `board_all` is the board's own value. Book
+written as a buyer) + 0.1 deals + 0.1 posts. Check reproduction each cycle: drift must be <=0.0005; a stale process can still use surplus even when the rules checker matches. `board_all` is the board's own value. Book
 = balance - starting capital - bankruptcy money + what the unsold stock cost, so a restock does not lower it; storage
 (1%/day), refunds, spoiled food and markdowns below cost do. Book 1st among shops is a goal of its own: name the book gap
 to the 1st shop next to the Players gap. Revenue (0.3) grows only with units sold: stock that sells is the lever.
@@ -185,5 +184,11 @@ Astra 2026-11-05 09:38 correction:
 - A tool returning JSON without an exception is not evidence of meaningful results. For generated combined searches,
   require catalog SKU keys preserved, category/query intersection, only deduplicated k=settle, and seller filtering
   that does not match the buyer. auto_market_lookup is removed; use repaired auto_market_scan and quote paid seqs.
-- Follow the current 09:38 strategy: G6/G75 target 1, G1515 target 4; the person's uncapped buyer rule remains in force.
+- Follow the current meta/strategy.md; stale historical target numbers are not instructions. The person's uncapped buyer rule remains in force.
   A successful one-unit trial does not justify unattended permanent restocking. Rejudge its own sale after six hours.
+
+Astra 2026-11-06 10:15 교정:
+- 두 창 잔류만으로 흑자 SKU를 축소하지 않는다. G03/G003은 각각2로 복원했고 G052는3이다. 총상한 확대는 세 조건 모두 필요하다.
+- Patch3.4는 saved, 작성자별 입장, 50거래 투표자, 계정별 별점 및 비추천 비용을 바꿨다. 현재 좋아요만 정책을 유지한다.
+- 교차 패치/모듈 drift가 있는 점수 변화는 인과 평가에서 제외한다. 다음 새 프로세스 팩을 11/06 11:30까지 점검한다.
+- 진행 중 G6 실험 뒤에만 forum-demand-context-101510을 시작한다. 수리된 검색의 예외0이 의미정확성을 보장하지 않는다.

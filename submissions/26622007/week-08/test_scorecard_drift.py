@@ -35,7 +35,7 @@ class RaceTest(unittest.TestCase):
                 {'ts': 30000, 'players': {'lead': 1.85}}]
         r = scorecard.race(self.BOARD, past, now=0 + 6 * 3600 + 60)
         self.assertEqual((r['rank'], r['above'], r['gap_to_above'], r['gap_to_leader']), (3, 'up', .23, .63))
-        self.assertEqual(r['growth']['6h'], {'me': -.03, 'leader': .1, 'above': .05, 'hours': 6.0})
+        self.assertEqual(r['growth']['6h'], {'me': -.03, 'leader': .1, 'above': .05, 'hours': 6.0, 'comparable': False})
         self.assertIsNone(r['growth']['12h'])
 
     def test_the_percentile_is_not_rounded_before_the_weights(self):

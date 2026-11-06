@@ -126,9 +126,15 @@ HISTORY_HOURS = 13         # the history keeps what the longest growth window ne
 FORUM = next(names for names, _ in OBJECTIVE["buyers"] if "forum" in names)
 
 
+def scoring_signature():
+    """Version the formula AND stance/reviewer aggregation, not just weights."""
+    return {"patch": "3.4", "parts": {k: [[names[0], w] for names, w in parts]
+                                      for k, parts in OBJECTIVE.items()}}
+
+
 def snapshot(b):
     """The board in a few numbers per row, for the growth of me and the players around me."""
-    return {"ts": time.time(),
+    return {"ts": time.time(), "scoring_signature": scoring_signature(),
             "players": {str(r.get("player")): r.get("total") for r in b.get("players") or [] if r.get("player")},
             "shops": {r.get("name"): [r.get("book"), r.get("revenue"), r.get("all")] for r in b.get("shops") or []},
             "buyers": {r.get("name"): [r.get("saved"), next((r[n] for n in FORUM if n in r), None), r.get("all")]
@@ -248,7 +254,8 @@ def race(b, past, now=None):
             round(next(r["total"] for r in players if r.get("player") == name) - then[str(name)], 3)
         out["growth"][f"{h}h"] = {"me": g(me.get("player")), "leader": g(lead.get("player")),
                                   "above": g(above.get("player")) if above else None,
-                                  "hours": round((now - old[-1]["ts"]) / 3600, 1)}
+                                  "hours": round((now - old[-1]["ts"]) / 3600, 1),
+                                  "comparable": old[-1].get("scoring_signature") == scoring_signature()}
     return out
 
 

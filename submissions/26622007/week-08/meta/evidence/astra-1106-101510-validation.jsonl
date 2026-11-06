@@ -1,0 +1,4 @@
+{"check": "citations", "items": 97, "problems": []}
+{"check": "hard_limits", "problems": ["the change removes 7 line(s) using hard_limits: -(11/05 11:48 사람 결정, 규모 확대 2·3단계) 재고 상한 15,000,000(운영값. hard_limits BOUNDS 최대는 150,000,000, META_FLOOR 10,000,000 아래로 메타"], "seller_unchanged": true, "diff": ["restock.sku_target_units.G00327e80 1 -> 2", "restock.sku_target_units.G03d0199f 1 -> 2"]}
+{"check": "review_coverage", "commits": 30, "grades": 43, "keep_or_drop": 51, "missing_commits": []}
+{"check": "queue", "ids": ["g6-a-ask-cap-343k", "forum-demand-context-101510"], "complete": true, "current_G6_unchanged": true, "demand_context_default_off": true}

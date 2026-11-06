@@ -460,11 +460,16 @@ def agent_turn(state, inv, catalog, demand, cfg, model, decide=agent_loop.decide
         proposal = plan(inv, catalog, demand, {**cfg, "max_lines": cfg["agent_max_lines"]}, model)
         results = decision_memory.outcomes(state, inv)
         agent_memory.learn_from_outcomes(state, results, catalog)
+        context = {"c0": json.dumps(proposal, ensure_ascii=False),
+                   "c1": json.dumps(results, ensure_ascii=False),
+                   "c2": agent_memory.select(state, keys_for(proposal, inv, catalog))}
+        if cfg.get("forum_demand_context", False):
+            from tools.demand_inventory.tool import summarize
+            context["c3"] = json.dumps(summarize(load(os.path.join(state, "forum.json"), []),
+                                                catalog, inv, time.time(), limit=3), ensure_ascii=False)
         try:
             final = decide(GOAL.format(ends=cfg.get("round_ends_at"), now=int(time.time()), lines=cfg["agent_max_lines"]), FINAL,
-                           state, "restock", {"c0": json.dumps(proposal, ensure_ascii=False),
-                                       "c1": json.dumps(results, ensure_ascii=False),
-                                       "c2": agent_memory.select(state, keys_for(proposal, inv, catalog))})
+                           state, "restock", context)
         except HarnessError as e:
             print(f"[restock] agent failed: {e}", file=sys.stderr, flush=True)
             return None
