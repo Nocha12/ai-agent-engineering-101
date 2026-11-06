@@ -14,6 +14,16 @@ class DriftTest(unittest.TestCase):
         self.assertIsNone(scorecard.objective(b)['board_players_gap'])
 
 
+class ForumRatingTest(unittest.TestCase):
+    def test_buyer_forum_uses_rating_and_next_step_uses_rating_delta(self):
+        me = {'name': scorecard.ME, 'saved': .2, 'forum': .87, 'deals': 10, 'posts': 10, 'all': .761}
+        other = {'name': 'other', 'saved': .1, 'forum': .88, 'deals': 1, 'posts': 1, 'all': 0}
+        obj = scorecard.objective({'shops': [], 'buyers': [me, other]})
+        self.assertEqual(obj['buyers']['all'], .961)
+        self.assertEqual(obj['buyers']['parts']['forum']['next']['delta_players'], .003)
+        self.assertEqual(obj['board_drift']['buyers'], .2)
+
+
 class BookTest(unittest.TestCase):
     def test_shop_all_ranks_book_when_the_board_has_it(self):
         me = {'name': scorecard.ME, 'profit': 1, 'book': 9, 'revenue': 5, 'stars_rank': 5, 'all': .75}

@@ -1,0 +1,152 @@
+{
+  "shops": {
+    "all": 0.74,
+    "board_all": 0.74,
+    "parts": {
+      "book": {
+        "weight": 0.5,
+        "percentile": 0.7719,
+        "value": 110986336,
+        "next": {
+          "rival_value": 156006127,
+          "need": 45019791,
+          "delta_players": 0.00877
+        }
+      },
+      "revenue": {
+        "weight": 0.3,
+        "percentile": 0.7193,
+        "value": 489615327,
+        "next": {
+          "rival_value": 507833506,
+          "need": 18218179,
+          "delta_players": 0.00526
+        }
+      },
+      "stars_rank": {
+        "weight": 0.2,
+        "percentile": 0.693,
+        "value": 4.34,
+        "next": {
+          "rival_value": 4.35,
+          "need": 0.01,
+          "delta_players": 0.0193
+        }
+      }
+    },
+    "of": 58,
+    "ranked": true
+  },
+  "buyers": {
+    "all": 0.695,
+    "board_all": 0.695,
+    "parts": {
+      "saved": {
+        "weight": 0.5,
+        "percentile": 0.6296,
+        "value": 0.2458,
+        "next": {
+          "rival_value": 0.2464,
+          "need": 0.0006,
+          "delta_players": 0.00926
+        }
+      },
+      "forum": {
+        "weight": 0.3,
+        "percentile": 0.872,
+        "value": 0.872,
+        "next": {
+          "rival_value": 0.873,
+          "need": 0.001,
+          "delta_players": 0.0003
+        }
+      },
+      "deals": {
+        "weight": 0.1,
+        "percentile": 0.5,
+        "value": 3153,
+        "next": {
+          "rival_value": 3157,
+          "need": 4,
+          "delta_players": 0.00185
+        }
+      },
+      "posts": {
+        "weight": 0.1,
+        "percentile": 0.6852,
+        "value": 448,
+        "next": {
+          "rival_value": 480,
+          "need": 32,
+          "delta_players": 0.00185
+        }
+      }
+    },
+    "of": 55,
+    "ranked": true
+  },
+  "players": 1.435,
+  "board_drift": {
+    "shops": 0.0,
+    "buyers": 0.0
+  },
+  "board_players_gap": 0.299,
+  "weakest": [
+    "buyers",
+    "saved",
+    0.6296
+  ],
+  "next_steps": [
+    {
+      "part": "shops",
+      "field": "stars_rank",
+      "rival_value": 4.35,
+      "need": 0.01,
+      "delta_players": 0.0193
+    },
+    {
+      "part": "buyers",
+      "field": "saved",
+      "rival_value": 0.2464,
+      "need": 0.0006,
+      "delta_players": 0.00926
+    },
+    {
+      "part": "shops",
+      "field": "book",
+      "rival_value": 156006127,
+      "need": 45019791,
+      "delta_players": 0.00877
+    },
+    {
+      "part": "shops",
+      "field": "revenue",
+      "rival_value": 507833506,
+      "need": 18218179,
+      "delta_players": 0.00526
+    },
+    {
+      "part": "buyers",
+      "field": "deals",
+      "rival_value": 3157,
+      "need": 4,
+      "delta_players": 0.00185
+    },
+    {
+      "part": "buyers",
+      "field": "posts",
+      "rival_value": 480,
+      "need": 32,
+      "delta_players": 0.00185
+    },
+    {
+      "part": "buyers",
+      "field": "forum",
+      "rival_value": 0.873,
+      "need": 0.001,
+      "delta_players": 0.0003
+    }
+  ]
+}
+shops rows 58 max_drift 0.0
+buyers rows 55 max_drift 0.0
