@@ -238,7 +238,7 @@ class PriceTest(unittest.TestCase):
         r = p["restock"]
         self.assertEqual((r["max_stock_cost"], r["max_units_per_sku"], r["cover_hours"], r["keep_cash"],
                           r["food_max_stock_cost"], r["high_price_goods"], r["high_price_max_units"]),
-                         (30000000, 6, 6, 4500000, 650000, 100000, 4))   # 4: G8ec51935's target (scale 3); other dear SKUs stay at their own target   # keep_cash: 21.9M open warranties at 05:00
+                         (120000000, 10, 6, 4500000, 650000, 100000, 10))   # scale 6: our 30만+ units sold 98% in 24 h, supply held revenue; each dear SKU stays at its own sku_target_units   # keep_cash: 21.9M open warranties at 05:00
         # scale 2 (a person's 15M cap, 11/05 11:48): cover 6 h and 3 dear units so the model asks for the 60만+ lines
         # (our share 0.35-0.76/h); six runs without a sale fill ~15.0M, 10.5M of it 60만+ (scale2-result.md)
         # food 65만: food sells in 0.1 h with nothing spoiled, and its 45만 cap cut 416 of the last 2,000 guard lines
@@ -247,16 +247,22 @@ class PriceTest(unittest.TestCase):
         self.assertEqual(r["max_sku_share"], 0.2)
         proven = ["G1515d951", "G6b9db161"]           # each sold out before the next window (G1515d951 3 in 6 min, twice;
         # G6b9db161 2 per window 04:03-04:44); G0f415407 and G9c02e68e left extra units unsold twice: no more buying
-        self.assertEqual((r["high_price_proven_max_units"], r["high_price_proven_skus"]), (6, proven))
+        self.assertEqual((r["high_price_proven_max_units"], r["high_price_proven_skus"]), (10, proven))
         # G1515d951 at 6 also cut stock-outs 35% -> 0% while our sales went 41 -> 35 and the market's rose 921 -> 954
         # (13:25-16:46 vs 17:07-20:27), so 4 holds; the four foods out of stock 35-54% of 17:30-20:31 go to the front
         # (review/W-20261104-2030, GPT Pro 3판 §4.2). Under 15M the 60만+ lines go first: at 12:24 they came after five food
         # lines and G03d0199f was refused when the window closed (scale2-result.md §8)
+        # scale 6 (11/06 17:2x): the 17 60만+ SKUs with the most expected net flow over 24 h of ledger rows go first, in
+        # that order (review/W-20261106-1650-AX1등작전/analysis.md); our 30만+ units sold 98% with a 0.99 h median hold
         self.assertEqual((r["priority_skus"], r["sku_target_units"]),
-                         (["G8ec51935", "Gb5d0dde7", "G03d0199f", "G05277ffe", "G00327e80", "G75f11c19", "Gef4d3036",
-                           "Gb2392fa9", "G200e39a3", "G66ded25b", "G1465c678"],
-                          {"G1515d951": 4, "G6b9db161": 2, "G75f11c19": 2, "G05277ffe": 3, "Gb5d0dde7": 2,
-                           "G8ec51935": 4, "G03d0199f": 2, "G00327e80": 2, "G1465c678": 1}))
+                         (["G8ec51935", "G24f5f979", "Gbec2b68f", "Gf6b70da8", "Gb5d0dde7", "G2698c6f8", "G8095ddd6",
+                           "G021aae64", "G03d0199f", "G05277ffe", "G00327e80", "G3e0d6c67", "G8adbc159", "Gc1297f36",
+                           "G429bd69e", "G754bf0ca", "G47788edd", "G75f11c19", "Gef4d3036", "Gb2392fa9", "G200e39a3",
+                           "G66ded25b", "G1465c678"],
+                          {"G1515d951": 8, "G6b9db161": 2, "G75f11c19": 3, "G8ec51935": 10, "G24f5f979": 4, "Gbec2b68f": 4,
+                           "Gf6b70da8": 5, "Gb5d0dde7": 6, "G2698c6f8": 4, "G8095ddd6": 6, "G021aae64": 6, "G03d0199f": 4,
+                           "G05277ffe": 5, "G00327e80": 3, "G3e0d6c67": 3, "G8adbc159": 3, "Gc1297f36": 4, "G429bd69e": 3,
+                           "G754bf0ca": 4, "G47788edd": 2, "G1465c678": 1}))
         # scale 3 (12:24-13:05): G8ec51935 sold 2 in 40 min and was refilled each window -> 4; Gb5d0dde7's 3 units from
         # 12:27 sat unsold across the 12:41 and 13:01 windows -> 2 (scale2-result.md §8)   # G1515 4: Astra 21:19, same five units across two supply windows; G6 2: undo the reduction triggered by mislinked refunds
         # Patch 3.3 (book): one unit each of two 60만+ goods 12-14 shops sell 39-49/h at 3-4% mature break, after the proven
@@ -267,10 +273,11 @@ class PriceTest(unittest.TestCase):
         buy = [{"sku": s, "qty": 5} for s in cat]
         inv = {"balance": 50000000, "units": [{"sku": "G05277ffe", "kind": "goods", "cost": 360000}]}
         with contextlib.redirect_stderr(io.StringIO()):
-            self.assertEqual(restock.guard(buy, inv, cat, cfg), [{"sku": "G05277ffe", "qty": 2}, {"sku": "Gb5d0dde7", "qty": 2},
-                                                              {"sku": "G8ec51935", "qty": 4}])     # targets under 15M, one held
+            self.assertEqual(restock.guard(buy, inv, cat, cfg), [{"sku": "G05277ffe", "qty": 4}, {"sku": "Gb5d0dde7", "qty": 5},
+                                                              {"sku": "G8ec51935", "qty": 5}, {"sku": "G8095ddd6", "qty": 5}])   # one held
             self.assertEqual(restock.guard(buy, {**inv, "units": []}, cat, cfg),
-                             [{"sku": "G05277ffe", "qty": 3}, {"sku": "Gb5d0dde7", "qty": 2}, {"sku": "G8ec51935", "qty": 4}])   # unlisted stay out
+                             [{"sku": "G05277ffe", "qty": 5}, {"sku": "Gb5d0dde7", "qty": 5}, {"sku": "G8ec51935", "qty": 5},
+                              {"sku": "G8095ddd6", "qty": 5}])   # scale 6 lists G8095ddd6; each line is the asked 5 under its target
         self.assertEqual(r["food_max_qty"], 4)     # every food line refills up to 4 units, not 3 (the SKU cap stays max_units_per_sku 6)
         self.assertTrue(r["high_price_listed_only"])
         # no cap per deal (hard_limits.UNCAPPED; at 800k my buyer settled 1 of 113 dear orders) and the whole list price:
