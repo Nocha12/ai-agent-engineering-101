@@ -494,6 +494,10 @@ class BuyerTest(unittest.TestCase):
                   "we have no warranty issues; 72 h warranty", "full refund within 3 hours of delivery, 6 h warranty"):
             self.assertIsNone(market_buyer.warranty_refused(t, g), t)
         self.assertTrue(market_buyer.warranty_refused("warranty period 3 hours", g))
+        self.assertTrue(market_buyer.warranty_refused("3 hr warranty", g))
+        self.assertTrue(market_buyer.warranty_refused("3-hour limited warranty", g))
+        self.assertTrue(market_buyer.warranty_refused("3 h warranty; delivery 72 hours warranty-free", g))
+        self.assertIsNone(market_buyer.warranty_refused("72 hrs standard warranty", g))
         started = time.time()
         self.assertIsNone(market_buyer.warranty_refused("1h" + "-" * 5000 + " ok", g))       # no backtracking blowup
         self.assertLess(time.time() - started, 0.5)

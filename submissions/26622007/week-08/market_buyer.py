@@ -496,7 +496,7 @@ def request_text(label, key, order):
 
 WORD_HOURS = {w: str(i) for i, w in enumerate(("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
                                                "ten", "eleven", "twelve"))}
-WARRANTY_WORDS = ("full-refund", "full", "refund", "breakage", "money-back", "replacement")   # between "N-hour" and "warranty"
+WARRANTY_WORDS = ("full-refund", "full", "refund", "breakage", "money-back", "replacement", "limited", "standard")   # between "N-hour" and "warranty"
 
 
 def warranty_refused(text, order):
@@ -508,8 +508,8 @@ def warranty_refused(text, order):
         return None
     t = (text or "")[:4000]
     num = r"(?<![\w.-])(\d+(?:\.\d+)?|" + "|".join(WORD_HOURS) + r")"     # "twenty-four" is not read as "four"
-    unit = r"\s*-?\s*(?:h|hours?|시간)\b"
-    hours = re.findall(num + unit + r"(?:[\s-]+(?:" + "|".join(WARRANTY_WORDS) + r")){0,3}[\s-]*warranty", t, re.I)
+    unit = r"\s*-?\s*(?:h|hrs?|hours?|시간)\b"
+    hours = re.findall(num + unit + r"(?:[\s-]+(?:" + "|".join(WARRANTY_WORDS) + r")){0,3}[\s-]*warranty(?!-free)", t, re.I)
     hours += re.findall(r"warranty\s*(?:period\s*)?(?:[=:]|of|for|is)?\s*" + num + unit, t, re.I)
     hours = [float(WORD_HOURS.get(h.lower(), h)) for h in hours]
     if hours and max(hours) >= hard_limits.BUYER_GOODS_WARRANTY_HOURS:
