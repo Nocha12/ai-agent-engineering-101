@@ -75,7 +75,7 @@ BOUNDS = {
     "warranty.max_break": (0.0, 0.5),
     "warranty.prior_break": (0.0, 0.5),
     "buyer.max_price_share": (0.3, 1.0),
-    "buyer.quote_shops": (1, 5),
+    "buyer.quote_shops": (1, 10),
     "markdown.min_floor_share": (0.0, 1.0),
     "forum.max_votes": (0, 30),
     "forum.every_minutes": (5, 240),

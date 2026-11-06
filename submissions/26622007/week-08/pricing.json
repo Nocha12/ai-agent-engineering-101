@@ -192,7 +192,7 @@
   },
   "buyer": {
     "max_price_share": 1.0,
-    "quote_shops": 5
+    "quote_shops": 10
   },
   "memory": {
     "long_term_chars": 4000,
