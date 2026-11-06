@@ -38,6 +38,7 @@ import measure
 import market_model
 import opening
 import profit_price
+import rival_vote
 import shop_forum
 import shop_memory
 import tool_forge
@@ -662,6 +663,7 @@ def main():
     if os.environ.get("HARNESS"):
         forum.maybe_run(args.state)     # the kit runs this hook once a minute in Round 3; forum.py keeps its own pace
         tool_forge.maybe_run(args.state)
+        rival_vote.maybe_run(args.state)    # a free dislike stance on a tied Players rival's buyer, never a paid vote
     shop_forum.maybe_run(args.state)    # the shop's own posts, written by code from its ledger rows and stock
     # the last word, whatever came before. It keeps its own 0.75 x list (test_hard_limits pins it); the surge cost is
     # reserved by guard() and the waiting lines, and with the balance far above STOP_BUYING_BELOW the line does not bind

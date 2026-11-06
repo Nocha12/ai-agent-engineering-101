@@ -15,6 +15,7 @@ import agent_memory
 import buyer_post
 import hard_limits
 import market_model
+import rival_vote
 from harness import HarnessError
 
 ME = os.environ.get("SHOP_MARKET_NAME", "nocha12")
@@ -49,7 +50,7 @@ def load(path, default):
         return default
 
 
-def clean(final, posts, ledger_seqs, voted, cfg, me=ME):
+def clean(final, posts, ledger_seqs, voted, cfg, me=ME, avoid=()):
     """The lines for the outbox, and the post ids voted on. What does not hold up is dropped and said so."""
     by_id = {str(p.get("id")): p for p in posts}
     lines, new_votes = [], []
@@ -66,7 +67,7 @@ def clean(final, posts, ledger_seqs, voted, cfg, me=ME):
     for v in final.get("votes") or []:
         p = by_id.get(str(v.get("post")))
         if p is not None and p.get("author") != me and str(p.get("id")) not in voted and str(p.get("id")) not in new_votes \
-                and p.get("author") not in authors and v.get("value") == 1 and len(new_votes) < cfg["max_votes"]:
+                and p.get("author") not in authors and p.get("author") not in avoid and v.get("value") == 1 and len(new_votes) < cfg["max_votes"]:
             authors.add(p.get("author"))
             lines.append({"vote": p.get("id"), "value": v["value"], "as": "buyer"})
             new_votes.append(str(p.get("id")))
@@ -93,7 +94,8 @@ def maybe_run(md, decide=agent_loop.decide):
             print("[forum] no evidenced decision", file=sys.stderr, flush=True)
             return None
         seqs = {r["seq"] for r in market_model.load_rows(md) if r["k"] == "settle"}
-        lines, voted = clean(final, posts if isinstance(posts, list) else [], seqs, set(state["voted"]), cfg)
+        lines, voted = clean(final, posts if isinstance(posts, list) else [], seqs, set(state["voted"]), cfg,
+                             avoid=rival_vote.avoid(md))     # a like would cancel a dislike stance
         if any("post" in x for x in lines) and not buyer_post.claim_slot(md):
             # one buyer post per buyer_post.GAP_MINUTES for both writers; the votes still go out
             print("[forum] post held back: a buyer post went out in the last "
