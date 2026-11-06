@@ -118,32 +118,52 @@ class GuardsStayHookedTest(unittest.TestCase):
 
     def test_the_stock_cap_is_open(self):
         # a person, 11/06 19:03: "hard_limits 는 완전 풀어버려 그냥 파산만 안되면 문제없어"
-        self.assertEqual(hl.BOUNDS["restock.max_stock_cost"][1], float("inf"))
+        self.assertEqual(hl.BOUNDS["restock.max_stock_cost"][1], hl.OPEN)
+        self.assertEqual(hl.clamp_cfg("restock", {"max_stock_cost": float("inf")})["max_stock_cost"], 150000000)   # SAFE
+        self.assertTrue(hl.check_policy_change({}, {"restock": {"keep_cash": float("inf")}}))
         self.assertEqual(hl.clamp_cfg("restock", {"max_stock_cost": 3 * 10 ** 9})["max_stock_cost"], 3 * 10 ** 9)
         self.assertEqual(hl.META_FLOOR["restock.max_stock_cost"], 10000000)     # the meta-harness still keeps 10M+
 
     def test_the_widened_bounds(self):
-        b, inf = hl.BOUNDS, float("inf")
+        b, inf, top = hl.BOUNDS, float("inf"), hl.OPEN
         self.assertEqual((b["restock.max_units_per_sku"], b["restock.target_per_category"], b["restock.food_explore_qty"],
                           b["restock.max_sku_share"], b["opening.explore_budget_worst"], b["restock.keep_cash"],
                           b["restock.high_price_max_units"], b["restock.high_price_proven_max_units"]),
-                         ((1, 1000), (0, 100), (0, 20), (0.01, 1.0), (0, inf), (1000000, inf), (0, 1000), (0, 1000)))
+                         ((1, 1000), (0, 100), (0, 20), (0.01, 1.0), (0, top), (1000000, top), (0, 1000), (0, 1000)))
         self.assertEqual((hl.MAX_STEP, hl.MAX_STEP_STRONG, hl.MAX_STEP_UNBOUNDED), (inf, inf, inf))
 
     def test_the_cash_buffer_covers_refunds_storage_and_a_bad_day(self):
         now = 1800000000
         self.assertEqual(hl.cash_buffer(0, [], now), 500000 + 2500000)
-        self.assertEqual(hl.cash_buffer(100000000, [], now), 500000 + 1000000 + 2500000)       # a day of 1% storage
+        self.assertEqual(hl.cash_buffer(100000000, [], now), 500000 + 2000000 + 2500000)       # two days of 1% storage
         sold = [(now, 10000000), (now - 3 * 3600, 10000000), (now - 7 * 3600, 10000000)]     # new, half-way, past 6 h
         self.assertEqual(hl.cash_buffer(0, sold, now), 500000 + 1300000 + 650000 + 2500000)
         self.assertEqual(hl.cash_buffer(0, None, now), 500000 + hl.UNKNOWN_EXPOSURE + 2500000)  # ledger unreadable
-        self.assertEqual(hl.cash_buffer(-5, [("x", None)], now), 3000000)
+        self.assertEqual(hl.cash_buffer(-5, [("x", None), (now, float("nan")), (now, float("inf"))], now), 3000000)
+        self.assertEqual(hl.cash_buffer(float("inf"), [], now), 3000000)
         self.assertEqual((hl.REFUND_WORST, hl.BREAK_HOURS, hl.DAY_LOSS_WORST), (0.13, 6, 2500000))
         self.assertEqual(hl.spendable(30000000, 20000000), 10000000)
         self.assertEqual(hl.spendable(30000000, 0), 29000000)                  # never under STOP_BUYING_BELOW
         cat = {"H1": {"list_price": 1000000}}
         self.assertEqual(hl.final_buy([{"sku": "H1", "qty": 20}], 30000000, cat, buffer=20000000), [{"sku": "H1", "qty": 13}])
         self.assertEqual(hl.final_buy([{"sku": "H1", "qty": 20}], 19000000, cat, buffer=20000000), [])
+
+    def test_restock_reads_its_own_warranted_sales_and_says_so_when_it_cannot(self):
+        now = 1800000000
+        cat = {"H1": {"kind": "goods", "list_price": 100}, "F1": {"kind": "food", "list_price": 100}}
+        rows = [{"k": "result", "seq": 1, "ts": now - 7 * 3600, "order": "o1", "seller": "Nocha Furniture"},
+                {"k": "settle", "seq": 2, "ts": now - 3600, "order": "o1", "sku": "H1", "amount": 90, "warranty": 72.0},
+                {"k": "settle", "seq": 3, "ts": now - 3600, "order": "o2", "sku": "H1", "amount": 80, "warranty": 6.0},
+                {"k": "result", "seq": 4, "ts": now - 3500, "order": "o3", "seller": "Nocha Furniture"},
+                {"k": "settle", "seq": 5, "ts": now - 3500, "order": "o3", "sku": "F1", "amount": 70, "warranty": None},
+                {"k": "settle", "seq": 6, "ts": now - 8 * 3600, "order": "o1", "sku": "H1", "amount": 60, "warranty": 6.0}]
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"SHOP_CARD_NAME": "Nocha Furniture"}):
+            self.assertEqual(restock.warranted_sales(d, cat, now), [])                 # no ledger yet
+            with open(os.path.join(d, "ledger_rows.jsonl"), "w") as f:
+                f.write("\n".join(json.dumps(r) for r in rows) + "\n")
+            self.assertEqual(restock.warranted_sales(d, cat, now), [(now - 3600, 90)])
+            with mock.patch.object(restock, "SALES_TAIL_BYTES", 300):                   # the tail misses 6 h
+                self.assertIsNone(restock.warranted_sales(d, cat, now))
 
     def test_the_meta_harness_keeps_cash_for_refunds_and_fees(self):
         old = {"restock": {"keep_cash": 4500000}}

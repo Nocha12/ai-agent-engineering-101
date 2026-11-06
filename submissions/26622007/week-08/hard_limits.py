@@ -27,13 +27,16 @@ STOP_BUYING_BELOW = 1000000          # a supply that could leave less than this 
 #   bucket (p90 10.0%); the most refunded in 1 h 2.76M, in 6 h 5.65M, in 24 h 14.58M. A unit breaks within 6 h of the
 #   sale, spread evenly (2,098 market breaks 11/06: median 2.9 h, p90 5.4 h), so a sale a hours old still owes
 #   REFUND_WORST x price x (6 - a) / 6 at worst.
-# - storage: 1% of the stock's cost a day (agent.md); a day of it is kept.
+# - storage: 1% of the stock's cost a day (agent.md); two days of it are kept.
 # - the worst 24 h fall of book was 2.5M (11/04 14:45); cash fell 90.7M in 24 h only because it went into stock.
 REFUND_WORST = 0.13
 BREAK_HOURS = 6
-STORAGE_DAYS = 1.0
+STORAGE_DAYS = 2.0          # a day of fees, and one more in case sales stall (independent review, 11/06 21:0x)
 STORAGE_PER_DAY = 0.01
 DAY_LOSS_WORST = 2500000
+# "Open" bounds are a large finite number, never inf: json reads Infinity, and an inf keep_cash made guard() compute
+# int(nan) and crash the hook (independent review). 1e12 is 200,000 x the starting 5M.
+OPEN = 10 ** 12
 # Without the ledger the exposure is not known: 13% of 6 h of goods sales at our 11/06 19:15-20:47 rate (38M/h), halved
 # for the even spread of breaks over the 6 h.
 UNKNOWN_EXPOSURE = 15000000
@@ -63,13 +66,13 @@ FIXED = {"restock.high_price_listed_only": True}
 BOUNDS = {
     # The floor is STOP_BUYING_BELOW, the least that keeps supplies going: restock never spends under it whatever
     # keep_cash says (spendable), so a lower floor would change nothing. The meta-harness stops at META_FLOOR (3M).
-    "restock.keep_cash": (STOP_BUYING_BELOW, math.inf),     # was 20M: more kept is never a bankruptcy risk
+    "restock.keep_cash": (STOP_BUYING_BELOW, OPEN),     # was 20M: more kept is never a bankruptcy risk
     # 150M: Patch 3.3 scores book (unsold stock at cost); the 4M cap was what cut our lines (847 of the last 2,000 guard
     # cuts, 11/05 11:1x) while the 60만+ goods that bring the top ten 82% of their revenue sell in 0.37 h, and the top
     # ten hold 78M of stock on average, 150M at most (review/W-20261105-0953-AX패치3.3/scale-analysis.md). A person set
     # the bound there (11/05 11:48: "크게크게"); pricing.json holds the working value, grown inside it as sales follow.
     # 11/06 19:03 a person opened it (was 150M): the cash buffer (cash_buffer) is what limits a buy now.
-    "restock.max_stock_cost": (100000, math.inf),
+    "restock.max_stock_cost": (100000, OPEN),
     "restock.target_per_category": (0, 100),
     "restock.max_lines": (1, 10),     # the kit sends the first 10 lines of a restock (scripts/market_kit.py), no more
     "restock.max_units_per_sku": (1, 1000),
@@ -84,7 +87,7 @@ BOUNDS = {
     "restock.band_low": (0.3, 1.0),
     "restock.band_high": (1.0, 3.0),
     "restock.prior_break": (0.0, 0.5),
-    "opening.explore_budget_worst": (0, math.inf),
+    "opening.explore_budget_worst": (0, OPEN),
     "opening.judge_settles": (10, 1000),
     "opening.phase_gap_minutes": (5, 120),
     "restock.max_sku_share": (0.01, 1.0),
@@ -186,7 +189,8 @@ def flat(d, prefix=""):
 
 
 def number(v):
-    return isinstance(v, (int, float)) and not isinstance(v, bool)
+    """A finite int or float: nan, inf and bools are not numbers here (a setting of Infinity falls back to SAFE)."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
 
 
 def check_policy_change(old, new, step=MAX_STEP):

@@ -340,13 +340,14 @@ def warranted_sales(state, catalog, now=None):
     try:
         with open(os.path.join(state, market_model.ROWS), "rb") as f:
             f.seek(0, os.SEEK_END)
-            f.seek(max(0, f.tell() - SALES_TAIL_BYTES))
-            lines = f.read().decode("utf-8", "replace").splitlines()[1:]
+            start = max(0, f.tell() - SALES_TAIL_BYTES)
+            f.seek(start)
+            lines = f.read().decode("utf-8", "replace").splitlines()[1 if start else 0:]   # a cut first line only
     except FileNotFoundError:       # no ledger yet (a new or reset shop): no sales of ours to refund
         return []
     except OSError:
         return None
-    ours, sold = set(), []
+    ours, sold, first = set(), [], None
     for line in lines:
         try:
             r = json.loads(line)
@@ -354,11 +355,15 @@ def warranted_sales(state, catalog, now=None):
             continue
         if not isinstance(r, dict):
             continue
+        if first is None and isinstance(r.get("ts"), (int, float)):
+            first = r["ts"]
         if r.get("k") == "result" and r.get("seller") in mine:
             ours.add(r.get("order"))
         elif r.get("k") == "settle" and isinstance(r.get("ts"), (int, float)) and r["ts"] >= since and r.get("warranty") \
                 and (catalog.get(r.get("sku")) or {}).get("kind") == "goods" and isinstance(r.get("amount"), (int, float)):
             sold.append(r)
+    if start and (first is None or first > since):
+        return None         # the tail no longer covers BREAK_HOURS: the buffer assumes UNKNOWN_EXPOSURE, not too little
     return [(r["ts"], r["amount"]) for r in sold if r.get("order") in ours or str(r.get("shop") or "").rstrip("/") in mine]
 
 
@@ -654,8 +659,12 @@ def main():
     except Exception as e:   # noqa: BLE001 - the buffer then assumes hard_limits.UNKNOWN_EXPOSURE
         print(f"[restock] own sales unreadable: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
         sales = None
-    stock = sum(u.get("cost") or 0 for u in inv.get("units") or [] if isinstance(u, dict))
-    cfg["cash_buffer"] = hard_limits.cash_buffer(stock, sales)     # a person, 11/06 19:03: no bankruptcy, nothing else
+    stock = sum(u["cost"] for u in inv.get("units") or [] if isinstance(u, dict) and hard_limits.number(u.get("cost")))
+    try:
+        cfg["cash_buffer"] = hard_limits.cash_buffer(stock, sales)     # a person, 11/06 19:03: no bankruptcy, nothing else
+    except Exception as e:   # noqa: BLE001 - never a crash: the unknown exposure instead
+        print(f"[restock] cash buffer failed: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        cfg["cash_buffer"] = hard_limits.cash_buffer(0, None) + stock * hard_limits.STORAGE_DAYS * hard_limits.STORAGE_PER_DAY
     print(f"[restock] cash buffer {cfg['cash_buffer']} (balance {inv.get('balance')}, stock {stock:.0f}, "
           f"{'unknown' if sales is None else len(sales)} warranted goods sales in {hard_limits.BREAK_HOURS} h)",
           file=sys.stderr, flush=True)
