@@ -204,6 +204,28 @@ class ChooseAgentTest(unittest.TestCase):
                 mb.choose(self.SHOPS, {"trades": []}, "김치", 9000)
             self.assertEqual(len(limits), 2)
 
+    def test_the_second_step_is_skipped_once_the_quotes_are_in(self):
+        # 11/06 23:30: quotes were in at once and the 2-step choice took 10 s of a 42 s order; best_quote picks anyway
+        calls = []
+
+        def ask(*a, timeout=None, **k):
+            calls.append(k.get("tag"))
+            return {"shop": "a", "reason": "fallback"}
+
+        def decide(goal, schema, md, agent, given, max_steps, ask_fn=None):
+            ask_fn("p", schema, "s", tag="buyer-agent")
+            ask_fn("p", schema, "s", tag="buyer-agent")
+            return None
+        with mock.patch.object(mb, "AGENT_DIR", "x"), mock.patch.object(mb.agent_loop, "decide", decide), \
+                mock.patch.object(mb.market_model, "load_rows", lambda d: []), mock.patch.object(mb, "log"), \
+                mock.patch.object(mb, "ask", ask):
+            with self.assertRaises(mb.HarnessError):
+                mb.choose(self.SHOPS, {"trades": []}, "김치", 9000, hurry=lambda: True)
+            self.assertEqual(calls, ["buyer-agent"])          # the first step only: the tools still get their turn
+            calls.clear()
+            mb.choose(self.SHOPS, {"trades": []}, "김치", 9000, hurry=lambda: False)
+            self.assertEqual(len(calls), 3)
+
     def test_round_2_never_uses_it(self):
         self.assertEqual(self.run_choose(lambda *a, **k: self.fail("agent in round 2"), md=None)[1].split(": ")[1], "fallback")
 

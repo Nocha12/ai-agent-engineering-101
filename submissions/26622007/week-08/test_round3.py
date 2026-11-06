@@ -557,6 +557,10 @@ class BuyerTest(unittest.TestCase):
         shops = [{"name": n, "url": f"https://{n}.example", "usable": [{"sku": "H1", "name": "청소기", "list_price": 10000}]}
                  for n in "abc"]
         open_task = lambda i: {"id": f"t-{i}", "status": {"state": "TASK_STATE_INPUT_REQUIRED"}}
+        # closing threads of earlier tests (best_quote returns before slow quotes end) must not land in this rpc patch
+        for th in threading.enumerate():
+            if th is not threading.current_thread() and th.daemon:
+                th.join(3)
 
         def fake_quote(shop, label, key, order, out, ctl=None):
             out[shop["name"]] = {"ask": None, "text": "asking 9000", "url": shop["url"], "task": open_task(shop["name"]),
@@ -572,8 +576,7 @@ class BuyerTest(unittest.TestCase):
         self.assertTrue(market_buyer.resumable(got["a"]))                     # the fallback goes on with its talk
         self.assertEqual([got[n].get("closed") for n in "bc"], [True, True])  # closed before best_quote returns
         self.assertFalse(market_buyer.resumable(got["b"]))
-        # only this test's talks: a daemon closing thread of an earlier test (shops a-f) may land in the patched rpc
-        self.assertEqual(sorted(x for x in cancelled if x in ("t-a", "t-b", "t-c")), ["t-b", "t-c"])
+        self.assertEqual(sorted(cancelled), ["t-b", "t-c"])
         self.assertFalse(market_buyer.resumable(dict(got["a"], closed=True)))
         self.assertFalse(market_buyer.resumable(dict(got["a"], refused="no warranty")))
         self.assertFalse(market_buyer.resumable({"task": {"status": {"state": "TASK_STATE_REJECTED"}}}))

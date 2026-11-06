@@ -137,7 +137,7 @@ class MainOverlap(unittest.TestCase):
             if late:
                 market_buyer.cancel_quietly(q, s["name"])
 
-        def fake_choose(s, m, i, b):
+        def fake_choose(s, m, i, b, hurry=None):
             note("choose start")
             time.sleep(choose_s)
             note("choose end")

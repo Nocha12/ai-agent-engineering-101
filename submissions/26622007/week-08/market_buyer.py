@@ -356,7 +356,7 @@ def break_line(row):
     return f"\n  goods it sold that broke, in the ledger: {row['broke']} of {row['sold']}" if row and row["sold"] else ""
 
 
-def choose(shops, memory, item, budget):
+def choose(shops, memory, item, budget, hurry=None):
     """Returns (shop, reason).
 
     Code removes cheaters, dead shops, shops whose receipts were unsigned and shops with clearly bad
@@ -419,10 +419,16 @@ def choose(shops, memory, item, budget):
         by_name.setdefault(s["name"], s)
     deadline = time.time() + CHOOSE_SECONDS
 
+    steps = []
+
     def timed(prompt, schema, system, tag="harness"):
         left = deadline - time.time()
         if left < CHOOSE_MIN_SECONDS:
             raise HarnessError(f"choice took over {CHOOSE_SECONDS} s")
+        # hurry(): enough quotes are in, so best_quote will pick by price anyway; the agent keeps its first step only
+        if steps and hurry is not None and hurry():
+            raise HarnessError("the quotes are in: no further choice step")
+        steps.append(tag)
         return ask(prompt, schema, system, tag=tag, timeout=min(CHOOSE_STEP_SECONDS, left))
 
     summaries = "\n\n".join(shop_summary(s, my_history(memory, s["name"]), item) for s in by_name.values())
@@ -780,6 +786,19 @@ def prefetch_pool(left, memory, md, category, k, rival=frozenset()):
     others = [s for s in left if not caught_cheating(my_history(memory, s["name"]))]
     others = rival_deny.others_first(quote_order(others, recent_fits(md, category), k), rival)
     return others[:max(0, k - 1)], others
+
+
+def quotes_enough(shops, got, budget, cfg):
+    """QUOTE_ENOUGH asks in got from shops (start_quotes set their _offer), one within my limit: what ends the wait."""
+    asks, fit = 0, False
+    for s in shops:
+        q, o = got.get(s["name"]) or {}, s.get("_offer")
+        if not o or q.get("refused") or not isinstance(q.get("ask"), (int, float)):
+            continue
+        asks += 1
+        b = s.get("_b") or 0
+        fit = fit or q["ask"] <= min(value_limit(o, budget, b, cfg), saved_cap(o, b))
+    return asks >= QUOTE_ENOUGH and fit
 
 
 def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOTE_WAIT, rounds=QUOTE_ROUNDS, pre=None,
@@ -1188,6 +1207,7 @@ def main():
         if PREFETCH_QUOTES and not gave_up and k >= 2 and early:
             pre = {"got": {}, "ctl": quote_ctl()}
             pre["threads"] = start_quotes(early, order, args.budget, chance_of, pre["got"], pre["ctl"])
+            pre["enough"] = lambda: quotes_enough(early, pre["got"], args.budget, buyer_cfg())
             log(f"[quote] asking {', '.join(s['name'] for s in early)} while choosing")
     if gave_up:       # no talk follows, so the harness is not asked to choose either (it took a median 13.4 s)
         shop = max(quotable or left, key=lambda s: len(s.get("reviews") or []))
@@ -1197,7 +1217,8 @@ def main():
             pick = [s for s in left if s["name"] not in rival] or left     # the harness chooses among non-rivals when any
             for attempt in range(ACP_TRIES):
                 try:
-                    shop, reason = choose(pick, memory, args.item, args.budget)
+                    shop, reason = choose(pick, memory, args.item, args.budget,
+                                          **({"hurry": pre["enough"]} if pre and pre.get("enough") else {}))
                 except HarnessError as e:
                     unknown = [s for s in pick if not caught_cheating(my_history(memory, s["name"]))] or pick
                     shop, reason = max(unknown, key=lambda s: len(s.get("reviews") or [])), f"harness failed ({e}); most reviewed"
