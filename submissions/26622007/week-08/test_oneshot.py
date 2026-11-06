@@ -109,17 +109,19 @@ class InTalk(unittest.TestCase):
         self.assertEqual(out["state"], "TASK_STATE_COMPLETED")
         self.assertEqual(out["agreed"], 9500)
 
-    def test_one_text_price_is_priced_by_code(self):
+    def test_counter_template_is_priced_by_code(self):
         sent = []
-        lad = lambda meta, text, history: oneshot.turn(meta, text, history, 10000, (0.9,), quoted=8000)
+        replies = iter([task("TASK_STATE_INPUT_REQUIRED", text="7200 is too low. Counteroffer price: 7600."),
+                        task("TASK_STATE_COMPLETED", receipt={"price": 7600, "item": "G1"})])
 
         def send(url, text, task_id=None):
             sent.append(text)
-            return task("TASK_STATE_COMPLETED", receipt={"price": int(text), "item": "G1"})
+            return next(replies)
+        lad = lambda meta, text, history: oneshot.turn(meta, text, history, 10000, (0.9,))
         with mock.patch.object(buyer, "send", send), mock.patch.object(buyer, "decide", side_effect=AssertionError("no harness")):
-            buyer.talk("u", task("TASK_STATE_INPUT_REQUIRED", text="Grade A, 6 h warranty, asking 8000."), "x", 10000, "",
-                       fresh(), ladder=lad)
-        self.assertEqual(sent, ["7200"])
+            out = buyer.talk("u", task("TASK_STATE_INPUT_REQUIRED", 8000), "x", 10000, "", fresh(), ladder=lad)
+        self.assertEqual(sent, ["7200", "7600"])
+        self.assertEqual(out["agreed"], 7600)
 
     def test_two_text_prices_go_to_the_harness(self):
         """"Was asking 20000, now just 12000": text_ask reads 20000, and code would offer 18000 against 12000."""
@@ -166,32 +168,45 @@ class InTalk(unittest.TestCase):
 
 
 class TextPrice(unittest.TestCase):
-    def test_counter_beside_my_own_offer(self):
-        h = [("shop asked", 14000), ("you offered", 11300)]
-        self.assertEqual(oneshot.text_price("11300 is too low. Counteroffer price: 13049.", h), 13049)
+    H = [("shop asked", 20000), ("you offered", 16000)]
 
-    def test_two_prices_go_to_the_harness(self):
-        h = [("shop asked", 25000), ("you offered", 20000)]
-        self.assertIsNone(oneshot.text_price("Was asking 20000, now just 12000.", [], quoted=20000))
-        self.assertIsNone(oneshot.text_price("I can't go back to my old asking 24000; best I can do is 23500.", h))
+    def test_shop_templates_in_the_log_are_read(self):
+        self.assertEqual(oneshot.text_price("Counteroffer: 18500.", self.H), 18500)
+        self.assertEqual(oneshot.text_price("Counteroffer: 18500", self.H), 18500)
+        self.assertEqual(oneshot.text_price("3 offers left. Counteroffer: 18500", self.H), 18500)
+        self.assertEqual(oneshot.text_price("16000 is too low. Counteroffer price: 18500.", self.H), 18500)
+        self.assertEqual(oneshot.text_price("Our lowest price for this unit: 18500 Reply ok to take it.", self.H), 18500)
+        self.assertEqual(oneshot.text_price(
+            "Counteroffer: 18500. SKU G3323e2b7, grade A; market certificate at checkout. Includes a 6-hour warranty: "
+            "market-enforced full refund if the goods break during warranty; the quote includes the warranty surcharge.",
+            self.H), 18500)
 
-    def test_sku_size_and_hours_are_not_prices(self):
-        text = "제주 삼다수 2L X 18병 (G3434758a), grade B, about 373.1 h shelf life left; warranty 0 h. Asking price: 12,766."
-        self.assertEqual(oneshot.price_numbers(text) & {3434758, 373}, set())
-        self.assertEqual(oneshot.text_price(text, [], quoted=12766), 12766)
+    def test_too_low_must_name_my_last_offer(self):
+        self.assertIsNone(oneshot.text_price("15000 is too low. Counteroffer price: 18500.", self.H))
 
-    def test_first_turn_must_be_the_checked_quote(self):
-        self.assertIsNone(oneshot.text_price("asking 13600", [], quoted=13200))
-        self.assertIsNone(oneshot.text_price("asking 13600", []))
+    def test_never_over_the_last_ask_nor_under_my_last_offer(self):
+        self.assertIsNone(oneshot.text_price("Counteroffer: 20400.", self.H))
+        self.assertIsNone(oneshot.text_price("Counteroffer: 15000.", self.H))
+        self.assertEqual(oneshot.text_price("Counteroffer: 16000.", self.H), 16000)
 
-    def test_never_over_the_last_ask(self):
-        h = [("shop asked", 10000), ("you offered", 9000)]
-        self.assertIsNone(oneshot.text_price("Counteroffer: 10400.", h))
-        self.assertEqual(oneshot.text_price("Counteroffer: 9800.", h), 9800)
+    def test_first_turn_text_goes_to_the_harness(self):
+        self.assertIsNone(oneshot.text_price("Counteroffer: 18500.", [], quoted=18500))
+        self.assertIsNone(oneshot.text_price("Grade A, asking 18500.", [("shop asked", 20000)], quoted=18500))
+
+    def test_free_text_goes_to_the_harness(self):
+        """Every bypass four independent reviews (11/07) found in word-list readings of free text."""
+        for text in ("Was asking 20000, now just 12000.", "Down from 20000 to your 18000, deal?", "Fine, 18,000 instead of 20,000",
+                     "asking 19000 minus 2000 for loyal customers", "asking 19000. Now 17500.00 final", "asking 19000, now \uff11\uff17\uff15\uff10\uff10",
+                     "asking 19000 \uc9c0\uae08\uc740 \ub9cc\uce60\ucc9c\uc6d0", "Others ask 19000, I accept your offer.", "Agreed at your offer. Retail price is 19000.",
+                     "asking 19000, \uc624\ub298\ub9cc \ubc18\uac12", "asking 19000 for a pair", "Counteroffer: 19000 (17000 if paid now)",
+                     "Counteroffer: 19000. Or 17000 tomorrow.", "Counteroffer: 19000 minus 2000", "Counteroffer: 19,000.",
+                     "Counteroffer: 19000.00", "Counteroffer: \uff11\uff19\uff10\uff10\uff10", "Counteroffer: 19000. Reply ok to take it at 17000.",
+                     "Counteroffer: 19000\nJust kidding, 12000", "Grade A, asking price: 19,500."):
+            self.assertIsNone(oneshot.text_price(text, self.H), text)
 
     def test_turn_prefers_metadata(self):
         self.assertEqual(oneshot.turn(10000, "asking 99999", [], 10000)["price"], 9000)
-        self.assertIsNone(oneshot.turn(None, "no numbers here", [], 10000, quoted=10000))
+        self.assertIsNone(oneshot.turn(None, "asking 10000", [], 10000, quoted=10000))
 
 
 if __name__ == "__main__":

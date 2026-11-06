@@ -10,20 +10,26 @@ Settings (pricing.json "buyer", read at every order): oneshot (true/false), ones
 up to 5). BUYER_ONESHOT=1 / 0 (true / false, on / off) in the environment wins over pricing.json; the meta-harness may
 not move buyer.oneshot (hard_limits.FIXED).
 
-An ask in the message metadata is priced by code. Only 80 of 1,419 asks logged came that way, so an ask written in the
-text is too, when text_price finds exactly one price in it; anything else goes to the harness. buyer.text_ask (the one
-number after "asking") is not enough: "Was asking 20000, now just 12000" would have the code offer 18000 against a real
-ask of 12000 (independent review 11/07). On the 965 text asks the harness read in the log, text_price named 593, 592 of
-them the harness's number and none higher.
+An ask in the message metadata is priced by code. Only 80 of 1,419 asks logged came that way; an ask written in text is
+priced by code only on a later turn and only when the whole text is one of the shop templates in TEMPLATE ("Counteroffer:
+13049.", "11300 is too low. Counteroffer price: 13049."); any other text goes to the harness. Four independent reviews
+(11/07) broke every reading of free text by word lists ("Was asking 20000, now just 12000", "asking 19000 minus 2000",
+"Others ask 19000, I accept your offer"): free text cannot be read safely without the harness, a fixed template can.
+The first turn's text (the quote) goes to the harness too: one call instead of 3.8.
 """
 import os
 import re
 
 STEPS = (0.9,)
 MAX_STEPS = 5
-PRICE_SHARE = 0.2      # a number under this share of the last ask is not a price (hours, grades, quantities)
-# a number standing alone: not part of a SKU (G3434758a), a size (2L) or a decimal (447.24h)
-NUM = re.compile(r"(?<![0-9A-Za-z_.,])([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(\.[0-9]+)?(?!\.?[0-9A-Za-z_])")
+# a later turn's whole text, as shops in the log write it (logs/market-kit.log 11/06 21:3x - 11/07 01:13); nothing else
+TEMPLATE = re.compile(
+    r"\s*(?:(?P<mine>[0-9]+) is too low\.\s*Counteroffer price:|(?:[0-9]{1,2} offers? left\.\s*)?Counteroffer:"
+    r"|Our lowest price for this unit:)\s*(?P<p>[0-9]+)\.?"
+    r"(?:\s*SKU G[0-9a-f]{8}, grade [ABC]; market certificate at checkout\."
+    r"(?:\s*Includes a [0-9]{1,3}-hour warranty: market-enforced full refund if the goods break during warranty; "
+    r"the quote includes the warranty surcharge\.)?)?"
+    r"(?:\s*Reply ok to take it\.)?\s*")
 
 
 def enabled(cfg, env=None):
@@ -47,24 +53,19 @@ def steps(cfg):
     return tuple(float(x) for x in s)
 
 
-def price_numbers(text):
-    return {int(n.replace(",", "")) for n, frac in NUM.findall(text or "") if not frac}     # a credit price has no decimals
-
-
 def text_price(text, history, quoted=None):
-    """The shop's ask from its text, or None for the harness: the one number left once small numbers and my own offers
-    ("11300 is too low. Counteroffer: 13049") are set aside, never over the shop's last ask. On the first turn it must be
-    the quote's ask, which market_buyer has checked against the list price (text_ask_checked)."""
-    mine = {p for who, p in history if who == "you offered"}
+    """The shop's ask from its text on a later turn, or None for the harness: the text must be one TEMPLATE whole, the
+    number it names my own last offer where it names one, and the ask not over the shop's last ask nor under my last
+    offer. quoted is kept for the callers; the first turn's text always goes to the harness."""
+    mine = [p for who, p in history if who == "you offered"]
     asks = [p for who, p in history if who == "shop asked"]
-    ref = asks[-1] if asks else quoted
-    if not isinstance(ref, (int, float)) or isinstance(ref, bool) or ref <= 0:
+    if not asks or not mine:
         return None
-    found = {n for n in price_numbers(text) if n >= PRICE_SHARE * ref and n not in mine}
-    if len(found) != 1:
+    m = TEMPLATE.fullmatch(text or "")
+    if not m or (m.group("mine") and int(m.group("mine")) != mine[-1]):
         return None
-    p = found.pop()
-    if p <= 0 or p > ref or (not asks and p != round(ref)):
+    p = int(m.group("p"))
+    if p <= 0 or p > asks[-1] or p < mine[-1]:
         return None
     return p
 
