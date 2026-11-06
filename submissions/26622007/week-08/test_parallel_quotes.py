@@ -216,6 +216,12 @@ class MainOverlap(unittest.TestCase):
         self.assertLess(took, 1.5)                                    # but its answer is not waited for
         self.assertEqual(out["shop"], "https://a.example")
 
+    def test_prefetched_quotes_all_over_my_limit_do_not_wait_for_a_slow_agent(self):
+        shops = [dict(shop(n), offers=[{"sku": "H1", "name": "청소기", "qty": 1}]) for n in "abcdef"]
+        out, events, took, orders = self.run_main(shops, choose_s=3, quote_s=0.2, asks={"c": 9000})
+        self.assertLess(took, 1.5)                  # the next batch is asked at once, not after the agent's 3 s
+        self.assertIn("quote e", [w for w, _ in events])
+
     def test_no_ask_near_my_limit_ends_the_order_without_a_talk(self):
         shops = [dict(shop(n), offers=[{"sku": "H1", "name": "청소기", "qty": 1}]) for n in "abcdef"]
         out, events, took, orders = self.run_main(shops, asks={"c": 7500})       # limit 7000: 7% over
