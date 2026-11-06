@@ -388,7 +388,10 @@
     ],
     "refuse_one_star_at": 3,
     "refuse_exempt": [
-      "q00"
-    ]
+      "q00",
+      "shaun0927-labbuyer",
+      "gom31-certified-goods"
+    ],
+    "refuse_exempt_source": "W-20261106-2225-AX극단상향 (11/07 01:1x): refuse_one_star_at 3 refused shaun0927-labbuyer, who rated us 5 stars 272 times and 1 star 3 times (11/06 09:36 the last), on 157 ACP checkouts worth 180.5M (11/06-11/07 01:05, refused.jsonl, retries included), and gom31-certified-goods (38 of 41 at 4-5 stars) on 53 worth 3.2M. totato2203-r3 (mean 1.58) stays in refuse_buyers."
   }
 }

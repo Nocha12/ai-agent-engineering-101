@@ -424,6 +424,15 @@ class MetaGuardTest(unittest.TestCase):
                 mock.patch.object(meta_harness, "git", return_value=""):
             return meta_harness.limit_problems(list(code))
 
+    def test_shipped_exempts_buyers_who_rate_us_well(self):
+        # 11/07 01:1x: the 1-star rule refused shaun0927-labbuyer (272 five-star, 3 one-star) on 157 checkouts, 180.5M
+        with open(os.path.join(acp_gate.HERE, "pricing.json"), encoding="utf-8") as f:
+            seller = json.load(f)["seller"]
+        self.assertIn("shaun0927-labbuyer", seller["refuse_exempt"])
+        self.assertIn("gom31-certified-goods", seller["refuse_exempt"])
+        self.assertIn("q00", seller["refuse_exempt"])
+        self.assertEqual(seller["refuse_buyers"], ["totato2203-r3"])
+
     def test_seller_settings_and_the_gate_are_the_owners(self):
         head = {"seller": {"refuse_buyers": ["totato2203-r3"], "refuse_one_star_at": 3}}
         self.assertEqual([p for p in self.problems(head, head) if "owner" in p], [])
