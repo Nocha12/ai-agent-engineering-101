@@ -128,6 +128,20 @@ def listed(cfg):
     return out
 
 
+def urgent_listed(cfg, inv, catalog, waiting=()):
+    """listed(cfg) with the SKUs that have no live unit held or on its way first (food before goods), then the refills
+    (food before goods), each in list order.
+    A window serves ~14 lines (one about every 10 s): at 04:44 (11/07) the runs refilled SKUs that still held 2-12 units
+    while G75f11c19 (8.5 sold/h), G0667d440 and G19a70f63 sat at 0, held back in every window, with ~39M over the cash
+    buffer (main 01:30: sold-out food, then the new high-price SKUs, then the fast sellers)."""
+    now = time.time()
+    have = collections.Counter(u.get("sku") for u in inv.get("units") or [] if isinstance(u, dict) and not gone(u, now))
+    for w in waiting or ():
+        have[w.get("sku")] += w.get("qty") or 0
+    food = lambda s: (catalog.get(s) or {}).get("kind") == "food"
+    return sorted(listed(cfg), key=lambda s: (have[s] > 0, not food(s)))     # stable: list order within each group
+
+
 def fill_listed(ranked, model, catalog, have_sku, cfg, factors=None, hours_left=float("inf"), breaks=None):
     """restock.fill_listed: each listed SKU with a sku_target_units target is asked up to it, not to the demand model's
     rate x my_share x cover. The model's share is our own past share, so a shop that lost quotes on price asked for
@@ -174,7 +188,7 @@ def plan(inv, catalog, demand, cfg, model=None, breaks=None, waiting=()):
         # proven / priority SKUs first, so the guard gives them the stock-cost room and the line limit cannot cut them:
         # ranked per won a mattress came below the cut (04:59 run left out G1515d951 that the guard allowed 3 of, and
         # G75f11c19 got 0 room in every run 04:44-05:02), and proven_first() only sees the lines plan() returns
-        first = listed(cfg)
+        first = urgent_listed(cfg, inv, catalog, waiting)
         ranked.sort(key=lambda r: first.index(r[1]) if r[1] in first else len(first))     # stable: the rest keep their order
         fit = guard([{"sku": sku, "qty": qty} for _, sku, qty in ranked], inv, catalog, cfg, breaks, waiting)
         picks = [(0, b["sku"], b["qty"]) for b in fit[:cfg["max_lines"] - cfg["explore_lines"]]]
@@ -551,15 +565,16 @@ def agent_turn(state, inv, catalog, demand, cfg, model, decide=agent_loop.decide
     return now
 
 
-def proven_first(agent_lines, formula_lines, cfg):
+def proven_first(agent_lines, formula_lines, cfg, order=None):
     """The high_price_proven_skus, then priority_skus, that either the agent or the formula proposes go first, at the
     larger of their two quantities (guard still caps them). At 03:40 the agent's 'G1515d951 1' replaced the formula's 3
     and max_lines cut G9c02e68e; at 04:00 they came behind five food lines and the 180 s window closed before G1515d951
-    was bought (kit log 04:03)."""
-    order = []
-    for s in list(cfg.get("high_price_proven_skus") or ()) + list(cfg.get("priority_skus") or ()):
-        if isinstance(s, str) and s not in order:
-            order.append(s)
+    was bought (kit log 04:03). order: the listed SKUs in the order to send them (urgent_listed), else the lists' own."""
+    if order is None:
+        order = []
+        for s in list(cfg.get("high_price_proven_skus") or ()) + list(cfg.get("priority_skus") or ()):
+            if isinstance(s, str) and s not in order:
+                order.append(s)
     want = {}
     for b in list(agent_lines) + list(formula_lines):
         q = b.get("qty")
@@ -568,14 +583,14 @@ def proven_first(agent_lines, formula_lines, cfg):
     return [{"sku": s, "qty": want[s]} for s in order if s in want] + [b for b in agent_lines if b.get("sku") not in want]
 
 
-def batch(agent_lines, fill_lines, formula_lines, keep, cfg):
+def batch(agent_lines, fill_lines, formula_lines, keep, cfg, order=None):
     """This run's lines and the agent lines to queue again: proven / priority SKUs first (proven_first, from the
     formula's plan even while the agent's queue waits), then the agent's, then fill_lines (the formula's, once the
     queue is empty). Lines the guard drops are gone, as before; agent lines that only the cut at max_lines leaves out
     go back to the queue, so the proven lines never push an agent line out for good."""
     agent_skus = {b.get("sku") for b in agent_lines}
     first = set(cfg.get("high_price_proven_skus") or ()) | set(cfg.get("priority_skus") or ())
-    kept = with_formula(proven_first(agent_lines, formula_lines, cfg), fill_lines, keep, None)
+    kept = with_formula(proven_first(agent_lines, formula_lines, cfg, order), fill_lines, keep, None)
     n = cfg["max_lines"]
     return kept[:n], [b for b in kept[n:] if b["sku"] in agent_skus and b["sku"] not in first]
 
@@ -705,7 +720,8 @@ def main():
             queued = load(os.path.join(args.state, "restock_queue.json"), {}).get("lines") or []
             # the formula fills only once the agent's queue is sent, except the proven / priority SKUs it proposes:
             # those go first in either case (proven_first); agent lines they push past max_lines are queued again
-            send, back = batch(lines, [] if queued else out["buy"], out["buy"], keep, cfg)
+            send, back = batch(lines, [] if queued else out["buy"], out["buy"], keep, cfg,
+                               urgent_listed(cfg, inv, catalog, waiting))
             agent_skus = {x.get("sku") for x in lines}
             if hold and not trial:         # agent lines for the trial's SKUs wait in the queue until the trial ends
                 back += [x for x in send if x["sku"] in hold and x["sku"] in agent_skus]

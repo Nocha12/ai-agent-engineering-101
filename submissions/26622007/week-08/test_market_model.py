@@ -213,7 +213,7 @@ class PlanWithModelTest(unittest.TestCase):
         got = self.plan(m, max_lines=1, explore_lines=0, max_sku_share=0.3, priority_skus=["H2"])
         self.assertEqual([b["sku"] for b in got], ["H2"])                  # per won F1 ranks first, the list puts H2 first
         got = self.plan(m, max_lines=2, explore_lines=0, max_sku_share=0.3, high_price_proven_skus=["H2"], priority_skus=["F1"])
-        self.assertEqual([b["sku"] for b in got], ["H2", "F1"])
+        self.assertEqual([b["sku"] for b in got], ["F1", "H2"])      # listed food first (urgent_listed, main 11/07 01:30)
         got = self.plan(m, max_lines=2, explore_lines=0, max_sku_share=0.3, priority_skus=["NOPE", 3])
         self.assertEqual([b["sku"] for b in got], ["F1", "H2"])            # unknown / non-string entries change nothing
 
