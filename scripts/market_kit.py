@@ -85,6 +85,9 @@ SYNC_EVERY = 10                                     # seconds between refreshes 
 RESTOCK_EVERY = 60
 RESTOCK_LOW = 20                                    # the default restock buys when fewer units than this are left
 RECEIPT_KEYS = ("shop", "item", "price", "task")
+CHECKOUT_HOLD = int(os.environ.get("KIT_CHECKOUT_HOLD", "180"))   # seconds an unpaid checkout holds its unit, then a new deal
+                                                    # may take it and the old checkout is canceled (a seller that resells an
+                                                    # unpaid unit after 120 s got "not in stock" from the kit forever)
 LOG_FILE = None
 LOG_MAX = 20_000_000                                # bytes; then market-kit.log moves to market-kit.log.1
 LOG_LOCK = threading.Lock()
@@ -324,6 +327,8 @@ class AcpShop:
         self.key, self.market, self.md = key, market, md      # md: the .market folder whose inventory.json to refresh
         self.pub = pub_b64(key)
         self.sessions = collections.OrderedDict()
+        self.opened = {}                                 # session id -> when it was created (CHECKOUT_HOLD)
+        self.paying = set()                              # session ids whose payment is in flight
         self.terms = collections.OrderedDict()           # task -> the receipt the seller sent (Proxy.observe)
         self.gate = None        # optional: (order, session) -> message to refuse this payment with, or None (load_gate)
 
@@ -355,48 +360,60 @@ class AcpShop:
             return JSONResponse({"error": "no such checkout session"}, status_code=404)
         if len(parts) == 2:
             return JSONResponse(s)
-        if parts[2] == "cancel" and s["status"] != "completed":
+        if parts[2] == "cancel" and s["status"] != "completed" and s["id"] not in self.paying:
             s["status"] = "canceled"
             return JSONResponse(s)
-        if parts[2] == "complete" and s["status"] == "ready_for_payment":
-            pay = b.get("payment_data") or {}
-            if self.gate:
-                try:
-                    no = await asyncio.to_thread(self.gate, pay.get("order"), s)
-                except Exception as e:                  # a broken gate never blocks a sale
-                    log(f"[acp] gate failed: {type(e).__name__}: {e}")
-                    no = None
-                if no:
-                    s["status"] = "canceled"            # nothing goes to /api/settle; the unit is free again
-                    return JSONResponse({"error": no}, status_code=409)
-            r = await asyncio.to_thread(self.market.call, "POST", "/api/settle", "shop",
-                                        json={"order": pay.get("order"), "checkout_jwt": s["checkout_jwt"],
-                                              "checkout_mandate": pay.get("checkout_mandate"),
-                                              "payment_mandate": pay.get("payment_mandate")})
-            res = r.json() if r.headers.get("content-type", "").startswith("application/json") else {"error": r.text[:200]}
-            if r.status_code != 200:
-                log(f"[acp] settle refused: {[k for k, v in (res.get('checks') or {}).items() if not v] or res}")
-                return JSONResponse({"error": "payment refused by the market", "market": res}, status_code=402)
-            s["status"] = "completed"
-            s["order"] = {"status": "confirmed", "mandate_receipt": res["mandate_receipt"]}
-            if self.md:
-                await asyncio.to_thread(refresh_inventory, self.market, self.md)
-            mr = res["mandate_receipt"]
-            log(f"[acp] settled {mr.get('name') or s['line_items'][0]['id']} at {s['totals'][0]['amount']}, "
-                f"ledger #{res['ledger']}" + (f", unit {mr['unit']} grade {mr.get('grade')}" if mr.get("unit") else ""))
-            return JSONResponse(s)
-        return JSONResponse({"error": f"session is {s['status']}"}, status_code=409)
+        if parts[2] == "complete" and s["status"] == "ready_for_payment" and s["id"] not in self.paying:
+            self.paying.add(s["id"])                     # held while it is paid, however old (a new deal can't take it)
+            try:
+                return await self.complete(s, b)
+            finally:
+                self.paying.discard(s["id"])
+        return JSONResponse({"error": f"session is {s['status']}" + (" (being paid)" if s["id"] in self.paying else "")},
+                            status_code=409)
+
+    async def complete(self, s, b):
+        """Pay a ready session: the gate, then /api/settle (handle() marks it paying meanwhile)."""
+        pay = b.get("payment_data") or {}
+        if self.gate:
+            try:
+                no = await asyncio.to_thread(self.gate, pay.get("order"), s)
+            except Exception as e:                  # a broken gate never blocks a sale
+                log(f"[acp] gate failed: {type(e).__name__}: {e}")
+                no = None
+            if no:
+                s["status"] = "canceled"            # nothing goes to /api/settle; the unit is free again
+                return JSONResponse({"error": no}, status_code=409)
+        r = await asyncio.to_thread(self.market.call, "POST", "/api/settle", "shop",
+                                    json={"order": pay.get("order"), "checkout_jwt": s["checkout_jwt"],
+                                          "checkout_mandate": pay.get("checkout_mandate"),
+                                          "payment_mandate": pay.get("payment_mandate")})
+        res = r.json() if r.headers.get("content-type", "").startswith("application/json") else {"error": r.text[:200]}
+        if r.status_code != 200:
+            log(f"[acp] settle refused: {[k for k, v in (res.get('checks') or {}).items() if not v] or res}")
+            return JSONResponse({"error": "payment refused by the market", "market": res}, status_code=402)
+        s["status"] = "completed"
+        s["order"] = {"status": "confirmed", "mandate_receipt": res["mandate_receipt"]}
+        if self.md:
+            await asyncio.to_thread(refresh_inventory, self.market, self.md)
+        mr = res["mandate_receipt"]
+        log(f"[acp] settled {mr.get('name') or s['line_items'][0]['id']} at {s['totals'][0]['amount']}, "
+            f"ledger #{res['ledger']}" + (f", unit {mr['unit']} grade {mr.get('grade')}" if mr.get("unit") else ""))
+        return JSONResponse(s)
 
     def pick_unit(self, rec, acceptable):
         """Round 3: the unit to ship. The seller's choice ("unit") if it is in stock; else the in-stock unit of a
-        fitting SKU that expires first (oldest first for goods). Units held by an open checkout are skipped."""
+        fitting SKU that expires first (oldest first for goods). Units held by an open checkout younger than
+        CHECKOUT_HOLD are skipped."""
         r = self.market.call("GET", "/api/inventory", "shop")
         if r.status_code != 200:
             return None, f"inventory: {r.status_code}"
         inv = r.json()
         if inv.get("round", 0) < ECON_ROUND:
             return False, None                          # no stock before Round 3
-        held = {s["unit"] for s in self.sessions.values() if s.get("unit") and s["status"] == "ready_for_payment"}
+        now = time.time()
+        held = {s["unit"] for sid, s in self.sessions.items() if s.get("unit") and s["status"] == "ready_for_payment"
+                and (sid in self.paying or now - self.opened.get(sid, now) < CHECKOUT_HOLD)}
         units = [u for u in inv["units"] if u["unit"] not in held and u["grade"] != "expired"]
         want = rec.get("item")
         fits = lambda u: (u["sku"] in acceptable if acceptable else
@@ -427,6 +444,14 @@ class AcpShop:
         if problem:
             log(f"[acp] checkout refused: {problem}")
             return JSONResponse({"error": problem}, status_code=409)
+        if u and any(x.get("unit") == u["unit"] and x["id"] in self.paying for x in self.sessions.values()):
+            log(f"[acp] checkout refused: unit {u['unit']} is being paid")    # its payment began while pick_unit ran
+            return JSONResponse({"error": f"unit {u['unit']} is not in stock for this order"}, status_code=409)
+        if u:
+            for x in self.sessions.values():             # an expired checkout on this unit can no longer be paid
+                if x.get("unit") == u["unit"] and x["status"] == "ready_for_payment" and x["id"] not in self.paying:
+                    x["status"] = "canceled"
+                    log(f"[acp] checkout {x['id']} on unit {u['unit']} canceled: a new deal took the unit")
         sid = "cs_" + os.urandom(8).hex()
         co = {"id": sid, "shop": rec["shop"], "shop_url": public, "item": u["sku"] if u else rec["item"],
               "price": rec["price"], "task": rec["task"], "currency": "credits", "iat": int(time.time())}
@@ -445,8 +470,9 @@ class AcpShop:
             "capabilities": {"payment_methods": ["ap2-mandate"]},
             "fulfillment": {k: co[k] for k in ("unit", "cert", "claim", "warranty_hours") if k in co},
             "checkout_jwt": jwt_sign(self.key, co)}
+        self.opened[sid] = co["iat"]
         while len(self.sessions) > 500:
-            self.sessions.popitem(last=False)
+            self.opened.pop(self.sessions.popitem(last=False)[0], None)
         return JSONResponse(s, status_code=201)
 
 
