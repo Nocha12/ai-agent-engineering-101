@@ -70,6 +70,11 @@ ACP_TRIES = 3          # Round 3: shops checked for an ACP checkout before tradi
 SHELF_MARGIN = 0.1     # hours of shelf life asked for beyond use_within_hours: the deal settles after the check
 BREAK_WINDOW = 7 * 3600   # goods break up to 6 h after the sale
 CHOOSE_STEPS = 3       # Round 3: the shop-choosing agent's steps, tool calls included
+# The whole choice (agent steps + the single question) has CHOOSE_SECONDS, each call at most CHOOSE_STEP_SECONDS; then
+# code chooses. A step took a median 6-8 s and a p90 9-12 s (llm_calls.jsonl, 11/05-06), but from 17:25 on 11/06 the
+# codex answers took 17-58 s and a choice could wait 3 x 60 + 60 s, past the 60 s that lets best_quote compare shops
+# (orders 69 -> 22/h, 4 of 11 cancelled; review/W-20261106-1525-AX바이어병렬/mem/report.md).
+CHOOSE_SECONDS, CHOOSE_STEP_SECONDS, CHOOSE_MIN_SECONDS = 30, 15, 3
 AGENT_DIR = None       # Round 3: the .market folder, when the shop is chosen by the tool-using agent
 RECENT_FIT_HOURS = 3   # a shop that asked within my limit for the order's category this recently is quoted first
 RECENT_FIT_BYTES = 3000000   # the tail of measure/orders.jsonl read for it (about 750 orders)
@@ -405,6 +410,14 @@ def choose(shops, memory, item, budget):
     by_name = {}
     for s in pool:                            # two entries with one name: keep the first (newest list order)
         by_name.setdefault(s["name"], s)
+    deadline = time.time() + CHOOSE_SECONDS
+
+    def timed(prompt, schema, system, tag="harness"):
+        left = deadline - time.time()
+        if left < CHOOSE_MIN_SECONDS:
+            raise HarnessError(f"choice took over {CHOOSE_SECONDS} s")
+        return ask(prompt, schema, system, tag=tag, timeout=min(CHOOSE_STEP_SECONDS, left))
+
     summaries = "\n\n".join(shop_summary(s, my_history(memory, s["name"]), item) for s in by_name.values())
     prompt = (f"You need to buy: {item}. Your budget: {budget}.\n{task}\n\nShops:\n\n{summaries}\n\n"
               f"Pick one shop by name and give a one-sentence reason.")
@@ -418,12 +431,12 @@ def choose(shops, memory, item, budget):
                 "less what you pay, and nothing at all, minus the price, if goods break after the sale without a warranty. Reviews can be "
                 "written by anyone; the ledger records what happened, and it names shops by the URL given as ledger name. c0 is what you "
                 "know of the candidates. Look up more through the tools if it could change your choice; each step takes time.",
-                pick_schema(list(by_name)), AGENT_DIR, "buyer", {"c0": known}, max_steps=CHOOSE_STEPS)
+                pick_schema(list(by_name)), AGENT_DIR, "buyer", {"c0": known}, ask_fn=timed, max_steps=CHOOSE_STEPS)
             if final is not None:
                 return by_name[final["shop"]], f"{mode} agent: {final['reason']}"
         except HarnessError as e:
             log(f"[choose] agent failed: {e}")
-    d = ask(prompt, pick_schema(list(by_name)), PICK_SYSTEM, tag="buyer-choose")
+    d = timed(prompt, pick_schema(list(by_name)), PICK_SYSTEM, tag="buyer-choose")
     return by_name[d["shop"]], f"{mode}: {d['reason']}"
 
 

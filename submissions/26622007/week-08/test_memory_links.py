@@ -166,7 +166,7 @@ class ChooseAgentTest(unittest.TestCase):
     def test_the_agent_chooses_with_the_candidates_as_citable_evidence(self):
         seen = {}
 
-        def decide(goal, schema, md, agent, given, max_steps):
+        def decide(goal, schema, md, agent, given, max_steps, ask_fn=None):
             seen.update(given=given, steps=max_steps, enum=schema["properties"]["shop"]["enum"])
             return {"shop": "b", "reason": "ledger says so"}
         shop, why = self.run_choose(decide)
@@ -182,6 +182,27 @@ class ChooseAgentTest(unittest.TestCase):
         def boom(*a, **k):
             raise mb.HarnessError("429")
         self.assertEqual(self.run_choose(boom)[0]["name"], "a")
+
+    def test_each_call_has_the_choice_deadline_and_none_starts_past_it(self):
+        limits = []
+
+        def ask(*a, timeout=None, **k):
+            limits.append(timeout)
+            return {"shop": "a", "reason": "fallback"}
+
+        def decide(goal, schema, md, agent, given, max_steps, ask_fn=None):
+            ask_fn("p", schema, "s", tag="buyer-agent")
+            return None
+        with mock.patch.object(mb, "AGENT_DIR", "x"), mock.patch.object(mb.agent_loop, "decide", decide), \
+                mock.patch.object(mb.market_model, "load_rows", lambda d: []), mock.patch.object(mb, "log"), \
+                mock.patch.object(mb, "ask", ask):
+            mb.choose(self.SHOPS, {"trades": []}, "김치", 9000)
+            self.assertEqual(len(limits), 2)       # the agent's step and the single question
+            self.assertTrue(all(0 < t <= mb.CHOOSE_STEP_SECONDS for t in limits))
+            # 17:25-18:10 on 11/06 codex took 17-58 s: once the choice's time is gone, code chooses (main()'s except)
+            with mock.patch.object(mb, "CHOOSE_SECONDS", 1), self.assertRaises(mb.HarnessError):
+                mb.choose(self.SHOPS, {"trades": []}, "김치", 9000)
+            self.assertEqual(len(limits), 2)
 
     def test_round_2_never_uses_it(self):
         self.assertEqual(self.run_choose(lambda *a, **k: self.fail("agent in round 2"), md=None)[1].split(": ")[1], "fallback")

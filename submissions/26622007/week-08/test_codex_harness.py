@@ -196,6 +196,14 @@ class CodexHarnessTest(unittest.TestCase):
         self.plan({"events": [{"type": "error", "message": "Reconnecting... 1/5"}], "answer": '{"a": 4}'})
         self.assertEqual(harness.ask("p", SCHEMA, "s"), {"a": 4})
 
+    def test_a_caller_limit_replaces_codex_timeout(self):
+        self.plan({"sleep": 5, "answer": '{"a": 1}'}, {"answer": '{"a": 1}'})
+        started = time.time()
+        with self.assertRaises(harness.HarnessError) as e:
+            harness.ask("p", SCHEMA, "s", tag="buyer-choose", timeout=1)
+        self.assertIn("timeout after 1s", str(e.exception))
+        self.assertLess(time.time() - started, 4)
+
     def test_a_timeout_fails_once_without_a_second_wait(self):
         self.plan({"sleep": 5, "answer": '{"a": 1}'}, {"answer": '{"a": 1}'})
         with mock.patch.object(harness, "CODEX_TIMEOUT", 1), self.assertRaises(harness.HarnessError) as e:

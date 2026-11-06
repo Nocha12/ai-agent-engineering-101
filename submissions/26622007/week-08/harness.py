@@ -108,10 +108,11 @@ def validate(answer, schema):
     return answer
 
 
-def ask(prompt, schema, system, tag="harness"):
-    """One decision. Returns the validated structured output as a dict."""
+def ask(prompt, schema, system, tag="harness", timeout=None):
+    """One decision. Returns the validated structured output as a dict. timeout (codex only): this call's limit in
+    seconds instead of CODEX_TIMEOUT, for a caller with a deadline of its own (the buyer's shop choice)."""
     if BACKEND == "codex":
-        return _ask_codex(prompt, schema, system, tag)
+        return _ask_codex(prompt, schema, system, tag, timeout)
     if BACKEND == "openrouter":
         return _ask_openrouter(prompt, schema, system, tag)
     if BACKEND != "claude":
@@ -289,8 +290,8 @@ class _Slot:
     """One of CODEX_CONCURRENCY lock files in MARKET_DIR, shared by every process of the kit; the lock goes with the
     process, so a killed call frees its slot. Without MARKET_DIR (a test, a demo) there is no limit."""
 
-    def __init__(self, tag):
-        self.tag, self.fd = tag, None
+    def __init__(self, tag, wait=None):
+        self.tag, self.fd, self.wait = tag, None, CODEX_QUEUE_WAIT if wait is None else wait
 
     def __enter__(self):
         md = os.environ.get("MARKET_DIR")
@@ -298,7 +299,7 @@ class _Slot:
             return self
         d = os.path.join(md, "codex-slots")
         os.makedirs(d, exist_ok=True)
-        deadline = time.time() + CODEX_QUEUE_WAIT
+        deadline = time.time() + self.wait
         while True:
             for i in range(CODEX_CONCURRENCY):
                 fd = os.open(os.path.join(d, f"{i}.lock"), os.O_RDWR | os.O_CREAT, 0o644)
@@ -310,7 +311,7 @@ class _Slot:
                     os.close(fd)
             if time.time() >= deadline:
                 _codex_measure("llm_codex_fail", self.tag, "busy", 0)
-                raise HarnessError(f"codex busy: {CODEX_CONCURRENCY} calls running for {CODEX_QUEUE_WAIT:.0f} s")
+                raise HarnessError(f"codex busy: {CODEX_CONCURRENCY} calls running for {self.wait:.0f} s")
             time.sleep(0.2)
 
     def __exit__(self, *exc):
@@ -357,13 +358,13 @@ def _codex_events(stdout):
     return text, usage, [e for e in errors if e], failed, actions
 
 
-def _run_group(cmd, prompt, cwd, env):
+def _run_group(cmd, prompt, cwd, env, timeout=None):
     """subprocess.run in its own process group: on a timeout the whole group goes, since the npm `codex` is node
     starting the native binary as a child, which killing node alone would leave running."""
     with subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                           encoding="utf-8", errors="replace", cwd=cwd, env=env, start_new_session=True) as p:
         try:
-            out, err = p.communicate(prompt, timeout=CODEX_TIMEOUT)
+            out, err = p.communicate(prompt, timeout=timeout or CODEX_TIMEOUT)
         except subprocess.TimeoutExpired:
             try:
                 os.killpg(p.pid, signal.SIGKILL)
@@ -374,11 +375,11 @@ def _run_group(cmd, prompt, cwd, env):
         return subprocess.CompletedProcess(cmd, p.returncode, out, err)
 
 
-def _ask_codex(prompt, schema, system, tag):
+def _ask_codex(prompt, schema, system, tag, timeout=None):
     """Any error, a full disk or an unreadable slot folder included, reaches the caller as HarnessError: the callers catch
     only that one to fall back to their rules."""
     try:
-        return _codex_once(prompt, schema, system, tag)
+        return _codex_once(prompt, schema, system, tag, timeout)
     except HarnessError:
         raise
     except Exception as e:   # noqa: BLE001 - see above
@@ -386,14 +387,15 @@ def _ask_codex(prompt, schema, system, tag):
         raise HarnessError(f"codex call failed: {type(e).__name__}: {e}") from e
 
 
-def _codex_once(prompt, schema, system, tag):
+def _codex_once(prompt, schema, system, tag, timeout=None):
     codex = find_codex()
+    limit = timeout or CODEX_TIMEOUT
     env = {k: os.environ[k] for k in CODEX_ENV if k in os.environ}
     last = None
     first = time.time()
-    with _Slot(tag):
+    with _Slot(tag, min(CODEX_QUEUE_WAIT, limit) if timeout else None):
         for attempt in range(1, RETRIES + 1):
-            if attempt > 1 and time.time() - first > CODEX_TIMEOUT / 2:
+            if attempt > 1 and time.time() - first > limit / 2:
                 break           # a slow failure is not tried again: the counterpart is waiting
             started = time.time()
             with tempfile.TemporaryDirectory(prefix="harness-codex-") as empty:
@@ -402,9 +404,9 @@ def _codex_once(prompt, schema, system, tag):
                 with open(schema_file, "w", encoding="utf-8") as f:
                     json.dump(schema, f)
                 try:
-                    proc = _run_group(codex_cmd(codex, schema_file, out_file, work, system), prompt, work, env)
+                    proc = _run_group(codex_cmd(codex, schema_file, out_file, work, system), prompt, work, env, limit)
                 except subprocess.TimeoutExpired:
-                    last = f"timeout after {CODEX_TIMEOUT}s"
+                    last = f"timeout after {limit}s"
                     log(tag, f"attempt {attempt}: {last}")
                     record_call(tag, prompt, system, time.time() - started, False)
                     _codex_measure("llm_codex_fail", tag, "timeout", time.time() - started)
