@@ -100,6 +100,13 @@ def numbers(text):
     return {round(float(n)) for n in re.findall(r"\d+(?:\.\d+)?", re.sub(r"(?<=\d),(?=\d)", "", text))}
 
 
+def standing_ask(read, history, text):
+    """read is the shop's last ask in this talk and the message names my last offer: the shop holds its price."""
+    asks = [p for who, p in history if who == "shop asked"]
+    offers = [p for who, p in history if who == "you offered"]
+    return bool(asks and offers) and read == asks[-1] and numbers(text or "") == {round(offers[-1])}
+
+
 def receipt(t):
     for a in (t or {}).get("artifacts", []):
         for p in a.get("parts", []):
@@ -207,6 +214,14 @@ def talk(url, t, item, budget, note, out, stop_if=None, take_at=None, reply_to=N
                 log(f"GUARD harness read the price as {read}, metadata says {meta} -> {meta}")
         elif read in numbers(text):
             ask_price = read
+        elif standing_ask(read, history, text):
+            # the shop keeps the ask it stated before and names only my offer ("grade C refurbished at your price"): that ask
+            # was in its own words a turn ago, so it is no made-up price (7 walk-aways 11/06 22:23 - 11/07 01:30)
+            ask_price = read
+            # my offer again would read as yes to the swap: only the standing ask itself is sent, or the talk ends
+            d = {**d, "action": "offer", "price": read} if read <= budget else {**d, "action": "walk_away"}
+            log(f"GUARD harness read the price as {read}: not in this message, which names only my offer, but the shop's "
+                f"last ask -> {d['action']} {read if d['action'] == 'offer' else ''}")
         else:
             answer = reply_to(text) if reply_to else None
             if answer and answer not in answered:     # once each: a shop that asks again gets the walk-away

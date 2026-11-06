@@ -53,5 +53,55 @@ class ReplyTest(unittest.TestCase):
         self.assertIsNone(market_buyer.shop_question_reply(QUESTION, {"kind": "food", "use_within_hours": None}))
 
 
+SWAP = ("We can't go lower on the grade A unit, but thank you for the offer. We have the same set in grade C refurbished, "
+        "with a three-day warranty: if it breaks within that time, we refund the full price from our balance. Reply yes if "
+        "you want it for 1700000")
+
+
+class StandingAskTest(unittest.TestCase):
+    """A shop that keeps its grade A ask and offers grade C at my price writes only my number (11/07 00:00:13: harness read
+    1750949, its ask a turn before, limit 1800234; the guard walked away, 7 talks 11/06 22:23 - 11/07 01:30)."""
+
+    def run_talk(self, second_read, replies):
+        sent, reads = [], [{"shop_price": 1750949, "action": "offer", "price": 1700000}, second_read]
+
+        def send(url, text, task_id=None):
+            sent.append(text)
+            return replies.pop(0)
+        decide = lambda *a, **k: reads.pop(0)
+        out = {"state": "", "task": None, "receipt": None, "history": [], "agreed": None, "holds": 0}
+        with mock.patch.object(buyer, "send", send), mock.patch.object(buyer, "decide", decide), \
+                mock.patch.object(buyer, "log"), mock.patch.object(buyer, "rpc", lambda *a: None):
+            buyer.talk("u", task("Grade A, asking 1750949."), "침대", 1800234, "", out)
+        return sent, out
+
+    def test_the_ask_it_stated_before_stands_and_the_talk_goes_on(self):
+        done = {"id": "t1", "status": {"state": "TASK_STATE_COMPLETED"},
+                "artifacts": [{"parts": [{"data": {"price": 1750949}}]}]}
+        sent, out = self.run_talk({"shop_price": 1750949, "action": "offer", "price": 1750949}, [task(SWAP), done])
+        self.assertEqual(sent, ["1700000", "1750949"])
+        self.assertEqual(out["state"], "TASK_STATE_COMPLETED")
+
+    def test_my_offer_again_is_never_sent_as_a_yes_to_the_swap(self):
+        done = {"id": "t1", "status": {"state": "TASK_STATE_COMPLETED"},
+                "artifacts": [{"parts": [{"data": {"price": 1750949}}]}]}
+        sent, _ = self.run_talk({"shop_price": 1750949, "action": "offer", "price": 1700000}, [task(SWAP), done])
+        self.assertEqual(sent, ["1700000", "1750949"])
+
+    def test_a_new_number_beside_my_offer_still_walks_away(self):
+        sent, _ = self.run_talk({"shop_price": 1750949, "action": "offer", "price": 1750949},
+                                [task(SWAP + ", or grade A for 1720000.")])
+        self.assertEqual(sent, ["1700000"])
+
+    def test_a_price_the_shop_never_said_still_walks_away(self):
+        sent, out = self.run_talk({"shop_price": 1740000, "action": "offer", "price": 1740000}, [task(SWAP)])
+        self.assertEqual(sent, ["1700000"])
+
+    def test_an_old_ask_without_my_offer_in_the_message_still_walks_away(self):
+        sent, out = self.run_talk({"shop_price": 1750949, "action": "offer", "price": 1750949},
+                                  [task("How many days must it last? Reply e.g. 'use within 72h'.")])
+        self.assertEqual(sent, ["1700000"])
+
+
 if __name__ == "__main__":
     unittest.main()
