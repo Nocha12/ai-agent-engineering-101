@@ -827,8 +827,8 @@ def choose_racing(pick, memory, item, budget, pre):
     picked the shop in 74% of orders; the run's exit ends the abandoned thread (daemon)."""
     if not (pre and pre.get("enough")):
         return choose(pick, memory, item, budget)
-    if hurried(pre):          # already clear: no agent call at all (its first step is never cut short)
-        raise HarnessError("the quotes are in: the agent's choice is not waited for")
+    if decided(pre):          # already clear: no agent call at all (its first step is never cut short)
+        raise HarnessError(decided_why(pre))
     box = {}
 
     def run():
@@ -839,12 +839,41 @@ def choose_racing(pick, memory, item, budget, pre):
     th = threading.Thread(target=run, daemon=True)
     th.start()
     while th.is_alive():
-        if hurried(pre):
-            raise HarnessError("the quotes are in: the agent's choice is not waited for")
+        if decided(pre):
+            raise HarnessError(decided_why(pre))
         th.join(0.05)
     if "e" in box:
         raise box["e"]
     return box["r"]
+
+
+def decided(pre):
+    """The prefetched quotes leave the agent's choice nothing to add: enough asks with one I can pay (hurried), or most of
+    them in with none I can pay, when the next batch should be asked now rather than after the agent (11/07 04:15: the
+    choice took a median 7.8 s, 1.4 agent calls of 3.65 s, and in 2 of 3 orders no prefetched ask was within my limit)."""
+    try:
+        return hurried(pre) or bool(pre and pre.get("settled") and pre["settled"]())
+    except Exception:  # noqa: BLE001 - a check never ends the run
+        return False
+
+
+def decided_why(pre):
+    return ("the quotes are in: the agent's choice is not waited for" if hurried(pre) else
+            "the quotes are in, none within my limit: the next batch is asked without the agent's choice")
+
+
+def quotes_settled(shops, threads, got, budget, cfg):
+    """QUOTE_NEXT_SHARE of the prefetched shops answered and none within my limit."""
+    done = sum(not th.is_alive() for th in threads.values())
+    if not shops or done < QUOTE_NEXT_SHARE * len(threads):
+        return False
+    for s in shops:
+        q, o = got.get(s["name"]) or {}, s.get("_offer")
+        if o and not q.get("refused") and isinstance(q.get("ask"), (int, float)) and not isinstance(q.get("ask"), bool):
+            b = s.get("_b") or 0
+            if q["ask"] <= min(value_limit(o, budget, b, cfg), saved_cap(o, b)):
+                return False
+    return True
 
 
 def quotes_enough(shops, got, budget, cfg):
@@ -1275,6 +1304,7 @@ def main():
             pre = {"got": {}, "ctl": quote_ctl()}
             pre["threads"] = start_quotes(early, order, args.budget, chance_of, pre["got"], pre["ctl"])
             pre["enough"] = lambda: quotes_enough(early, pre["got"], args.budget, buyer_cfg())
+            pre["settled"] = lambda: quotes_settled(early, pre["threads"], pre["got"], args.budget, buyer_cfg())
             log(f"[quote] asking {', '.join(s['name'] for s in early)} while choosing")
     if gave_up:       # no talk follows, so the harness is not asked to choose either (it took a median 13.4 s)
         shop = max(quotable or left, key=lambda s: len(s.get("reviews") or []))
