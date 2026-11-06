@@ -118,7 +118,7 @@ class MainOverlap(unittest.TestCase):
     CATALOG = {"H1": {"list_price": 10000, "kind": "goods"}}
     ORDER = {"order": "o-1", "item": "청소기", "budget": 20000, "acceptable": ["H1"], "kind": "goods", "category": "가전>청소기"}
 
-    def run_main(self, shops, hopeless=False, choose_s=0.5, quote_s=0.5, choose_fails=False, asks=None, slower=None):
+    def run_main(self, shops, hopeless=False, choose_s=0.5, quote_s=0.5, choose_fails=False, asks=None, slower=None, deal=None):
         printed, events, cancelled = [], [], []
         self.cancelled = cancelled
         lock = threading.Lock()
@@ -149,6 +149,9 @@ class MainOverlap(unittest.TestCase):
 
         def neg(*a, **k):
             note("talk")
+            if deal is not None:
+                return {"state": "TASK_STATE_COMPLETED", "task": None, "history": [("shop asked", deal), ("you offered", deal)],
+                        "agreed": deal, "holds": 0, "receipt": {"item": "H1", "price": float(deal), "sig_seller": "s", "warranty_hours": 72}}
             return {"state": "TASK_STATE_REJECTED", "task": None, "receipt": None, "history": [], "agreed": None, "holds": 0}
         with tempfile.TemporaryDirectory() as d:
             sp, op = os.path.join(d, "shops.json"), os.path.join(d, "order.json")
@@ -242,6 +245,16 @@ class MainOverlap(unittest.TestCase):
         shops = [dict(shop(n), offers=[{"sku": "H1", "name": "청소기", "qty": 1}]) for n in "abcdef"]
         out, events, took, orders = self.run_main(shops, asks={"c": 7500})
         self.assertIn("talk", [w for w, _ in events])
+
+    def test_a_receipt_over_my_limit_is_not_paid_on_the_racing_path(self):
+        # Pro 11/07 03:32: 3 receipts paid 0.9-5% over the limit on 11/06 13:xx; the check before payment holds on today's path
+        shops = [dict(shop(n), offers=[{"sku": "H1", "name": "청소기", "qty": 1}]) for n in "abcdef"]
+        out, events, took, orders = self.run_main(shops, choose_s=3, quote_s=0.2, asks={"a": 6500, "b": 6800}, deal=7300)
+        self.assertIn("talk", [w for w, _ in events])
+        self.assertIsNone(out["receipt"])                      # limit 7000: the kit is not handed it
+        self.assertFalse(orders[-1]["passed_to_kit"])
+        out, events, took, orders = self.run_main(shops, choose_s=3, quote_s=0.2, asks={"a": 6500, "b": 6800}, deal=6900)
+        self.assertIsNotNone(out["receipt"])                   # within it: paid
 
     def test_a_hopeless_order_asks_no_shop_and_skips_the_choice(self):
         shops = [dict(shop(n), offers=[{"sku": "H1", "name": "청소기", "qty": 1}]) for n in "abc"]
