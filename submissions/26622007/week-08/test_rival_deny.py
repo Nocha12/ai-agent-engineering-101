@@ -94,5 +94,18 @@ class Ranked(unittest.TestCase):
         self.assertEqual([x["name"] for x in pool][-2:], ["a", "b"])
 
 
+
+class OffTest(unittest.TestCase):
+    """Off since 11/07 00:30: with best_quote stopping at QUOTE_ENOUGH asks, the rivals asked last were often never asked.
+    In 26 orders cancelled with no quote within my limit (11/06 23:00-00:25), a mean 3.3 rival candidates went unasked, and
+    rival quotes fitted as often as the others (19 of 214 against 37 of 453)."""
+
+    def test_main_does_not_use_the_rivals(self):
+        import inspect
+        import market_buyer
+        self.assertFalse(market_buyer.RIVAL_DENY)
+        self.assertIn("RIVAL_DENY", inspect.getsource(market_buyer.main))
+
+
 if __name__ == "__main__":
     unittest.main()

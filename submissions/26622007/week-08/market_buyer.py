@@ -51,6 +51,11 @@ import harness
 import market_model
 import measure as records    # measure.py; measure() below is the memory timing
 import rival_deny
+
+# Revenue rivals of my shop asked last (rival_deny): off from 11/07 00:30. With best_quote stopping at QUOTE_ENOUGH asks they
+# were often never asked; in 26 orders cancelled with no quote within my limit (11/06 23:00-00:25) a mean 3.3 rival candidates
+# went unasked, and their quotes fitted as often as the others' (19 of 214, 37 of 453). Saved is half of buyer ALL.
+RIVAL_DENY = False
 from buyer import log, negotiate
 from buyer import HEADERS as BUYER_HEADERS, message_text as buyer_message_text, metadata_ask as buyer_metadata_ask
 from buyer import text_ask as buyer_text_ask
@@ -1207,7 +1212,7 @@ def main():
         log(f"[choose] skip for goods {brief}: their recent receipts to me had too short a warranty to pay for")
     quotes, gave_up, pre, quotable = {}, False, None, []
     try:
-        rival = rival_deny.rivals(md) if r3 else set()
+        rival = rival_deny.rivals(md) if r3 and RIVAL_DENY else set()
     except Exception as e:  # noqa: BLE001 - an odd board snapshot must not end the run before the result line
         log(f"[choose] rival check failed: {type(e).__name__}: {e}")
         rival = set()
