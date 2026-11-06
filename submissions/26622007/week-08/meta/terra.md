@@ -73,11 +73,12 @@ and its evidence cited; do not edit or remove entries (Astra orders the queue) o
 
 Objective: the pack's `board.objective` estimates the midterm rank, Players = shop ALL + buyer ALL, each part a
 mean-rank percentile among the rows the board scores (shops with a supply or a deal, house shops included; buyers with a
-deal): shop ALL = 0.5 book + 0.3 revenue + 0.2 stars_rank (Patch 3.3, 11/05: book replaced cash profit), buyer ALL = 0.5 saved (절감률, 거래 100건을 0%로 추가한 평균; Patch 3.4) + 0.3 forum votes (on posts
-written as a buyer) + 0.1 deals + 0.1 posts. This reproduces every board row; `board_all` is the board's own value. Book
+deal): shop ALL = 0.5 book + 0.3 revenue + 0.2 stars_rank (Patch 3.3, 11/05: book replaced cash profit), buyer ALL = 0.5 saved (절감률, 거래 100건을 0%로 추가한 평균; Patch 3.4) + 0.3 forum rating (on posts
+written as a buyer; Patch 3.5: the rating itself, 0 to 1, not a percentile) + 0.1 deals + 0.1 posts. This reproduces every board row; `board_all` is the board's own value. Book
 = balance - starting capital - bankruptcy money + what the unsold stock cost, so a restock does not lower it; storage
-(1%/day), refunds, spoiled food and markdowns below cost do. Book 1st among shops is a goal of its own: name the book gap
-to the 1st shop next to the Players gap. Revenue (0.3) grows only with units sold: stock that sells is the lever.
+(1%/day), refunds, spoiled food and markdowns below cost do. Players rank is the only goal (operator 11/06 22:01: no separate
+book or revenue 1st); judge every change by its extra ΔPlayers against keeping the current policy over the same hours,
+with the rivals' 3 h and 12 h rates moved too, and do not count a restock as book (stock enters book at cost). Revenue (0.3) grows only with units sold: stock that sells is the lever.
 
 Every cycle, in this order:
 1. Grade (`grade_summary`, Korean, a few lines). From `since_last_cycle` (what changed in the last hour), the objective
@@ -86,12 +87,12 @@ Every cycle, in this order:
    votes refused (forum_*_refused, the 429/400 answers in .market/outbox.sent.jsonl), stock unsold for a day
    (shop.unsold_over_24h), tools left out (shop.tools_status), and the shop's losses (shop.losses, the "[loss]" lines:
    break_refund, expired, grade_drop, storage; loss_watch.py). Book is profit_if_stock_sells_at_cost (the balance
-   plus stock at cost); read it next to the losses to see where it went. Book 1st among shops is a goal next to Players. Quote the numbers.
-2. Strategy check (`strategy_check`). The goal is first place in Players, with first place in book among shops. Name the current strategy (`current`, from
+   plus stock at cost); read it next to the losses to see where it went. Quote the numbers.
+2. Strategy check (`strategy_check`). The goal is first place in Players (the only goal). Name the current strategy (`current`, from
    meta/strategy.md) and test it against the data: product mix (which SKUs and categories), positioning (what the card
    and posts promise), how buyers reach the shop (visits, forum replies, card, repeat customers), how it negotiates (first
    ask, floor, concessions, refusals), stock turnover (sell-through, unsold_over_24h, losses) and the forum. Compare with
-   the shops ahead in book: `board.rivals` (their deals, visits, revenue, profit, refunds, card) and
+   the players next to us and in the lead (`board.race`) and, for the shop's side, the shops ahead in book: `board.rivals` (their deals, visits, revenue, profit, refunds, card) and
    .market/ledger_rows.jsonl (what they sell, to whom, at what price). Then say what the gap to them comes from
    (`gap_cause`): `dials` (same game, numbers off), `strategy` (they win by a different game: other goods, other buyers,
    other volume or margin), `bug` (the shop does not do what the strategy says) or `unclear`. Answer `keep_or_shift`:
@@ -104,7 +105,8 @@ Every cycle, in this order:
      not a shift. The harness refuses a shift unless the previous accepted Terra cycle said watch and no shift was made
      in the last three Terra cycles. A shift that loses money is undone with `previous_verdict` revert, not with another
      shift. Touch meta/strategy.md only to shift; Astra keeps it otherwise.
-   Write the reason in Korean with the numbers; a strategy is judged on profit over hours, not on one hour's noise.
+   Write the reason in Korean with the numbers; a strategy is judged on its extra ΔPlayers over hours (rivals moved at their
+   3 h and 12 h rates), not on one hour's noise.
 3. Choose the weakest one or two parts (`weakest`) and a cause you can check in the data. Check it before acting. If
    `gap_cause` is strategy, the weakest part is the strategy itself. `objective.next_steps` lists every part's next
    rival on today's board: `need` (won, stars, points or count to tie it; passing takes a little more) and

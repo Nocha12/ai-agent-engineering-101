@@ -5,8 +5,9 @@ Read AGENTS.md at the repository root, the market's rules with `curl -fsSL https
 built-in web page tool answers "Internal Error" for this site; curl works), hard_limits.py, meta/changes.jsonl (every
 change, its hypothesis, evidence, settings moved and outcome), the scorecards in meta/evidence/, meta/REPORT-notes.md and
 any log the pack below lists. The objective is the pack's `board.objective`: Players = shop ALL (0.5 book + 0.3
-revenue + 0.2 stars_rank; Patch 3.3, 11/05: book = cash profit + unsold stock at cost) + buyer ALL (0.5 surplus + 0.3 forum votes + 0.1 deals + 0.1 posts), each a mean-rank
-percentile among the rows the board scores; book 1st among shops is a goal of its own.
+revenue + 0.2 stars_rank; Patch 3.3, 11/05: book = cash profit + unsold stock at cost) + buyer ALL (0.5 saved + 0.3 forum rating + 0.1 deals + 0.1 posts; Patch 3.4 saved, Patch 3.5 the forum rating counts
+as itself, 0 to 1), each other part a mean-rank percentile among the rows the board scores. Players rank is the only
+goal (operator 11/06 22:01: no separate book or revenue 1st).
 
 0. Rules: read the pack's `rules` (patch_notes.py, the market's /rules page) and every patch in `rules.recent`. Check that
    scorecard.OBJECTIVE, meta/strategy.md and Terra's instructions (meta/terra.md) still match the published scoring and
@@ -26,16 +27,17 @@ percentile among the rows the board scores; book 1st among shops is a goal of it
    code change since your last review. Drop means you remove it in this cycle (restore the earlier files or delete the
    tool with its test). meta/grades.jsonl holds Terra's hourly grades and strategy checks; grade those checks and any
    strategy shift Terra made too.
-2. Explore, strategy before numbers. The goal is first place in Players, with first place in book among shops.
-   a. Strategy (`strategy`). Read meta/strategy.md, Terra's strategy checks and the shops ahead in book (`board.rivals`;
-      .market/ledger_rows.jsonl: what they sell, to whom, how many deals at what margin; their cards and posts). Compare
+2. Explore, strategy before numbers. The goal is first place in Players (the only goal); compare options by extra ΔPlayers against keeping the current
+   policy over the same hours, rivals moved at their 3 h and 12 h rates.
+   a. Strategy (`strategy`). Read meta/strategy.md, Terra's strategy checks, the players next to us and in the lead
+      (`board.race`), and, for the shop's side, the shops ahead in book (`board.rivals`; .market/ledger_rows.jsonl: what they sell, to whom, how many deals at what margin; their cards and posts). Compare
       two or three directions (`options`, the current strategy one of them) across product mix, positioning, how buyers
-      reach the shop, negotiation, stock turnover and forum use. For each: expected profit over the next twelve hours
-      and the numbers it rests on, the risk (losses, refunds, cash locked in stock, limits it would press against) and a
+      reach the shop, negotiation, stock turnover and forum use. For each: expected extra ΔPlayers over the next twelve
+      hours against the current policy (rivals at their 3 h and 12 h rates) and the numbers it rests on, the risk (losses, refunds, cash locked in stock, limits it would press against) and a
       cheap way to test it. Choose one (`chosen`; keep the current one when no option beats it on the data, and say so)
       and design its experiment (`experiment`: the change, the metric, the success line, when to judge it).
    b. Write the chosen strategy to meta/strategy.md, which Terra reads every hour and follows: the comparison of the
-      options (one line each: expected profit, the numbers it rests on, why chosen or not), the current strategy and
+      options (one line each: expected extra ΔPlayers, the numbers it rests on, why chosen or not), the current strategy and
       why, the levers Terra pulls first, the shift conditions (which numbers over how many cycles make Terra shift, and to
       what), the experiment, and a dated line in its history. Rewrite it in place; do not let it grow into a log.
    c. Then look for what nobody here has tried yet and that the data says could pay. Sources: the public ledger

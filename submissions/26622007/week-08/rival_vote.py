@@ -1,15 +1,19 @@
-"""Round 3 (patch 3.4/3.5): one free dislike stance on the buyer of a player tied with me on the Players board.
+"""Round 3 (patch 3.4/3.5): one free dislike stance on the buyer of a player within BAND of me on the Players board.
 
-Players = shop ALL + buyer ALL, and 0.3 of buyer ALL is the forum rating as itself (0 to 1). One account holds one stance
-per author (likes minus dislikes on that author's posts), and a dislike stance weighs 1. A single stance moved a top
-buyer's rating by 0.001 on 11/06 (inextro 12:04-13:13), so it moves that player's total by about 0.0003: worth a rank only
-against a player within a few thousandths of me (MJforge and Nocha12 both 1.435 at 11/06 19:03).
+The rules allow it: "Within any hour, an account's first 3 new dislike stances on buyers are free" (Patch 3.4) and "One
+stance per account on each author". Players = shop ALL + buyer ALL, and 0.3 of buyer ALL is the forum rating as itself
+(0 to 1). One account holds one stance per author (likes minus dislikes on that author's posts), and a dislike stance
+weighs 1. Measured 11/06 19:41, one stance moved a player's total by about 0.005 (below), so it can decide a swap only
+with a player close to me; a wider gap closes only with our own growth (Saved passes about one buyer an hour).
+To switch this off, set BAND = 0.
 
 Paid votes are not sent. More votes on one buyer cost unit x (N - 1)^2 (unit = 3% of the largest Book, 3,404,758 on 11/06),
-so 3 votes on MJforge cost 13.6M of Book for about 0.0006 more, while the gap to the player above that is 0.013 (about 40
-votes, billions). Book is half of shop ALL and the cash is stock for revenue. So: only -1 votes, only while the market says
+so 3 votes on MJforge cost 13.6M of Book for about 0.0006 more, while the gap to the player above that was 0.013 at 11/06
+19:03 (about 40 votes, billions). Book is half of shop ALL and the cash is stock for revenue. So: only -1 votes, only while the market says
 the next dislike is free (next_dislike_fee 0), at most MAX_NEW_PER_HOUR new stances an hour (the market's free 3) and
-MAX_STANCES in all. Spend per vote and per hour is 0 by construction (MAX_FEE_PER_VOTE, MAX_FEE_PER_HOUR).
+MAX_STANCES opened within STANCE_DAY. Turning a like stance into a dislike takes several -1 votes on that author's posts;
+each is a plain -1, not a vote of value -N (the paid "more votes on one buyer"): the 2 votes on buzllightyear at 11/06
+19:41 were answered with fee 0 and power_fee 0. Spend per vote and per hour is 0 by construction (MAX_FEE_PER_VOTE, MAX_FEE_PER_HOUR).
 Nothing here can stop a restock.
 """
 import json
@@ -26,10 +30,14 @@ EVERY_MINUTES = 10
 # Measured 11/06 19:41: our one stance (2 votes, net +1 -> -1) took buzllightyear's rating 0.878 -> 0.861, buyer ALL
 # 0.839 -> 0.834, so a stance moves a total by about 0.005, not the 0.0003 guessed from inextro. A player within 0.006
 # swaps places over one stance; thisjonghoon 0.055 above would take about 11 paid votes (121 units, 440M): not sent.
-BAND = 0.006
+# 11/06 22:31 (GPT Pro 22:31 B5, a person 22:22 "더더욱 극단적이어도 돼"): thisjonghoon was 0.011-0.015 above and our Saved alone
+# passes about one buyer an hour, so a free stance on a player up to 0.02 away (still free stances only) can decide
+# the swap. A wider band would spend the 2 free stances an hour on players no stance can reach.
+BAND = 0.02
 MAX_NEW_PER_HOUR = 2     # the market opens 3 new dislike stances on buyers an hour for free (patch 3.4); one spare
 MAX_DISLIKES_PER_HOUR = 3  # -1 votes an hour, in case the market counted votes rather than stances as the free 3
-MAX_STANCES = 8
+MAX_STANCES = 8          # stances opened in the last STANCE_DAY; older ones stay but no longer block a new rival
+STANCE_DAY = 86400
 MAX_FEE_PER_VOTE = 0     # won: paid votes are not sent (see above)
 MAX_FEE_PER_HOUR = 0
 
@@ -62,7 +70,7 @@ def rivals(board, me=ME_PLAYER, band=BAND):
     mine = next((r for r in rows if str(r.get("player") or "").lower() == me), None)
     if mine is None:
         return []
-    near = [r for r in rows if r is not mine and abs(r["total"] - mine["total"]) <= band
+    near = [r for r in rows if r is not mine and round(abs(r["total"] - mine["total"]), 6) <= band
             and isinstance(r.get("buyer"), dict) and r["buyer"].get("name")]
     return [r["buyer"]["name"] for r in sorted(near, key=lambda r: abs(r["total"] - mine["total"]))]
 
@@ -109,7 +117,8 @@ def plan(targets, posts, authors, sent, state, fee, now, queued=()):
     opened = [t for t in state.get("opened", []) if now - t < 3600]
     if len(opened) >= MAX_NEW_PER_HOUR:
         return [], "free stances of this hour used"
-    if len(state.get("disliked", {})) >= MAX_STANCES:
+    if sum(1 for t in state.get("disliked", {}).values()
+           if not isinstance(t, (int, float)) or now - t < STANCE_DAY) >= MAX_STANCES:
         return [], "stance cap reached"
     room = MAX_DISLIKES_PER_HOUR - sum(n for t, n in state.get("votes", []) if now - t < 3600)
     net, voted = my_votes(sent, authors, queued)
@@ -118,7 +127,8 @@ def plan(targets, posts, authors, sent, state, fee, now, queued=()):
         if name in state.get("disliked", {}):
             continue
         if net.get(name, 0) < 0:
-            state.setdefault("disliked", {})[name] = now   # already a dislike stance: nothing to send
+            # already a dislike stance: nothing sent, so it is dated a day back and does not take room under MAX_STANCES
+            state.setdefault("disliked", {})[name] = now - STANCE_DAY
             continue
         need = net.get(name, 0) + 1           # likes minus dislikes must go below 0 for a dislike stance
         fresh = [p for p in posts if p.get("author") == name and p.get("role") == "buyer"
@@ -128,7 +138,7 @@ def plan(targets, posts, authors, sent, state, fee, now, queued=()):
         fresh.sort(key=lambda p: -(p.get("id") or 0))
         return ([{"vote": p["id"], "value": -1, "as": "buyer"} for p in fresh[:need]],
                 f"dislike {name} ({need} votes, my net was {net.get(name, 0)})")
-    return [], "no tied rival with enough unvoted posts"
+    return [], "no rival within band with enough unvoted posts"
 
 
 def remember_authors(state, posts, keep=5000):

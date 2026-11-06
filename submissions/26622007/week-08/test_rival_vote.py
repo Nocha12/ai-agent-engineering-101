@@ -23,8 +23,19 @@ def sent(post, value=1, fee=0):
 
 class RivalVote(unittest.TestCase):
     def test_rivals_only_within_band(self):
-        self.assertEqual(rv.rivals(BOARD), ["mjforge"])
-        self.assertEqual(rv.rivals(BOARD, band=0.02), ["mjforge", "buzllightyear"])
+        # 11/06 23:17 thisjonghoon was 0.011 above us: two or three stances plus our own Saved growth close that, so the
+        # default band reaches a player 0.013 above (buzllightyear here) and still leaves olstjr 0.058 below alone.
+        self.assertEqual(rv.rivals(BOARD), ["mjforge", "buzllightyear"])
+        self.assertEqual(rv.rivals(BOARD, band=0.006), ["mjforge"])
+
+    def test_band_edges(self):
+        board = {"players": [
+            {"player": "Nocha12", "total": 1.435, "buyer": {"name": "nocha12"}},
+            {"player": "edge", "total": 1.455, "buyer": {"name": "edge"}},      # exactly 0.02 above: in
+            {"player": "out", "total": 1.456, "buyer": {"name": "out"}},        # 0.021 above: out
+            {"player": "below", "total": 1.42, "buyer": {"name": "below"}},     # 0.015 below: in
+        ]}
+        self.assertEqual(rv.rivals(board), ["below", "edge"])
 
     def test_flips_my_likes_with_enough_dislikes(self):
         authors = {"1": "mjforge", "2": "mjforge"}       # two posts I liked earlier
@@ -48,6 +59,10 @@ class RivalVote(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         full = {"disliked": {f"b{i}": 0 for i in range(rv.MAX_STANCES)}}
         self.assertEqual(rv.plan(["mjforge"], POSTS, {}, [], full, 0, 1000)[0], [])
+        # the cap counts stances opened in the last day: old ones stay (nothing is undone) but do not block a new rival
+        day = 86400
+        old = {"disliked": {f"b{i}": 0 for i in range(rv.MAX_STANCES)}}
+        self.assertEqual(len(rv.plan(["mjforge"], POSTS, {}, [], old, 0, day + 1000)[0]), 1)
 
     def test_waits_without_enough_posts(self):
         authors = {str(i): "mjforge" for i in range(1, 6)}
