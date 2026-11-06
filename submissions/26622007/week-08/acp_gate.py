@@ -33,6 +33,8 @@ WAIT = 2                # seconds a payment may spend on the ledger: waiting for
 ROUND = 3
 SCAN_PAGES = 100        # pages per one-star pass (~4 min at ~2.2 s a page); the round's first pass (~1,300 pages) ~50 min
 SCAN_EVERY = 60         # seconds between one-star passes once caught up
+REFUSED_ALARM = 5000000 # won refused within an hour that puts a WARNING in the log (메인 01:25: 177.6M went unseen)
+ALARM_EVERY = 600       # seconds between two such warnings
 
 
 def _seller(path=None):
@@ -58,6 +60,9 @@ def _names(seller, key):
 def refused_buyers(path=None, md=None):
     """pricing.json seller.refuse_buyers, plus (refuse_one_star_at) every buyer with that many verified 1-star results
     on this shop in .market/one_star.json, read now, except those in seller.refuse_exempt (대표님 11/05 12:27: q00).
+    seller.refuse_one_star_share (메인 11/07 01:25): those 1-stars must also be at least this share of the buyer's
+    verified ratings of this shop (3 of 275 refused shaun0927-labbuyer's 177.6M); until the ratings are counted (an
+    older one_star.json is read again from the round's start, ~50 min) the 1-star rule refuses no one.
     refuse_exempt only lifts the 1-star rule; a buyer named in refuse_buyers is refused anyway. [] when absent or
     unreadable."""
     seller = _seller(path)
@@ -65,7 +70,14 @@ def refused_buyers(path=None, md=None):
     at = one_star_at(path)
     if at:
         exempt = _names(seller, "refuse_exempt")
-        names += [b for b, n in OneStars(md).counts().items() if n >= at and b not in names and b not in exempt]
+        share = seller.get("refuse_one_star_share")
+        stars = OneStars(md)
+        use_share = isinstance(share, (int, float)) and not isinstance(share, bool) and 0 < share <= 1
+        rated = stars.rated() if use_share else None
+        if use_share and rated is None:     # ratings not counted to the end yet: the 1-star rule refuses no one
+            return names                    # (independent review: the count alone refused shaun0927-labbuyer's 177.6M)
+        names += [b for b, n in stars.counts().items() if n >= at and b not in names and b not in exempt
+                  and (rated is None or n >= share * max(rated.get(b, 0), n))]
     return names
 
 
@@ -177,6 +189,14 @@ class OneStars:
                 n[r["buyer"]] = n.get(r["buyer"], 0) + 1
         return n
 
+    def rated(self):
+        """buyer -> verified ratings of this shop (receipts naming it), or None while they are not counted to the end."""
+        st = self.load() or {}
+        r = st.get("rated")
+        if not isinstance(r, dict) or "rescan_to" in st:
+            return None
+        return {b: n for b, n in r.items() if isinstance(b, str) and isinstance(n, int) and not isinstance(n, bool)}
+
     def _start(self):
         """The seq just before Round 3's first entry (binary search; seq only grows)."""
         lo, hi = 0, self.get("/api/ledger?after=-1")[-1]["seq"] - 1
@@ -189,7 +209,7 @@ class OneStars:
                 lo = mid + 1
         return lo
 
-    def _take(self, e, urls, rows):
+    def _take(self, e, urls, rows, rated=None):
         """One ledger row into urls / rows. Only a verified result counts: its receipt is the one its seller signed,
         so an unverified row naming this shop cannot make another shop's URL ours."""
         d = e.get("data")
@@ -200,6 +220,8 @@ class OneStars:
         receipt = d.get("receipt") if isinstance(d.get("receipt"), dict) else {}
         if shop and isinstance(receipt.get("shop"), str) and receipt["shop"] in self.names:
             urls.add(shop)
+            if rated is not None and isinstance(d.get("buyer"), str) and isinstance(d.get("order"), str) and d["order"]:
+                rated.setdefault(d["buyer"], set()).add(d["order"])
         stars = d.get("stars")
         if stars == 1 and not isinstance(stars, bool) and isinstance(d.get("order"), str) and d["order"] \
                 and isinstance(d.get("buyer"), str):
@@ -213,8 +235,12 @@ class OneStars:
         if st is None:
             if os.path.exists(self.path):
                 self.log(f"[acp] refuse_one_star: {self.path} unreadable; counting the round again")
-            st = {"after": self._start(), "urls": [], "rows": []}
+            st = {"after": self._start(), "urls": [], "rows": [], "rated": {}}
+        if not isinstance(st.get("rated"), dict):     # a file from before the share rule: its ratings from the start,
+            st["rescan_to"], st["after"], st["rated"] = st["after"], self._start(), {}   # its 1-star rows kept meanwhile
         urls, rows = set(st["urls"]), {r.get("order"): r for r in st["rows"] if isinstance(r, dict)}
+        orders = st.get("rated_orders") if isinstance(st.get("rated_orders"), dict) else {}
+        rated = {b: {x for x in o if isinstance(x, str)} for b, o in orders.items() if isinstance(o, list)}
         more = False
         try:
             for _ in range(max_pages):
@@ -224,7 +250,7 @@ class OneStars:
                 for e in page:
                     if isinstance(e, dict):
                         try:
-                            self._take(e, urls, rows)
+                            self._take(e, urls, rows, rated)
                         except (TypeError, AttributeError, ValueError):
                             continue
                 seqs = [e["seq"] for e in page if isinstance(e, dict) and isinstance(e.get("seq"), int)]
@@ -235,6 +261,10 @@ class OneStars:
                     break
         finally:
             st["urls"], st["rows"] = sorted(urls), sorted(rows.values(), key=lambda r: r.get("seq") or 0)
+            st["rated_orders"] = {b: sorted(o) for b, o in rated.items()}       # one rating per order, kept across passes
+            st["rated"] = {b: len(o) for b, o in rated.items()}
+            if isinstance(st.get("rescan_to"), int) and st["after"] >= st["rescan_to"] and not more:
+                del st["rescan_to"]
             os.makedirs(os.path.dirname(self.path), exist_ok=True)
             tmp = f"{self.path}.{os.getpid()}.tmp"
             with open(tmp, "w", encoding="utf-8") as f:
@@ -275,6 +305,7 @@ class Gate:
         self.pricing = pricing                  # tests pass a pricing.json path
         self.md = md
         self.log = log
+        self.refused, self.warned = [], float("-inf")     # (time, price, buyer) refused in the last hour; last warning
         if warm:
             self.orders.warm(lambda: bool(refused_buyers(self.pricing, self.md)), log)
             OneStars(md, log=log).warm(lambda: one_star_at(self.pricing), lambda: refused_buyers(self.pricing, self.md), log)
@@ -300,6 +331,15 @@ class Gate:
         except Exception as e:
             self.log(f"[acp] refuse_buyers: could not record ({type(e).__name__}: {e})")
         self.log(f"[acp] REFUSED buyer {buyer} order {order} ({rec['item']} at {rec['price']}): answered out of stock")
+        now = time.time()
+        price = rec["price"] if isinstance(rec["price"], (int, float)) and not isinstance(rec["price"], bool) else 0
+        self.refused = [(t, p, b) for t, p, b in self.refused if now - t < 3600] + [(now, price, buyer)]
+        total = sum(p for _, p, _ in self.refused)
+        if total > REFUSED_ALARM and now - self.warned >= ALARM_EVERY:
+            self.warned = now
+            who = sorted({b for _, _, b in self.refused})
+            self.log(f"[acp] WARNING refused {total / 1e6:.1f}M in the last hour ({len(self.refused)} checkouts, {who}): "
+                     f"check seller.refuse_buyers / refuse_one_star_at in pricing.json")
         return OUT_OF_STOCK
 
 

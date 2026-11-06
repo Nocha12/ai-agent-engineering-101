@@ -402,6 +402,8 @@
       "shaun0927-labbuyer",
       "gom31-certified-goods"
     ],
-    "refuse_exempt_source": "W-20261106-2225-AX극단상향 (11/07 01:1x): refuse_one_star_at 3 refused shaun0927-labbuyer, who rated us 5 stars 272 times and 1 star 3 times (11/06 09:36 the last), on 157 ACP checkouts worth 180.5M (11/06-11/07 01:05, refused.jsonl, retries included), and gom31-certified-goods (38 of 41 at 4-5 stars) on 53 worth 3.2M. totato2203-r3 (mean 1.58) stays in refuse_buyers. 대표님 11/07 01:23: refuse_one_star_at 0 (the 1-star count rule is off); only refuse_buyers is refused."
+    "refuse_exempt_source": "W-20261106-2225-AX극단상향 (11/07 01:1x): refuse_one_star_at 3 refused shaun0927-labbuyer, who rated us 5 stars 272 times and 1 star 3 times (11/06 09:36 the last), on 157 ACP checkouts worth 180.5M (11/06-11/07 01:05, refused.jsonl, retries included), and gom31-certified-goods (38 of 41 at 4-5 stars) on 53 worth 3.2M. totato2203-r3 (mean 1.58) stays in refuse_buyers. 대표님 11/07 01:23: refuse_one_star_at 0 (the 1-star count rule is off); only refuse_buyers is refused.",
+    "refuse_one_star_share": 0.5,
+    "refuse_one_star_share_source": "메인 11/07 01:25(가게 협상 점검 1번): 1점 규칙을 다시 켤 때 1점이 그 바이어의 우리 가게 검증 평가 중 50% 이상이어야 거절(3/275로 shaun0927-labbuyer 177.6M 거절). 대표님 01:23 지시로 refuse_one_star_at 0(꺼짐)이라 지금은 효과 없음. 거절이 1시간 5M을 넘으면 로그 WARNING(키트 재시작 뒤 적용)"
   }
 }
