@@ -214,3 +214,11 @@ class OrderEndPostTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GapTest(unittest.TestCase):
+    def test_the_post_waits_in_the_outbox_before_the_kit_slot_opens(self):
+        # the kit keeps a post the market answers 429 and sends it once the 5 minutes are up, so writing it 30 s early
+        # lands on the slot; at 5 min we posted at 5.1-6.2 min gaps (11.9/h, 11/06 22:12-22:40)
+        self.assertLess(buyer_post.GAP_MINUTES, 5)
+        self.assertGreaterEqual(buyer_post.GAP_MINUTES, 4)

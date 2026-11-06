@@ -19,7 +19,9 @@ import statistics
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-GAP_MINUTES = 5          # the kit allows one buyer post per 5 minutes; forum.py's posts share that slot (6 until 11/06 19:50:
+GAP_MINUTES = 4.5        # 5 until 11/07 00:30: the kit keeps a post the market answers 429 and sends it when the 5 minutes
+#                          are up, so a post written 30 s early is there for the slot (pending_buyer_post stops a second one);
+#                          the kit allows one buyer post per 5 minutes; forum.py's posts share that slot (6 until 11/06 19:50:
 #                          we wrote 46 buyer posts in the 6 h to 19:50, the top posters 64-72; posts are 10% of the rank)
 STATE = "buyer_post_state.json"
 FRESH_HOURS = 3          # a deal older than this is old news
