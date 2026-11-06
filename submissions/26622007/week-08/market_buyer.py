@@ -1065,10 +1065,10 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         qs.append({"shop": s["name"], "sku": o.get("sku"), "list_price": o.get("list_price"), "ask": ask_, "src": q.get("ask_src"), "raw": q.get("text_ask_raw") if q.get("ask_src") == "text_rejected" else None, "lost": lost,
                    "limit": lim, "fit": not q.get("refused") and isinstance(ask_, (int, float)) and lim is not None and ask_ <= lim,
                    "text": (q.get("text") or "")[:120]})
-    # the kept shop and the asks within my limit first: with quote_shops 5 a run can hold 15 quotes, and recent_fits and
-    # recent_asks (hopeless) read these
+    # the kept shop and the asks within my limit first: with quote_shops 10 a run can hold 30 quotes, and recent_fits and
+    # recent_asks (hopeless) read these, so all of them are kept
     qs.sort(key=lambda x: (x["lost"] is not None, not x["fit"]))
-    qs = qs[:15]      # one small line: a single append, so overlapping buyer runs do not interleave
+    qs = qs[:30]      # one small line: a single append, so overlapping buyer runs do not interleave
     asks = [p for who, p in out.get("history") or [] if who == "shop asked"]
     t0 = STARTED
     since = lambda k: round(stages[k] - t0, 2) if k in stages else None
