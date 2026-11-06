@@ -28,7 +28,7 @@
   },
   "objective": "profit",
   "negotiate": {
-    "engine": "llm"
+    "engine": "jevrule"
   },
   "concession": [
     0.3,
