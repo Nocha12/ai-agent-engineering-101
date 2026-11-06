@@ -173,8 +173,10 @@ def cash_buffer(stock_cost=0, sales=None, now=None):
 
 def spendable(balance, buffer=STOP_BUYING_BELOW):
     """The most a restock may spend now without crossing the cash buffer (never less than STOP_BUYING_BELOW)."""
+    if isinstance(buffer, float) and not math.isfinite(buffer):
+        return 0            # a broken buffer buys nothing (fails closed, independent review)
     floor = buffer if number(buffer) and buffer > STOP_BUYING_BELOW else STOP_BUYING_BELOW
-    return max(0, (balance or 0) - floor)
+    return max(0, (balance or 0) - floor) if number(balance) else 0
 
 
 def flat(d, prefix=""):

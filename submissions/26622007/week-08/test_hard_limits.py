@@ -144,6 +144,7 @@ class GuardsStayHookedTest(unittest.TestCase):
         self.assertEqual((hl.REFUND_WORST, hl.BREAK_HOURS, hl.DAY_LOSS_WORST), (0.13, 6, 2500000))
         self.assertEqual(hl.spendable(30000000, 20000000), 10000000)
         self.assertEqual(hl.spendable(30000000, 0), 29000000)                  # never under STOP_BUYING_BELOW
+        self.assertEqual((hl.spendable(30000000, float("nan")), hl.spendable(float("inf"), 0)), (0, 0))   # fails closed
         cat = {"H1": {"list_price": 1000000}}
         self.assertEqual(hl.final_buy([{"sku": "H1", "qty": 20}], 30000000, cat, buffer=20000000), [{"sku": "H1", "qty": 13}])
         self.assertEqual(hl.final_buy([{"sku": "H1", "qty": 20}], 19000000, cat, buffer=20000000), [])
