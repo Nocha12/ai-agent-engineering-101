@@ -80,8 +80,18 @@ class ShopForumTest(unittest.TestCase):
 
     def test_daily_cap(self):
         with open(os.path.join(self.d, shop_forum.STATE), "w") as f:
-            json.dump({"sent": [NOW - 3600 * i for i in range(1, shop_forum.MAX_POSTS_PER_DAY + 1)]}, f)
+            json.dump({"sent": [NOW - 1200 * i for i in range(1, shop_forum.MAX_POSTS_PER_DAY + 1)]}, f)   # all inside 24 h
         self.assertIsNone(shop_forum.maybe_run(self.d, now=NOW))
+
+    def test_stock_post_puts_the_dearest_stock_first_and_comes_back_hourly(self):
+        on_hand = {"Gcheap": {"name": "김치", "kind": "food", "list": 30000, "grades": {"A"}, "qty": 9, "hours": 20},
+                   "Gsofa": {"name": "소파", "kind": "goods", "list": 2500000, "grades": {"B"}, "qty": 1, "hours": None}}
+        post = shop_forum.stock_post(on_hand, [1])["post"]
+        self.assertLess(post.index("(Gsofa)"), post.index("(Gcheap)"))
+        shop_forum.maybe_run(self.d, now=NOW)
+        shop_forum.maybe_run(self.d, now=NOW + 25 * 60)
+        later = shop_forum.maybe_run(self.d, now=NOW + 25 * 60 + shop_forum.STOCK_EVERY_HOURS * 3600)
+        self.assertIn("in stock now", later["post"])
 
     def test_reply_to_a_request_for_a_category_in_stock_once(self):
         self.posts = [{"id": 181, "ts": NOW - 600, "author": "buyer-03", "role": "buyer", "thread": None,

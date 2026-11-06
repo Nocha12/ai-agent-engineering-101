@@ -38,6 +38,9 @@ one shop's past asks (that lost 15-20 of 165 paid orders in replay), and do not 
 Do not lower the parallelism (a person's decision, 11/06 15:24): buyer.quote_shops stays at its hard_limits maximum and
 market_buyer quotes while the harness chooses (PREFETCH_QUOTES). The market gives one open order per buyer, 20 s apart at
 the earliest, so the buyer's pace is the time inside one order; never cut quote_shops or turn the prefetch off (test_parallel_quotes pins it).
+Revenue rivals are asked last (a person's decision, 11/06 20:51): my buyer's money is revenue for the shop it pays, and 157 of
+its 244 deals of 6 h went to shops at or above 90% of my revenue. Keep rival_deny (rivals quoted after the others, so usually only when no other shop fits, and
+ranked MARGIN lower); do not drop it to win a little surplus (test_rival_deny pins it).
 Scale is the strategy (a person's decision, 11/05 11:48): the top ten shops hold 24-158M of stock and 82% of their
 revenue is 60만+ goods, we held 3.2M. restock.max_stock_cost starts at 15M with the 60만+ lines (priority_skus,
 sku_target_units, high_price_max_units, cover_hours); hard_limits.META_FLOOR refuses a cap under 10M. The bound is 150M

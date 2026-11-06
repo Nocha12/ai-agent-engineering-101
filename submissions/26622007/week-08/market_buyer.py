@@ -50,6 +50,7 @@ import hard_limits
 import harness
 import market_model
 import measure as records    # measure.py; measure() below is the memory timing
+import rival_deny
 from buyer import log, negotiate
 from buyer import HEADERS as BUYER_HEADERS, message_text as buyer_message_text, metadata_ask as buyer_metadata_ask
 from buyer import text_ask as buyer_text_ask
@@ -753,15 +754,16 @@ def start_quotes(shops, order, budget, chance_of, got, ctl):
     return threads
 
 
-def prefetch_pool(left, memory, md, category, k):
+def prefetch_pool(left, memory, md, category, k, rival=frozenset()):
     """The k - 1 shops quoted before the harness has chosen (the chosen shop takes the last slot of the first batch),
-    and every shop that could be quoted, in quote order."""
+    and every shop that could be quoted, in quote order; revenue rivals of my shop after the others (rival_deny)."""
     others = [s for s in left if not caught_cheating(my_history(memory, s["name"]))]
-    others = quote_order(others, recent_fits(md, category), k)
+    others = rival_deny.others_first(quote_order(others, recent_fits(md, category), k), rival)
     return others[:max(0, k - 1)], others
 
 
-def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOTE_WAIT, rounds=QUOTE_ROUNDS, pre=None):
+def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOTE_WAIT, rounds=QUOTE_ROUNDS, pre=None,
+               rival=frozenset()):
     """(shop, quotes): of the chosen shop and up to quote_shops - 1 others, the one whose opening ask leaves the most
     expected surplus (list price, less the chance of breaking, less the ask). Quotes run at once, each in its own thread.
     When no shop of a batch asks a price within my limit (all out of stock, held by other buyers' talks, or asking too
@@ -820,7 +822,9 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
     # an ask read from the text ranks after a metadata ask of the same fit and share (a misread or made-up text ask
     # must not take the trade from a shop that stated its price in data; independent review 11/06 13:30)
     meta = lambda s: (got.get(s["name"]) or {}).get("ask_src") != "text"
-    best = max(scored, key=lambda x: (fits(x[2]), x[0], meta(x[2]), -x[1]))[2] if scored else None
+    # a revenue rival of my shop ranks as if it kept rival_deny.MARGIN less of the list price (within my limit either way)
+    best = max(scored, key=lambda x: (fits(x[2]), x[0] - rival_deny.penalty(x[2]["name"], rival), meta(x[2]), -x[1]))[2] \
+        if scored else None
     keep = best["name"] if best else chosen["name"] if resumable(got.get(chosen["name"])) else None
     with ctl.get("lock") or contextlib.nullcontext():
         ctl.update(done=True, winner=keep)    # a late quote thread of the kept shop must not cancel it either
@@ -1138,9 +1142,17 @@ def main():
     if brief:
         log(f"[choose] skip for goods {brief}: their recent receipts to me had too short a warranty to pay for")
     quotes, gave_up, pre, quotable = {}, False, None, []
+    try:
+        rival = rival_deny.rivals(md) if r3 else set()
+    except Exception as e:  # noqa: BLE001 - an odd board snapshot must not end the run before the result line
+        log(f"[choose] rival check failed: {type(e).__name__}: {e}")
+        rival = set()
+    if rival:
+        left = rival_deny.others_first(left, rival)
+        log(f"[choose] {sum(s['name'] in rival for s in left)} of {len(left)} shops are revenue rivals of my shop: asked last")
     if r3:
         k = int(buyer_cfg().get("quote_shops", 1))
-        early, quotable = prefetch_pool(left, memory, md, order.get("category"), k)
+        early, quotable = prefetch_pool(left, memory, md, order.get("category"), k, rival)
         try:
             gave_up = hopeless(quotable or left, args.budget, recent_asks(md), buyer_cfg())
         except Exception as e:  # noqa: BLE001 - an odd record line must not end the run before the result line
@@ -1158,16 +1170,18 @@ def main():
         reason = "gave up before choosing: every SKU asked over my limit lately; most reviewed"
     else:
         try:
+            pick = [s for s in left if s["name"] not in rival] or left     # the harness chooses among non-rivals when any
             for attempt in range(ACP_TRIES):
                 try:
-                    shop, reason = choose(left, memory, args.item, args.budget)
+                    shop, reason = choose(pick, memory, args.item, args.budget)
                 except HarnessError as e:
-                    unknown = [s for s in left if not caught_cheating(my_history(memory, s["name"]))] or left
+                    unknown = [s for s in pick if not caught_cheating(my_history(memory, s["name"]))] or pick
                     shop, reason = max(unknown, key=lambda s: len(s.get("reviews") or [])), f"harness failed ({e}); most reviewed"
                 if rnd is None or rnd < 3 or serves_acp(shop["url"]):
                     break
                 log(f"[choose] skip {shop['name']!r}: round {rnd} and no /.well-known/acp.json, so a deal there cannot settle")
                 left = [s for s in left if s["name"] != shop["name"]] or left
+                pick = [s for s in pick if s["name"] != shop["name"]] or left
         except BaseException:
             close_prefetch(pre)
             raise
@@ -1179,7 +1193,7 @@ def main():
         others = [s for s in quotable if s is not shop]
         # with quotes already asked, best_quote runs even late: it waits for them and closes every talk but the one kept
         try:
-            best, quotes = best_quote(shop, others, order, catalog, args.budget, chance_of, buyer_cfg(), pre=pre) \
+            best, quotes = best_quote(shop, others, order, catalog, args.budget, chance_of, buyer_cfg(), pre=pre, rival=rival) \
                 if (pre or time.time() - STARTED < 60) and not gave_up else (shop, {})
         except BaseException:
             close_prefetch(pre)
@@ -1282,7 +1296,7 @@ def main():
             records.write(md, "orders", {**order_record(order, args, shops, quotes, first_choice, first_reason, shop, reason, offer,
                                                         limit, chance, out, rec, result, problems, warnings, short, why, stages,
                                                         catalog), "skipped_short_warranty": brief,
-                                         "gave_up": gave_up})
+                                         "gave_up": gave_up, "rival_shop": shop["name"] in rival})
         except Exception as e:   # noqa: BLE001 - a measurement never stops the result line the kit waits for
             log(f"[measure] order record failed: {type(e).__name__}: {e}")
     print(json.dumps(result, ensure_ascii=False), flush=True)

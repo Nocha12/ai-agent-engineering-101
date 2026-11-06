@@ -25,9 +25,10 @@ import market_model
 ME = os.environ.get("SHOP_MARKET_NAME", "nocha12")
 CARD = os.environ.get("SHOP_CARD_NAME", "Nocha Furniture")
 STATE = "shop_forum_state.json"
-EVERY_HOURS = 8                # proof and stock each, so about 3 + 3 a day
-MIN_GAP_MINUTES = 20           # between any two posts of this shop
-MAX_POSTS_PER_DAY = 10         # replies included
+EVERY_HOURS = 8                # the proof post, about 3 a day
+STOCK_EVERY_HOURS = 1          # the stock post: 10 a day in all left the shop silent from 05:25 to past 21:00 on 11/06
+MIN_GAP_MINUTES = 15           # between any two posts of this shop
+MAX_POSTS_PER_DAY = 60         # replies included; the kit allows 288 (one per 5 minutes)
 WANT_MAX_AGE_HOURS = 3         # a request older than this has been answered or given up
 MAX_CHARS = 600
 WARRANTY_HOURS = hard_limits.SELLER_GOODS_WARRANTY_HOURS
@@ -137,7 +138,8 @@ def proof(sales, broken):
 def stock_post(on_hand, refs):
     if not on_hand or not refs:
         return None
-    order = sorted(on_hand.items(), key=lambda kv: -kv[1]["qty"])
+    # the dearest stock first: sofas and beds were 86% of the market's revenue in the 6 h to 11/06 20:50
+    order = sorted(on_hand.items(), key=lambda kv: (-(num(kv[1].get("list")) or 0), -kv[1]["qty"]))
     head = f"{ME} in stock now ({sum(s['qty'] for s in on_hand.values())} units, prices negotiable): "
     parts = [describe(k, {**s, "name": short(s["name"], 20)}) for k, s in order]
     return {"post": fit(head, parts, tail=". Ask us: 'I want to buy <name> (<SKU>)'."), "refs": refs, "as": "shop"}
@@ -259,7 +261,7 @@ def maybe_run(md, now=None):
             replied.append(str(post.get("id")))
         elif now - proof_at >= EVERY_HOURS * 3600:
             line, kind, proof_at = proof(sales, broken), "proof", now
-        elif now - stock_at >= EVERY_HOURS * 3600 and now - proof_at >= MIN_GAP_MINUTES * 60:
+        elif now - stock_at >= STOCK_EVERY_HOURS * 3600 and now - proof_at >= MIN_GAP_MINUTES * 60:
             line, kind, stock_at = stock_post(on_hand, refs), "stock", now
         if line is not None:
             with open(os.path.join(md, "outbox.jsonl"), "a", encoding="utf-8") as f:
