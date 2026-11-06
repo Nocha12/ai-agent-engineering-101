@@ -400,17 +400,18 @@ class OneStarTest(Base):
 
 
 class ConfigTest(unittest.TestCase):
-    def test_shipped_pricing_refuses_totato_and_three_one_stars(self):
+    def test_shipped_pricing_refuses_only_totato(self):
+        # 대표님 11/07 01:23: the 3-one-star rule is off; only totato2203-r3 stays refused
         p = os.path.join(HERE, "pricing.json")
         with tempfile.TemporaryDirectory() as md:
             self.assertEqual(acp_gate.refused_buyers(p, md), [BAD])
-            with open(os.path.join(md, acp_gate.OneStars.FILE), "w") as f:   # q00 (대표님 11/05 12:27) is exempt
+            with open(os.path.join(md, acp_gate.OneStars.FILE), "w") as f:
                 json.dump({"after": 1, "urls": ["https://a.trycloudflare.com"],
                            "rows": [{"order": f"o{i}", "buyer": b, "shop": "https://a.trycloudflare.com"}
                                     for i, b in enumerate(["q00"] * 5 + ["grump"] * 3)]}, f)
             self.assertEqual(acp_gate.OneStars(md).counts(), {"q00": 5, "grump": 3})
-            self.assertEqual(acp_gate.refused_buyers(p, md), [BAD, "grump"])
-        self.assertEqual(acp_gate.one_star_at(p), 3)
+            self.assertEqual(acp_gate.refused_buyers(p, md), [BAD])
+        self.assertEqual(acp_gate.one_star_at(p), 0)
 
 
 class MetaGuardTest(unittest.TestCase):
