@@ -63,6 +63,34 @@ class SellerTurnTest(unittest.TestCase):
         self.assertIsNone(fast_classify.seller_turn("26000. It must last at least 85 hours.", DEAL, 26000))
 
 
+class FixedTurnTest(unittest.TestCase):
+    # 메인 01:25 (가게 협상 점검 3·5번): turns whose answer is already fixed go without the harness
+    def test_an_offer_under_half_our_ask_keeps_the_ask(self):
+        d = fast_classify.seller_turn("3", DEAL, 26000)                     # '3', '1', 8,000 on 410,456: probes
+        self.assertEqual((d["action"], d["price"], d["buyer_offer"]), ("counter", 30000, 3))
+        self.assertIn("lowball", d["why"])
+        self.assertEqual(fast_classify.seller_turn("14999", DEAL, 26000)["price"], 30000)
+        self.assertIsNone(fast_classify.seller_turn("15000", DEAL, 26000))   # half or more: the harness counters
+
+    def test_at_the_floor_already_an_offer_under_it_gets_the_final_answer(self):
+        at = dict(DEAL, ask=20000)                                          # ask = reserve
+        d = fast_classify.seller_turn("19000", at, 20000)
+        self.assertEqual((d["action"], d["price"], d["buyer_offer"]), ("counter", 20000, 19000))
+        self.assertIn("go lower", d["message"])                            # the seller's FINAL_LINES at the reserve
+        self.assertIn("final", d["why"])
+        floor_turn = dict(DEAL, ask=26000)                                  # ask = this round's floor
+        d = fast_classify.seller_turn("25000", floor_turn, 26000)
+        self.assertEqual(d["price"], 26000)
+        self.assertTrue(d["message"])                                       # above the reserve the line itself goes out
+        self.assertEqual(fast_classify.seller_turn("20000", at, 20000)["action"], "accept")
+        self.assertIsNone(fast_classify.seller_turn("19000. It must last 85 hours.", at, 20000))   # not a bare offer
+
+    def test_the_seller_swaps_a_lower_line_for_a_final_one_at_the_reserve(self):
+        import os
+        src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "seller.py"), encoding="utf-8").read()
+        self.assertIn("if not text_out or re.search(r\"come down", src)
+
+
 class JevTurnTest(unittest.TestCase):
     """A message that is not a bare number goes to Jev (typesafe/jev-1.14 on OpenRouter, 0.41 s median on 15 logged
     turns, 11/07 00:55): a confident offer at or above the floor is an accept; anything else goes to the harness."""

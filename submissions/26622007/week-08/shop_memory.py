@@ -236,12 +236,19 @@ def review_stars():
     return _ledger["stars"]
 
 
-def concession_floor(opened, reserve, rounds):
+def _schedule(v):
+    return v if isinstance(v, list) and v and all(isinstance(x, (int, float)) and not isinstance(x, bool)
+                                                  and 0 <= x <= 1 for x in v) else None
+
+
+def concession_floor(opened, reserve, rounds, kind=None):
     """The lowest price the shop takes in this round of a talk that opened at `opened`.
 
     pricing.json "concession" lists, per counter round, the share of the opening margin the shop keeps;
-    the last entry repeats. [0.0] (the default, weeks 6-7) goes to the reserve at once."""
-    keep = load_pricing().get("concession") or [0.0]
+    the last entry repeats. [0.0] (the default, weeks 6-7) goes to the reserve at once. Food uses
+    "concession_food" when it is a valid list (메인 11/07 01:25: round 1 gave 70% of the margin away)."""
+    p = load_pricing()
+    keep = (_schedule(p.get("concession_food")) if kind == "food" else None) or p.get("concession") or [0.0]
     share = keep[min(max(rounds, 1), len(keep)) - 1]
     return max(reserve, reserve + round((opened - reserve) * share))
 

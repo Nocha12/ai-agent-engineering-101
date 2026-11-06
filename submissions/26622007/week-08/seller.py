@@ -505,7 +505,8 @@ class Seller(AgentExecutor):
             plain = say
             say = lambda text, ask=None: plain(f"{note} {text}", ask)
         # in a thread: the Jev call takes about 0.4 s and must not hold the other talks
-        turn_floor = shop_memory.concession_floor(deal.get("open", deal["ask"]), deal["reserve"], deal["rounds"])
+        turn_floor = shop_memory.concession_floor(deal.get("open", deal["ask"]), deal["reserve"], deal["rounds"],
+                                                  deal.get("kind"))
         jev = functools.lru_cache(maxsize=1)(fast_classify.jev_offer) if fast_classify.JEV_ON else None   # one call a turn
         fast = await asyncio.to_thread(fast_classify.seller_turn, text, deal, turn_floor, jev)
         if not fast:   # NEGOTIATE_ENGINE=jevrule: Jev reads, a rule counters (negotiate.py); None when off
@@ -521,7 +522,7 @@ class Seller(AgentExecutor):
             if re.fullmatch(r"(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)", offer_text):
                 offer = int(offer_text.replace(",", ""))
                 fallback_floor = shop_memory.concession_floor(deal.get("open", deal["ask"]),
-                                                               deal["reserve"], deal["rounds"])
+                                                               deal["reserve"], deal["rounds"], deal.get("kind"))
                 d = {"action": "counter", "price": min(deal["ask"], fallback_floor),
                      "buyer_offer": offer, "message": "Thank you for your offer."}
                 log(f"fallback: unambiguous numeric offer {offer}")
@@ -551,7 +552,7 @@ class Seller(AgentExecutor):
         # (pricing.json "concession"), so a high opening is not given away on the first counter.
         # The counter never rises above our last ask; an offer at or above this round's floor is taken.
         opened = deal.get("open", deal["ask"])
-        floor = shop_memory.concession_floor(opened, reserve, deal["rounds"])
+        floor = shop_memory.concession_floor(opened, reserve, deal["rounds"], deal.get("kind"))
         if action == "counter" and not floor <= price <= deal["ask"]:
             new = min(max(price, floor), deal["ask"])
             log(f"SCHEDULE counter {price} -> {new} (round {deal['rounds']}, opened {opened}, floor {floor})")
@@ -620,7 +621,7 @@ class Seller(AgentExecutor):
                 # At the reserve the harness must not promise a discount. Its own polite words are kept
                 # (a fixed scripted line read as stonewalling to buyers); a line that still offers to
                 # come down is replaced by one of several truthful ones.
-                if re.search(r"come down|go lower|lower (it|the price)|reduce|meet you|discount|a bit more", text_out, re.I):
+                if not text_out or re.search(r"come down|go lower|lower (it|the price)|reduce|meet you|discount|a bit more", text_out, re.I):
                     text_out = random.choice(FINAL_LINES)
                 text_out += " This is our final price."
             await up.requires_input(say(f"{text_out} My price: {price}.", price))

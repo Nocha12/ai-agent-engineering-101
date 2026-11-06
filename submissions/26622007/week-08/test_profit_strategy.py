@@ -93,9 +93,30 @@ class ConcessionTest(unittest.TestCase):
     def test_never_below_the_reserve(self):
         self.assertEqual(self.floors([0.5], 100, 100), [100, 100, 100, 100])
 
+    def test_food_keeps_its_own_schedule(self):
+        # 메인 01:25 (가게 협상 점검 2번): round 1 gave 70% of the margin away (Gb2392fa9 18,788 -> 15,000 at once);
+        # food first, its paid and walk-away rates measured against the rest
+        with tempfile.TemporaryDirectory() as d:
+            pricing = os.path.join(d, "p.json")
+            with open(pricing, "w") as f:
+                json.dump({"concession": [0.3, 0.2, 0.1], "concession_food": [0.7, 0.4, 0.15]}, f)
+            with mock.patch.object(shop_memory, "PRICING", pricing):
+                food = [shop_memory.concession_floor(200, 100, r, "food") for r in range(1, 5)]
+                goods = [shop_memory.concession_floor(200, 100, r, "goods") for r in range(1, 5)]
+                self.assertEqual(food, [170, 140, 115, 115])
+                self.assertEqual(goods, [130, 120, 110, 110])
+                self.assertEqual(shop_memory.concession_floor(200, 100, 1), 130)
+            for bad in ("x", [], [2.0], [True], [-0.1]):                        # a bad food schedule: the usual one
+                with open(pricing, "w") as f:
+                    json.dump({"concession": [0.3, 0.2, 0.1], "concession_food": bad}, f)
+                with mock.patch.object(shop_memory, "PRICING", pricing):
+                    self.assertEqual(shop_memory.concession_floor(200, 100, 1, "food"), 130, bad)
+        with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["concession_food"], [0.7, 0.4, 0.15])
+
     def test_the_seller_uses_it(self):
         src = open(os.path.join(HERE, "seller.py"), encoding="utf-8").read()
-        self.assertIn("shop_memory.concession_floor(opened, reserve, deal[\"rounds\"])", src)
+        self.assertIn("shop_memory.concession_floor(opened, reserve, deal[\"rounds\"], deal.get(\"kind\"))", src)
         self.assertNotIn("cap = reserve   # first counter goes straight to the reserve", src)
         with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
             self.assertEqual(json.load(f)["concession"], [0.3, 0.2, 0.1])      # never down to F; GPT Pro 11/06 16:45 §3.2

@@ -91,6 +91,18 @@ def seller_turn(text, deal, floor, jev=None):
         if offer >= least:
             return {"buyer_offer": offer, "action": "accept", "price": offer, "message": "",
                     "why": f"bare offer {offer} >= floor {least}"}
+        # 메인 11/07 01:25 (가게 협상 점검 3·5번): answers the code already fixes. A probe under half our ask ('3', '1',
+        # 8,000 on 410,456) brought the ask down in 158 of 191 turns; it keeps the ask now. At this round's floor an
+        # offer under it can only be met with the same ask (502 of 2,511 turns called the harness for that).
+        if offer * 2 < deal["ask"]:
+            return {"buyer_offer": offer, "action": "counter", "price": deal["ask"],
+                    "message": "Thanks, but that is far below our price, so it stays where it is.",
+                    "why": f"lowball {offer} < half of our ask {deal['ask']}: the ask stays"}
+        if deal["ask"] <= least:
+            # at the reserve seller.py swaps this for one of its FINAL_LINES ("go lower"); above it the line stands
+            return {"buyer_offer": offer, "action": "counter", "price": deal["ask"],
+                    "message": "Thanks for the offer, but we cannot go lower than this right now.",
+                    "why": f"offer {offer} under the floor {least} our ask is already at: the final answer"}
         return None
     if jev is None:
         return None
