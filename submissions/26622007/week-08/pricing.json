@@ -56,7 +56,7 @@
   "warranty_hours": 0,
   "warranty": {
     "on_request_hours": 4,
-    "max_hours": 6,
+    "max_hours": 72,
     "prior_break": 0.15,
     "max_break": 0.5
   },

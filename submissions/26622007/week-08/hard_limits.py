@@ -71,7 +71,7 @@ BOUNDS = {
     "restock.high_price_max_units": (0, 20),
     "restock.high_price_proven_max_units": (0, 20),
     "warranty.on_request_hours": (0, 6),
-    "warranty.max_hours": (0, 6),
+    "warranty.max_hours": (0, 72),
     "warranty.max_break": (0.0, 0.5),
     "warranty.prior_break": (0.0, 0.5),
     "buyer.max_price_share": (0.3, 1.0),
@@ -83,8 +83,10 @@ BOUNDS = {
 MARKDOWN_REASONS = ("food_expiry", "stale_goods", "round_end")
 # Goods break up to 6 hours after the sale (agent.md). My buyer pays for goods only with a warranty that covers all of it,
 # and my shop sells goods with one by default (its reserve carries the break chance). Fixed: not a setting.
+# The shop's is the market's longest, 72 h (/rules): a unit breaks only within 6 h of the sale, so 72 h costs what 6 h
+# does, and inextro and 25620027 (revenue 1st and 3rd, 11/06) quote 72 h to buyers comparing shops.
 BUYER_GOODS_WARRANTY_HOURS = 6
-SELLER_GOODS_WARRANTY_HOURS = 6
+SELLER_GOODS_WARRANTY_HOURS = 72
 # The buyer spends the market's money, not the shop's: each order brings its own budget (agent.md: no buyer wallet), and
 # the order budget, the list price, the 6 h goods warranty and the food shelf-life check bound every payment. A cap per
 # deal only gave up the dear goods most of the top buyers' surplus comes from (80만: 1 of 113 such orders settled), so

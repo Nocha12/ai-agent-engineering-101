@@ -169,7 +169,7 @@ class GuardsStayHookedTest(unittest.TestCase):
     def test_the_lines_that_stay(self):
         self.assertEqual(hl.BOUNDS["restock.keep_cash"][0], hl.STOP_BUYING_BELOW)   # the least that keeps supplies going
         self.assertEqual((hl.BANKRUPT_LINE, hl.STOP_BUYING_BELOW), (500000, 1000000))
-        self.assertEqual((hl.BUYER_GOODS_WARRANTY_HOURS, hl.SELLER_GOODS_WARRANTY_HOURS), (6, 6))
+        self.assertEqual((hl.BUYER_GOODS_WARRANTY_HOURS, hl.SELLER_GOODS_WARRANTY_HOURS), (6, 72))
         self.assertEqual(hl.PROTECTED, ("hard_limits.py", "test_hard_limits.py", "run_market.sh", "run_meta.sh", "ensure_running.sh"))
         self.assertEqual(hl.MAX_STEP_DOWN, 0.5)
         self.assertEqual(hl.BOUNDS["restock.max_lines"], (1, 10))

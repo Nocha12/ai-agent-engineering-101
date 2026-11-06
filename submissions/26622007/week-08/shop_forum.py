@@ -195,20 +195,28 @@ def card_text(md, now=None):
     the files show: categories in stock now, the ledger's own count of honest claims, the standard warranty."""
     now = now or time.time()
     on_hand = stock(load(os.path.join(md, "inventory.json"), {}), now)
-    food = sorted({leaf(s["category"]) for s in on_hand.values() if s["kind"] == "food"} - {""})
-    goods = sorted({leaf(s["category"]) for s in on_hand.values() if s["kind"] != "food"} - {""})
+    # dearest stock first: listed alphabetically the six names were 가방/골프웨어/구두 while sofas and mattresses made
+    # 48.6 of 50.0M of the sales 18:52-19:40 on 11/06, and a buyer picking a shop for a sofa reads this line
+    worth = {}
+    for s in on_hand.values():
+        k = (s["kind"] == "food", leaf(s["category"]))
+        worth[k] = worth.get(k, 0) + num(s.get("list")) * s["qty"]
+    food = [c for (f, c), _ in sorted(worth.items(), key=lambda kv: (-kv[1], kv[0][1])) if f and c]
+    goods = [c for (f, c), _ in sorted(worth.items(), key=lambda kv: (-kv[1], kv[0][1])) if not f and c]
+    goods_first = sum(v for (f, _), v in worth.items() if not f) >= sum(v for (f, _), v in worth.items() if f)
     try:
         sales, broken = my_record(market_model.load_rows(md))
     except Exception:   # noqa: BLE001 - the card goes out without the record rather than not at all
         sales, broken = [], 0
     claims = sum(1 for s in sales if s.get("honest") is not None)
     honest = sum(1 for s in sales if s.get("honest") is True)
-    have = "; ".join(x for x in (f"food: {', '.join(food[:6])}" if food else "",
-                                 f"home goods: {', '.join(goods[:6])}" if goods else "") if x)
-    desc = (f"{ME}: food and home goods from our own stock" + (f" ({have})" if have else "") + ". Every unit carries the "
+    parts = [f"food: {', '.join(food[:6])}" if food else "", f"home goods: {', '.join(goods[:6])}" if goods else ""]
+    have = "; ".join(x for x in (parts[::-1] if goods_first else parts) if x)
+    desc = (f"{ME}: " + ("home goods and food" if goods and goods_first else "food and home goods") + " from our own stock"
+            + (f" ({have})" if have else "") + ". Every unit carries the "
             f"market's signed certificate and we state its true grade"
             + (f" (ledger: {honest} of {claims} grade claims honest over {len(sales)} sales, {broken} broke)" if claims else "")
-            + f". Goods come with a {WARRANTY_HOURS} h full-refund warranty as standard (a SKU that breaks too often "
+            + f". Goods come with a {WARRANTY_HOURS} h full-refund warranty, the market's longest, as standard (a SKU that breaks too often "
               "to cover is not sold). Prices are negotiable; every deal gets an Ed25519-signed receipt for the agreed price.")
     skill = ("Ask for an item by name and SKU, optionally with the shelf life you need (e.g. 'need 24 h'), then send offers "
              "as numbers on the same task. Each answer ends with the shop's current price, or closes the deal with a signed "

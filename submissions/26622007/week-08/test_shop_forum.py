@@ -73,7 +73,7 @@ class ShopForumTest(unittest.TestCase):
         line = shop_forum.maybe_run(self.d, now=NOW + 25 * 60)
         self.assertIn("in stock now (3 units", line["post"])
         self.assertIn("(G200e39a3) grade A/B x2, 30 h shelf life", line["post"])
-        self.assertIn("(G0be9ed07) grade A x1, 6 h warranty", line["post"])
+        self.assertIn("(G0be9ed07) grade A x1, 72 h warranty", line["post"])
         self.assertIsNone(shop_forum.maybe_run(self.d, now=NOW + 60 * 60))       # both done for EVERY_HOURS
         self.assertEqual(len(self.outbox()), 2)
         self.assertTrue(all(len(x["post"]) <= shop_forum.MAX_CHARS for x in self.outbox()))
@@ -159,11 +159,20 @@ class ShopForumTest(unittest.TestCase):
         self.assertIn("food: 김치", desc)
         self.assertIn("home goods: 침구", desc)
         self.assertIn("2 of 2 grade claims honest over 2 sales, 0 broke", desc)
-        self.assertIn("6 h full-refund warranty", desc)
+        self.assertIn("72 h full-refund warranty", desc)
         for old in ("Furniture", "bookshelf", "lamp", "Before it"):
             self.assertNotIn(old, desc + skill)
         self.assertIn("김치", tags)
         self.assertEqual(example, "I want to buy 포기김치 10kg (G200e39a3)")
+
+    def test_card_lists_the_dearest_stock_first(self):
+        sofa = dict(unit("G8ec51935", kind="goods", hours=None, category="가구/침구>가구>소파/의자/스툴", name="소파"),
+                    list_price=2320000)
+        bag = unit("G1", kind="goods", hours=None, category="패션잡화>가방/핸드백", name="가방")
+        self.units = [bag, sofa, unit("G200e39a3")]
+        self.write()
+        desc = shop_forum.card_text(self.d, now=NOW)[0]
+        self.assertIn("home goods and food from our own stock (home goods: 소파/의자/스툴, 가방/핸드백; food: 김치)", desc)
 
     def test_card_without_files_still_reads(self):
         desc, skill, tags, example = shop_forum.card_text(os.path.join(self.d, "missing"), now=NOW)

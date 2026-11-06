@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "..", "..", "scripts"))
 os.chdir(HERE)
 import acp_shop                    # noqa: E402
 import buyer                       # noqa: E402
+import hard_limits                 # noqa: E402
 import market_buyer                # noqa: E402
 import market_kit as kit           # noqa: E402
 import restock                     # noqa: E402
@@ -288,16 +289,16 @@ class EndToEnd(unittest.TestCase):
         with mock.patch.object(shop_memory, "load_pricing",
                                lambda: {**shop_memory.DEFAULT_PRICING, "warranty_hours": 6, "list_arms": [1.0]}):
             rec = self.deal("G2")["receipt"]
-            self.assertEqual(rec["warranty_hours"], 6)
+            self.assertEqual(rec["warranty_hours"], hard_limits.SELLER_GOODS_WARRANTY_HOURS)
             self.assertNotIn("warranty_hours", self.deal("G1")["receipt"])
 
     def test_warranty_on_request_is_granted_with_the_break_chance_priced_in(self):
         with mock.patch.object(seller, "break_chance", lambda sku, grade=None: 0.1):
             out = buyer.negotiate(self.url, "청소기", 10000, "", "I want to buy (G2) with a 6 h warranty")
         rec = out["receipt"]
-        self.assertEqual(rec["warranty_hours"], 6)
+        self.assertEqual(rec["warranty_hours"], hard_limits.SELLER_GOODS_WARRANTY_HOURS)
         self.assertGreaterEqual(int(rec["price"]), 6667)      # cost 6000 / (1 - 0.1)
-        self.assertEqual((seller.flush_memory() or shop_memory.load())["negotiations"][-1]["warranty"], 6)
+        self.assertEqual((seller.flush_memory() or shop_memory.load())["negotiations"][-1]["warranty"], hard_limits.SELLER_GOODS_WARRANTY_HOURS)
 
     def test_goods_that_break_too_often_are_not_sold_without_a_warranty(self):
         with mock.patch.object(seller, "break_chance", lambda sku, grade=None: 0.5):
@@ -309,7 +310,7 @@ class EndToEnd(unittest.TestCase):
     def test_goods_get_six_hours_by_default_and_food_none(self):
         with mock.patch.object(seller, "break_chance", lambda sku, grade=None: 0.1):
             out = buyer.negotiate(self.url, "청소기", 10000, "", "I want to buy (G2)")
-        self.assertEqual(out["receipt"]["warranty_hours"], 6)
+        self.assertEqual(out["receipt"]["warranty_hours"], hard_limits.SELLER_GOODS_WARRANTY_HOURS)
         self.assertGreaterEqual(int(out["receipt"]["price"]), 6667)
 
     def test_a_quote_promises_nothing_the_loser_is_cancelled_the_winner_goes_on(self):
@@ -321,7 +322,7 @@ class EndToEnd(unittest.TestCase):
         self.assertIsNone(q["refused"])                               # our shop gives goods 6 h
         self.assertIsNone(self.stock.find("G2"))                      # held for the open talk
         out = buyer.negotiate(self.url, "청소기", 10000, "", resume=(q["url"], q["task"]))
-        self.assertEqual((out["state"], out["receipt"]["warranty_hours"]), ("TASK_STATE_COMPLETED", 6))
+        self.assertEqual((out["state"], out["receipt"]["warranty_hours"]), ("TASK_STATE_COMPLETED", hard_limits.SELLER_GOODS_WARRANTY_HOURS))
         self.units.append(unit("u-g3", "G2", kind="goods", grade="A", category="가전>청소기"))
         got = {}
         with mock.patch.object(market_buyer, "serves_acp", lambda u: True):
@@ -392,7 +393,7 @@ class EndToEnd(unittest.TestCase):
         n = (seller.flush_memory() or shop_memory.load())["negotiations"][-1]
         # (6000+15+1000)/(1-0.122): the unit is grade B, so price.grade_break B (0.122) is over the measured 0.1 and the
         # shipped goods_break 0.08 (GPT Pro 11/06 16:45 §3.5-3); the floor is over 1.05 x 75.5% of list, so it opens there
-        self.assertEqual((n["reserve"], n["open"], n["warranty"]), (7990, 7990, 6))
+        self.assertEqual((n["reserve"], n["open"], n["warranty"]), (7990, 7990, hard_limits.SELLER_GOODS_WARRANTY_HOURS))
 
     def test_unit_is_not_promised_twice_and_out_of_stock_is_refused(self):
         self.deal("G1")

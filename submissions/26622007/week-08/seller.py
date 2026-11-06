@@ -71,7 +71,7 @@ CANDIDATES = 15
 MAX_TEXT = 500    # characters of a buyer message that reach the prompts
 # Round 3 goods: a buyer's kit may refuse to pay without a warranty (accept.warranty_hours), so the shop offers one when
 # asked, priced in: the reserve rises to cost / (1 - chance it breaks), the price at which a refund is paid for on average.
-WARRANTY = {"on_request_hours": 3, "max_hours": 6, "prior_break": 0.15, "max_break": 0.25}
+WARRANTY = {"on_request_hours": 3, "max_hours": 72, "prior_break": 0.15, "max_break": 0.25}
 WARRANTY_WORDS = re.compile(r"warrant|guarantee|보증|보장", re.I)
 WARRANTY_HOURS = re.compile(r"(\d+(?:\.\d+)?)\s*(?:h\b|hours?|시간)", re.I)
 _breaks = {"at": 0.0, "stats": None}
