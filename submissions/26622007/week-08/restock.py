@@ -225,14 +225,23 @@ SENT = "restock_sent.json"
 
 def pending(md, inv, now=None):
     """[{sku, qty, worst}] sent by this hook in the last PENDING_SECONDS and not yet in inventory.json (the file can lag
-    the supply): counted as stock already bought, so the next run does not buy it again."""
+    the supply): counted as stock already bought, so the next run does not buy it again. A record that cannot be read
+    raises (ValueError, OSError): the cash those lines took is not known, so main() buys nothing."""
     now = now or time.time()
     out = []
-    sent = load(os.path.join(md, SENT), []) if md else []
-    for s in sent if isinstance(sent, list) else []:      # a damaged file counts as nothing sent
+    try:
+        with open(os.path.join(md, SENT), encoding="utf-8") as f:
+            sent = json.load(f)
+    except (FileNotFoundError, TypeError):       # nothing sent yet, or no state folder (md None)
+        sent = []
+    if not isinstance(sent, list):
+        raise ValueError(f"{SENT} is not a list")
+    for s in sent:
         if not (isinstance(s, dict) and s.get("sku") and isinstance(s.get("qty"), int)
                 and isinstance(s.get("at"), (int, float)) and now - s["at"] < PENDING_SECONDS):
             continue
+        if not hard_limits.number(s.get("worst", 0)) or s.get("worst", 0) < 0:
+            raise ValueError(f"{SENT}: {s.get('sku')} has no usable worst cost")
         came = sum(1 for u in inv.get("units") or [] if u.get("sku") == s["sku"] and (u.get("supplied_at") or 0) >= s["at"] - 5)
         if s["qty"] > came:
             out.append({"sku": s["sku"], "qty": s["qty"] - came, "worst": s.get("worst", 0)})
@@ -361,6 +370,8 @@ def warranted_sales(state, catalog, now=None):
         if out is not SHORT:
             return out
         if size >= SALES_TAIL_MAX_BYTES:
+            print(f"[restock] ledger tail of {size} bytes does not reach back {hard_limits.BREAK_HOURS} h: "
+                  f"exposure unknown, buying nothing", file=sys.stderr, flush=True)
             return None
         size = min(size * 4, SALES_TAIL_MAX_BYTES)
 

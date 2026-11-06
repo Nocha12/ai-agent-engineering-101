@@ -66,7 +66,7 @@ OPEN = 10 ** 12
 # Without the ledger the exposure is not known. It was kept at this guess (13% of 6 h of goods sales at our 11/06
 # 19:15-20:47 rate, never under the worst 6 h refunded); since 11/07 06:xx an unreadable ledger buys nothing at all
 # (cash_buffer returns OPEN; GPT Pro 04:30 S1: exposure missing -> no new stock), since 20% of 11/07 04:31's exposure
-# (196M) was already 39M, twice this guess.
+# (196M) was already 39M, twice this guess. Kept as the record of that floor (test_hard_limits pins it), unused.
 UNKNOWN_EXPOSURE = max(15000000, REFUNDS_6H_WORST)
 PROTECTED = ("hard_limits.py", "test_hard_limits.py", "run_market.sh", "run_meta.sh", "ensure_running.sh")
 # Steps: a rise is no longer limited (a person, 11/06 19:03: compounding should not wait for cycles); a fall still is,
@@ -196,8 +196,8 @@ def cash_buffer(stock_cost=0, sales=None, now=None):
     Never under STOP_BUYING_BELOW."""
     now = now or time.time()
     span = BREAK_HOURS * 3600
-    if sales is None:
-        return OPEN
+    if sales is None or (isinstance(stock_cost, float) and not math.isfinite(stock_cost)):
+        return OPEN         # exposure or stock not known (independent review 11/07 06:xx: a nan stock kept no storage)
     live = [(t, p) for t, p in sales if number(t) and number(p) and p > 0 and 0 <= now - t < span]
     left = sum(p * (span - (now - t)) / span for t, p in live)
     top = sum(sorted((p for _, p in live), reverse=True)[:BIGGEST_SALES])

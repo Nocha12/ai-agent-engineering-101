@@ -6,6 +6,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -160,7 +161,7 @@ class GuardsStayHookedTest(unittest.TestCase):
         self.assertEqual(hl.cash_buffer(0, [(now, 3000000), (now, 0), (now, -9000000)], now), 500000 + 3000000)  # fewer than 3
         self.assertGreaterEqual(hl.cash_buffer(0, None, now), hl.OPEN)              # ledger unreadable: nothing is bought
         self.assertEqual(hl.cash_buffer(-5, [("x", None), (now, float("nan")), (now, float("inf"))], now), 1000000)
-        self.assertEqual(hl.cash_buffer(float("inf"), [], now), 1000000)
+        self.assertGreaterEqual(hl.cash_buffer(float("inf"), [], now), hl.OPEN)    # storage not known: no buys
         self.assertEqual((hl.REFUND_EXPECTED, hl.REFUND_WORST, hl.REFUNDS_6H_WORST, hl.BREAK_HOURS, hl.STORAGE_DAYS),
                          (0.06, 0.20, 20000000, 6, 1.0))
         self.assertEqual(hl.BOUNDS["price.goods_break"], (0.03, 0.5))
@@ -227,6 +228,16 @@ class NoBankruptcyReplayTest(unittest.TestCase):
                     mock.patch("builtins.print", lambda *a, **k: printed.append(a[0] if a else "")):
                 restock.main()
         self.assertEqual(json.loads(printed[-1])["buy"], [])
+        with tempfile.TemporaryDirectory() as d:      # a damaged record of sent lines is not "nothing sent" (review)
+            inv = {"units": []}
+            self.assertEqual(restock.pending(d, inv), [])                           # no record yet
+            for bad in ("{bad", '{"a": 1}', json.dumps([{"sku": "H1", "qty": 2, "at": time.time(), "worst": "x"}]),
+                        '[{"sku": "H1", "qty": 2, "at": %f, "worst": NaN}]' % time.time()):
+                with open(os.path.join(d, restock.SENT), "w") as f:
+                    f.write(bad)
+                with self.assertRaises(ValueError):
+                    restock.pending(d, inv)
+        self.assertGreaterEqual(hl.cash_buffer(float("nan"), [], 1800000000), hl.OPEN)  # stock not known
 
     def test_a_buy_keeps_the_storage_of_what_it_buys(self):
         # 1,000,000 x 0.75 = 750,000 a unit and a day of its storage (7,500): 15,100,000 over the buffer buys 20 units

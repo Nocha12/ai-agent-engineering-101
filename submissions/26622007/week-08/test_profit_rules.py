@@ -574,11 +574,16 @@ class PendingAndNextWindowTest(unittest.TestCase):
         self.assertIsNone(out)
         self.assertIn("expired", why)
 
-    def test_a_damaged_record_of_sent_lines_counts_as_nothing(self):
-        for junk in ({"a": 1}, [1, {"sku": "H1"}, {"sku": "H1", "qty": "2", "at": time.time()}]):
+    def test_a_damaged_record_of_sent_lines_is_not_nothing_sent(self):
+        # entries that are not lines are skipped; a file that is not a list raises, and restock.main() then buys nothing
+        # (GPT Pro 11/07 04:30 S1: pending not known -> no new stock)
+        for junk, raises in (({"a": 1}, True), ([1, {"sku": "H1"}, {"sku": "H1", "qty": "2", "at": time.time()}], False)):
             with open(os.path.join(self.md, restock.SENT), "w") as f:
                 json.dump(junk, f)
-            self.assertEqual(restock.pending(self.md, {"units": []}), [])
+            if raises:
+                self.assertRaises(ValueError, restock.pending, self.md, {"units": []})
+            else:
+                self.assertEqual(restock.pending(self.md, {"units": []}), [])
             restock.note_sent(self.md, [{"sku": "H1", "qty": 1}], CAT)
 
     def test_sends_once_per_plan(self):
