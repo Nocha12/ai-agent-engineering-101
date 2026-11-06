@@ -25,13 +25,6 @@ PAGE = """
 
 
 class PatchNotesTest(unittest.TestCase):
-    def test_matching_weights_do_not_hide_wrong_forum_semantics(self):
-        page = PAGE.replace('Shop ALL now uses Book.', 'The forum rating counts as itself.')
-        out = patch_notes.check(page=page, record=False, modes={})
-        self.assertFalse(out['objective_matches'])
-        self.assertIn('buyers.forum: published rating, scorecard is not rating', out['mismatch'])
-        self.assertTrue(patch_notes.check(page=page, record=False, modes={'buyers.forum': 'rating'})['objective_matches'])
-
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

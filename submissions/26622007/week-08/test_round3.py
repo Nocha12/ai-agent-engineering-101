@@ -686,13 +686,12 @@ class BuyerTest(unittest.TestCase):
                 return dict(result)
 
             with mock.patch.object(market_buyer, "MEMORY", os.path.join(d, "m.json")), \
-                    mock.patch.object(market_buyer, "SETTLED", os.path.join(d, "settled.jsonl")), \
                     mock.patch.object(market_buyer, "market_round", lambda: 3), \
                     mock.patch.object(market_buyer, "serves_acp", lambda u: True), \
                     mock.patch.object(market_buyer, "buyer_cfg", lambda: dict(self.BUYER_CFG)), \
                     mock.patch.object(market_buyer, "choose", lambda s, m, i, b: (s[0], "t")), \
                     mock.patch.object(market_buyer, "negotiate", neg), \
-                    mock.patch("builtins.print", lambda *a, **k: printed.append(a[0]) if k.get("file") is not sys.stderr else None), \
+                    mock.patch("builtins.print", lambda *a, **k: printed.append(a[0])), \
                     mock.patch.object(sys, "argv", ["x", "--shops", sp, "--item", "김치", "--budget", "16000", "--order", op]):
                 market_buyer.main()
             with open(os.path.join(d, "measure", "orders.jsonl"), encoding="utf-8") as f:   # measure.py: every order, a line

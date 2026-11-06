@@ -1,8 +1,0 @@
-{
- "citations": [],
- "queue": [],
- "protected": [],
- "pricing_unchanged": true,
- "tests": "539 passed; tests-final.txt",
- "runtime": "existing PID predates this fix; next fresh runtime pack required"
-}

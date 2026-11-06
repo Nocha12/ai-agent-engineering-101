@@ -38,7 +38,6 @@ SOURCES = ("logs", "memory", ".market", "meta")
 OBJECTIVE = {"shops": [(("book", "profit"), 0.5), (("revenue",), 0.3), (("stars_rank", "stars"), 0.2)],
              "buyers": [(("saved",), 0.5), (("forum", "forum_score", "votes", "score"), 0.3), (("deals",), 0.1),
                         (("posts",), 0.1)]}
-OBJECTIVE_MODES = {"buyers.forum": "rating"}
 
 
 def number(r, field):
@@ -76,7 +75,7 @@ def objective(b):
         got = {}
         for names, w in parts:
             field = next((n for n in names if n in mine), names[0])
-            raw_forum = OBJECTIVE_MODES.get(f"{k}.{names[0]}") == "rating"
+            raw_forum = k == "buyers" and "forum" in names
             p = number(mine, field) if raw_forum else percentile(rows, field, mine)
             got[field] = {"weight": w, "percentile": None if p is None else round(p, 4), "basis": "rating" if raw_forum else "percentile", "value": mine.get(field),
                           "next": next_step(rows, field, mine, w, p, raw=raw_forum), "_p": p}

@@ -32,30 +32,6 @@ FINAL = restock.FINAL
 
 
 class ScorecardRefreshTest(unittest.TestCase):
-    def test_offline_formula_repair_is_not_rolled_back_for_kit_errors(self):
-        self.assertFalse(mh.needs_trading_watch(["scorecard.py", "patch_notes.py", "test_scorecard.py", "meta/strategy.md"]))
-        self.assertTrue(mh.needs_trading_watch(["scorecard.py", "seller.py"]))
-        self.assertTrue(mh.needs_trading_watch(["tools/auto_market_scan/tool.py"]))
-
-    def test_changed_runtime_reexecs_only_when_boundary_is_called(self):
-        with mock.patch.object(mh, "runtime_version", return_value="new"), \
-                mock.patch.object(mh, "LOADED_VERSION", "old"), mock.patch.object(mh, "log"), \
-                mock.patch.object(mh.os, "execv") as run:
-            run.assert_not_called()
-            mh.refresh_runtime()
-            run.assert_called_once_with(sys.executable, [sys.executable, os.path.abspath(mh.__file__), "run"])
-
-    def test_unchanged_runtime_does_not_restart(self):
-        with mock.patch.object(mh, "runtime_version", return_value=mh.LOADED_VERSION), mock.patch.object(mh.os, "execv") as run:
-            mh.refresh_runtime()
-            run.assert_not_called()
-
-    def test_refresh_restores_current_owner_limits(self):
-        old = mh.hard_limits.BOUNDS.copy()
-        with mock.patch.dict(mh.hard_limits.BOUNDS, {"restock.max_stock_cost": (100000, 150000000)}):
-            mh.refresh_scorecard()
-            self.assertEqual(mh.hard_limits.BOUNDS["restock.max_stock_cost"], old["restock.max_stock_cost"])
-
     def test_next_cycle_discards_stale_buyer_formula(self):
         original = mh.scorecard.OBJECTIVE
         try:

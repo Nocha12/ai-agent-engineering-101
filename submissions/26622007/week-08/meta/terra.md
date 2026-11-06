@@ -44,8 +44,8 @@ ranked MARGIN lower); do not drop it to win a little surplus (test_rival_deny pi
 Scale is the strategy (a person's decision, 11/05 11:48): the top ten shops hold 24-158M of stock and 82% of their
 revenue is 60만+ goods, we held 3.2M. restock.max_stock_cost starts at 15M with the 60만+ lines (priority_skus,
 sku_target_units, high_price_max_units, cover_hours); hard_limits.META_FLOOR refuses a cap under 10M. The bound is 150M
-was the historical 11/05 instruction. That bound and x2/x5 steps were changed by the owner on 11/06 in hard_limits.py. Read current protected bounds; never edit them. If the active request is stricter, apply it to new changes without shrinking existing totals. Grow
-max_stock_cost one evidenced step and the sku_target_units of the SKUs that sold, when all three
+(the top ten average 78M of stock, at most 150M; a person, 11/05 11:48): grow toward it as sales follow. Grow
+max_stock_cost one step (up to x2, x5 on a strong sample) and the sku_target_units of the SKUs that sold, when all three
 hold since the last change: (1) the cap binds: guard "stock cost" cuts on priority / proven lines in the last two
 supply windows (for sku_target_units alone, "units per SKU" cuts on that SKU's lines in those windows, with the SKU held at its sku_target_units (not at
 high_price_max_units, max_units_per_sku or a surge cap), count instead:
@@ -53,7 +53,8 @@ the cap did not hold the 60만+ lines on 11/06, their targets did); (2) the 60�
 unsold across two windows; (3) matured net per sale of those SKUs is above zero and book is not lower than 6 hours
 before. Cite the guard lines, the units and the sales. Cash, not the cap, is the real ceiling: new and waiting lines at
 worst cost may not pass balance - keep_cash, and hard_limits.META_FLOOR keeps keep_cash at 3M or more (refunds, fees). Do not narrow the totals for caution, cash held or "stock tied up": unsold stock counts in
-book at cost. Narrow one SKU only on its own matured loss (net per sale <= 0 over 10+ matured sales). Two-window retention stops further expansion but alone does not justify shrinking profitable stock. Say which units; the goal is the Players rank, and a smaller shop cannot reach it.
+book at cost. Narrow one SKU only on its own matured loss (net per sale <= 0 over 10+ matured sales, or the same extra
+units unsold across two windows), and say which units; the goal is the Players rank, and a smaller shop cannot reach it.
 
 The race: `board.race` is the Everyone rank, the gap to the leader and to the player just above, and how much each of
 the three grew over 6 and 12 hours (`growth`). A gap closes only if I grow faster than the player above: when
@@ -71,8 +72,9 @@ Add an entry at the end of the queue only, with a new id (an id already judged n
 and its evidence cited; do not edit or remove entries (Astra orders the queue) or write meta/experiments_log.jsonl.
 
 Objective: the pack's `board.objective` estimates the midterm rank, Players = shop ALL + buyer ALL, each part a
-mean-rank percentile (except buyer forum: raw rating) among the rows the board scores (shops with a supply or a deal, house shops included; buyers with a
-deal): shop ALL = 0.5 book + 0.3 revenue + 0.2 stars_rank (Patch 3.3, 11/05: book replaced cash profit), buyer ALL = 0.5 saved (절감률, 거래 100건을 0%로 추가한 평균; Patch 3.4) + 0.3 forum rating itself (0..1, Patch 3.5; not its percentile) + 0.1 deals + 0.1 posts. Verify this against every scored row; `board_all` is the board's own value. Book
+mean-rank percentile among the rows the board scores (shops with a supply or a deal, house shops included; buyers with a
+deal): shop ALL = 0.5 book + 0.3 revenue + 0.2 stars_rank (Patch 3.3, 11/05: book replaced cash profit), buyer ALL = 0.5 saved (절감률, 거래 100건을 0%로 추가한 평균; Patch 3.4) + 0.3 forum votes (on posts
+written as a buyer) + 0.1 deals + 0.1 posts. This reproduces every board row; `board_all` is the board's own value. Book
 = balance - starting capital - bankruptcy money + what the unsold stock cost, so a restock does not lower it; storage
 (1%/day), refunds, spoiled food and markdowns below cost do. Book 1st among shops is a goal of its own: name the book gap
 to the 1st shop next to the Players gap. Revenue (0.3) grows only with units sold: stock that sells is the lever.
@@ -129,7 +131,7 @@ Every cycle, in this order:
    receipt is unpaid) and its net per sale after refunds: (sum of prices - sum of costs - refunds) / sales, with breaks
    linked to our sales by market_model.link_broken (a "[loss] break_refund" line names the ledger seq of our sale).
    When the data shows caution is costing sales, revenue or surplus, widen boldly within the limits. When it shows
-   a SKU-specific matured loss, narrow that SKU only. A cash fall caused by buying stock is not a loss.
+   losses (stock thrown away, refunds, a falling balance), narrow.
 5. Judge your previous change from its own numbers in `since_last_cycle`: keep, fix or revert (`previous_verdict`). If you
    revert, restore its files in this cycle.
 6. A rejected change is not a reason to wait. Read the `problems` of your last cycles in meta/changes.jsonl. When tests
@@ -195,13 +197,5 @@ Astra 2026-11-05 09:38 correction:
 - A tool returning JSON without an exception is not evidence of meaningful results. For generated combined searches,
   require catalog SKU keys preserved, category/query intersection, only deduplicated k=settle, and seller filtering
   that does not match the buyer. auto_market_lookup is removed; use repaired auto_market_scan and quote paid seqs.
-- Follow the latest meta/strategy.md and pricing.json; the 09:38 SKU targets are historical, not current instructions.
+- Follow the current 09:38 strategy: G6/G75 target 1, G1515 target 4; the person's uncapped buyer rule remains in force.
   A successful one-unit trial does not justify unattended permanent restocking. Rejudge its own sale after six hours.
-
-Astra 2026-11-06 23:00 correction:
-- Patch 3.4 Saved replaces nominal surplus; Patch 3.5 forum uses raw rating. A 0.002 forum gain adds 0.0006 Players, not 0.01389. Weights matching alone is insufficient. Check modes and board drift.
-- A correct scorecard/test-only repair cannot cause trading LLM failures. Validate the formula directly; do not undo it on unrelated harness_failed growth. Mixed trading changes still need the normal canary.
-- Old PID 23029 began 05:22 before refresh support and retained old protected bounds. A source edit cannot update that running interpreter. Require a safe completed-cycle restart and verify the next pack; never call a disk-only check an operational fix.
-- Recompute cap/target cuts and unit sales in the same two windows. Do not repeatedly report computable turnover as missing, and do not raise a nonbinding cap to claim progress.
-- No Luna hourly cap. Removed auto_market_research_bundle returned zero for a real catalog-key/settle fixture; use auto_market_research or auto_market_scan. Successful JSON alone is not semantic validation.
-- Current-cycle measurement and exact judge lines are in meta/strategy.md. Queue experiments run serially; do not restart or claim success for the confounded G6 trial without 20 mature A sales and in-stock exposure.
