@@ -142,15 +142,31 @@ def markup(item=None):
     return m, "; ".join(why)
 
 
+_READ = {}      # path -> ((size, mtime_ns), negotiations): restock.log_prices asks once per new unit
+
+
+def _negotiations_of(path):
+    """The negotiations in a memory file, read once while it is unchanged: a supply window brings 30-80 new units and the
+    shop's file is 14 MB (11/07), ~70 ms a read - 3-5 s of the run whose lines the open window is waiting for."""
+    try:
+        st = os.stat(path)
+        key = (st.st_size, st.st_mtime_ns)
+        if path in _READ and _READ[path][0] == key:
+            return _READ[path][1]
+        with open(path, encoding="utf-8") as f:
+            rows = json.load(f).get("negotiations") or []
+    except (OSError, ValueError, AttributeError):
+        return []
+    _READ.clear()
+    _READ[path] = (key, rows)
+    return rows
+
+
 def paid_prices(sku, last=5, memory=None):
     """The prices buyers really paid this shop for this SKU (result "deal" is recorded at payment), newest last.
     memory: a negotiations file to read instead of this process's own (restock.py reads the shop's)."""
     if memory is not None:
-        try:
-            with open(memory, encoding="utf-8") as f:
-                rows = json.load(f).get("negotiations") or []
-        except (OSError, ValueError, AttributeError):
-            rows = []
+        rows = _negotiations_of(memory)
     else:
         rows = load()["negotiations"]
     return [n["price"] for n in rows

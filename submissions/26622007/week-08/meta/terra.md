@@ -113,6 +113,10 @@ Every cycle, in this order:
    rival on today's board: `need` (won, stars, points or count to tie it; passing takes a little more) and
    `delta_players` (what passing that rival alone adds). Weigh `need` against the part's growth over the last hours before picking: a large delta that
    the shop cannot reach in a few hours is not the next step. Name the rival value and the need in your reason.
+   A price cap or floor is a change only where it sets the price: before moving one, count in the kit log's [price] lines
+   and the ledger since the cap was set how many asks it actually bound. None bound means its direct effect is 0 - pick
+   another part (11/07 6362f66 raised G6b9db161 A's first-ask cap 343,000 -> 350,000; all three later first asks were
+   312,728, the same under either cap; GPT Pro 07:30 §9).
 4. Act (`action_kind`), the change most likely to move that part, chosen to serve the current strategy:
    - settings: pricing.json, inside hard_limits, except seller.refuse_buyers, seller.refuse_one_star_at and seller.refuse_exempt (a person's decision: leave them)
      (one step per cycle; a bigger step is allowed once the log holds a real
@@ -144,7 +148,9 @@ Every cycle, in this order:
    pins the shipped pricing.json), update that test's expected value in the same change. A narrow or widen condition
    that held last cycle and still holds is acted on this cycle; if it no longer holds, quote the number that changed.
 
-hard_limits.py is a person's line: the bankruptcy guard (no buying below a 1,000,000 balance), the bounds and the step
+hard_limits.py is a person's line: the bankruptcy guard (BANKRUPT_LINE 500,000; no supply that could leave less than
+STOP_BUYING_BELOW 1,000,000; above both, hard_limits.cash_buffer keeps the worst 6 h refunds and storage - about 49-54M on
+11/07 - and that buffer, not the 1M line, is what holds buying back), the bounds and the step
 per cycle, the tool sandbox and the protected files. You cannot edit it or route around it. Never open pull requests or
 push; the harness commits and a separate job pushes to the team's own branch.
 
@@ -200,5 +206,6 @@ Astra 2026-11-05 09:38 correction:
 - A tool returning JSON without an exception is not evidence of meaningful results. For generated combined searches,
   require catalog SKU keys preserved, category/query intersection, only deduplicated k=settle, and seller filtering
   that does not match the buyer. auto_market_lookup is removed; use repaired auto_market_scan and quote paid seqs.
-- Follow the current 09:38 strategy: G6/G75 target 1, G1515 target 4; the person's uncapped buyer rule remains in force.
+- Read the current SKU targets and listed SKUs from pricing.json, not from an older strategy's numbers (the 11/05 09:38
+  targets G6/G75 1 and G1515 4 are long gone); the person's uncapped buyer rule remains in force.
   A successful one-unit trial does not justify unattended permanent restocking. Rejudge its own sale after six hours.

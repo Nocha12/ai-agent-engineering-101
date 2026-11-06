@@ -77,8 +77,9 @@ def sold_records():
         return []
 
 
-def check(md, root=HERE, now=None, sold=None, emit=None):
-    """The losses since the last run, each printed and remembered. Returns them."""
+def check(md, root=HERE, now=None, sold=None, emit=None, rows=None):
+    """The losses since the last run, each printed and remembered. Returns them. rows: the ledger rows the caller has
+    already read (restock.rows_of), so a run inside a supply window does not read the 143 MB file once more."""
     now = now or time.time()
     emit = emit or (lambda line: print(line, file=sys.stderr, flush=True))
     try:
@@ -136,7 +137,7 @@ def check(md, root=HERE, now=None, sold=None, emit=None):
                 if isinstance(p, dict) and not p.get("paid") and "warranty" in str(p.get("reason")):
                     loss("checkout_refused_warranty", p.get("item"), 0, f"shop {p.get('shop')} price {p.get('price')}: {p.get('reason')}")
             state["pay_pos"] = pos + end
-        rows = market_model.load_rows(md)
+        rows = market_model.load_rows(md) if rows is None else rows
         records = sold_records() if sold is None else sold
         for b, s in market_model.link_broken(rows):
             mine = state["mine"].get(str(s["seq"]))

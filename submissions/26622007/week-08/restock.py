@@ -368,9 +368,30 @@ def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
     return out
 
 
+_ROWS = {}      # state -> ((size, mtime_ns), rows)
+
+
+def rows_of(state):
+    """The ledger rows, read once a run while the file is unchanged (read_model, read_breaks and opening each read the
+    143 MB file, ~0.8 s each and more beside the buyer: in the 08:23 window of 11/07 the run inside it printed its lines
+    ~12 s after the last supply and G2607d1f6 was held back at the close). A sync that adds rows changes the key."""
+    try:
+        st = os.stat(os.path.join(state, market_model.ROWS))
+        key = (st.st_size, st.st_mtime_ns)
+    except OSError:
+        key = None
+    if key is not None and state in _ROWS and _ROWS[state][0] == key:
+        return _ROWS[state][1]
+    rows = market_model.load_rows(state)
+    _ROWS.clear()
+    if key is not None:
+        _ROWS[state] = (key, rows)
+    return rows
+
+
 def read_breaks(state, catalog):
     try:
-        return market_model.break_stats(market_model.load_rows(state), catalog, mature_only=True)
+        return market_model.break_stats(rows_of(state), catalog, mature_only=True)
     except Exception:   # noqa: BLE001 - without break rates the guard simply does not use them
         return None
 
@@ -439,7 +460,7 @@ def read_model(state, catalog, cfg):
     shops = market_model.my_shops()
     try:
         added = market_model.sync(state, max_pages=cfg.get("max_pages", market_model.DEFAULTS["max_pages"]))
-        model = market_model.estimate(market_model.load_rows(state), catalog, {me}, shops, cfg=cfg)
+        model = market_model.estimate(rows_of(state), catalog, {me}, shops, cfg=cfg)
     except Exception as e:      # noqa: BLE001 - any ledger trouble means the same thing here
         print(f"[restock] demand model unavailable: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
         return None
@@ -731,7 +752,7 @@ def main():
     cfg = hard_limits.clamp_cfg("restock", {**DEFAULTS, **pricing.get("restock", {})})
     catalog = load(os.path.join(args.state, "catalog.json"), {})
     demand, model = load(os.path.join(args.state, "demand.json"), []), read_model(args.state, catalog, cfg)
-    loss_watch.check(args.state)           # after read_model: the ledger rows are fresh
+    loss_watch.check(args.state, rows=rows_of(args.state))     # after read_model: the ledger rows are fresh
     breaks = read_breaks(args.state, catalog)
     blind = False
     try:
@@ -761,7 +782,7 @@ def main():
     first, why, trial = None, "not Round 3", None
     if inv.get("round", 0) >= market_model.ECON_ROUND and not out.get("bankrupt"):
         try:
-            first, why = opening.lines(args.state, inv, catalog, demand, market_model.load_rows(args.state), ocfg, keep=keep)
+            first, why = opening.lines(args.state, inv, catalog, demand, rows_of(args.state), ocfg, keep=keep)
         except Exception as e:   # noqa: BLE001 - a broken opening leaves the usual plan, not an idle shop
             first, why = None, f"opening failed: {type(e).__name__}: {e}"
         if first is None:       # next_window's lines join this run's (with_trial); once sent they no longer stop the window
