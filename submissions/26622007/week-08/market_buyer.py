@@ -535,6 +535,8 @@ def text_ask_checked(text, shop):
 
 
 QUOTE_WAIT = 45        # seconds the quotes may take together; a shop slower than that is left out
+PREFETCH_QUOTES = True  # quote quote_shops - 1 shops while the harness chooses: the choice took a median 13.4 s of the 55 s
+                        # an order took (149 orders 11/06 13:00-15:30), with no shop asked meanwhile (start_quotes)
 
 
 def resumable(q):
@@ -685,16 +687,46 @@ def quote_order(others, fits, k):
     return fitted[:head] + fresh[:1] + fitted[head:] + fresh[1:]
 
 
-def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOTE_WAIT, rounds=QUOTE_ROUNDS):
+def start_quotes(shops, order, budget, chance_of, got, ctl):
+    """Starts one quote thread per shop now, into got; returns {name: thread} for best_quote(pre=...).
+    The market hands a buyer one open order at a time and the next one 20 s after the last at the earliest (ledger
+    11/06 13:23-15:50: 49 buyers, no buyer with two open orders, the busiest 15 at 20.0-20.6 s between orders, us at 54.6 s).
+    So orders cannot run side by side: the time to win is inside one order, and the quotes run while the harness chooses."""
+    threads = {}
+    for s in shops:
+        o = pick_offer(s["usable"], budget)
+        s["_offer"], s["_b"] = o, chance_of(o["sku"]) or 0
+        th = threading.Thread(target=quote, args=(s, o["name"], o["sku"], order, got, ctl), daemon=True)
+        th.start()
+        threads[s["name"]] = th
+    return threads
+
+
+def prefetch_pool(left, memory, md, category, k):
+    """The k - 1 shops quoted before the harness has chosen (the chosen shop takes the last slot of the first batch),
+    and every shop that could be quoted, in quote order."""
+    others = [s for s in left if not caught_cheating(my_history(memory, s["name"]))]
+    others = quote_order(others, recent_fits(md, category), k)
+    return others[:max(0, k - 1)], others
+
+
+def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOTE_WAIT, rounds=QUOTE_ROUNDS, pre=None):
     """(shop, quotes): of the chosen shop and up to quote_shops - 1 others, the one whose opening ask leaves the most
     expected surplus (list price, less the chance of breaking, less the ask). Quotes run at once, each in its own thread.
     When no shop of a batch asks a price within my limit (all out of stock, held by other buyers' talks, or asking too
-    much), the next quote_shops shops of others are asked, up to rounds batches, each done by QUOTE_UNTIL into the run."""
+    much), the next quote_shops shops of others are asked, up to rounds batches, each done by QUOTE_UNTIL into the run.
+    pre = {"got", "ctl", "threads"} from start_quotes: those shops were asked while the harness chose; they go in the
+    first batch with the chosen shop and are not asked again."""
     k = int(cfg.get("quote_shops", 1))
-    if k < 2 or not others:
+    if k < 2 or (not others and not pre):
         return chosen, {}
-    got, pool, ctl = {}, [], {"done": False, "winner": None}
-    rest = [chosen] + list(others)
+    got, pool = (pre["got"], []) if pre else ({}, [])
+    ctl = pre["ctl"] if pre else {"done": False, "winner": None}
+    asked = dict(pre["threads"]) if pre else {}
+    early = [s for s in others if s["name"] in asked and s["name"] != chosen["name"]]
+    later = [s for s in others if s["name"] not in asked and s["name"] != chosen["name"]]
+    rest = [chosen] + early + later
+    first = max(k, 1 + len(early))
 
     def surplus(s):
         q = got.get(s["name"]) or {}
@@ -711,18 +743,16 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
         b = chance_of(o["sku"]) or 0
         return got[s["name"]]["ask"] <= min(value_limit(o, budget, b, cfg), saved_cap(o, b))
     for r in range(rounds):
-        batch, rest = rest[:k], rest[k:]
+        n = first if not r else k
+        batch, rest = rest[:n], rest[n:]
         if not batch or (r and time.time() - STARTED > QUOTE_UNTIL):
             break
         if r:
             log(f"[quote] none of {len(pool)} shops asked within my limit; asking {len(batch)} more")
-        threads = []
-        for s in batch:
-            o = pick_offer(s["usable"], budget)
-            s["_offer"], s["_b"] = o, chance_of(o["sku"]) or 0
-            th = threading.Thread(target=quote, args=(s, o["name"], o["sku"], order, got, ctl), daemon=True)
-            th.start()
-            threads.append(th)
+        threads = [asked[s["name"]] for s in batch if s["name"] in asked]
+        new = start_quotes([s for s in batch if s["name"] not in asked], order, budget, chance_of, got, ctl)
+        asked.update(new)
+        threads += list(new.values())
         pool += batch
         end = time.time() + wait if not r else min(time.time() + wait, STARTED + QUOTE_UNTIL)
         for th in threads:
@@ -1045,34 +1075,45 @@ def main():
     left, brief = skip_short_warranty(shops, memory, catalog, order) if r3 else (list(shops), [])
     if brief:
         log(f"[choose] skip for goods {brief}: their recent receipts to me had too short a warranty to pay for")
-    for attempt in range(ACP_TRIES):
+    quotes, gave_up, pre, quotable = {}, False, None, []
+    if r3:
+        k = int(buyer_cfg().get("quote_shops", 1))
+        early, quotable = prefetch_pool(left, memory, md, order.get("category"), k)
         try:
-            shop, reason = choose(left, memory, args.item, args.budget)
-        except HarnessError as e:
-            unknown = [s for s in left if not caught_cheating(my_history(memory, s["name"]))] or left
-            shop, reason = max(unknown, key=lambda s: len(s.get("reviews") or [])), f"harness failed ({e}); most reviewed"
-        if rnd is None or rnd < 3 or serves_acp(shop["url"]):
-            break
-        log(f"[choose] skip {shop['name']!r}: round {rnd} and no /.well-known/acp.json, so a deal there cannot settle")
-        left = [s for s in left if s["name"] != shop["name"]] or left
+            gave_up = hopeless(quotable, args.budget, recent_asks(md), buyer_cfg())
+        except Exception as e:  # noqa: BLE001 - an odd record line must not end the run before the result line
+            log(f"[quote] give-up check failed: {type(e).__name__}: {e}")
+        if gave_up:
+            log(f"[quote] every SKU of {len(quotable)} shops asked over my limit in the last {HOPELESS_HOURS} h: no quote, no talk")
+        stats = market_model.break_stats(market_model.load_rows(md), catalog) if order.get("kind") == "goods" else None
+        chance_of = (lambda sku: market_model.break_chance(stats, sku)) if stats else (lambda sku: None)
+        if PREFETCH_QUOTES and not gave_up and k >= 2 and early:
+            pre = {"got": {}, "ctl": {"done": False, "winner": None}}
+            pre["threads"] = start_quotes(early, order, args.budget, chance_of, pre["got"], pre["ctl"])
+            log(f"[quote] asking {', '.join(s['name'] for s in early)} while choosing")
+    if gave_up:       # no talk follows, so the harness is not asked to choose either (it took a median 13.4 s)
+        shop = max(quotable or left, key=lambda s: len(s.get("reviews") or []))
+        reason = "gave up before choosing: every SKU asked over my limit lately; most reviewed"
+    else:
+        for attempt in range(ACP_TRIES):
+            try:
+                shop, reason = choose(left, memory, args.item, args.budget)
+            except HarnessError as e:
+                unknown = [s for s in left if not caught_cheating(my_history(memory, s["name"]))] or left
+                shop, reason = max(unknown, key=lambda s: len(s.get("reviews") or [])), f"harness failed ({e}); most reviewed"
+            if rnd is None or rnd < 3 or serves_acp(shop["url"]):
+                break
+            log(f"[choose] skip {shop['name']!r}: round {rnd} and no /.well-known/acp.json, so a deal there cannot settle")
+            left = [s for s in left if s["name"] != shop["name"]] or left
     log(f"[choose] {shop['url']}: {shop['name']} - {reason}")
     stages = {"choose": time.time()}
     first_choice, first_reason = shop["name"], reason
 
-    quotes, gave_up = {}, False
     if r3:
-        others = [s for s in left if s is not shop and not caught_cheating(my_history(memory, s["name"]))]
-        others = quote_order(others, recent_fits(md, order.get("category")), int(buyer_cfg().get("quote_shops", 1)))
-        try:
-            gave_up = hopeless([shop] + others, args.budget, recent_asks(md), buyer_cfg())
-        except Exception as e:  # noqa: BLE001 - an odd record line must not end the run before the result line
-            log(f"[quote] give-up check failed: {type(e).__name__}: {e}")
-        if gave_up:
-            log(f"[quote] every SKU of {len(others) + 1} shops asked over my limit in the last {HOPELESS_HOURS} h: no quote, no talk")
-        stats = market_model.break_stats(market_model.load_rows(md), catalog) if order.get("kind") == "goods" else None
-        chance_of = (lambda sku: market_model.break_chance(stats, sku)) if stats else (lambda sku: None)
-        best, quotes = best_quote(shop, others, order, catalog, args.budget, chance_of, buyer_cfg()) \
-            if time.time() - STARTED < 60 and not gave_up else (shop, {})
+        others = [s for s in quotable if s is not shop]
+        # with quotes already asked, best_quote runs even late: it waits for them and closes every talk but the one kept
+        best, quotes = best_quote(shop, others, order, catalog, args.budget, chance_of, buyer_cfg(), pre=pre) \
+            if (pre or time.time() - STARTED < 60) and not gave_up else (shop, {})
         if best is not shop:
             reason = f"best quote of {len(quotes)} ({quotes[best['name']]['ask']}); first choice was {shop['name']}"
             shop = best
