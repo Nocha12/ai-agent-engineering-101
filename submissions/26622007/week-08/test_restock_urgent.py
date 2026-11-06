@@ -59,6 +59,17 @@ class UrgentListedTest(unittest.TestCase):
         got = restock.urgent_listed(CFG, inv("P1", "H1", *["F1"] * 15), CATALOG, model=model)
         self.assertEqual(got, ["F2", "H2", "P1", "H1", "F1"])      # cover 0.5 h, 1 h, 1.5 h; empty ones first as before
 
+    def test_hours_left_use_our_recent_sales_when_they_beat_the_model(self):
+        # 11/07 07:46 window held back G429bd69e (4 held, model 0.94/h -> 4.3 h, sold 4.3/h over 3 h -> 0.9 h)
+        model = {"skus": {"F1": {"rate": 100, "my_share": 0.1}, "P1": {"rate": 40, "my_share": 0.05, "mine_rate": 0.5},
+                          "H1": {"rate": 10, "my_share": 0.1, "mine_rate": 4}}}
+        got = restock.urgent_listed(CFG, inv("P1", "H1", *["F1"] * 15), CATALOG, model=model)
+        self.assertEqual(got, ["F2", "H2", "H1", "P1", "F1"])      # H1 1/4 h, P1 0.5 h (its 0.5/h under the model's 2), F1 1.5 h
+        for bad in ("x", float("nan"), True, float("inf"), -1, None):
+            model["skus"]["H1"]["mine_rate"] = bad
+            self.assertEqual(restock.urgent_listed(CFG, inv("P1", "H1", *["F1"] * 15), CATALOG, model=model),
+                             ["F2", "H2", "P1", "H1", "F1"])       # unusable: the model's rate alone, as before
+
     def test_a_refill_the_model_does_not_know_goes_after_the_known_ones(self):
         model = {"skus": {"H1": {"rate": 10, "my_share": 0.1}, "F1": {"rate": "x", "my_share": 0.1}}}
         got = restock.urgent_listed(CFG, inv("P1", "F1", "H1", "H2", "F2"), CATALOG, model=model)

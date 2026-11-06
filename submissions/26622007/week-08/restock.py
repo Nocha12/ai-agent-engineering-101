@@ -131,7 +131,7 @@ def listed(cfg):
 def urgent_listed(cfg, inv, catalog, waiting=(), model=None):
     """listed(cfg) with the SKUs that have no live unit held or on its way first (food before goods), then the refills
     (food before goods), each in list order. With the demand model the refills go by the hours their stock lasts at
-    rate x my_share, lowest first, and those it has no rate for after them in list order: in the 06:23 window (11/07) run 2
+    rate x my_share (or our own last price_hours' sales when faster), lowest first, and those it has no rate for after them in list order: in the 06:23 window (11/07) run 2
     spent two of its ~10 s calls on 3 apples and 1 kimchi (16 and 15 held) and held back G021aae64 (1 held, 7 sold/h)
     and G03d0199f when the window closed; the window ends 2-4 lines short every time, never short of cash.
     A window serves ~14 lines (one about every 10 s): at 04:44 (11/07) the runs refilled SKUs that still held 2-12 units
@@ -144,12 +144,18 @@ def urgent_listed(cfg, inv, catalog, waiting=(), model=None):
     food = lambda s: (catalog.get(s) or {}).get("kind") == "food"
     skus = (model or {}).get("skus") if isinstance(model, dict) else None
 
+    num = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
     def lasts(s):       # hours the held units last; None when the model has no usable rate for the SKU
         m = skus.get(s) if isinstance(skus, dict) else None
         r = m.get("rate") if isinstance(m, dict) else None
         sh = m.get("my_share") if isinstance(m, dict) else None
-        ok = all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in (r, sh))
-        return have[s] / (r * sh) if ok and math.isfinite(r * sh) and r * sh > 0 else None
+        if not (num(r) and num(sh) and math.isfinite(r * sh) and r * sh > 0):
+            return None
+        # our own sales over the model's price_hours when faster: the weighted share lags a day behind a SKU we only
+        # began to stock (07:46 window held back G429bd69e, 4 held: 4.3 h at the model, 0.9 h at our 4.3 sold/h)
+        mine = m.get("mine_rate")
+        return have[s] / max(r * sh, mine if num(mine) and mine > 0 else 0)
     if not isinstance(skus, dict):
         return sorted(listed(cfg), key=lambda s: (have[s] > 0, not food(s)))     # stable: list order within each group
     # empty (food first), then refills with a rate by hours left, then refills without one as before (food first)

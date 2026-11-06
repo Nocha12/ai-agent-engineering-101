@@ -329,6 +329,17 @@ class CapitalScale7Test(unittest.TestCase):
                           cfg={"min_settles": 1, "price_hours": 3})["skus"]["F1"]["price_ratio"]
         self.assertAlmostEqual(few, 0.9)        # under min_prices recent deals: the whole log, as before
 
+    def test_mine_rate_is_our_own_sales_per_hour_over_price_hours(self):
+        # 11/07 08:0x ledger: G24f5f979 rate x my_share 2.3/h (a 24 h half-life share from before we stocked it) while we
+        # sold 11.3/h over the last 3 h; restock's hours-left order needs what we sell now (W-20261106-2225-AX극단상향)
+        rows = many(30, shop="https://rival", age_hours=20) + many(6, 100, shop="https://me", age_hours=1) \
+            + many(3, 200, shop="https://rival", age_hours=1) + many(4, 300, shop="https://me", age_hours=10)
+        rows = [dict(r, buyer=f"b{i}") for i, r in enumerate(rows)]       # no captive buyer
+        m = mm.estimate(rows, CATALOG, set(), {"https://me"}, now=NOW, cfg={"min_settles": 1, "price_hours": 3})["skus"]["F1"]
+        self.assertAlmostEqual(m["mine_rate"], 2.0)          # 6 of ours in 3 h; the 10 h old ones are out of the window
+        m = mm.estimate(rows, CATALOG, set(), {"https://me"}, now=NOW, cfg={"min_settles": 1})["skus"]["F1"]
+        self.assertNotIn("mine_rate", m)                      # no price_hours: no recent window, as before
+
     def test_each_grade_gets_its_own_median(self):
         # 11/06 20:4x-23:4x ledger: G8ec51935 A 0.700, B 0.637, C 0.580 of list against 0.681 for all grades, so a B unit
         # opened at the all-grade median was agreed and then paid elsewhere (W-20261106-2225-AX극단상향)

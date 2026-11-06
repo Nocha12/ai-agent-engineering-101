@@ -258,6 +258,7 @@ def estimate(rows, catalog, me_buyers=(), me_shops=(), now=None, cfg=None):
     weight = lambda ts: 0.5 ** (max(0, now - ts) / hl)
 
     sku = collections.defaultdict(lambda: {"c": 0.0, "mine": 0.0, "ratios": [], "recent": [], "buyers": set(), "sellers": set(),
+                                           "mine_recent": 0,
                                            "deals": 0, "grades": collections.defaultdict(lambda: ([], []))})
     recent = cfg.get("price_hours")
     recent = recent * 3600 if isinstance(recent, (int, float)) and not isinstance(recent, bool) and recent > 0 else None
@@ -286,6 +287,8 @@ def estimate(rows, catalog, me_buyers=(), me_shops=(), now=None, cfg=None):
         cat[x["category"]] += w
         if r.get("shop") in me_shops:
             s["mine"] += w
+            if recent and now - r["ts"] <= recent:
+                s["mine_recent"] += 1
         elif r.get("shop"):
             s["sellers"].add(r["shop"])
 
@@ -315,6 +318,8 @@ def estimate(rows, catalog, me_buyers=(), me_shops=(), now=None, cfg=None):
                    # paid elsewhere while A units sold under their market. A grade without min_prices deals is left out.
                    "grade_ratio": grade_ratios(s, recent, cfg["min_prices"]),
                    "deals": s["deals"], "buyers": len(s["buyers"]), "sellers": len(s["sellers"])}
+        if recent:      # what we sell now: the weighted share lags by a day (11/07 08:0x G24f5f979 2.3/h at rate x
+            skus[k]["mine_rate"] = s["mine_recent"] / (recent / 3600)    # my_share against 11.3/h of ours over 3 h)
     return {"active": used >= cfg["min_settles"], "n": used, "skus": skus,
             "cats": {c: {"rate": w / hours} for c, w in cat.items()},
             "buyers": {b: [c for c, _ in sorted(p.items(), key=lambda kv: -kv[1])[:5]] for b, p in prefs.items()},
