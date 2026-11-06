@@ -76,9 +76,14 @@ class SellerTurnTest(unittest.TestCase):
         self.assertNotRegex(d["message"], r"(?i)come down|lower|discount|reduce|meet you|a bit more")
 
     def test_holding_the_ask_at_the_floor_promises_no_discount(self):
-        d = negotiate.seller_turn("25999", dict(DEAL, ask=26000), 26000)
-        self.assertEqual((d["action"], d["price"]), ("counter", 26000))
-        self.assertNotRegex(d["message"], r"(?i)come down|lower|better price|discount|meet you|partway")
+        # "I cannot go lower than this" (negotiate.HOLD) refuses a discount; the line is picked at random, so a bare
+        # "lower" made this test fail one run in three (11/07 01:35 Pro cycle). Every HOLD line is checked each run.
+        for hold in negotiate.HOLD:
+            with mock.patch.object(negotiate.random, "choice", side_effect=lambda seq, h=hold: h if seq is negotiate.HOLD else seq[0]):
+                d = negotiate.seller_turn("25999", dict(DEAL, ask=26000), 26000)
+            self.assertEqual((d["action"], d["price"]), ("counter", 26000))
+            self.assertIn(hold.split("{")[0], d["message"])
+            self.assertNotRegex(d["message"], r"(?i)come down|(?<!cannot go )lower|better price|discount|meet you|partway")
 
     def test_at_the_round_limit_the_line_fits_the_reject_seller_py_adds(self):
         d = negotiate.seller_turn("21000", dict(DEAL, rounds=10), 26000, max_rounds=10)

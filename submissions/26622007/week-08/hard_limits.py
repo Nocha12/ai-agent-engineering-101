@@ -41,7 +41,12 @@ REFUND_EXPECTED = 0.06
 # Tail (independent review, 11/06 22:4x): a bad 6 h can refund 13% while sales stop, so the buffer never keeps less than
 # that worst-rate exposure, up to the most Round 3 ever refunded in 6 h. A shop with no recent sales keeps nothing extra.
 REFUND_WORST = 0.13
-REFUNDS_6H_WORST = 5800000
+# The most Round 3 refunded in 6 h, from the ledger: 5.76M up to 11/06 22:2x, then 14,438,775 in the 6 h to 11/07 01:24
+# (175 refunds, GPT Pro 11/07 01:35, recounted from r3_supply_broken_expire_storage.csv). At 5.8M the buffer was 12.9M
+# (02:34), so that window with sales stopped would have taken the balance under BANKRUPT_LINE. 20M keeps ~1.4x that
+# (independent review: the window was still climbing at the last refund and 6 h warranted sales had grown 56M -> 269M);
+# it binds only above ~154M of weighted exposure, where 13% says more. Raise it again when a 6 h window refunds more.
+REFUNDS_6H_WORST = 20000000
 # GPT Pro 11/06 23:40 replay: with the two rates alone 14 of 481 past board times would have crossed the line had nothing
 # sold after them; the BIGGEST_SALES biggest warranted sales of the last BREAK_HOURS, refunded in full, made it 0 of 481
 BIGGEST_SALES = 3
@@ -52,8 +57,9 @@ STORAGE_PER_DAY = 0.01
 # int(nan) and crash the hook (independent review). 1e12 is 200,000 x the starting 5M.
 OPEN = 10 ** 12
 # Without the ledger the exposure is not known: 13% (the worst 6 h bucket) of 6 h of goods sales at our 11/06
-# 19:15-20:47 rate (38M/h), halved for the even spread of breaks over the 6 h.
-UNKNOWN_EXPOSURE = 15000000
+# 19:15-20:47 rate (38M/h), halved for the even spread of breaks over the 6 h; never under the worst 6 h refunded
+# (independent review 11/07: an unreadable ledger must not keep less than a readable one at the worst window).
+UNKNOWN_EXPOSURE = max(15000000, REFUNDS_6H_WORST)
 PROTECTED = ("hard_limits.py", "test_hard_limits.py", "run_market.sh", "run_meta.sh", "ensure_running.sh")
 # Steps: a rise is no longer limited (a person, 11/06 19:03: compounding should not wait for cycles); a fall still is,
 # since a cut does nothing for growth and one cycle once cut a cap to nothing (11/05 11:48).

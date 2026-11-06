@@ -139,10 +139,15 @@ class GuardsStayHookedTest(unittest.TestCase):
         self.assertEqual(hl.cash_buffer(0, [], now), 1000000)                                    # STOP_BUYING_BELOW
         self.assertEqual(hl.cash_buffer(100000000, [], now), 500000 + 1000000)                 # one day of 1% storage
         sold = [(now, 1000000)] * 100 + [(now - 3 * 3600, 1000000)] * 100 + [(now - 7 * 3600, 9000000)]  # new, half-way, past 6 h
-        self.assertEqual(hl.cash_buffer(0, sold, now), 500000 + 9000000)          # 6% of 150M weighted
-        # small sales: the worst rate's exposure (13%), up to the most ever refunded in 6 h (5.8M)
+        self.assertEqual(hl.cash_buffer(0, sold, now), 500000 + 19500000)         # 6% of 150M weighted (9M) < 13% (19.5M)
+        self.assertEqual(hl.cash_buffer(0, [(now, 1000000)] * 400, now), 500000 + 24000000)   # 6% of 400M is above 20M
+        # small sales: the worst rate's exposure (13%), up to ~1.4x the most ever refunded in 6 h (20M: 14,438,775 in the
+        # 6 h to 11/07 01:24, GPT Pro 01:35; it was 5.8M, which a stop in sales after that window would have crossed)
         self.assertEqual(hl.cash_buffer(0, [(now, 100000)] * 100, now), 500000 + 1300000)
-        self.assertEqual(hl.cash_buffer(0, [(now, 100000)] * 600, now), 500000 + 5800000)
+        self.assertEqual(hl.cash_buffer(0, [(now, 100000)] * 600, now), 500000 + 7800000)
+        self.assertEqual(hl.cash_buffer(0, [(now, 100000)] * 2000, now), 500000 + 20000000)
+        self.assertGreater(hl.REFUNDS_6H_WORST, 14438775)
+        self.assertGreaterEqual(hl.UNKNOWN_EXPOSURE, hl.REFUNDS_6H_WORST)   # an unreadable ledger keeps no less
 
     def test_the_cash_buffer_covers_the_three_biggest_sales_still_under_warranty(self):
         # GPT Pro 11/06 23:40 (메인 23:40 파산 방지 최우선): with 6% / 13% capped at 5.8M, 14 of 481 past board times would
@@ -157,7 +162,7 @@ class GuardsStayHookedTest(unittest.TestCase):
         self.assertEqual(hl.cash_buffer(-5, [("x", None), (now, float("nan")), (now, float("inf"))], now), 1000000)
         self.assertEqual(hl.cash_buffer(float("inf"), [], now), 1000000)
         self.assertEqual((hl.REFUND_EXPECTED, hl.REFUND_WORST, hl.REFUNDS_6H_WORST, hl.BREAK_HOURS, hl.STORAGE_DAYS),
-                         (0.06, 0.13, 5800000, 6, 1.0))
+                         (0.06, 0.13, 20000000, 6, 1.0))
         self.assertEqual(hl.BOUNDS["price.goods_break"], (0.03, 0.5))
         self.assertTrue(hl.check_policy_change({"price": {"goods_break": 0.035}}, {"price": {"goods_break": 0.02}}))
         self.assertEqual(hl.spendable(30000000, 20000000), 10000000)
