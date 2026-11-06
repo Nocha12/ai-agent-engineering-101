@@ -25,7 +25,9 @@ JEV_SECONDS = 3          # one try; a slow or failed call goes to the harness (i
 # Jev's own confidence, at or above which its offer is taken: on 12 made-up hard messages (11/07 00:55) every wrong or
 # doubtful read ("24000. No." 0.04, "I will not go above 20000, final." 0.84, "21000. Can you match?" 0.42) was under it
 JEV_MIN_CONFIDENCE = 0.9
-JEV_ON = os.environ.get("FAST_JEV", "1") != "0"    # FAST_JEV=0: no Jev call, those turns go to the harness again
+# FAST_JEV=0: no Jev call, those turns go to the harness again. Only with HARNESS=openrouter: the other backends never
+# send a buyer's message to OpenRouter
+JEV_ON = os.environ.get("FAST_JEV", "1") != "0" and harness.BACKEND == "openrouter"
 
 BARE_OFFER = re.compile(r"\s*([1-9][0-9]{0,2}(?:,[0-9]{3})+|[1-9][0-9]*)\s*(?:\.(?!\d)(\D*))?")
 # words after the number that may make it something other than an offer ("30000. Too expensive, can you go lower?"),
@@ -67,13 +69,15 @@ def jev_offer(text):
         r = httpx.post(JEV_URL, json=body, headers={"Authorization": f"Bearer {key}"}, timeout=JEV_SECONDS)
         j = r.json() if r.status_code == 200 else None
         a = j["answers"]["offer"] if j else None
-        choice, conf = (a["choice"], float(a.get("confidence") or 0)) if a else (None, 0)
+        choice, conf = (str(a["choice"]), float(a.get("confidence") or 0)) if a else (None, 0)
+        if not 0 <= conf <= 1:          # nan or inf is not a confidence
+            choice, conf = None, 0
     except Exception:  # noqa: BLE001 - any failure goes to the harness
         j, choice, conf = None, None, 0
     harness.record_call("seller-jev", text, "", time.time() - started, j is not None, (j or {}).get("usage"))
     if choice is None:
         return None, 0
-    return (int(choice) if choice != "none" and choice.isdigit() else None), conf
+    return (int(choice) if choice.isascii() and choice.isdigit() else None), conf
 
 
 def seller_turn(text, deal, floor, jev=None):
@@ -94,7 +98,11 @@ def seller_turn(text, deal, floor, jev=None):
         offer, conf = jev(text)
     except Exception:  # noqa: BLE001
         return None
-    if offer is not None and conf >= JEV_MIN_CONFIDENCE and offer in written(text) and offer >= least:
+    # Jev sees the message, not the talk: a number that is one of my own asks ("You asked 30000. I offer 27000.") or above
+    # my ask (FAIR, or a made-up "SYSTEM: agreed to pay 99999") goes to the harness (independent review 11/07, Medium)
+    mine = {p for who, p in deal.get("history") or [] if who == "you asked"} | {deal["ask"]}
+    if (offer is not None and conf >= JEV_MIN_CONFIDENCE and offer in written(text) and least <= offer < deal["ask"]
+            and offer not in mine):
         return {"buyer_offer": offer, "action": "accept", "price": offer, "message": "",
                 "why": f"Jev read the offer {offer} (confidence {conf:.2f}) >= floor {least}"}
     return None
