@@ -288,8 +288,8 @@ def unreachable(trades):
 
 def short_warranty_shops(memory, catalog, now=None):
     """Shops whose recent goods sales to me came with too short a warranty, so I paid for none of them: of a shop's last
-    SHORT_WARRANTY_LAST goods talks that ended with a receipt in the last SHORT_WARRANTY_HOURS, SHORT_WARRANTY_MIN or more
-    ended no_warranty. On 11/05 08:00-19:32 seochanit's receipts said 0 h on 22 of 23 completed goods talks and yms979's on
+    SHORT_WARRANTY_LAST goods talks that ended with a receipt in the last SHORT_WARRANTY_HOURS, the last one or
+    SHORT_WARRANTY_MIN or more ended no_warranty. On 11/05 08:00-19:32 seochanit's receipts said 0 h on 22 of 23 completed goods talks and yms979's on
     every goods receipt from about 19:00, after 74 goods deals (measure orders, buyer memory): each was an order spent with
     nothing bought. The quote does not say the warranty, so only these results show it. Food has no warranty to fall short
     of; after the hours a shop is tried again."""
@@ -303,7 +303,8 @@ def short_warranty_shops(memory, catalog, now=None):
             continue
         if t.get("shop") and now - at <= SHORT_WARRANTY_HOURS * 3600:
             out.setdefault(t["shop"], []).append(t["result"])
-    return {s for s, r in out.items() if r[-SHORT_WARRANTY_LAST:].count("no_warranty") >= SHORT_WARRANTY_MIN}
+    # the last one short is enough (11/07 02:00-07:10: 10 of 19 short receipts were the second of a pair from one shop)
+    return {s for s, r in out.items() if r[-1] == "no_warranty" or r[-SHORT_WARRANTY_LAST:].count("no_warranty") >= SHORT_WARRANTY_MIN}
 
 
 def skip_short_warranty(shops, memory, catalog, order, now=None):

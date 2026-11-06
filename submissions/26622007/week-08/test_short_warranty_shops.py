@@ -19,12 +19,18 @@ class ShortWarrantyShopsTest(unittest.TestCase):
         # seochanit on 11/05: a goods deal now and then between 0 h receipts
         t = [trade("s", "G1", "no_warranty", 900), trade("s", "G2", "deal", 600), trade("s", "G1", "no_warranty", 300)]
         self.assertEqual(self.skips(t), {"s"})
-        self.assertEqual(self.skips(t[:2]), set())                # one short receipt is not a pattern
+        self.assertEqual(self.skips(t[:2]), set())                # one short receipt with a deal after it: tried again
 
     def test_only_the_last_three_count(self):
         t = [trade("s", "G1", "no_warranty", 900), trade("s", "G1", "no_warranty", 800),
-             trade("s", "G1", "deal", 300), trade("s", "G2", "deal", 200), trade("s", "G1", "no_warranty", 100)]
+             trade("s", "G1", "deal", 300), trade("s", "G2", "deal", 200)]
         self.assertEqual(self.skips(t), set())                    # the shop fixed its warranty
+
+    def test_the_last_goods_receipt_short_skips_the_shop(self):
+        # 11/07 02:00-07:10: 19 short receipts, 10 of them the second of a pair from the same shop within the hour
+        # (seochanit SS..SS, yms979 SSS, lee-sungsoo SSS): the first one is enough to leave it out for the hours
+        t = [trade("s", "G1", "deal", 900), trade("s", "G2", "deal", 600), trade("s", "G1", "no_warranty", 300)]
+        self.assertEqual(self.skips(t), {"s"})
 
     def test_food_and_talks_without_a_receipt_do_not_count(self):
         t = [trade("s", "G1", "no_warranty", 900), trade("s", "F1", "deal", 800), trade("s", "G1", "rejected", 700),
