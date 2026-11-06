@@ -2,7 +2,7 @@
 Terra and Astra from Round 3's own numbers, a bounded step at a time.
 
 - Bankruptcy: no stock is bought that could take the balance under cash_buffer(): the market's 500,000 line plus the
-  refunds still owed at the measured rate and a day of storage (never under STOP_BUYING_BELOW;
+  refunds still owed at the worst rate and a day of storage (never under STOP_BUYING_BELOW;
   a bankruptcy's 5,000,000 counts against profit). The kit files only when nothing is left to sell. Since 11/06 19:03
   (a person) this is the only line on stock and capital: the stock cap and the step limits on a rise are open.
 - pricing.json: a rise is not limited; a fall moves at most MAX_STEP_DOWN of its value per cycle, inside BOUNDS where
@@ -38,14 +38,18 @@ STOP_BUYING_BELOW = 1000000          # a supply that could leave less than this 
 # + a 2.5M bad day) kept 17-18M against a 20M balance and held supplies back from 21:05. The sales still coming in pay
 # refunds too; this is what is kept if they stop.
 REFUND_EXPECTED = 0.06
-# Tail (independent review, 11/06 22:4x): a bad 6 h can refund 13% while sales stop, so the buffer never keeps less than
-# that worst-rate exposure, up to the most Round 3 ever refunded in 6 h. A shop with no recent sales keeps nothing extra.
-REFUND_WORST = 0.13
+# Tail (independent review, 11/06 22:4x): a bad 6 h can refund much more than the average while sales stop, so the buffer
+# never keeps less than the worst rate's exposure. A shop with no recent sales keeps nothing extra.
+# GPT Pro 11/07 04:30 S1 replay (review/W-20261107-0600-AX파산안전, testdata/r3_cash_replay.json): of the 549 past board
+# times whose next 6 h the ledger has seen, the worst 6 h refunded 18.6% of the weighted exposure (11/06 05:25, 27M) and
+# 14.9% at 83M (11/06 20:33); at 13% capped at REFUNDS_6H_WORST the cash spent to the buffer fell short 3 times
+# (worst 673,731 under the line). 20%, with no cap, covers every one of them on its own.
+REFUND_WORST = 0.20
 # The most Round 3 refunded in 6 h, from the ledger: 5.76M up to 11/06 22:2x, then 14,438,775 in the 6 h to 11/07 01:24
 # (175 refunds, GPT Pro 11/07 01:35, recounted from r3_supply_broken_expire_storage.csv). At 5.8M the buffer was 12.9M
-# (02:34), so that window with sales stopped would have taken the balance under BANKRUPT_LINE. 20M keeps ~1.4x that
-# (independent review: the window was still climbing at the last refund and 6 h warranted sales had grown 56M -> 269M);
-# it binds only above ~154M of weighted exposure, where 13% says more. Raise it again when a 6 h window refunds more.
+# (02:34), so that window with sales stopped would have taken the balance under BANKRUPT_LINE. 20M keeps ~1.4x that.
+# Since 11/07 06:xx it no longer caps REFUND_WORST's exposure (a cap is what fell short 3 of 549 times, GPT Pro 04:30
+# S1); it stays the least an unreadable ledger would have to keep (UNKNOWN_EXPOSURE). Raise it when a 6 h refunds more.
 REFUNDS_6H_WORST = 20000000
 # GPT Pro 11/06 23:40 replay: with the two rates alone 14 of 481 past board times would have crossed the line had nothing
 # sold after them; the BIGGEST_SALES biggest warranted sales of the last BREAK_HOURS, refunded in full, made it 0 of 481
@@ -53,12 +57,16 @@ BIGGEST_SALES = 3
 BREAK_HOURS = 6
 STORAGE_DAYS = 1.0
 STORAGE_PER_DAY = 0.01
+# A unit bought adds its own storage to the buffer: each one is paid for at cost x (1 + BUY_STORAGE) out of the cash over
+# it (GPT Pro 11/07 04:30 S1: the storage after the buy belongs in the same cash check)
+BUY_STORAGE = STORAGE_DAYS * STORAGE_PER_DAY
 # "Open" bounds are a large finite number, never inf: json reads Infinity, and an inf keep_cash made guard() compute
 # int(nan) and crash the hook (independent review). 1e12 is 200,000 x the starting 5M.
 OPEN = 10 ** 12
-# Without the ledger the exposure is not known: 13% (the worst 6 h bucket) of 6 h of goods sales at our 11/06
-# 19:15-20:47 rate (38M/h), halved for the even spread of breaks over the 6 h; never under the worst 6 h refunded
-# (independent review 11/07: an unreadable ledger must not keep less than a readable one at the worst window).
+# Without the ledger the exposure is not known. It was kept at this guess (13% of 6 h of goods sales at our 11/06
+# 19:15-20:47 rate, never under the worst 6 h refunded); since 11/07 06:xx an unreadable ledger buys nothing at all
+# (cash_buffer returns OPEN; GPT Pro 04:30 S1: exposure missing -> no new stock), since 20% of 11/07 04:31's exposure
+# (196M) was already 39M, twice this guess.
 UNKNOWN_EXPOSURE = max(15000000, REFUNDS_6H_WORST)
 PROTECTED = ("hard_limits.py", "test_hard_limits.py", "run_market.sh", "run_meta.sh", "ensure_running.sh")
 # Steps: a rise is no longer limited (a person, 11/06 19:03: compounding should not wait for cycles); a fall still is,
@@ -182,19 +190,18 @@ ENV_SECRET = r"KEY|TOKEN|SECRET|PASS|OWNER|AUTH|COOKIE|CRED"     # never passed,
 
 def cash_buffer(stock_cost=0, sales=None, now=None):
     """The cash a buy may not take the balance under: the bankruptcy line, the refunds the shop's warranted goods sales of
-    the last BREAK_HOURS are expected to bring at the measured rate (REFUND_EXPECTED; never under the worst rate's
-    exposure up to REFUNDS_6H_WORST, nor under the BIGGEST_SALES biggest of those sales in full) and STORAGE_DAYS of storage on the
-    stock. sales: [(unix time, price)] of this shop's warranted goods sales, or None when the ledger could not be read
-    (UNKNOWN_EXPOSURE then). Never under STOP_BUYING_BELOW."""
+    the last BREAK_HOURS can still bring at the worst rate (REFUND_WORST, no cap; never under the BIGGEST_SALES biggest
+    of those sales in full) and STORAGE_DAYS of storage on the stock (held and on its way). sales: [(unix time, price)]
+    of this shop's warranted goods sales, or None when the ledger could not be read: then OPEN, so nothing is bought.
+    Never under STOP_BUYING_BELOW."""
     now = now or time.time()
     span = BREAK_HOURS * 3600
     if sales is None:
-        owed = UNKNOWN_EXPOSURE
-    else:
-        live = [(t, p) for t, p in sales if number(t) and number(p) and p > 0 and 0 <= now - t < span]
-        left = sum(p * (span - (now - t)) / span for t, p in live)
-        top = sum(sorted((p for _, p in live), reverse=True)[:BIGGEST_SALES])
-        owed = max(REFUND_EXPECTED * left, min(REFUNDS_6H_WORST, REFUND_WORST * left), top)
+        return OPEN
+    live = [(t, p) for t, p in sales if number(t) and number(p) and p > 0 and 0 <= now - t < span]
+    left = sum(p * (span - (now - t)) / span for t, p in live)
+    top = sum(sorted((p for _, p in live), reverse=True)[:BIGGEST_SALES])
+    owed = max(REFUND_EXPECTED * left, REFUND_WORST * left, top)
     stock = stock_cost if number(stock_cost) and stock_cost > 0 else 0
     return max(STOP_BUYING_BELOW, math.ceil(BANKRUPT_LINE + owed + STORAGE_DAYS * STORAGE_PER_DAY * stock))
 
@@ -270,12 +277,13 @@ def clamp_cfg(section, cfg):
 
 def final_buy(buy, balance, catalog, worst=0.75, buffer=STOP_BUYING_BELOW):
     """The last word on a restock's lines, just before the kit buys them: none that could take the balance under the cash
-    buffer (cash_buffer, plus what lines already sent will still cost; never under STOP_BUYING_BELOW) at worst cost."""
+    buffer (cash_buffer, plus what lines already sent will still cost; never under STOP_BUYING_BELOW) at worst cost, with
+    the storage each unit bought adds to the buffer (BUY_STORAGE)."""
     left, out = spendable(balance, buffer), []
     for b in buy if isinstance(buy, list) else []:
         if not isinstance(b, dict) or not isinstance(b.get("qty"), int) or isinstance(b.get("qty"), bool):
             continue
-        unit = ((catalog.get(b.get("sku")) or {}).get("list_price") or 0) * worst
+        unit = ((catalog.get(b.get("sku")) or {}).get("list_price") or 0) * worst * (1 + BUY_STORAGE)
         qty = min(b["qty"], 20, int(left // unit) if unit > 0 else 0)
         if qty >= 1:
             out.append({"sku": b["sku"], "qty": qty})

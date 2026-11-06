@@ -312,11 +312,14 @@ def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
         asked, capped = qty, min(qty, cap - count[b["sku"]])
         # priced on the capped line, not the line the cash leaves: a few won high at most, never low
         unit = worst(b["sku"], capped, catalog, factors) if x.get("list_price") else float("inf")
-        limit = min(spare, room, food_room if x.get("kind") == "food" else float("inf"))
-        qty = min(capped, int(limit // unit) if unit < float("inf") else 0)
+        paid = unit * (1 + hard_limits.BUY_STORAGE)      # the cash a unit takes: its cost and the storage it adds
+        stock_limit = min(room, food_room if x.get("kind") == "food" else float("inf"))
+        by_cash = int(spare // paid) if unit < float("inf") else 0
+        by_stock = capped if stock_limit == float("inf") else int(stock_limit // unit) if unit < float("inf") else 0
+        qty = min(capped, by_cash, by_stock)
         if qty < asked:     # which limits cut the line, so a stock-out can be traced to a cap or the cash
             why = (["units per SKU"] if capped < asked else []) + ([
-                "no list price" if unit == float("inf") else "cash kept" if limit == spare else "stock cost" if limit == room
+                "no list price" if unit == float("inf") else "cash kept" if qty == by_cash else "stock cost" if stock_limit == room
                 else "food stock cost"] if qty < capped else [])
             print(f"[restock] guard: {b['sku']} {asked} -> {max(qty, 0)} ({', '.join(why)})", file=sys.stderr)
             if qty < 1 and "stock cost" in why and x.get("kind") == "food" and proven_or_priority and count[b["sku"]] <= 0 \
@@ -329,7 +332,7 @@ def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
             continue
         out.append({"sku": b["sku"], "qty": qty})
         count[b["sku"]] += qty
-        spare, room = spare - unit * qty, room - unit * qty
+        spare, room = spare - paid * qty, room - unit * qty
         if x.get("kind") == "food":
             food_room -= unit * qty
     return out
@@ -343,18 +346,35 @@ def read_breaks(state, catalog):
 
 
 SALES_TAIL_BYTES = 15000000      # the ledger's last ~9 h (11/06: 30 MB held 17 h); refunds come within BREAK_HOURS
+# read before an unreadable exposure stops the buys (11/07 05:4x: 15 MB held 8.2 h, 60 MB 34 h)
+SALES_TAIL_MAX_BYTES = 60000000
 
 
 def warranted_sales(state, catalog, now=None):
     """[(time, price)] of this shop's warranted goods sales in the last hard_limits.BREAK_HOURS, from the tail of the
-    ledger rows (a result row names the seller, the settle row the price and the warranty); None when unreadable, so
-    cash_buffer() keeps its UNKNOWN_EXPOSURE."""
+    ledger rows (a result row names the seller, the settle row the price and the warranty); a longer tail, up to
+    SALES_TAIL_MAX_BYTES, when the first does not reach back BREAK_HOURS; None when unreadable, so cash_buffer() buys
+    nothing."""
+    size = SALES_TAIL_BYTES
+    while True:
+        out = _warranted_sales(state, catalog, now, size)
+        if out is not SHORT:
+            return out
+        if size >= SALES_TAIL_MAX_BYTES:
+            return None
+        size = min(size * 4, SALES_TAIL_MAX_BYTES)
+
+
+SHORT = object()        # the tail read does not reach back BREAK_HOURS
+
+
+def _warranted_sales(state, catalog, now, tail):
     now, mine = now or time.time(), market_model.my_shops()
     since = now - hard_limits.BREAK_HOURS * 3600
     try:
         with open(os.path.join(state, market_model.ROWS), "rb") as f:
             f.seek(0, os.SEEK_END)
-            start = max(0, f.tell() - SALES_TAIL_BYTES)
+            start = max(0, f.tell() - tail)
             f.seek(start)
             lines = f.read().decode("utf-8", "replace").splitlines()[1 if start else 0:]   # a cut first line only
     except FileNotFoundError:       # no ledger yet (a new or reset shop): no sales of ours to refund
@@ -377,7 +397,7 @@ def warranted_sales(state, catalog, now=None):
                 and (catalog.get(r.get("sku")) or {}).get("kind") == "goods" and isinstance(r.get("amount"), (int, float)):
             sold.append(r)
     if start and (first is None or first > since):
-        return None         # the tail no longer covers BREAK_HOURS: the buffer assumes UNKNOWN_EXPOSURE, not too little
+        return SHORT        # the tail no longer covers BREAK_HOURS: a longer one, or no buys, never too little kept
     return [(r["ts"], r["amount"]) for r in sold if r.get("order") in ours or str(r.get("shop") or "").rstrip("/") in mine]
 
 
@@ -664,22 +684,25 @@ def main():
     demand, model = load(os.path.join(args.state, "demand.json"), []), read_model(args.state, catalog, cfg)
     loss_watch.check(args.state)           # after read_model: the ledger rows are fresh
     breaks = read_breaks(args.state, catalog)
+    blind = False
     try:
         waiting = pending(args.state, inv)     # sent lines not yet in inventory.json count as stock in every guard below
-    except Exception as e:   # noqa: BLE001 - an unreadable record of sent lines must not stop the restock
-        print(f"[restock] pending lines unreadable: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
-        waiting = []
+    except Exception as e:   # noqa: BLE001 - lines sent but not known: the cash they took is not known, so no buys
+        print(f"[restock] pending lines unreadable, buying nothing: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        waiting, blind = [], True
     try:
         sales = warranted_sales(args.state, catalog)
-    except Exception as e:   # noqa: BLE001 - the buffer then assumes hard_limits.UNKNOWN_EXPOSURE
+    except Exception as e:   # noqa: BLE001 - the buffer then buys nothing (hard_limits.cash_buffer)
         print(f"[restock] own sales unreadable: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
         sales = None
-    stock = sum(u["cost"] for u in inv.get("units") or [] if isinstance(u, dict) and hard_limits.number(u.get("cost")))
+    # the storage the buffer keeps is on the stock held and on the lines on their way (GPT Pro 11/07 04:30 S1)
+    stock = sum(u["cost"] for u in inv.get("units") or [] if isinstance(u, dict) and hard_limits.number(u.get("cost"))) \
+        + sum(w["worst"] * w["qty"] for w in waiting)
     try:
-        cfg["cash_buffer"] = hard_limits.cash_buffer(stock, sales)     # a person, 11/06 19:03: no bankruptcy, nothing else
-    except Exception as e:   # noqa: BLE001 - never a crash: the unknown exposure instead
+        cfg["cash_buffer"] = hard_limits.OPEN if blind else hard_limits.cash_buffer(stock, sales)   # a person, 11/06 19:03: no bankruptcy
+    except Exception as e:   # noqa: BLE001 - never a crash: no buys instead
         print(f"[restock] cash buffer failed: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
-        cfg["cash_buffer"] = hard_limits.cash_buffer(0, None) + stock * hard_limits.STORAGE_DAYS * hard_limits.STORAGE_PER_DAY
+        cfg["cash_buffer"] = hard_limits.OPEN
     print(f"[restock] cash buffer {cfg['cash_buffer']} (balance {inv.get('balance')}, stock {stock:.0f}, "
           f"{'unknown' if sales is None else len(sales)} warranted goods sales in {hard_limits.BREAK_HOURS} h)",
           file=sys.stderr, flush=True)

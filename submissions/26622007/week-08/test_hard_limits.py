@@ -114,7 +114,7 @@ class GuardsStayHookedTest(unittest.TestCase):
                     mock.patch("builtins.print", lambda *a, **k: printed.append(a[0] if a else "")):
                 restock.main()
         out = json.loads(printed[-1])
-        self.assertEqual(out["buy"], [{"sku": "H1", "qty": 6}])          # (1,090,000 - cash buffer 1,000,000) // 15,000
+        self.assertEqual(out["buy"], [{"sku": "H1", "qty": 5}])          # (1,090,000 - cash buffer 1,000,000) // 15,150
 
     def test_the_stock_cap_is_open(self):
         # a person, 11/06 19:03: "hard_limits 는 완전 풀어버려 그냥 파산만 안되면 문제없어"
@@ -139,13 +139,13 @@ class GuardsStayHookedTest(unittest.TestCase):
         self.assertEqual(hl.cash_buffer(0, [], now), 1000000)                                    # STOP_BUYING_BELOW
         self.assertEqual(hl.cash_buffer(100000000, [], now), 500000 + 1000000)                 # one day of 1% storage
         sold = [(now, 1000000)] * 100 + [(now - 3 * 3600, 1000000)] * 100 + [(now - 7 * 3600, 9000000)]  # new, half-way, past 6 h
-        self.assertEqual(hl.cash_buffer(0, sold, now), 500000 + 19500000)         # 6% of 150M weighted (9M) < 13% (19.5M)
-        self.assertEqual(hl.cash_buffer(0, [(now, 1000000)] * 400, now), 500000 + 24000000)   # 6% of 400M is above 20M
-        # small sales: the worst rate's exposure (13%), up to ~1.4x the most ever refunded in 6 h (20M: 14,438,775 in the
-        # 6 h to 11/07 01:24, GPT Pro 01:35; it was 5.8M, which a stop in sales after that window would have crossed)
-        self.assertEqual(hl.cash_buffer(0, [(now, 100000)] * 100, now), 500000 + 1300000)
-        self.assertEqual(hl.cash_buffer(0, [(now, 100000)] * 600, now), 500000 + 7800000)
-        self.assertEqual(hl.cash_buffer(0, [(now, 100000)] * 2000, now), 500000 + 20000000)
+        self.assertEqual(hl.cash_buffer(0, sold, now), 500000 + 30000000)         # 6% of 150M weighted (9M) < 20% (30M)
+        self.assertEqual(hl.cash_buffer(0, [(now, 1000000)] * 400, now), 500000 + 80000000)   # 20% of 400M, no cap
+        # the worst rate's exposure (20%: the most any past 6 h refunded of its weighted exposure was 18.6%, GPT Pro
+        # 11/07 04:30 S1 replay) is not capped any more: at 20M it fell short 3 of 549 times (11/06 20:2x-20:3x)
+        self.assertEqual(hl.cash_buffer(0, [(now, 100000)] * 100, now), 500000 + 2000000)
+        self.assertEqual(hl.cash_buffer(0, [(now, 100000)] * 600, now), 500000 + 12000000)
+        self.assertEqual(hl.cash_buffer(0, [(now, 100000)] * 2000, now), 500000 + 40000000)
         self.assertGreater(hl.REFUNDS_6H_WORST, 14438775)
         self.assertGreaterEqual(hl.UNKNOWN_EXPOSURE, hl.REFUNDS_6H_WORST)   # an unreadable ledger keeps no less
 
@@ -158,18 +158,18 @@ class GuardsStayHookedTest(unittest.TestCase):
         self.assertEqual(hl.cash_buffer(0, big, now), 500000 + 2500000 + 2400000 + 2300000)
         self.assertEqual(hl.BIGGEST_SALES, 3)
         self.assertEqual(hl.cash_buffer(0, [(now, 3000000), (now, 0), (now, -9000000)], now), 500000 + 3000000)  # fewer than 3
-        self.assertEqual(hl.cash_buffer(0, None, now), 500000 + hl.UNKNOWN_EXPOSURE)  # ledger unreadable
+        self.assertGreaterEqual(hl.cash_buffer(0, None, now), hl.OPEN)              # ledger unreadable: nothing is bought
         self.assertEqual(hl.cash_buffer(-5, [("x", None), (now, float("nan")), (now, float("inf"))], now), 1000000)
         self.assertEqual(hl.cash_buffer(float("inf"), [], now), 1000000)
         self.assertEqual((hl.REFUND_EXPECTED, hl.REFUND_WORST, hl.REFUNDS_6H_WORST, hl.BREAK_HOURS, hl.STORAGE_DAYS),
-                         (0.06, 0.13, 20000000, 6, 1.0))
+                         (0.06, 0.20, 20000000, 6, 1.0))
         self.assertEqual(hl.BOUNDS["price.goods_break"], (0.03, 0.5))
         self.assertTrue(hl.check_policy_change({"price": {"goods_break": 0.035}}, {"price": {"goods_break": 0.02}}))
         self.assertEqual(hl.spendable(30000000, 20000000), 10000000)
         self.assertEqual(hl.spendable(30000000, 0), 29000000)                  # never under STOP_BUYING_BELOW
         self.assertEqual((hl.spendable(30000000, float("nan")), hl.spendable(float("inf"), 0)), (0, 0))   # fails closed
         cat = {"H1": {"list_price": 1000000}}
-        self.assertEqual(hl.final_buy([{"sku": "H1", "qty": 20}], 30000000, cat, buffer=20000000), [{"sku": "H1", "qty": 13}])
+        self.assertEqual(hl.final_buy([{"sku": "H1", "qty": 20}], 30000000, cat, buffer=20000000), [{"sku": "H1", "qty": 13}])  # 757,500 each
         self.assertEqual(hl.final_buy([{"sku": "H1", "qty": 20}], 19000000, cat, buffer=20000000), [])
 
     def test_restock_reads_its_own_warranted_sales_and_says_so_when_it_cannot(self):
@@ -186,8 +186,58 @@ class GuardsStayHookedTest(unittest.TestCase):
             with open(os.path.join(d, "ledger_rows.jsonl"), "w") as f:
                 f.write("\n".join(json.dumps(r) for r in rows) + "\n")
             self.assertEqual(restock.warranted_sales(d, cat, now), [(now - 3600, 90)])
-            with mock.patch.object(restock, "SALES_TAIL_BYTES", 300):                   # the tail misses 6 h
-                self.assertIsNone(restock.warranted_sales(d, cat, now))
+            with mock.patch.object(restock, "SALES_TAIL_BYTES", 300), mock.patch.object(restock, "SALES_TAIL_MAX_BYTES", 300):
+                self.assertIsNone(restock.warranted_sales(d, cat, now))                 # the tail misses 6 h
+            with mock.patch.object(restock, "SALES_TAIL_BYTES", 300):                   # a longer tail is read first
+                self.assertEqual(restock.warranted_sales(d, cat, now), [(now - 3600, 90)])
+
+
+class NoBankruptcyReplayTest(unittest.TestCase):
+    """GPT Pro 11/07 04:30 S1: every past board time whose next 6 h the ledger has seen (549, 11/04 21:15 - 11/06 22:3x),
+    with the cash spent down to cash_buffer() and nothing sold after it, must still pay the refunds that actually came
+    for the warranted goods sold in the 6 h before it, and that window's storage fee (0.25% of the stock), above the
+    bankruptcy line. The old buffer (13% capped at 20M) fell short 3 times (worst 673,731 under, 11/06 20:33)."""
+
+    def test_no_past_board_time_crosses_the_line(self):
+        with open(os.path.join(HERE, "testdata", "r3_cash_replay.json"), encoding="utf-8") as f:
+            data = json.load(f)
+        sales, short = data["sales"], []
+        for t, stock, refunds in data["cases"]:
+            live = [(ts, a) for ts, a in sales if t - 6 * 3600 < ts <= t]
+            left = hl.cash_buffer(stock, live, t) - refunds - 0.0025 * stock
+            if left < hl.BANKRUPT_LINE:
+                short.append((t, round(hl.BANKRUPT_LINE - left)))
+        self.assertEqual(len(data["cases"]), 549)
+        self.assertEqual(short, [])
+
+    def test_unknown_exposure_or_pending_buys_nothing(self):
+        self.assertEqual(hl.spendable(10 ** 11, hl.cash_buffer(0, None)), 0)        # own sales unreadable
+        cat = {"H1": {"kind": "goods", "category": "가전>컵", "list_price": 20000}}
+        with tempfile.TemporaryDirectory() as d:
+            for name, data in (("inventory.json", {"round": 3, "balance": 900000000, "units": []}), ("catalog.json", cat)):
+                with open(os.path.join(d, name), "w") as f:
+                    json.dump(data, f)
+            printed = []
+            env = {k: v for k, v in os.environ.items() if k != "HARNESS"}
+            with mock.patch.object(restock, "read_model", lambda *a: None), \
+                    mock.patch.object(restock.opening, "lines", lambda *a, **k: (None, "test")), \
+                    mock.patch.object(restock, "plan", lambda *a, **k: {"buy": [{"sku": "H1", "qty": 20}]}), \
+                    mock.patch.object(restock, "pending", mock.Mock(side_effect=ValueError("bad file"))), \
+                    mock.patch.dict(os.environ, env, clear=True), mock.patch.object(sys, "argv", ["x", "--state", d]), \
+                    mock.patch("builtins.print", lambda *a, **k: printed.append(a[0] if a else "")):
+                restock.main()
+        self.assertEqual(json.loads(printed[-1])["buy"], [])
+
+    def test_a_buy_keeps_the_storage_of_what_it_buys(self):
+        # 1,000,000 x 0.75 = 750,000 a unit and a day of its storage (7,500): 15,100,000 over the buffer buys 20 units
+        # at cost alone (15,000,000) but 19 once each keeps its own storage (20 x 757,500 = 15,150,000)
+        cat = {"H1": {"list_price": 1000000}}
+        self.assertEqual(hl.final_buy([{"sku": "H1", "qty": 20}], 35100000, cat, buffer=20000000), [{"sku": "H1", "qty": 19}])
+        inv = {"balance": 35100000, "units": []}
+        cfg = dict(restock.DEFAULTS, keep_cash=0, cash_buffer=20000000, max_units_per_sku=100)
+        with mock.patch.object(restock, "surge", lambda inv: {}):
+            self.assertEqual(restock.guard([{"sku": "H1", "qty": 20}], inv, {"H1": {"kind": "goods", "list_price": 1000000}},
+                                           cfg), [{"sku": "H1", "qty": 19}])
 
     def test_the_meta_harness_keeps_cash_for_refunds_and_fees(self):
         old = {"restock": {"keep_cash": 4500000}}

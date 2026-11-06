@@ -45,8 +45,10 @@ class RestockCautionTest(unittest.TestCase):
         self.assertEqual(restock.guard([{"sku": "H1", "qty": 5}], {"balance": 5000000, "units": held}, CATALOG, cfg), [])
         loose = {**cfg, "keep_cash": 0, "max_stock_cost": float("inf")}
         self.assertEqual(restock.guard([{"sku": "H1", "qty": 20}], {"balance": 1010000, "units": []}, CATALOG, loose), [])
+        self.assertEqual(restock.guard([{"sku": "H1", "qty": 20}], {"balance": 1030300, "units": []}, CATALOG, loose),
+                         [{"sku": "H1", "qty": 2}])        # 15,000 worst cost + a day of its storage (150) each
         self.assertEqual(restock.guard([{"sku": "H1", "qty": 20}], {"balance": 1030000, "units": []}, CATALOG, loose),
-                         [{"sku": "H1", "qty": 2}])                                      # 15,000 worst cost each
+                         [{"sku": "H1", "qty": 1}])
 
     def test_goods_that_break_often_are_left_out(self):
         breaks = {"sold": 100, "broke": 10, "rate": 0.1, "by_sku": {"H1": {"sold": 50, "broke": 25}}}
