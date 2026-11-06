@@ -7,7 +7,12 @@ kept 0.364 of list price a deal against the harness's 0.379, at 5.5 s a talk ins
 instead of 47. With 263 h left that is the deals percentile 0.56 -> 0.91 for at most ~0.02 of the saved percentile.
 
 Settings (pricing.json "buyer", read at every order): oneshot (true/false), oneshot_steps (shares of the first ask, rising,
-up to 5). BUYER_ONESHOT=1 / 0 in the environment wins over pricing.json.
+up to 5). BUYER_ONESHOT=1 / 0 (true / false, on / off) in the environment wins over pricing.json; the meta-harness may
+not move buyer.oneshot (hard_limits.FIXED).
+
+Only an ask the shop states in its message metadata is priced by code. An ask read from the text goes to the harness:
+text_ask takes the one number after "asking", and "Was asking 20000, now just 12000" would have the code offer 18000
+against a real ask of 12000 (independent review 11/07).
 """
 import os
 
@@ -17,9 +22,11 @@ MAX_STEPS = 5
 
 def enabled(cfg, env=None):
     env = os.environ if env is None else env
-    v = env.get("BUYER_ONESHOT")
-    if v in ("0", "1"):
-        return v == "1"
+    v = str(env.get("BUYER_ONESHOT") or "").strip().lower()
+    if v in ("1", "true", "yes", "on"):
+        return True
+    if v in ("0", "false", "no", "off"):
+        return False
     return (cfg or {}).get("oneshot") is True
 
 

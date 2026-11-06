@@ -69,6 +69,17 @@ class Settings(unittest.TestCase):
     def test_env_wins_over_pricing(self):
         self.assertTrue(oneshot.enabled({"oneshot": False}, {"BUYER_ONESHOT": "1"}))
         self.assertFalse(oneshot.enabled({"oneshot": True}, {"BUYER_ONESHOT": "0"}))
+        self.assertFalse(oneshot.enabled({"oneshot": True}, {"BUYER_ONESHOT": "false"}))
+        self.assertFalse(oneshot.enabled({"oneshot": True}, {"BUYER_ONESHOT": " OFF "}))
+        self.assertTrue(oneshot.enabled({}, {"BUYER_ONESHOT": "true"}))
+        self.assertTrue(oneshot.enabled({"oneshot": True}, {"BUYER_ONESHOT": ""}))
+
+    def test_meta_harness_may_not_move_the_switch(self):
+        import hard_limits
+        old = {"buyer": {"oneshot": True, "quote_shops": 10}}
+        self.assertTrue(any("FIXED" in p for p in hard_limits.check_policy_change(old, {"buyer": {"oneshot": False, "quote_shops": 10}})))
+        self.assertTrue(any("removed" in p for p in hard_limits.check_policy_change(old, {"buyer": {"quote_shops": 10}})))
+        self.assertEqual(hard_limits.check_policy_change(old, old), [])
 
     def test_pricing_flag_and_default_off(self):
         self.assertTrue(oneshot.enabled({"oneshot": True}, {}))
@@ -98,16 +109,23 @@ class InTalk(unittest.TestCase):
         self.assertEqual(out["state"], "TASK_STATE_COMPLETED")
         self.assertEqual(out["agreed"], 9500)
 
-    def test_text_ask_is_priced_by_code_too(self):
-        sent = []
-        lad = lambda ask, history: oneshot.code_turn(ask, history, 10000, (0.9,))
+    def test_text_ask_goes_to_the_harness(self):
+        """"Was asking 20000, now just 12000": text_ask reads 20000, and code would offer 18000 against 12000."""
+        calls, sent = [], []
+
+        def decide(*a, **k):
+            calls.append(a)
+            return {"shop_price": 12000, "action": "offer", "price": 11000}
 
         def send(url, text, task_id=None):
             sent.append(text)
             return task("TASK_STATE_COMPLETED", receipt={"price": int(text), "item": "G1"})
-        with mock.patch.object(buyer, "send", send), mock.patch.object(buyer, "decide", side_effect=AssertionError("no harness")):
-            buyer.talk("u", task("TASK_STATE_INPUT_REQUIRED", text="Grade A, asking 8000"), "x", 10000, "", fresh(), ladder=lad)
-        self.assertEqual(sent, ["7200"])
+        lad = lambda ask, history: oneshot.code_turn(ask, history, 25000, (0.9,))
+        with mock.patch.object(buyer, "send", send), mock.patch.object(buyer, "decide", decide):
+            buyer.talk("u", task("TASK_STATE_INPUT_REQUIRED", text="Was asking 20000, now just 12000."), "x", 25000, "", fresh(),
+                       ladder=lad)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(sent, ["11000"])
 
     def test_no_price_in_text_goes_to_the_harness(self):
         calls = []

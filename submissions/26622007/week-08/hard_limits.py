@@ -71,7 +71,8 @@ STRONG_SAMPLE = 40                   # settled deals (shop + buyer) in the Round
 META_FLOOR = {"restock.max_stock_cost": 10000000, "restock.keep_cash": 3000000}
 # Settings the meta-harness may not change at all (a person may): unlisted dear goods stay out of the explore lines,
 # whose price bound is now 10M.
-FIXED = {"restock.high_price_listed_only": True}
+# buyer.oneshot: the talk priced by code instead of the harness (oneshot.py) is the owner's switch, not a cycle's step
+FIXED = {"restock.high_price_listed_only": True, "buyer.oneshot": True}
 
 # path in pricing.json -> (lowest, highest). Outside these the shop's own data has not earned the risk.
 BOUNDS = {
