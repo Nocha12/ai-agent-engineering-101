@@ -480,6 +480,20 @@ class BuyerTest(unittest.TestCase):
         self.assertEqual(market_buyer.pick_offer(fit, 12000)["sku"], "G1")
         self.assertEqual(market_buyer.pick_offer(fit, 5000)["sku"], "G1")
 
+    def test_goods_skip_the_sku_whose_recent_asks_were_all_over_my_limit(self):
+        # Pro 0430 B2: the most valuable SKU asked over my limit lately while another the shop holds asked within it
+        fit = market_buyer.usable_offers(self.offers("G1", "G3"), self.ORDER, self.CATALOG)
+        cap = lambda sku: min(market_buyer.value_limit(next(o for o in fit if o["sku"] == sku), 16000, 0, market_buyer.buyer_cfg()),
+                              market_buyer.saved_cap(next(o for o in fit if o["sku"] == sku), 0))
+        over, within = {"G3": [cap("G3") + 1, cap("G3") + 500]}, {"G1": [cap("G1") - 100]}
+        self.assertEqual(market_buyer.pick_offer(fit, 16000, {**over, **within})["sku"], "G1")
+        self.assertEqual(market_buyer.pick_offer(fit, 16000, over)["sku"], "G3")       # no other SKU fitted: as before
+        self.assertEqual(market_buyer.pick_offer(fit, 16000, {"G3": [cap("G3") + 1, cap("G3")], **within})["sku"], "G3")
+        self.assertEqual(market_buyer.pick_offer(fit, 16000, within)["sku"], "G3")     # no record of G3: as before
+        self.assertEqual(market_buyer.pick_offer(fit, 16000, {})["sku"], "G3")
+        # a G1 that breaks so often its saved_cap is 0 is no way out
+        self.assertEqual(market_buyer.pick_offer(fit, 16000, {**over, **within}, {"G1": 0.75})["sku"], "G3")
+
     def test_accept_asks_proof_for_food_and_a_full_warranty_for_goods(self):
         self.assertEqual(market_buyer.accept_policy(self.ORDER), {"cert": True, "min_hours_left": 48.1})
         self.assertEqual(market_buyer.accept_policy({"kind": "goods"}), {"warranty_hours": 6})

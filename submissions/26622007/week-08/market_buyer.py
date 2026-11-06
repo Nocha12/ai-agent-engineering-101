@@ -85,6 +85,8 @@ CHOOSE_STEPS = 2       # Round 3: the shop-choosing agent's steps, tool calls in
 # 30 -> 20 s on 11/06 19:50: the choice took a median 13.8 s and a p90 31.6 s (92 orders, 17:50-19:50) while best_quote
 # ranks the quotes in code anyway, so the slow tail only held the order (orders/h 46 against 160-173 for the top buyers).
 CHOOSE_SECONDS, CHOOSE_STEP_SECONDS, CHOOSE_MIN_SECONDS = 14, 10, 3   # 20, 12 until 11/06 22:45 (2 steps)
+GOODS_ASKS = None      # Round 3 goods: recent_asks() once per run, for pick_offer (the asked SKU of every shop)
+GOODS_CHANCES, GOODS_CFG = {}, None   # ... with the break chances my recent orders logged, and buyer_cfg()
 AGENT_DIR = None       # Round 3: the .market folder, when the shop is chosen by the tool-using agent
 RECENT_FIT_HOURS = 3   # a shop that asked within my limit for the order's category this recently is quoted first
 RECENT_FIT_BYTES = 3000000   # the tail of measure/orders.jsonl read for it (about 750 orders)
@@ -518,10 +520,29 @@ def usable_offers(shop, order, catalog):
     return fit
 
 
-def pick_offer(offers, budget):
-    """The SKU worth the most that the budget can cover at its list price, else the cheapest."""
+def pick_offer(offers, budget, asks=None, chances=None):
+    """The SKU worth the most that the budget can cover at its list price, else the cheapest. With asks ({sku: [recent
+    asks]}, goods only: GOODS_ASKS): when that SKU asked over my limit every time lately and another the budget covers
+    asked within its limit, the one of those that kept the most of its list price (Pro 11/07 04:30 B2: Saved is a share of
+    the list price, so the dearest SKU is no better a buy; 02:00-08:30 replay: 151 of the 443 goods orders without a deal
+    had another SKU asked >= 0.30 under its list in the 3 h before). Limits and the ranking take the break chance
+    (chances, {sku: b}) as the talk will, (1 - b)(1 - ask / list) as best_quote does. No record of the SKU keeps it."""
     within = [o for o in offers if o["list_price"] <= budget]
-    return max(within, key=lambda o: o["list_price"]) if within else min(offers, key=lambda o: o["list_price"])
+    first = max(within, key=lambda o: o["list_price"]) if within else min(offers, key=lambda o: o["list_price"])
+    if asks is None:
+        asks, chances, cfg = GOODS_ASKS, GOODS_CHANCES, GOODS_CFG
+    else:
+        chances, cfg = chances or {}, buyer_cfg()
+    if not asks or not within:
+        return first
+    b = lambda o: chances.get(o["sku"]) or 0     # the break chance my last orders of the SKU logged; unknown: 0
+    cap = lambda o: min(value_limit(o, budget, b(o), cfg), saved_cap(o, b(o)))
+    seen = asks.get(first["sku"]) or []
+    if not seen or min(seen) <= cap(first):
+        return first
+    fits = [((1 - b(o)) * (1 - min(asks[o["sku"]]) / o["list_price"]), o) for o in within
+            if asks.get(o["sku"]) and cap(o) > 0 and min(asks[o["sku"]]) <= cap(o)]
+    return max(fits, key=lambda x: x[0])[1] if fits else first
 
 
 def accept_policy(order):
@@ -1270,7 +1291,8 @@ def main():
     ap.add_argument("--order", help="order.json from the kit; Round 3 orders carry the acceptable SKUs")
     args = ap.parse_args()
 
-    global MEMORY
+    global MEMORY, GOODS_ASKS, GOODS_CHANCES, GOODS_CFG
+    GOODS_ASKS, GOODS_CHANCES, GOODS_CFG = None, {}, None   # one run per process in the market; tests run many
     if not MEMORY:
         test = os.path.basename(args.shops).startswith("test-shops")
         MEMORY = "memory/test_memory.json" if test else "memory/market_memory.json"
@@ -1322,7 +1344,13 @@ def main():
         k = int(buyer_cfg().get("quote_shops", 1))
         early, quotable = prefetch_pool(left, memory, md, order.get("category"), k, rival)
         try:
-            gave_up = hopeless(quotable or left, args.budget, recent_asks(md), buyer_cfg())
+            asks = recent_asks(md)
+            if order.get("kind") == "goods":
+                GOODS_CFG = buyer_cfg()
+                GOODS_CHANCES = {r["sku"]: r["break_chance"] for r in recent_orders(md, time.time(), HOPELESS_HOURS) if r.get("sku")
+                                 and isinstance(r.get("break_chance"), (int, float)) and not isinstance(r["break_chance"], bool)}
+                GOODS_ASKS = asks
+            gave_up = hopeless(quotable or left, args.budget, asks, buyer_cfg())
         except Exception as e:  # noqa: BLE001 - an odd record line must not end the run before the result line
             log(f"[quote] give-up check failed: {type(e).__name__}: {e}")
         if gave_up:
