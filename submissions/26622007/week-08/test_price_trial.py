@@ -72,7 +72,7 @@ class TrialTest(unittest.TestCase):
     def test_shipped_trial(self):
         with open("pricing.json", encoding="utf-8") as f:
             t = json.load(f)["price"]["high_price_trial"]
-        self.assertEqual((t["factor"], t["share"]), (0.93, 0.5))
+        self.assertEqual((t["factor"], t["share"]), (0.93, 0))    # 02:20-03:21 trial lost: off
 
 
 if __name__ == "__main__":
