@@ -21,7 +21,10 @@ import harness
 
 JEV_URL = "https://openrouter.ai/api/alpha/decisions"
 JEV_MODEL = "typesafe/jev-1.14"
-JEV_SECONDS = 3          # one try; a slow or failed call goes to the harness (its own limit is TURN_SECONDS)
+# one try. 0.7 s (메인 11/07 03:32): 110 logged calls took 0.40 s median, 0.55 s p99, 0.57 s at most. A call that is
+# slower or fails returns JEV_DOWN: the jevrule engine then holds our ask (negotiate.py), otherwise the harness answers
+JEV_SECONDS = 0.7
+JEV_DOWN = (None, -1.0)   # no answer from Jev (timeout, error, bad status); a real "none" answer has confidence >= 0
 # Jev's own confidence, at or above which its offer is taken: on 12 made-up hard messages (11/07 00:55) every wrong or
 # doubtful read ("24000. No." 0.04, "I will not go above 20000, final." 0.84, "21000. Can you match?" 0.42) was under it
 JEV_MIN_CONFIDENCE = 0.9
@@ -54,7 +57,8 @@ def written(text):
 
 def jev_offer(text):
     """(the price the buyer offers now, Jev's confidence) for a message, by one Choice question over the numbers written
-    in it and "none"; (None, 0) when the call fails. Each call is a line in llm_calls.jsonl (tag seller-jev)."""
+    in it and "none"; JEV_DOWN when the call fails or is slower than JEV_SECONDS, (None, 0) when there is nothing to ask.
+    Each call is a line in llm_calls.jsonl (tag seller-jev)."""
     nums = sorted(written(text))
     key = harness._openrouter_key()
     if not nums or not key:
@@ -69,12 +73,14 @@ def jev_offer(text):
         r = httpx.post(JEV_URL, json=body, headers={"Authorization": f"Bearer {key}"}, timeout=JEV_SECONDS)
         j = r.json() if r.status_code == 200 else None
         a = j["answers"]["offer"] if j else None
-        choice, conf = (str(a["choice"]), float(a.get("confidence") or 0)) if a else (None, 0)
-        if not 0 <= conf <= 1:          # nan or inf is not a confidence
+        choice, conf = (str(a["choice"]), float(a.get("confidence") or 0)) if a else (None, None)
+        if conf is not None and not 0 <= conf <= 1:          # nan or inf is not a confidence
             choice, conf = None, 0
-    except Exception:  # noqa: BLE001 - any failure goes to the harness
-        j, choice, conf = None, None, 0
+    except Exception:  # noqa: BLE001 - any failure: no answer
+        j, choice, conf = None, None, None
     harness.record_call("seller-jev", text, "", time.time() - started, j is not None, (j or {}).get("usage"))
+    if conf is None:
+        return JEV_DOWN
     if choice is None:
         return None, 0
     return (int(choice) if choice.isascii() and choice.isdigit() else None), conf

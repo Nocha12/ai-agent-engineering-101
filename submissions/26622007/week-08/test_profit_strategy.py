@@ -116,7 +116,8 @@ class ConcessionTest(unittest.TestCase):
 
     def test_the_seller_uses_it(self):
         src = open(os.path.join(HERE, "seller.py"), encoding="utf-8").read()
-        self.assertIn("shop_memory.concession_floor(opened, reserve, deal[\"rounds\"], deal.get(\"kind\"))", src)
+        self.assertIn("shop_memory.concession_floor(deal.get(\"open\", deal[\"ask\"]), deal[\"reserve\"], deal[\"rounds\"], deal.get(\"kind\"))", src)
+        self.assertIn("price_guards(deal, action, price, offer, turn_floor(deal))", src)
         self.assertNotIn("cap = reserve   # first counter goes straight to the reserve", src)
         with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
             self.assertEqual(json.load(f)["concession"], [0.3, 0.2, 0.1])      # never down to F; GPT Pro 11/06 16:45 §3.2

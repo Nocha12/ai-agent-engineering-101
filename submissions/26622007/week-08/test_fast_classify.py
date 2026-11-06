@@ -153,7 +153,8 @@ class JevTurnTest(unittest.TestCase):
         with mock.patch.object(fast_classify.httpx, "post", lambda *a, **k: mock.Mock(status_code=500, json=lambda: {})), \
                 mock.patch.object(fast_classify.harness, "_openrouter_key", lambda: "k"), \
                 mock.patch.object(fast_classify.harness, "record_call"):
-            self.assertEqual(fast_classify.jev_offer("I can do 30000."), (None, 0))
+            # no answer from Jev is JEV_DOWN, apart from a real "none" (메인 11/07 03:32: jevrule holds the ask then)
+            self.assertEqual(fast_classify.jev_offer("I can do 30000."), fast_classify.JEV_DOWN)
         with mock.patch.object(fast_classify.harness, "_openrouter_key", lambda: None):
             self.assertEqual(fast_classify.jev_offer("I can do 30000."), (None, 0))
         for odd in [{"choice": "30000", "confidence": float("nan")}, {"choice": "30000", "confidence": "inf"},

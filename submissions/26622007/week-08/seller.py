@@ -291,6 +291,50 @@ def break_chance(sku, grade=None):
 MEMORY_WRITER = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="seller-memory")
 
 
+def turn_floor(deal):
+    """The least the shop takes this round: the concession floor (pricing.json "concession"), but never above our current
+    ask. An ask already under the round's floor (a reserve counter, a schedule changed mid-talk) stands: 11/06 22:45 task
+    390b9f8c countered at the reserve 2,467,210, then asked 2,486,269 when the buyer offered that ask."""
+    f = shop_memory.concession_floor(deal.get("open", deal["ask"]), deal["reserve"], deal["rounds"], deal.get("kind"))
+    return max(deal["reserve"], min(f, deal["ask"]))
+
+
+def price_guards(deal, action, price, offer, floor):
+    """(action, price) after the code's lines, whatever the harness or a fast path said. floor: turn_floor(deal).
+
+    Concession schedule (week 8, profit): each counter keeps a share of the opening margin, so a high opening is not
+    given away on the first counter; an offer at or above this round's floor is taken. Never under the reserve, never a
+    counter above our last ask (GPT Pro 11/07 negotiation-formula.md invariant), and the round limit ends the talk."""
+    reserve, ask = deal["reserve"], deal["ask"]
+    if action == "counter" and not floor <= price <= ask:
+        new = min(max(price, floor), ask)
+        log(f"SCHEDULE counter {price} -> {new} (round {deal['rounds']}, opened {deal.get('open', ask)}, floor {floor})")
+        price = new
+    if action != "accept" and offer >= floor:
+        log(f"SCHEDULE offer {offer} >= floor {floor} in round {deal['rounds']} -> accept")
+        action = "accept"
+    if action == "accept" and reserve <= offer < floor:
+        log(f"SCHEDULE accept at {offer} < floor {floor} in round {deal['rounds']} -> counter at {floor}")
+        action, price = "counter", floor
+    if action == "accept" and offer < reserve:
+        new = min(max(price, floor), ask)     # the round's floor, not the reserve: a reserve counter here was 22:45
+        log(f"GUARD accept at {offer} < reserve {reserve} -> counter at {new}")
+        action, price = "counter", new
+    if action == "counter" and price < reserve:
+        log(f"GUARD counter {price} < reserve {reserve} -> {reserve}")
+        price = reserve
+    if action == "counter" and price > ask >= reserve:
+        log(f"GUARD counter {price} > our last ask {ask} -> {ask}")
+        price = ask
+    if action == "counter" and price <= offer:   # asking no more than the buyer offers: take the offer
+        log(f"GUARD counter {price} <= offer {offer} (>= reserve) -> accept")
+        action = "accept"
+    if action == "counter" and deal["rounds"] >= MAX_ROUNDS:
+        log(f"GUARD round limit {MAX_ROUNDS} -> reject")
+        action = "reject"
+    return action, price
+
+
 def floor_rank(u, pricing):
     """The floor F a goods unit would open with, for shop_stock.pick to offer the cheapest-to-sell unit of a SKU first.
     b as in quote(): the SKU x grade rate (break_chance, cached 10 min) or the grade's prior."""
@@ -505,12 +549,11 @@ class Seller(AgentExecutor):
             plain = say
             say = lambda text, ask=None: plain(f"{note} {text}", ask)
         # in a thread: the Jev call takes about 0.4 s and must not hold the other talks
-        turn_floor = shop_memory.concession_floor(deal.get("open", deal["ask"]), deal["reserve"], deal["rounds"],
-                                                  deal.get("kind"))
+        floor_now = turn_floor(deal)
         jev = functools.lru_cache(maxsize=1)(fast_classify.jev_offer) if fast_classify.JEV_ON else None   # one call a turn
-        fast = await asyncio.to_thread(fast_classify.seller_turn, text, deal, turn_floor, jev)
+        fast = await asyncio.to_thread(fast_classify.seller_turn, text, deal, floor_now, jev)
         if not fast:   # NEGOTIATE_ENGINE=jevrule: Jev reads, a rule counters (negotiate.py); None when off
-            fast = await asyncio.to_thread(negotiate.seller_turn_if_on, text, deal, turn_floor, jev, MAX_ROUNDS)
+            fast = await asyncio.to_thread(negotiate.seller_turn_if_on, text, deal, floor_now, jev, MAX_ROUNDS)
         if fast:
             log(f"task {task.id[:8]} FAST {fast['why']}: no harness call")
         try:
@@ -548,33 +591,7 @@ class Seller(AgentExecutor):
         log(f"task {task.id[:8]} harness read the offer as {offer} from {sorted(written)}")
         deal["history"].append(("buyer offered", offer))
 
-        # concession schedule (week 8, profit): each counter keeps a share of the opening margin
-        # (pricing.json "concession"), so a high opening is not given away on the first counter.
-        # The counter never rises above our last ask; an offer at or above this round's floor is taken.
-        opened = deal.get("open", deal["ask"])
-        floor = shop_memory.concession_floor(opened, reserve, deal["rounds"], deal.get("kind"))
-        if action == "counter" and not floor <= price <= deal["ask"]:
-            new = min(max(price, floor), deal["ask"])
-            log(f"SCHEDULE counter {price} -> {new} (round {deal['rounds']}, opened {opened}, floor {floor})")
-            price = new
-        if action != "accept" and offer >= floor:
-            log(f"SCHEDULE offer {offer} >= floor {floor} in round {deal['rounds']} -> accept")
-            action = "accept"
-        if action == "accept" and reserve <= offer < floor:
-            log(f"SCHEDULE accept at {offer} < floor {floor} in round {deal['rounds']} -> counter at {floor}")
-            action, price = "counter", floor
-        if action == "accept" and offer < reserve:
-            log(f"GUARD accept at {offer} < reserve {reserve} -> counter at {max(price, reserve)}")
-            action, price = "counter", max(price, reserve)
-        if action == "counter" and price < reserve:
-            log(f"GUARD counter {price} < reserve {reserve} -> {reserve}")
-            price = reserve
-        if action == "counter" and price <= offer:   # asking no more than the buyer offers: take the offer
-            log(f"GUARD counter {price} <= offer {offer} (>= reserve) -> accept")
-            action = "accept"
-        if action == "counter" and deal["rounds"] >= MAX_ROUNDS:
-            log(f"GUARD round limit {MAX_ROUNDS} -> reject")
-            action = "reject"
+        action, price = price_guards(deal, action, price, offer, turn_floor(deal))
 
         if action == "accept" and offer > deal["ask"] and not deal.get("told_ask"):
             # The buyer offers more than we ask. Selling at our lower ask makes the receipt differ from

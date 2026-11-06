@@ -107,8 +107,11 @@ def counter_price(deal, floor, offer=0):
     return int(min(max(round(p), least), deal["ask"]))
 
 
+HOLD_TURN = "hold"   # read_offer: Jev gave no answer in time, so hold our ask and ask for a number
+
+
 def read_offer(text, deal, jev):
-    """The offer in the message, or None when it is not certain."""
+    """The offer in the message, HOLD_TURN when Jev did not answer, or None when it is not certain."""
     offer = fast_classify.bare_offer(text)
     if offer is not None:
         return offer
@@ -118,6 +121,8 @@ def read_offer(text, deal, jev):
         offer, conf = jev(text)
     except Exception:  # noqa: BLE001 - any failure goes to the harness
         return None
+    if (offer, conf) == fast_classify.JEV_DOWN:
+        return HOLD_TURN
     if offer is None or not conf >= fast_classify.JEV_MIN_CONFIDENCE or offer not in fast_classify.written(text):
         return None
     older = {p for who, p in deal.get("history") or [] if who == "you asked"} - {deal["ask"]}
@@ -132,6 +137,9 @@ def seller_turn(text, deal, floor, jev=None, max_rounds=None):
     if SUSPECT.search(text or ""):
         return None
     offer = read_offer(text, deal, jev)
+    if offer == HOLD_TURN:   # seller.py answers "Please tell me the price you offer. My price: <ask>."
+        return {"buyer_offer": 0, "action": "counter", "price": deal["ask"], "message": "",
+                "why": f"Jev gave no answer in {fast_classify.JEV_SECONDS} s: hold the ask {deal['ask']}"}
     if not offer or offer > deal["ask"]:
         return None
     least = max(floor, deal["reserve"])
