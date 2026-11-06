@@ -387,13 +387,14 @@ class EndToEnd(unittest.TestCase):
     def test_reserve_is_the_floor_and_the_first_ask_is_p0(self):
         self.deal("G1")                           # food cost 6000, list 10000, no ledger median
         n = (seller.flush_memory() or shop_memory.load())["negotiations"][-1]
-        self.assertEqual((n["reserve"], n["open"]), (7015, 7434))
+        # break-even floor (a person 11/06 22:22): cost + 6 h storage + 1, no 3% profit; first ask 1.0 x 70.8% of list
+        self.assertEqual((n["reserve"], n["open"]), (6016, 7080))
         with mock.patch.object(seller, "break_chance", lambda sku, grade=None: 0.1):
             buyer.negotiate(self.url, "청소기", 10000, "", "I want to buy (G2)")
         n = (seller.flush_memory() or shop_memory.load())["negotiations"][-1]
-        # (6000+15+1000)/(1-0.122): the unit is grade B, so price.grade_break B (0.122) is over the measured 0.1 and the
-        # shipped goods_break 0.08 (GPT Pro 11/06 16:45 §3.5-3); the floor is over 1.05 x 75.5% of list, so it opens there
-        self.assertEqual((n["reserve"], n["open"], n["warranty"]), (7990, 7990, hard_limits.SELLER_GOODS_WARRANTY_HOURS))
+        # (6000+15+1)/(1-0.122): the unit is grade B, so price.grade_break B (0.122) is over the measured 0.1 and the
+        # shipped goods_break 0.035; the floor is under 1.0 x 75.5% of list, so it opens there
+        self.assertEqual((n["reserve"], n["open"], n["warranty"]), (6852, 7550, hard_limits.SELLER_GOODS_WARRANTY_HOURS))
 
     def test_unit_is_not_promised_twice_and_out_of_stock_is_refused(self):
         self.deal("G1")

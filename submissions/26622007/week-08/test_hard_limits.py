@@ -102,7 +102,7 @@ class GuardsStayHookedTest(unittest.TestCase):
 
     def test_whatever_restock_decides_it_prints_nothing_past_the_line(self):
         with tempfile.TemporaryDirectory() as d:
-            for name, data in (("inventory.json", {"round": 3, "balance": 3100000, "units": []}), ("catalog.json", self.CATALOG)):
+            for name, data in (("inventory.json", {"round": 3, "balance": 1090000, "units": []}), ("catalog.json", self.CATALOG)):
                 with open(os.path.join(d, name), "w") as f:
                     json.dump(data, f)
             printed = []
@@ -114,7 +114,7 @@ class GuardsStayHookedTest(unittest.TestCase):
                     mock.patch("builtins.print", lambda *a, **k: printed.append(a[0] if a else "")):
                 restock.main()
         out = json.loads(printed[-1])
-        self.assertEqual(out["buy"], [{"sku": "H1", "qty": 6}])          # (3,100,000 - cash buffer 3,000,000) // 15,000
+        self.assertEqual(out["buy"], [{"sku": "H1", "qty": 6}])          # (1,090,000 - cash buffer 1,000,000) // 15,000
 
     def test_the_stock_cap_is_open(self):
         # a person, 11/06 19:03: "hard_limits 는 완전 풀어버려 그냥 파산만 안되면 문제없어"
@@ -132,16 +132,24 @@ class GuardsStayHookedTest(unittest.TestCase):
                          ((1, 1000), (0, 100), (0, 20), (0.01, 1.0), (0, top), (1000000, top), (0, 1000), (0, 1000)))
         self.assertEqual((hl.MAX_STEP, hl.MAX_STEP_STRONG, hl.MAX_STEP_UNBOUNDED), (inf, inf, inf))
 
-    def test_the_cash_buffer_covers_refunds_storage_and_a_bad_day(self):
+    def test_the_cash_buffer_covers_the_expected_refunds_and_storage(self):
+        # a person 11/06 22:22 ("최대한 점수를 올려", no bankruptcy): the refunds the last 6 h of warranted goods sales are
+        # expected to bring at the measured rate (5.6% -> 6%), plus a day of storage
         now = 1800000000
-        self.assertEqual(hl.cash_buffer(0, [], now), 500000 + 2500000)
-        self.assertEqual(hl.cash_buffer(100000000, [], now), 500000 + 2000000 + 2500000)       # two days of 1% storage
-        sold = [(now, 10000000), (now - 3 * 3600, 10000000), (now - 7 * 3600, 10000000)]     # new, half-way, past 6 h
-        self.assertEqual(hl.cash_buffer(0, sold, now), 500000 + 1300000 + 650000 + 2500000)
-        self.assertEqual(hl.cash_buffer(0, None, now), 500000 + hl.UNKNOWN_EXPOSURE + 2500000)  # ledger unreadable
-        self.assertEqual(hl.cash_buffer(-5, [("x", None), (now, float("nan")), (now, float("inf"))], now), 3000000)
-        self.assertEqual(hl.cash_buffer(float("inf"), [], now), 3000000)
-        self.assertEqual((hl.REFUND_WORST, hl.BREAK_HOURS, hl.DAY_LOSS_WORST), (0.13, 6, 2500000))
+        self.assertEqual(hl.cash_buffer(0, [], now), 1000000)                                    # STOP_BUYING_BELOW
+        self.assertEqual(hl.cash_buffer(100000000, [], now), 500000 + 1000000)                 # one day of 1% storage
+        sold = [(now, 100000000), (now - 3 * 3600, 100000000), (now - 7 * 3600, 100000000)]   # new, half-way, past 6 h
+        self.assertEqual(hl.cash_buffer(0, sold, now), 500000 + 6000000 + 3000000)
+        # small sales: the worst rate's exposure (13%), up to the most ever refunded in 6 h (5.8M)
+        self.assertEqual(hl.cash_buffer(0, [(now, 10000000)], now), 500000 + 1300000)
+        self.assertEqual(hl.cash_buffer(0, [(now, 60000000)], now), 500000 + 5800000)
+        self.assertEqual(hl.cash_buffer(0, None, now), 500000 + hl.UNKNOWN_EXPOSURE)  # ledger unreadable
+        self.assertEqual(hl.cash_buffer(-5, [("x", None), (now, float("nan")), (now, float("inf"))], now), 1000000)
+        self.assertEqual(hl.cash_buffer(float("inf"), [], now), 1000000)
+        self.assertEqual((hl.REFUND_EXPECTED, hl.REFUND_WORST, hl.REFUNDS_6H_WORST, hl.BREAK_HOURS, hl.STORAGE_DAYS),
+                         (0.06, 0.13, 5800000, 6, 1.0))
+        self.assertEqual(hl.BOUNDS["price.goods_break"], (0.03, 0.5))
+        self.assertTrue(hl.check_policy_change({"price": {"goods_break": 0.035}}, {"price": {"goods_break": 0.02}}))
         self.assertEqual(hl.spendable(30000000, 20000000), 10000000)
         self.assertEqual(hl.spendable(30000000, 0), 29000000)                  # never under STOP_BUYING_BELOW
         self.assertEqual((hl.spendable(30000000, float("nan")), hl.spendable(float("inf"), 0)), (0, 0))   # fails closed

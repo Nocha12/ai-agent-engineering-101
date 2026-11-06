@@ -2,7 +2,7 @@
 Terra and Astra from Round 3's own numbers, a bounded step at a time.
 
 - Bankruptcy: no stock is bought that could take the balance under cash_buffer(): the market's 500,000 line plus the
-  refunds still owed at the worst rate seen, a day of storage and the worst day's loss (never under STOP_BUYING_BELOW;
+  refunds still owed at the measured rate and a day of storage (never under STOP_BUYING_BELOW;
   a bankruptcy's 5,000,000 counts against profit). The kit files only when nothing is left to sell. Since 11/06 19:03
   (a person) this is the only line on stock and capital: the stock cap and the step limits on a rise are open.
 - pricing.json: a rise is not limited; a fall moves at most MAX_STEP_DOWN of its value per cycle, inside BOUNDS where
@@ -26,19 +26,30 @@ STOP_BUYING_BELOW = 1000000          # a supply that could leave less than this 
 # - refunds: our goods refunds over our warranted goods sales were 5.4% (29.6M of 546.6M), 13.0% in the worst 6 h
 #   bucket (p90 10.0%); the most refunded in 1 h 2.76M, in 6 h 5.65M, in 24 h 14.58M. A unit breaks within 6 h of the
 #   sale, spread evenly (2,098 market breaks 11/06: median 2.9 h, p90 5.4 h), so a sale a hours old still owes
-#   REFUND_WORST x price x (6 - a) / 6 at worst.
-# - storage: 1% of the stock's cost a day (agent.md); two days of it are kept.
-# - the worst 24 h fall of book was 2.5M (11/04 14:45); cash fell 90.7M in 24 h only because it went into stock.
+#   rate x price x (6 - a) / 6.
+# - storage: 1% of the stock's cost a day (agent.md).
+# - the worst 24 h fall of book was 2.5M (11/04 14:45), mostly these same refunds; cash fell 90.7M in 24 h only because
+#   it went into stock.
+# A person, 11/06 22:22 ("최대한 점수를 올려 더더욱 극단적이어도 돼", still no bankruptcy): keep what the refunds are
+# expected to cost, from the measured rate and the refunds actually paid, not the worst bucket on top of a bad day.
+# Round 3 11/03 21:12 - 11/06 22:2x (review/W-20261106-2225-AX극단상향, capital-1900/buffer.py): refunds were 5.6% of
+# our warranted goods sales (33.1M of 588.8M; 6 h buckets median 5.6%, p90 10%, max 13%), and the most refunded in any
+# 6 h was 5.76M, about what 6% of our 6 h sales comes to now (~5.9M at 22:25). The old buffer (13% + 2 days of storage
+# + a 2.5M bad day) kept 17-18M against a 20M balance and held supplies back from 21:05. The sales still coming in pay
+# refunds too; this is what is kept if they stop.
+REFUND_EXPECTED = 0.06
+# Tail (independent review, 11/06 22:4x): a bad 6 h can refund 13% while sales stop, so the buffer never keeps less than
+# that worst-rate exposure, up to the most Round 3 ever refunded in 6 h. A shop with no recent sales keeps nothing extra.
 REFUND_WORST = 0.13
+REFUNDS_6H_WORST = 5800000
 BREAK_HOURS = 6
-STORAGE_DAYS = 2.0          # a day of fees, and one more in case sales stall (independent review, 11/06 21:0x)
+STORAGE_DAYS = 1.0
 STORAGE_PER_DAY = 0.01
-DAY_LOSS_WORST = 2500000
 # "Open" bounds are a large finite number, never inf: json reads Infinity, and an inf keep_cash made guard() compute
 # int(nan) and crash the hook (independent review). 1e12 is 200,000 x the starting 5M.
 OPEN = 10 ** 12
-# Without the ledger the exposure is not known: 13% of 6 h of goods sales at our 11/06 19:15-20:47 rate (38M/h), halved
-# for the even spread of breaks over the 6 h.
+# Without the ledger the exposure is not known: 13% (the worst 6 h bucket) of 6 h of goods sales at our 11/06
+# 19:15-20:47 rate (38M/h), halved for the even spread of breaks over the 6 h.
 UNKNOWN_EXPOSURE = 15000000
 PROTECTED = ("hard_limits.py", "test_hard_limits.py", "run_market.sh", "run_meta.sh", "ensure_running.sh")
 # Steps: a rise is no longer limited (a person, 11/06 19:03: compounding should not wait for cycles); a fall still is,
@@ -96,6 +107,9 @@ BOUNDS = {
     "restock.high_price_goods": (50000, 1000000),
     "restock.high_price_max_units": (0, 1000),
     "restock.high_price_proven_max_units": (0, 1000),
+    # floors sit at break-even (a person 11/06 22:22): the least goods break chance stays over our measured grade A
+    # rate (2.3% of units, 1.0% of value, 1,107 sold 11/03-11/06), so a meta cycle cannot price under the refunds
+    "price.goods_break": (0.03, 0.5),
     "warranty.on_request_hours": (0, 6),
     "warranty.max_hours": (0, 72),
     "warranty.max_break": (0.0, 0.5),
@@ -157,18 +171,19 @@ ENV_SECRET = r"KEY|TOKEN|SECRET|PASS|OWNER|AUTH|COOKIE|CRED"     # never passed,
 
 def cash_buffer(stock_cost=0, sales=None, now=None):
     """The cash a buy may not take the balance under: the bankruptcy line, the refunds the shop's warranted goods sales of
-    the last BREAK_HOURS may still bring at the worst observed rate, STORAGE_DAYS of storage on the stock and the worst
-    day's loss. sales: [(unix time, price)] of this shop's warranted goods sales, or None when the ledger could not be
-    read (UNKNOWN_EXPOSURE then). Never under STOP_BUYING_BELOW."""
+    the last BREAK_HOURS are expected to bring at the measured rate (REFUND_EXPECTED; never under the worst rate's
+    exposure up to REFUNDS_6H_WORST) and STORAGE_DAYS of storage on the
+    stock. sales: [(unix time, price)] of this shop's warranted goods sales, or None when the ledger could not be read
+    (UNKNOWN_EXPOSURE then). Never under STOP_BUYING_BELOW."""
     now = now or time.time()
     span = BREAK_HOURS * 3600
     if sales is None:
         owed = UNKNOWN_EXPOSURE
     else:
-        owed = sum(REFUND_WORST * p * (span - (now - t)) / span for t, p in sales
-                   if number(t) and number(p) and 0 <= now - t < span)
+        left = sum(p * (span - (now - t)) / span for t, p in sales if number(t) and number(p) and 0 <= now - t < span)
+        owed = max(REFUND_EXPECTED * left, min(REFUNDS_6H_WORST, REFUND_WORST * left))
     stock = stock_cost if number(stock_cost) and stock_cost > 0 else 0
-    return max(STOP_BUYING_BELOW, math.ceil(BANKRUPT_LINE + owed + STORAGE_DAYS * STORAGE_PER_DAY * stock + DAY_LOSS_WORST))
+    return max(STOP_BUYING_BELOW, math.ceil(BANKRUPT_LINE + owed + STORAGE_DAYS * STORAGE_PER_DAY * stock))
 
 
 def spendable(balance, buffer=STOP_BUYING_BELOW):

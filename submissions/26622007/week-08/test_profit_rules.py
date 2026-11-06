@@ -289,11 +289,28 @@ class PriceTest(unittest.TestCase):
         self.assertFalse(q["refuse"])
         self.assertTrue(profit_price.quote(g, measured=0.5, pricing={"warranty": {"max_break": 0.45}})["refuse"])
 
+    def test_a_dear_a_unit_bought_near_the_median_opens_under_it_and_never_under_break_even(self):
+        # 11/06 20:30-22:30: 76 of 96 lost 100만+ quotes opened at a floor over the median (cost 0.684 of list against a
+        # 0.694 median); at the median 42% of 30만+ quotes were paid, over 1.10 x median 13%
+        with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
+            p = json.load(f)
+        u = {"kind": "goods", "grade": "A", "cost": 1980000, "list_price": 3000000}
+        q = profit_price.quote(u, median=2070000, measured=None, pricing=p)
+        self.assertLessEqual(q["open"], 2070000)
+        self.assertGreaterEqual(q["floor"], 1980000 * 1.0025 / (1 - 0.03))      # cost, storage and the A refund rate
+        self.assertEqual(q["open"], max(q["floor"], round(0.97 * 2070000)))
+        cheap = {**u, "cost": 1500000}
+        self.assertEqual(profit_price.quote(cheap, median=2070000, pricing=p)["open"], round(0.97 * 2070000))
+
     def test_shipped_settings(self):
         with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
             p = json.load(f)
         self.assertEqual(p["concession"], [0.3, 0.2, 0.1])       # GPT Pro 11/06 16:45 §3.2: revenue first, nearer the median
-        self.assertEqual(profit_price.cfg_of(p)["goods_break"], 0.08)  # the least b; a unit's grade sets the rest
+        c = profit_price.cfg_of(p)
+        # a person 11/06 22:22: floors at break-even (cost + 6 h storage + the expected warranty refund), no profit margin:
+        # the least b is grade A's measured 3% plus half a point, and no minimum profit
+        self.assertEqual((c["goods_break"], c["min_profit"], c["min_profit_share"]), (0.035, 1, 0.0))
+        self.assertEqual((c["median_up"], c["high_median_up"]["factor"]), (1.0, 0.97))
         self.assertIs(profit_price.cfg_of(p)["paid_over_median"], False)
         self.assertEqual(profit_price.cfg_of(p)["grade_break"], {"A": 0.03, "B": 0.122, "C": 0.344})
         self.assertEqual(p["warranty"]["max_break"], 0.5)         # C units (34% of them break) are priced, not refused
