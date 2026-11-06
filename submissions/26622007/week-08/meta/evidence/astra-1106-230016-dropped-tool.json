@@ -1,0 +1,36 @@
+{
+ "files": {
+  "tools/auto_market_research_bundle/manifest.json": "{\n \"name\": \"auto_market_research_bundle\",\n \"purpose\": \"Read-only market lookup combining catalog matches, deduplicated paid settlements, and optional own purchase history. Query/category filter catalog and public deal results; shop filters seller on public deals and personal history. Returns counts and recent matches.\",\n \"args\": {\n  \"type\": \"object\",\n  \"properties\": {\n   \"category\": {\n    \"type\": \"string\"\n   },\n   \"query\": {\n    \"type\": \"string\"\n   },\n   \"shop\": {\n    \"type\": \"string\"\n   },\n   \"limit\": {\n    \"type\": \"integer\",\n    \"minimum\": 1,\n    \"maximum\": 100\n   },\n   \"include_purchases\": {\n    \"type\": \"boolean\"\n   }\n  }\n },\n \"selftest\": {\n  \"args\": {\n   \"query\": \"\",\n   \"limit\": 20,\n   \"include_purchases\": true\n  }\n },\n \"evidence\": \"made by tool_forge.py: The repeated workflow is market research: agents search catalog, scan matching settled deals, and sometimes inspect their own purchases. This tool combines those reads and accepts their common query/category/limit arguments. It cannot replace the dedicated ledger_search or my_purchases filters for e\"\n}",
+  "tools/auto_market_research_bundle/tool.py": "import json, os, sys\nimport market_model\n\ndef main():\n    a = json.load(sys.stdin)\n    md = os.environ[\"MARKET_DIR\"]\n    def read(name, default):\n        try:\n            with open(os.path.join(md, name), encoding=\"utf-8\") as f: return json.load(f)\n        except (OSError, ValueError): return default\n    catalog = read(\"catalog.json\", [])\n    if isinstance(catalog, dict): catalog = catalog.get(\"items\", catalog.get(\"catalog\", []))\n    q = str(a.get(\"query\", \"\")).lower(); cat = str(a.get(\"category\", \"\")).lower()\n    lim = max(1, min(100, int(a.get(\"limit\", 20))))\n    def get(x, *keys):\n        return next((x[k] for k in keys if isinstance(x, dict) and k in x), \"\")\n    def match(x):\n        return (not q or q in \" \".join(str(get(x,k)) for k in (\"sku\",\"name\",\"category\",\"kind\")).lower()) and (not cat or cat in str(get(x,\"category\")).lower())\n    items = [x for x in catalog if match(x)]\n    sku_cats = {str(get(x,\"sku\")): str(get(x,\"category\")) for x in items}\n    rows = market_model.load_rows(md)\n    seen=set(); deals=[]\n    for r in rows:\n        if str(get(r,\"status\",\"type\")).lower() not in (\"paid\",\"settled\",\"settle\",\"sale\"): continue\n        sku=str(get(r,\"sku\")); category=sku_cats.get(sku, str(get(r,\"category\")))\n        if sku not in sku_cats or (cat and cat not in category.lower()): continue\n        if q and q not in (sku+\" \"+category).lower(): continue\n        shop=str(get(r,\"shop\",\"seller\"))\n        if a.get(\"shop\") and str(a[\"shop\"]).lower() not in shop.lower(): continue\n        key=(sku, str(get(r,\"buyer\")), shop, str(get(r,\"timestamp\",\"time\")), str(get(r,\"price\")))\n        if key in seen: continue\n        seen.add(key); deals.append(r)\n    deals.sort(key=lambda r: get(r,\"timestamp\",\"time\"), reverse=True)\n    out={\"catalog_count\":len(items),\"catalog\":items[:lim],\"deal_count\":len(deals),\"deals\":deals[:lim]}\n    if a.get(\"include_purchases\"):\n        buys=[]\n        for r in rows:\n            buyer=str(get(r,\"buyer\")); shop=str(get(r,\"shop\",\"seller\"))\n            if a.get(\"shop\") and str(a[\"shop\"]).lower() not in shop.lower(): continue\n            if str(get(r,\"status\",\"type\")).lower() in (\"paid\",\"settled\",\"settle\",\"sale\") and buyer: buys.append(r)\n        out[\"purchases_count\"]=len(buys); out[\"purchases\"]=buys[:lim]\n    print(json.dumps(out, ensure_ascii=False))\n\nmain()"
+ },
+ "auto_market_research_bundle": {
+  "catalog_count": 0,
+  "catalog": [],
+  "deal_count": 0,
+  "deals": []
+ },
+ "auto_market_scan": {
+  "catalog": [
+   {
+    "name": "매트",
+    "category": "침대",
+    "list_price": 100,
+    "sku": "G1"
+   }
+  ],
+  "ledger": [
+   {
+    "k": "settle",
+    "seq": 1,
+    "sku": "G1",
+    "amount": 80,
+    "ts": 1,
+    "seller": "s",
+    "buyer": "b"
+   }
+  ],
+  "matched_products": 1,
+  "matched_paid": 1,
+  "basis": "deduplicated settle only; catalog SKU/category join; no buyer-as-shop match"
+ }
+}

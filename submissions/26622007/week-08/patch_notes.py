@@ -85,7 +85,7 @@ def dated(p):
         return None
 
 
-def check(root=".", page=None, now=None, objective=None, record=True):
+def check(root=".", page=None, now=None, objective=None, record=True, modes=None):
     """What this cycle should know about the rules. Never raises. record=False reads without marking anything seen (a
     look by hand must not take a patch out of the next cycle's "new")."""
     now = time.time() if now is None else now
@@ -98,6 +98,9 @@ def check(root=".", page=None, now=None, objective=None, record=True):
         if objective is None:
             import scorecard
             objective = scorecard.OBJECTIVE
+        if modes is None:
+            import scorecard
+            modes = getattr(scorecard, "OBJECTIVE_MODES", {})
         path = os.path.join(root, STATE)
         try:
             with open(path, encoding="utf-8") as f:
@@ -108,6 +111,12 @@ def check(root=".", page=None, now=None, objective=None, record=True):
         for p in got["patches"]:        # the first check dates the patches already listed by their own date, not now
             seen.setdefault(p["id"], min(now, dated(p) or now) if not last else now)
         mismatch = compare(got["scoring"], objective)
+        # Bar widths alone cannot distinguish Patch 3.5 from the old percentile.
+        # Check the published semantics as well as the names and weights.
+        raw_forum = any("The forum rating counts as itself" in c["text"]
+                        for p in got["patches"] for c in p["changes"])
+        if raw_forum and modes.get("buyers.forum") != "rating":
+            mismatch.append("buyers.forum: published rating, scorecard is not rating")
         if record:
             os.makedirs(os.path.dirname(path), exist_ok=True)
             tmp = f"{path}.{os.getpid()}.tmp"

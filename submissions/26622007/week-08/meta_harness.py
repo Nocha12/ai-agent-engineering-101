@@ -17,6 +17,7 @@ says so and the shop goes on. The harness commits only under this folder and che
 because the repository's rules forbid both; pushes happen only with META_PUSH=1.
 """
 import datetime
+import hashlib
 import importlib
 import json
 import os
@@ -65,6 +66,31 @@ STRATEGY = "meta/strategy.md"     # the strategy Terra follows: Astra sets it, T
 EXPERIMENTS = "meta/experiments.json"        # the queue of evidenced experiments: Astra, Terra or a person adds to it
 EXPERIMENT_LOG = "meta/experiments_log.jsonl"  # the harness's record of each start and judgment: which one runs
 DOCS_ONLY = (STRATEGY, EXPERIMENTS)  # a change of these alone needs no tests and no watch: nothing running reads them
+REVIEW_ONLY = ("scorecard.py", "patch_notes.py", "meta_harness.py")
+
+
+def runtime_version():
+    """Fingerprint modules retained by the supervisor, including the owner's limits."""
+    digest = hashlib.sha256()
+    for name in ("meta_harness.py", "scorecard.py", "patch_notes.py", "hard_limits.py"):
+        with open(os.path.join(os.path.dirname(__file__), name), "rb") as f:
+            digest.update(f.read())
+    return digest.hexdigest()
+
+
+LOADED_VERSION = runtime_version()
+
+
+def refresh_runtime():
+    """Re-exec only between recorded cycles; never kill a model or its validation."""
+    if runtime_version() != LOADED_VERSION:
+        log("runtime source changed; reloading at a completed cycle boundary")
+        os.execv(sys.executable, [sys.executable, os.path.abspath(__file__), "run"])
+
+
+def needs_trading_watch(paths):
+    """An offline scoring repair cannot cause checkout/model failures in the kit."""
+    return any(p not in REVIEW_ONLY and not p.startswith(("meta/", "test_")) for p in paths)
 
 
 def strict(props):
@@ -680,6 +706,8 @@ def strategy_problems(kind, answer, paths):
 def refresh_scorecard():
     """Pick up scorecard changes made while the long-running loop was alive."""
     importlib.invalidate_caches()
+    importlib.reload(hard_limits)
+    importlib.reload(scorecard.patch_notes)
     return importlib.reload(scorecard)
 
 
@@ -698,6 +726,10 @@ def cycle(kind):
         json.dump(card, f, ensure_ascii=False, indent=1, default=str)
     log(f"{cid}: asking {MODELS[kind]}")
     answer, err = call_model(kind, cid, pack)
+    # The owner can change limits during a long model turn. Validate against the
+    # current protected module, never against limits retained from this morning.
+    importlib.invalidate_caches()
+    importlib.reload(hard_limits)
     rec = {"cycle": cid, "model": MODELS[kind], "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "answer": answer}
     paths = stage()
     code = [p for p in paths if not p.startswith(NOT_CODE) and not p.startswith(("logs/", "memory/"))]
@@ -765,7 +797,7 @@ def cycle(kind):
         record(rec)
         return rec
     restart_seller(code)
-    bad = canary()
+    bad = canary() if needs_trading_watch(code) else []
     if bad:
         log(f"{cid}: failed the watch: {'; '.join(bad)}")
         failed = try_undo(cid, sha, f"{cid} 10분 점검 실패: {'; '.join(bad)}")
@@ -794,6 +826,7 @@ def run():
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     tried = {}                        # a cycle that crashed before recording still waits its turn
     while True:
+        refresh_runtime()
         if (market_round() or 0) < ECON_ROUND:
             log("Round 3 has not opened, waiting")
             time.sleep(300)
@@ -809,6 +842,7 @@ def run():
             except Exception as e:   # noqa: BLE001 - the shop runs on regardless; the next cycle tries again
                 log(f"{kind} cycle failed: {type(e).__name__}: {e}")
             push()
+            refresh_runtime()
         nxt = {k: time.strftime("%m-%d %H:%M", time.localtime(time.time() + max(0, wait(k)))) for k in every}
         log(f"next terra {nxt['terra']}, astra {nxt['astra']}")
         time.sleep(min(RUN_SECONDS, max(60, min(wait("terra"), wait("astra")))))

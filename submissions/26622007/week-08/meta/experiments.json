@@ -2,17 +2,6 @@
  "about": "Evidenced experiments, one at a time, in order (meta/terra.md 'Experiments'). Add at the end with every field filled and the evidence cited; meta/experiments_log.jsonl holds which one runs.",
  "queue": [
   {
-   "id": "carpet-G1465c678-one-unit",
-   "change": "One unit of G1465c678 (list 307,000; worst cost at the highest surge 345,375): next_window target 1, priority_skus gets it with sku_target_units 1 so the guard lets one high-price unit through, no repeat until judged.",
-   "evidence": "GPT Pro 11/05 product candidates: the next high-price candidate in the current exploration budget; market mature sales 29 at 3 shops, 0 refunds, 21 of them at one shop, so whether we sell it is unknown.",
-   "metric": "the unit's net contribution 6 h after its sale (settled price - cost - refund - storage), or unsold after two supply windows",
-   "direction": "above",
-   "threshold": "net contribution > 0 and sold within 2 supply windows",
-   "min_sample": "1 unit",
-   "hours": 12,
-   "undo": "drop it from next_window, priority_skus and sku_target_units; no repeat"
-  },
-  {
    "id": "g6-a-ask-cap-343k",
    "change": "price.ask_caps.G6b9db161.A 350,000 -> 343,000 (first ask 2% lower), nothing else.",
    "evidence": "GPT Pro 11/05 priority 7: G6 A 64 mature sales, 5 refunds, mean paid 345,584, contribution 52,388 per sale; book breaks even at +13.9% units, revenue at +2.04%; the data has no count of orders lost on price, so it is a test.",
@@ -22,6 +11,28 @@
    "min_sample": "20 mature sales after the change",
    "hours": 24,
    "undo": "price.ask_caps.G6b9db161.A back to 350000"
+  },
+  {
+   "id": "astra-1106-g1515-scarce-3pct",
+   "change": "진행 중 G6를 종료한 다음 price.scarce_asks.G1515d951만380911→369484(3% 인하). 재고 목표12·총량·하한·보증·거절정책은 건드리지 않는다. 시작 직전 동일 등급20숙성 판매와 재고시간 기준을 저장한다. 다른 사람이 같은 SKU 가격을 바꾸면 시작하지 말고 재설계한다.",
+   "evidence": "meta/evidence/astra-1106-230016-audit.jsonl:165; logs/market-kit.log:153957; 35건 숙성 기여2417097/35=69059.91원, 호가차11427원이 모두 실판매가에 반영되면 손익분기 판매증가19.8%.",
+   "metric": "동일 SKU·등급 원가확인 숙성 순기여(환불·보관료 차감)/실제 재고 보유시간, 변경 전20숙성 판매 대비 비율",
+   "direction": "above",
+   "threshold": "순기여/재고시간 비율>=1.0, 단위별 하한 위반0건; 재고시간 결측·다른 가격개입은 성공 아님",
+   "min_sample": "변경 후20건 숙성 판매와 이전 동일 등급20건, 양쪽 재고시간 확인",
+   "hours": 12,
+   "undo": "price.scarce_asks.G1515d951을 시작 직전 값380911로 복원. 표본 부족도 성공 처리하지 않고 총 재고를 축소하지 않는다. 마지막6시간 판매는 별도 추적만 지속한다."
+  },
+  {
+   "id": "astra-1106-seaweed-one-unit",
+   "change": "앞 실험 종료 후 G8074a394 한 단위만 next_window 새 계획(id 동일, targets={G8074a394:1}, expires_hours=2, hold_after_done=true). 기존 done_plans 보존, 반복 보충/priority 등록 없음. 현재 가격·서지와 식품720h 공급을 재확인; 기존 식품한도·파산 완충·최악원가350000 탐색한도 안에서만 실행. 게시나 메시지는 보내지 않는다.",
+   "evidence": "meta/evidence/astra-1106-230016-audit.jsonl:232; meta/evidence/astra-1106-230016-explore.jsonl:1; 공개 요청 #25130은 예산9만원·필요180h, 요청이 실제 수요 전환을 보장하지 않는다.",
+   "metric": "입고unit의 두 공급창 이내 실제 지급 및 판매가-실제원가-환불-보관/폐기비",
+   "direction": "above",
+   "threshold": "2공급창내 실제 지급1건, 최종 순기여>0, checkout 유통기한 충족",
+   "min_sample": "원가와 지급seq가 연결된1단위; 미판매 또는 결측은 실패",
+   "hours": 12,
+   "undo": "이 계획의 targets에서 G8074a394만 제거하고 실험을 종결한다. done_plans와 입고·판매 원본은 보존하며 추가 자동 보충하지 않는다."
   }
  ]
 }
