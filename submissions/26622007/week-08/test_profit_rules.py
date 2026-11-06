@@ -325,6 +325,16 @@ class PriceTest(unittest.TestCase):
             self.assertGreaterEqual(r["sku_target_units"][sku], 2)
         self.assertEqual((r["food_max_stock_cost"], r["food_max_qty"], r["sku_target_units"]["G75f11c19"]), (3000000, 20, 8))
 
+    def test_cash_over_the_buffer_goes_to_two_more_unlisted_dear_skus_last(self):
+        # main 11/07 05:5x: ~40M over the cash buffer; 30만+ SKUs with a positive net at our 0.685 cost in 6 h and 24 h
+        with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
+            r = json.load(f)["restock"]
+        new = {"G0e4deffc": 1, "G147ae4e7": 3}      # G0e4deffc 1: its median is one buyer at one shop (independent review)
+        self.assertEqual(r["priority_skus"][-2:], list(new))       # after the food and every older line (243a8f7 order)
+        self.assertEqual(r["priority_skus"][:3], ["Gef4d3036", "Gb2392fa9", "G200e39a3"])
+        self.assertEqual({k: r["sku_target_units"][k] for k in new}, new)
+        self.assertFalse(set(new) & set(r["skip_skus"]))
+
     def test_shipped_settings(self):
         with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
             p = json.load(f)
@@ -361,7 +371,8 @@ class PriceTest(unittest.TestCase):
         # scale 9 (11/07 00:3x): 10 more SKUs after these (test_idle_cash_goes_to_the_markets_top_unlisted_dear_skus);
         # G75f11c19 3 -> 8, G9c9f8f94 2 -> 4, G754bf0ca 5 -> 8, G8095ddd6 6 -> 8 (sold 2-4x their target in 6 h)
         old = [k for k in r["priority_skus"] if k not in ("Ge5fe0d41", "G19a70f63", "G0667d440", "G85a1a856", "G9f7c7d1b",
-                                                           "Gd289350f", "G6b0fd5bc", "G2c023a8c", "G7978c65e", "G9357d6c2")]
+                                                           "Gd289350f", "G6b0fd5bc", "G2c023a8c", "G7978c65e", "G9357d6c2",
+                                                           "G0e4deffc", "G147ae4e7")]   # + scale 10
         self.assertEqual((old, {k: v for k, v in r["sku_target_units"].items() if k in old
                           or k in r["high_price_proven_skus"]}, r["fill_listed"], r["price_hours"]),
                          (["Gef4d3036", "Gb2392fa9", "G200e39a3", "G8ec51935", "G24f5f979", "Gbec2b68f", "Gf6b70da8", "Gb5d0dde7", "G2698c6f8", "G8095ddd6", "G021aae64", "G03d0199f", "G05277ffe", "G00327e80", "G3e0d6c67", "Gc1297f36", "G429bd69e", "G754bf0ca", "G47788edd", "G4a12722c", "G445ada94", "G2607d1f6", "G9c9f8f94", "G7a341425", "G9718023b", "G75f11c19", "G66ded25b", "G1465c678"],
