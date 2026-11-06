@@ -304,7 +304,7 @@
     "scarce_source": "review/ax-overnight-20261103/0300/gpt-pro-answer.md B-2: both units of these SKUs sold within minutes of the 02:40 and 03:01 windows; each ask is 1.05 x the first ask the seller logged at 03:2x (G1515d951 1.05 x 362,772, G6b9db161 1.05 x 374,272, G0f415407 1.05 x 250,472, G9c02e68e 1.05 x 114,781), fixed so our own sales do not raise it further",
     "ask_caps": {
       "G6b9db161": {
-        "A": 350000,
+        "A": 343000,
         "C": 279000
       },
       "G0f415407": {
