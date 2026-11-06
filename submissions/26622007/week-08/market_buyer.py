@@ -1300,7 +1300,23 @@ def main():
         except Exception as e:   # noqa: BLE001 - a measurement never stops the result line the kit waits for
             log(f"[measure] order record failed: {type(e).__name__}: {e}")
     print(json.dumps(result, ensure_ascii=False), flush=True)
+    if r3:
+        post_when_free(md)
     return 0
+
+
+def post_when_free(md):
+    """After the result line, a buyer post if the slot is free (buyer_post.maybe_post keeps GAP_MINUTES and the outbox
+    check). review.py tried only after a paid deal, so a free slot waited for the next one: our buyer posts came 5.3-9.1 min
+    apart, 7.6 an hour against 11.5-11.7 for the buyers just behind us in posts (11/06 16:45-22:03); an order ends about
+    every minute. Never raises."""
+    try:
+        import buyer_post
+        line = buyer_post.maybe_post(md, SETTLED, MEMORY or MEMORY_R3)
+    except Exception:  # noqa: BLE001 - a forum post never costs the order
+        line = None
+    if line:
+        log(f"[forum] buyer post queued: {line['refs'][:1]}")
 
 
 if __name__ == "__main__":

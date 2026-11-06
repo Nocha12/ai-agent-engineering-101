@@ -196,5 +196,21 @@ class TrendPost(unittest.TestCase):
         self.assertTrue(third["post"].startswith("[가격 동향] 생수"))          # G9 was the last trend
 
 
+
+class OrderEndPostTest(unittest.TestCase):
+    """market_buyer posts at the end of an order too, through maybe_post (its gap and outbox checks), and never raises."""
+
+    def test_order_end_calls_maybe_post_and_swallows_errors(self):
+        import market_buyer
+        from unittest import mock
+        with mock.patch.object(buyer_post, "maybe_post", return_value=None) as mp:
+            market_buyer.post_when_free("/tmp/md")
+        self.assertEqual(mp.call_args[0][0], "/tmp/md")
+        with mock.patch.object(buyer_post, "maybe_post", side_effect=RuntimeError("x")):
+            market_buyer.post_when_free("/tmp/md")
+        import inspect
+        self.assertIn("post_when_free(md)", inspect.getsource(market_buyer.main))
+
+
 if __name__ == "__main__":
     unittest.main()
