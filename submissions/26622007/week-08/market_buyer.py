@@ -670,6 +670,9 @@ def quote(shop, label, key, order, out, ctl=None):
         log(f"[quote] {shop['name']}: {type(e).__name__}: {e}")
 
 
+TALK_OVER_SHARE = 0.03  # the best opening ask more than this over my limit: the order ends without a talk (11/07 02:20, oneshot on
+#                         since 01:28: such orders won 10 of 32 at 0.332 of list for 23 s of talk each, while the fitting ones
+#                         won 15 of 16 at 0.409 in 25 s an order; the 20 s an order floor leaves the time to the next order)
 QUOTE_NEXT_SHARE = 0.7  # share of a batch answered with no ask within my limit before the next batch is asked (11/07 01:00: 52 of
 #                         97 orders had none in the first 10, found 17 s on average into the quotes, the slowest shop setting it)
 QUOTE_ROUNDS = 3       # batches of quote_shops shops asked while none so far had a unit for me (another buyer holds it)
@@ -1320,6 +1323,16 @@ def main():
                 q["closed"] = True
                 try:
                     cancel_quote(dict(q, closed=False), shop["name"])    # at once: the run ends right after this
+                except Exception as e:  # a shop that went away: the talk times out on its side
+                    log(f"[quote] closing {shop['name']} failed: {type(e).__name__}: {e}")
+            raise NoValue()
+        best_ask = q.get("ask") if isinstance(q.get("ask"), (int, float)) and not isinstance(q.get("ask"), bool) else None
+        if r3 and best_ask is not None and best_ask > limit * (1 + TALK_OVER_SHARE):
+            log(f"[offer] the best ask {best_ask} is {best_ask / limit - 1:.0%} over my limit {limit}: no talk, on to the next order")
+            if resumable(q):
+                q["closed"] = True
+                try:
+                    cancel_quote(dict(q, closed=False), shop["name"])
                 except Exception as e:  # a shop that went away: the talk times out on its side
                     log(f"[quote] closing {shop['name']} failed: {type(e).__name__}: {e}")
             raise NoValue()

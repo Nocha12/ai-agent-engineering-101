@@ -118,8 +118,9 @@ class MainOverlap(unittest.TestCase):
     CATALOG = {"H1": {"list_price": 10000, "kind": "goods"}}
     ORDER = {"order": "o-1", "item": "청소기", "budget": 20000, "acceptable": ["H1"], "kind": "goods", "category": "가전>청소기"}
 
-    def run_main(self, shops, hopeless=False, choose_s=0.5, quote_s=0.5, choose_fails=False):
+    def run_main(self, shops, hopeless=False, choose_s=0.5, quote_s=0.5, choose_fails=False, asks=None):
         printed, events, cancelled = [], [], []
+        self.cancelled = cancelled
         lock = threading.Lock()
 
         def note(what):
@@ -129,7 +130,7 @@ class MainOverlap(unittest.TestCase):
         def fake_quote(s, label, key, order, out, ctl=None):
             note(f"quote {s['name']}")
             time.sleep(quote_s)
-            q = {"ask": 7000 if s["name"] == "c" else 9000, "text": "", "url": s["url"],
+            q = {"ask": (asks or {}).get(s["name"], 7000 if s["name"] == "c" else 9000), "text": "", "url": s["url"],
                  "task": open_task(s["name"]), "refused": None}
             with ctl["lock"]:            # as quote() does: publish closed when the choice was made first
                 late = ctl["done"] and ctl["winner"] != s["name"]
@@ -195,6 +196,19 @@ class MainOverlap(unittest.TestCase):
         self.assertEqual(out["shop"], "https://c.example")            # the best ask still wins
         # 4 prefetched asks that fit are enough (QUOTE_ENOUGH): the chosen shop's own later quote is not waited for
         self.assertGreaterEqual(len(orders[-1]["quotes"]), 4)
+
+    def test_no_ask_near_my_limit_ends_the_order_without_a_talk(self):
+        shops = [dict(shop(n), offers=[{"sku": "H1", "name": "청소기", "qty": 1}]) for n in "abcdef"]
+        out, events, took, orders = self.run_main(shops, asks={"c": 7500})       # limit 7000: 7% over
+        self.assertNotIn("talk", [w for w, _ in events])
+        self.assertEqual(orders[-1]["state"], "NO_VALUE")
+        self.assertIsNone(out["receipt"])
+        self.assertIn("t-c", self.cancelled)       # the kept talk is closed too: no shop holds a unit for me
+
+    def test_an_ask_just_over_my_limit_is_still_talked_down(self):
+        shops = [dict(shop(n), offers=[{"sku": "H1", "name": "청소기", "qty": 1}]) for n in "abcdef"]
+        out, events, took, orders = self.run_main(shops, asks={"c": 7150})       # 2% over
+        self.assertIn("talk", [w for w, _ in events])
 
     def test_a_hopeless_order_asks_no_shop_and_skips_the_choice(self):
         shops = [dict(shop(n), offers=[{"sku": "H1", "name": "청소기", "qty": 1}]) for n in "abc"]
