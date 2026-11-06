@@ -74,7 +74,9 @@ CHOOSE_STEPS = 3       # Round 3: the shop-choosing agent's steps, tool calls in
 # code chooses. A step took a median 6-8 s and a p90 9-12 s (llm_calls.jsonl, 11/05-06), but from 17:25 on 11/06 the
 # codex answers took 17-58 s and a choice could wait 3 x 60 + 60 s, past the 60 s that lets best_quote compare shops
 # (orders 69 -> 22/h, 4 of 11 cancelled; review/W-20261106-1525-AX바이어병렬/mem/report.md).
-CHOOSE_SECONDS, CHOOSE_STEP_SECONDS, CHOOSE_MIN_SECONDS = 30, 15, 3
+# 30 -> 20 s on 11/06 19:50: the choice took a median 13.8 s and a p90 31.6 s (92 orders, 17:50-19:50) while best_quote
+# ranks the quotes in code anyway, so the slow tail only held the order (orders/h 46 against 160-173 for the top buyers).
+CHOOSE_SECONDS, CHOOSE_STEP_SECONDS, CHOOSE_MIN_SECONDS = 20, 12, 3
 AGENT_DIR = None       # Round 3: the .market folder, when the shop is chosen by the tool-using agent
 RECENT_FIT_HOURS = 3   # a shop that asked within my limit for the order's category this recently is quoted first
 RECENT_FIT_BYTES = 3000000   # the tail of measure/orders.jsonl read for it (about 750 orders)
