@@ -42,6 +42,9 @@ REFUND_EXPECTED = 0.06
 # that worst-rate exposure, up to the most Round 3 ever refunded in 6 h. A shop with no recent sales keeps nothing extra.
 REFUND_WORST = 0.13
 REFUNDS_6H_WORST = 5800000
+# GPT Pro 11/06 23:40 replay: with the two rates alone 14 of 481 past board times would have crossed the line had nothing
+# sold after them; the BIGGEST_SALES biggest warranted sales of the last BREAK_HOURS, refunded in full, made it 0 of 481
+BIGGEST_SALES = 3
 BREAK_HOURS = 6
 STORAGE_DAYS = 1.0
 STORAGE_PER_DAY = 0.01
@@ -173,7 +176,7 @@ ENV_SECRET = r"KEY|TOKEN|SECRET|PASS|OWNER|AUTH|COOKIE|CRED"     # never passed,
 def cash_buffer(stock_cost=0, sales=None, now=None):
     """The cash a buy may not take the balance under: the bankruptcy line, the refunds the shop's warranted goods sales of
     the last BREAK_HOURS are expected to bring at the measured rate (REFUND_EXPECTED; never under the worst rate's
-    exposure up to REFUNDS_6H_WORST) and STORAGE_DAYS of storage on the
+    exposure up to REFUNDS_6H_WORST, nor under the BIGGEST_SALES biggest of those sales in full) and STORAGE_DAYS of storage on the
     stock. sales: [(unix time, price)] of this shop's warranted goods sales, or None when the ledger could not be read
     (UNKNOWN_EXPOSURE then). Never under STOP_BUYING_BELOW."""
     now = now or time.time()
@@ -181,8 +184,10 @@ def cash_buffer(stock_cost=0, sales=None, now=None):
     if sales is None:
         owed = UNKNOWN_EXPOSURE
     else:
-        left = sum(p * (span - (now - t)) / span for t, p in sales if number(t) and number(p) and 0 <= now - t < span)
-        owed = max(REFUND_EXPECTED * left, min(REFUNDS_6H_WORST, REFUND_WORST * left))
+        live = [(t, p) for t, p in sales if number(t) and number(p) and p > 0 and 0 <= now - t < span]
+        left = sum(p * (span - (now - t)) / span for t, p in live)
+        top = sum(sorted((p for _, p in live), reverse=True)[:BIGGEST_SALES])
+        owed = max(REFUND_EXPECTED * left, min(REFUNDS_6H_WORST, REFUND_WORST * left), top)
     stock = stock_cost if number(stock_cost) and stock_cost > 0 else 0
     return max(STOP_BUYING_BELOW, math.ceil(BANKRUPT_LINE + owed + STORAGE_DAYS * STORAGE_PER_DAY * stock))
 

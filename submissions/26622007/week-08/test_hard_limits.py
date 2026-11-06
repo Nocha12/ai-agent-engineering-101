@@ -138,11 +138,21 @@ class GuardsStayHookedTest(unittest.TestCase):
         now = 1800000000
         self.assertEqual(hl.cash_buffer(0, [], now), 1000000)                                    # STOP_BUYING_BELOW
         self.assertEqual(hl.cash_buffer(100000000, [], now), 500000 + 1000000)                 # one day of 1% storage
-        sold = [(now, 100000000), (now - 3 * 3600, 100000000), (now - 7 * 3600, 100000000)]   # new, half-way, past 6 h
-        self.assertEqual(hl.cash_buffer(0, sold, now), 500000 + 6000000 + 3000000)
+        sold = [(now, 1000000)] * 100 + [(now - 3 * 3600, 1000000)] * 100 + [(now - 7 * 3600, 9000000)]  # new, half-way, past 6 h
+        self.assertEqual(hl.cash_buffer(0, sold, now), 500000 + 9000000)          # 6% of 150M weighted
         # small sales: the worst rate's exposure (13%), up to the most ever refunded in 6 h (5.8M)
-        self.assertEqual(hl.cash_buffer(0, [(now, 10000000)], now), 500000 + 1300000)
-        self.assertEqual(hl.cash_buffer(0, [(now, 60000000)], now), 500000 + 5800000)
+        self.assertEqual(hl.cash_buffer(0, [(now, 100000)] * 100, now), 500000 + 1300000)
+        self.assertEqual(hl.cash_buffer(0, [(now, 100000)] * 600, now), 500000 + 5800000)
+
+    def test_the_cash_buffer_covers_the_three_biggest_sales_still_under_warranty(self):
+        # GPT Pro 11/06 23:40 (메인 23:40 파산 방지 최우선): with 6% / 13% capped at 5.8M, 14 of 481 past board times would
+        # have crossed the line had nothing sold after them; the three biggest warranted sales of the last 6 h, refunded
+        # in full, makes it 0 of 481 (review/W-20261106-2225-AX극단상향/buffer_replay.py)
+        now = 1800000000
+        big = [(now - 5 * 3600, 2500000), (now - 3600, 2400000), (now, 2300000), (now, 100000), (now - 7 * 3600, 9000000)]
+        self.assertEqual(hl.cash_buffer(0, big, now), 500000 + 2500000 + 2400000 + 2300000)
+        self.assertEqual(hl.BIGGEST_SALES, 3)
+        self.assertEqual(hl.cash_buffer(0, [(now, 3000000), (now, 0), (now, -9000000)], now), 500000 + 3000000)  # fewer than 3
         self.assertEqual(hl.cash_buffer(0, None, now), 500000 + hl.UNKNOWN_EXPOSURE)  # ledger unreadable
         self.assertEqual(hl.cash_buffer(-5, [("x", None), (now, float("nan")), (now, float("inf"))], now), 1000000)
         self.assertEqual(hl.cash_buffer(float("inf"), [], now), 1000000)
