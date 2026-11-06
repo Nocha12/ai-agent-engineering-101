@@ -298,9 +298,9 @@ class PriceTest(unittest.TestCase):
         q = profit_price.quote(u, median=2070000, measured=None, pricing=p)
         self.assertLessEqual(q["open"], 2070000)
         self.assertGreaterEqual(q["floor"], 1980000 * 1.0025 / (1 - 0.03))      # cost, storage and the A refund rate
-        self.assertEqual(q["open"], max(q["floor"], round(0.97 * 2070000)))
+        self.assertEqual(q["open"], max(q["floor"], round(0.94 * 2070000)))
         cheap = {**u, "cost": 1500000}
-        self.assertEqual(profit_price.quote(cheap, median=2070000, pricing=p)["open"], round(0.97 * 2070000))
+        self.assertEqual(profit_price.quote(cheap, median=2070000, pricing=p)["open"], round(0.94 * 2070000))
 
     def test_shipped_settings(self):
         with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
@@ -310,7 +310,7 @@ class PriceTest(unittest.TestCase):
         # a person 11/06 22:22: floors at break-even (cost + 6 h storage + the expected warranty refund), no profit margin:
         # the least b is grade A's measured 3% plus half a point, and no minimum profit
         self.assertEqual((c["goods_break"], c["min_profit"], c["min_profit_share"]), (0.035, 1, 0.0))
-        self.assertEqual((c["median_up"], c["high_median_up"]["factor"]), (1.0, 0.97))
+        self.assertEqual((c["median_up"], c["high_median_up"]["factor"]), (1.0, 0.94))
         self.assertIs(profit_price.cfg_of(p)["paid_over_median"], False)
         self.assertEqual(profit_price.cfg_of(p)["grade_break"], {"A": 0.03, "B": 0.122, "C": 0.344})
         self.assertEqual(p["warranty"]["max_break"], 0.5)         # C units (34% of them break) are priced, not refused
