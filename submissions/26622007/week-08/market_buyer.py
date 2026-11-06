@@ -545,6 +545,19 @@ def shelf_refused(text, order):
     return None
 
 
+USE_WITHIN_ASKED = re.compile(r"(how many hours|how long|remain usable|use within)", re.I)
+
+
+def shop_question_reply(text, order):
+    """The answer to a shop that asks how long a food unit must last before it names a price (mjforge, 11/06: "How many
+    hours/days must it remain usable? Reply e.g. 'use within 72h'"): the order's use_within_hours, rounded up. None for
+    anything else, so the guard still walks away from a message it cannot read."""
+    h = (order or {}).get("use_within_hours")
+    if not isinstance(h, (int, float)) or isinstance(h, bool) or h <= 0 or not USE_WITHIN_ASKED.search(text or ""):
+        return None
+    return f"use within {int(-(-h // 1))}h"
+
+
 def quote_refused(text, order):
     """Why the shop's first answer already rules out a deal I would pay for (warranty or shelf life), else None."""
     return warranty_refused(text, order) or shelf_refused(text, order)
@@ -1296,6 +1309,7 @@ def main():
         resume = (q["url"], q["task"]) if r3 and resumable(q) else None
         out = negotiate(shop["url"], label, limit, note, request_text(label, key, order) if r3 else None, resume=resume,
                         stop_if=(lambda text: quote_refused(text, order)) if r3 else None,
+                        reply_to=(lambda text: shop_question_reply(text, order)) if r3 else None,
                         take_at=min(limit, int(offer["list_price"] * FOOD_TAKE_SHARE))
                         if r3 and FOOD_TAKE_ASK and order.get("kind") == "food" else None)
         out["asked"] = key if r3 else None

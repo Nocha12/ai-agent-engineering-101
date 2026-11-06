@@ -119,7 +119,7 @@ def decide(item, budget, history, text, meta_ask, turn, note=""):
     return ask(prompt, SCHEMA, SYSTEM, tag="buyer-harness")
 
 
-def negotiate(card_url, item, budget, note="", request=None, resume=None, stop_if=None, take_at=None):
+def negotiate(card_url, item, budget, note="", request=None, resume=None, stop_if=None, take_at=None, reply_to=None):
     """One A2A negotiation. Returns {"state", "task", "receipt", "history", "agreed"}.
 
     agreed is the last price we offered, which is what the shop accepted when the task completes.
@@ -133,7 +133,7 @@ def negotiate(card_url, item, budget, note="", request=None, resume=None, stop_i
     if resume:
         url, t = resume
         log(f"going on with task {str(t.get('id'))[:8]} at {url}; item {item}, budget {budget}")
-        return talk(url, t, item, budget, note, out, stop_if, take_at)
+        return talk(url, t, item, budget, note, out, stop_if, take_at, reply_to)
     try:
         r = httpx.get(card_url.rstrip("/") + "/.well-known/agent-card.json", headers=HEADERS, timeout=30)
         card = r.json()
@@ -155,13 +155,14 @@ def negotiate(card_url, item, budget, note="", request=None, resume=None, stop_i
     if t is None:
         out["state"] = "ERROR"
         return out
-    return talk(url, t, item, budget, note, out, stop_if, take_at)
+    return talk(url, t, item, budget, note, out, stop_if, take_at, reply_to)
 
 
-def talk(url, t, item, budget, note, out, stop_if=None, take_at=None):
+def talk(url, t, item, budget, note, out, stop_if=None, take_at=None, reply_to=None):
+    """reply_to(shop text) -> an answer to a question with no price in it ("use within 360h"), or None."""
     task_id, history = t["id"], out["history"]
     out["task"] = task_id
-    turn, holds = 0, 0
+    turn, holds, answered = 0, 0, set()
     for turn in range(1, MAX_TURNS + 1):
         st = state(t)
         if st != "TASK_STATE_INPUT_REQUIRED":
@@ -196,6 +197,15 @@ def talk(url, t, item, budget, note, out, stop_if=None, take_at=None):
         elif read in numbers(text):
             ask_price = read
         else:
+            answer = reply_to(text) if reply_to else None
+            if answer and answer not in answered:     # once each: a shop that asks again gets the walk-away
+                answered.add(answer)
+                log(f"no price in the shop's message, it asks a question -> {answer!r}")
+                nt = send(url, answer, task_id)
+                if nt is None:
+                    break
+                t = nt
+                continue
             log(f"GUARD harness read the price as {read}, not a number in {sorted(numbers(text))}; walking away")
             break
         log(f"shop price {ask_price} ({'metadata' if meta is not None else 'read by the harness'})")
