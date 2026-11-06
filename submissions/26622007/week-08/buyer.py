@@ -193,7 +193,8 @@ def talk(url, t, item, budget, note, out, stop_if=None, take_at=None, reply_to=N
             log(f"FAST the ask {fast['shop_price']} is at or under my last offer -> offering it, no harness call")
         code = ladder(meta, text, history) if ladder and not fast else None
         if code:
-            log(f"CODE the ask {seen} -> {code['action']} {code['price'] or ''}, no harness call")
+            log(f"CODE the ask {code['shop_price']} ({'metadata' if meta is not None else 'shop template'}) -> "
+                f"{code['action']} {code['price'] or ''}, no harness call")
         try:
             d = fast or code or decide(item, budget, history, text, meta, turn, note)
         except HarnessError as e:
