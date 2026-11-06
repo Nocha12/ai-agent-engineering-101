@@ -120,7 +120,8 @@ def decide(item, budget, history, text, meta_ask, turn, note=""):
     return ask(prompt, SCHEMA, SYSTEM, tag="buyer-harness")
 
 
-def negotiate(card_url, item, budget, note="", request=None, resume=None, stop_if=None, take_at=None, reply_to=None):
+def negotiate(card_url, item, budget, note="", request=None, resume=None, stop_if=None, take_at=None, reply_to=None,
+              ladder=None):
     """One A2A negotiation. Returns {"state", "task", "receipt", "history", "agreed"}.
 
     agreed is the last price we offered, which is what the shop accepted when the task completes.
@@ -129,12 +130,13 @@ def negotiate(card_url, item, budget, note="", request=None, resume=None, stop_i
     talk before any offer (it is cancelled, nothing was promised).
     take_at: a machine-readable ask (message metadata) at or under it is offered back at once, with no counter and no
     harness call (market_buyer sets it for food, where countering lost more deals than it saved).
+    ladder(ask, history): the turn priced by code (oneshot.code_turn) whenever an ask is read, or None for the harness.
     """
     out = {"state": "", "task": None, "receipt": None, "history": [], "agreed": None, "holds": 0}
     if resume:
         url, t = resume
         log(f"going on with task {str(t.get('id'))[:8]} at {url}; item {item}, budget {budget}")
-        return talk(url, t, item, budget, note, out, stop_if, take_at, reply_to)
+        return talk(url, t, item, budget, note, out, stop_if, take_at, reply_to, ladder)
     try:
         r = httpx.get(card_url.rstrip("/") + "/.well-known/agent-card.json", headers=HEADERS, timeout=30)
         card = r.json()
@@ -156,10 +158,10 @@ def negotiate(card_url, item, budget, note="", request=None, resume=None, stop_i
     if t is None:
         out["state"] = "ERROR"
         return out
-    return talk(url, t, item, budget, note, out, stop_if, take_at, reply_to)
+    return talk(url, t, item, budget, note, out, stop_if, take_at, reply_to, ladder)
 
 
-def talk(url, t, item, budget, note, out, stop_if=None, take_at=None, reply_to=None):
+def talk(url, t, item, budget, note, out, stop_if=None, take_at=None, reply_to=None, ladder=None):
     """reply_to(shop text) -> an answer to a question with no price in it ("use within 360h"), or None."""
     task_id, history = t["id"], out["history"]
     out["task"] = task_id
@@ -185,11 +187,15 @@ def talk(url, t, item, budget, note, out, stop_if=None, take_at=None, reply_to=N
                 break
             t = nt
             continue
-        fast = fast_classify.buyer_turn(meta if meta is not None else text_ask(text), history)
+        seen = meta if meta is not None else text_ask(text)
+        fast = fast_classify.buyer_turn(seen, history)
         if fast:
             log(f"FAST the ask {fast['shop_price']} is at or under my last offer -> offering it, no harness call")
+        code = ladder(seen, history) if ladder and not fast else None
+        if code:
+            log(f"CODE the ask {seen} -> {code['action']} {code['price'] or ''}, no harness call")
         try:
-            d = fast or decide(item, budget, history, text, meta, turn, note)
+            d = fast or code or decide(item, budget, history, text, meta, turn, note)
         except HarnessError as e:
             log(f"harness failed: {e}; walking away")
             break

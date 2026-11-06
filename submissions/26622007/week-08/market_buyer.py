@@ -50,6 +50,7 @@ import hard_limits
 import harness
 import market_model
 import measure as records    # measure.py; measure() below is the memory timing
+import oneshot
 import rival_deny
 
 # Revenue rivals of my shop asked last (rival_deny): off from 11/07 00:30. With best_quote stopping at QUOTE_ENOUGH asks they
@@ -1308,6 +1309,7 @@ def main():
     if r3:
         log(f"[offer] {offer['sku']} {offer['name']}: list {offer['list_price']}, limit {limit}, {len(shop['usable'])} fit"
             + (f", breaks {chance:.1%} of the time in the ledger" if chance else ""))
+    talk_mode = None      # no talk (NO_VALUE, an error before it)
     try:
         q = quotes.get(shop["name"]) or {}
         if r3 and gave_up:
@@ -1322,9 +1324,15 @@ def main():
                     log(f"[quote] closing {shop['name']} failed: {type(e).__name__}: {e}")
             raise NoValue()
         resume = (q["url"], q["task"]) if r3 and resumable(q) else None
+        cfg = buyer_cfg()
+        steps = oneshot.steps(cfg) if r3 and oneshot.enabled(cfg) else None
+        if steps:
+            log(f"[offer] oneshot: {', '.join(f'{s:.2f}' for s in steps)} of the first ask, then the counter, priced by code")
+        talk_mode = f"oneshot {list(steps)}" if steps else "harness"
         out = negotiate(shop["url"], label, limit, note, request_text(label, key, order) if r3 else None, resume=resume,
                         stop_if=(lambda text: quote_refused(text, order)) if r3 else None,
                         reply_to=(lambda text: shop_question_reply(text, order)) if r3 else None,
+                        ladder=(lambda ask, history: oneshot.code_turn(ask, history, limit, steps)) if steps else None,
                         take_at=min(limit, int(offer["list_price"] * FOOD_TAKE_SHARE))
                         if r3 and FOOD_TAKE_ASK and order.get("kind") == "food" else None)
         out["asked"] = key if r3 else None
@@ -1380,7 +1388,8 @@ def main():
             records.write(md, "orders", {**order_record(order, args, shops, quotes, first_choice, first_reason, shop, reason, offer,
                                                         limit, chance, out, rec, result, problems, warnings, short, why, stages,
                                                         catalog), "skipped_short_warranty": brief,
-                                         "gave_up": gave_up, "rival_shop": shop["name"] in rival})
+                                         "gave_up": gave_up, "rival_shop": shop["name"] in rival,
+                                         "talk_mode": talk_mode})
         except Exception as e:   # noqa: BLE001 - a measurement never stops the result line the kit waits for
             log(f"[measure] order record failed: {type(e).__name__}: {e}")
     print(json.dumps(result, ensure_ascii=False), flush=True)
