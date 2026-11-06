@@ -52,6 +52,31 @@ class UrgentListedTest(unittest.TestCase):
         send, back = restock.batch(agent, [], formula, keep, dict(CFG, max_lines=2), ["H2", "P1"])
         self.assertEqual((send, back), ([{"sku": "H2", "qty": 1}, {"sku": "P1", "qty": 2}], [{"sku": "X1", "qty": 1}]))
 
+    def test_a_small_food_top_up_goes_after_the_goods_lines(self):
+        # 11/07 08:23 window: run 2 spent calls on 3 apples and 1 kimchi (14 and 12 bought a minute earlier) and the window
+        # closed on G2607d1f6; 04:4x-08:4x: 16 food lines of 1-3 units, 42 goods lines held back
+        keep = lambda lines: lines
+        formula = [{"sku": "F1", "qty": 3}, {"sku": "F2", "qty": 12}, {"sku": "H1", "qty": 1}, {"sku": "H2", "qty": 2}]
+        small = restock.small_food(CATALOG, inv(*["F1"] * 14))
+        send, _ = restock.batch([], formula, formula, keep, dict(CFG, max_lines=3), ["F1", "F2", "H1", "H2"], small)
+        self.assertEqual([b["sku"] for b in send], ["F2", "H1", "H2"])     # F1's 3 units wait; a 12-unit food line does not
+        send, _ = restock.batch([], formula, formula, keep, dict(CFG, max_lines=4), ["F1", "F2", "H1", "H2"], small)
+        self.assertEqual([b["sku"] for b in send], ["F2", "H1", "H2", "F1"])   # room left: still bought, last
+        send, _ = restock.batch([], formula, formula, keep, dict(CFG, max_lines=3), ["F1", "F2", "H1", "H2"])
+        self.assertEqual([b["sku"] for b in send], ["F1", "F2", "H1"])     # no predicate: the order as before
+        # an empty food SKU keeps its place even when the food cap or the cash guard trimmed its line (independent review)
+        empty = restock.small_food(CATALOG, inv("H1", expired=["F1"]))
+        send, _ = restock.batch([], formula, formula, keep, dict(CFG, max_lines=3), ["F1", "F2", "H1", "H2"], empty)
+        self.assertEqual([b["sku"] for b in send], ["F1", "F2", "H1"])
+        on_way = restock.small_food(CATALOG, inv(), [{"sku": "F1", "qty": 12}])
+        self.assertTrue(on_way({"sku": "F1", "qty": 2}))
+        self.assertFalse(on_way({"sku": "F1", "qty": 4}) or on_way({"sku": "P1", "qty": 1}) or on_way({"sku": "F1", "qty": True}))
+        # an agent line cut at max_lines goes back to the queue
+        agent = [{"sku": "X1", "qty": 1}]
+        cat = dict(CATALOG, X1={"kind": "food", "list_price": 20000})
+        send, back = restock.batch(agent, [], formula, keep, dict(CFG, max_lines=2), ["F2", "H1"], restock.small_food(cat, inv("X1")))
+        self.assertEqual(([b["sku"] for b in send], back), (["F2", "H1"], agent))
+
     def test_with_the_model_refills_go_by_hours_of_stock_left_lowest_first(self):
         # 11/07 06:23 window: run 2 sent 3 apples and 1 kimchi (held 16, 15) and held back G021aae64 (held 1, 7 sold/h)
         model = {"skus": {"F1": {"rate": 100, "my_share": 0.1}, "P1": {"rate": 40, "my_share": 0.05},

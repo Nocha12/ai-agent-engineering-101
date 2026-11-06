@@ -673,14 +673,38 @@ def proven_first(agent_lines, formula_lines, cfg, order=None):
     return [{"sku": s, "qty": want[s]} for s in order if s in want] + [b for b in agent_lines if b.get("sku") not in want]
 
 
-def batch(agent_lines, fill_lines, formula_lines, keep, cfg, order=None):
+SMALL_FOOD_LINE = 3     # a food line of at most this many units is a top-up: it goes after the goods lines
+
+
+def small_food(catalog, inv, waiting=()):
+    """batch()'s last: a food line of SMALL_FOOD_LINE units or fewer for a SKU with a live unit held or on its way. Food
+    nets ~4-6k a unit, goods 15-300k (24 h ledger, sku_net), and a window serves ~14 lines: 04:4x-08:4x (11/07) 16 such
+    lines went out while 42 goods lines were held back when the window closed (08:23: 3 apples and 1 kimchi a minute
+    after 14 and 12, then G2607d1f6 held back). An empty food SKU keeps its place (urgent_listed puts it first): the
+    food cost cap or the cash guard can trim its line to a few units (independent review 11/07)."""
+    now = time.time()
+    have = collections.Counter(u.get("sku") for u in inv.get("units") or [] if isinstance(u, dict) and not gone(u, now))
+    for w in waiting or ():
+        have[w.get("sku")] += w.get("qty") or 0
+
+    def last(b):
+        q, s = b.get("qty"), b.get("sku")
+        return (catalog.get(s) or {}).get("kind") == "food" and isinstance(q, int) and not isinstance(q, bool) \
+            and q <= SMALL_FOOD_LINE and have[s] > 0
+    return last
+
+
+def batch(agent_lines, fill_lines, formula_lines, keep, cfg, order=None, last=None):
     """This run's lines and the agent lines to queue again: proven / priority SKUs first (proven_first, from the
     formula's plan even while the agent's queue waits), then the agent's, then fill_lines (the formula's, once the
     queue is empty). Lines the guard drops are gone, as before; agent lines that only the cut at max_lines leaves out
-    go back to the queue, so the proven lines never push an agent line out for good."""
+    go back to the queue, so the proven lines never push an agent line out for good. last(line) True: the line moves
+    behind the others (small_food), keeping the order within each part."""
     agent_skus = {b.get("sku") for b in agent_lines}
     first = set(cfg.get("high_price_proven_skus") or ()) | set(cfg.get("priority_skus") or ())
     kept = with_formula(proven_first(agent_lines, formula_lines, cfg, order), fill_lines, keep, None)
+    if last is not None:
+        kept = [b for b in kept if not last(b)] + [b for b in kept if last(b)]
     n = cfg["max_lines"]
     return kept[:n], [b for b in kept[n:] if b["sku"] in agent_skus and b["sku"] not in first]
 
@@ -819,7 +843,8 @@ def main():
             # the formula fills only once the agent's queue is sent, except the proven / priority SKUs it proposes:
             # those go first in either case (proven_first); agent lines they push past max_lines are queued again
             send, back = batch(lines, [] if queued else out["buy"], out["buy"], keep, cfg,
-                               urgent_listed(cfg, inv, catalog, waiting, model if model and model.get("active") else None))
+                               urgent_listed(cfg, inv, catalog, waiting, model if model and model.get("active") else None),
+                               small_food(catalog, inv, waiting))
             agent_skus = {x.get("sku") for x in lines}
             if hold and not trial:         # agent lines for the trial's SKUs wait in the queue until the trial ends
                 back += [x for x in send if x["sku"] in hold and x["sku"] in agent_skus]
