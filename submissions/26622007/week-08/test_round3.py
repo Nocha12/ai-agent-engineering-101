@@ -292,7 +292,7 @@ class EndToEnd(unittest.TestCase):
             self.assertNotIn("warranty_hours", self.deal("G1")["receipt"])
 
     def test_warranty_on_request_is_granted_with_the_break_chance_priced_in(self):
-        with mock.patch.object(seller, "break_chance", lambda sku: 0.1):
+        with mock.patch.object(seller, "break_chance", lambda sku, grade=None: 0.1):
             out = buyer.negotiate(self.url, "청소기", 10000, "", "I want to buy (G2) with a 6 h warranty")
         rec = out["receipt"]
         self.assertEqual(rec["warranty_hours"], 6)
@@ -300,21 +300,21 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual((seller.flush_memory() or shop_memory.load())["negotiations"][-1]["warranty"], 6)
 
     def test_goods_that_break_too_often_are_not_sold_without_a_warranty(self):
-        with mock.patch.object(seller, "break_chance", lambda sku: 0.5):
+        with mock.patch.object(seller, "break_chance", lambda sku, grade=None: 0.5):
             out = buyer.negotiate(self.url, "청소기", 10000, "", "I want to buy (G2) with a warranty")
         self.assertEqual(out["state"], "TASK_STATE_REJECTED")        # GPT Pro §2-c: refuse the deal, never drop the warranty
         self.assertIsNone(out["receipt"])
         self.assertEqual(self.stock.find("G2")["unit"], "u-goods")    # the unit was never promised
 
     def test_goods_get_six_hours_by_default_and_food_none(self):
-        with mock.patch.object(seller, "break_chance", lambda sku: 0.1):
+        with mock.patch.object(seller, "break_chance", lambda sku, grade=None: 0.1):
             out = buyer.negotiate(self.url, "청소기", 10000, "", "I want to buy (G2)")
         self.assertEqual(out["receipt"]["warranty_hours"], 6)
         self.assertGreaterEqual(int(out["receipt"]["price"]), 6667)
 
     def test_a_quote_promises_nothing_the_loser_is_cancelled_the_winner_goes_on(self):
         got = {}
-        with mock.patch.object(market_buyer, "serves_acp", lambda u: True), mock.patch.object(seller, "break_chance", lambda s: 0.1):
+        with mock.patch.object(market_buyer, "serves_acp", lambda u: True), mock.patch.object(seller, "break_chance", lambda s, grade=None: 0.1):
             market_buyer.quote({"name": "s", "url": self.url}, "청소기", "G2", {"kind": "goods"}, got)
         q = got["s"]
         self.assertIsInstance(q["ask"], (int, float))
@@ -387,10 +387,12 @@ class EndToEnd(unittest.TestCase):
         self.deal("G1")                           # food cost 6000, list 10000, no ledger median
         n = (seller.flush_memory() or shop_memory.load())["negotiations"][-1]
         self.assertEqual((n["reserve"], n["open"]), (7015, 7434))
-        with mock.patch.object(seller, "break_chance", lambda sku: 0.1):
+        with mock.patch.object(seller, "break_chance", lambda sku, grade=None: 0.1):
             buyer.negotiate(self.url, "청소기", 10000, "", "I want to buy (G2)")
         n = (seller.flush_memory() or shop_memory.load())["negotiations"][-1]
-        self.assertEqual((n["reserve"], n["open"], n["warranty"]), (8253, 8253, 6))   # (6000+15+1000)/0.85
+        # (6000+15+1000)/(1-0.122): the unit is grade B, so price.grade_break B (0.122) is over the measured 0.1 and the
+        # shipped goods_break 0.08 (GPT Pro 11/06 16:45 §3.5-3); the floor is over 1.05 x 75.5% of list, so it opens there
+        self.assertEqual((n["reserve"], n["open"], n["warranty"]), (7990, 7990, 6))
 
     def test_unit_is_not_promised_twice_and_out_of_stock_is_refused(self):
         self.deal("G1")

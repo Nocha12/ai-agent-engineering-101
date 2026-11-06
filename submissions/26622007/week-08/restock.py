@@ -408,7 +408,7 @@ def log_prices(md, inv, breaks, pricing):
             continue
         ratio = (briefing.get(u["sku"]) or {}).get("price_ratio")
         median = ratio * u["list_price"] if ratio and u.get("list_price") else None
-        measured = market_model.break_chance(breaks, u["sku"]) if breaks and u.get("kind") == "goods" else None
+        measured = market_model.unit_break_chance(breaks, u["sku"], u.get("grade")) if breaks and u.get("kind") == "goods" else None
         q = profit_price.quote(u, median, measured, shop_memory.paid_prices(u["sku"], memory=memory), pricing)
         print(f"[price] {profit_price.line(u, q)}", file=sys.stderr, flush=True)
     opening.save(path, {"seen": [u["unit"] for u in units]})

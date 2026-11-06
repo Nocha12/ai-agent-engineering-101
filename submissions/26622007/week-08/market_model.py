@@ -184,8 +184,13 @@ def break_stats(rows, catalog):
         for r in broke:
             t.setdefault(str(r.get(field)), {"sold": 0, "broke": 0})["broke"] += 1
         return t
+    sku_grade = {}
+    for r in sold:
+        sku_grade.setdefault(f"{r.get('sku')}|{r.get('grade')}", {"sold": 0, "broke": 0})["sold"] += 1
+    for r in broke:
+        sku_grade.setdefault(f"{r.get('sku')}|{r.get('grade')}", {"sold": 0, "broke": 0})["broke"] += 1
     return {"sold": len(sold), "broke": len(broke), "rate": len(broke) / len(sold) if sold else None,
-            "by_sku": table("sku"), "by_grade": table("grade"), "by_shop": table("shop")}
+            "by_sku": table("sku"), "by_grade": table("grade"), "by_shop": table("shop"), "by_sku_grade": sku_grade}
 
 
 def break_chance(stats, sku, min_sold=50, strength=20):
@@ -194,6 +199,20 @@ def break_chance(stats, sku, min_sold=50, strength=20):
         return None
     s = stats["by_sku"].get(sku) or {"sold": 0, "broke": 0}
     return (s["broke"] + strength * stats["rate"]) / (s["sold"] + strength)
+
+
+def unit_break_chance(stats, sku, grade, min_sold=50, strength=20):
+    """This unit's chance of breaking: its SKU and grade, leaning on the whole market's rate for that grade. The grade is
+    most of the risk: goods sold over 6 h before 11/06 16:40 broke A 3.0% (1,515 of 50,935), B 12.2% (1,774 of 14,497),
+    C 34.4% (2,366 of 6,882), ours A 2.5%, B 13.3%, C 31.4% (GPT Pro 11/06 16:45 §3.5-3), while one rate per SKU priced a C
+    unit as if it broke like an A. Falls back to break_chance when the grade is unknown or has too few sales."""
+    if stats["sold"] < min_sold:
+        return None
+    g = (stats.get("by_grade") or {}).get(str(grade)) if grade else None
+    if not g or g["sold"] < min_sold:
+        return break_chance(stats, sku, min_sold, strength)
+    s = (stats.get("by_sku_grade") or {}).get(f"{sku}|{grade}") or {"sold": 0, "broke": 0}
+    return (s["broke"] + strength * g["broke"] / g["sold"]) / (s["sold"] + strength)
 
 
 def estimate(rows, catalog, me_buyers=(), me_shops=(), now=None, cfg=None):

@@ -235,8 +235,9 @@ def stock_line(u):
     return line
 
 
-def break_chance(sku):
-    """The chance this goods SKU breaks after the sale, from the ledger rows restock.py keeps (read every 10 min), or None."""
+def break_chance(sku, grade=None):
+    """The chance this goods unit (SKU and grade) breaks after the sale, from the ledger rows restock.py keeps (read every
+    10 min), or None."""
     if time.time() - _breaks["at"] > 600:
         _breaks["at"] = time.time()
         md = os.environ.get("MARKET_DIR", ".market")
@@ -246,7 +247,7 @@ def break_chance(sku):
         except (OSError, ValueError, KeyError, TypeError) as e:
             log(f"break rates unavailable: {type(e).__name__}: {e}")
             _breaks["stats"] = None
-    return market_model.break_chance(_breaks["stats"], sku) if _breaks["stats"] else None
+    return market_model.unit_break_chance(_breaks["stats"], sku, grade) if _breaks["stats"] else None
 
 
 
@@ -296,7 +297,7 @@ class Seller(AgentExecutor):
         cost, key = math.ceil(u["cost"]), last_segment(u.get("category")) or u["sku"]
         pricing = shop_memory.load_pricing()
         q = profit_price.quote(u, sku_median(u["sku"], u.get("list_price")),
-                               break_chance(u["sku"]) if u.get("kind") == "goods" else None,
+                               break_chance(u["sku"], u.get("grade")) if u.get("kind") == "goods" else None,
                                shop_memory.paid_prices(u["sku"]), {**pricing, "warranty": self.warranty_cfg()})
         if q["refuse"]:
             await up.reject(say("Sorry, we cannot sell this item with a fair warranty right now."))

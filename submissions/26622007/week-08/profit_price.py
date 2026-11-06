@@ -7,8 +7,9 @@
   when the SKU has too few deals); a price this shop was already paid for the SKU stays a candidate. For SKUs in
   price.scarce_asks (units sold out within minutes of each supply window) that fixed ask is a candidate as well.
   price.ask_caps then caps P0 per SKU and grade for slow stock, never below F.
-- goods whose break chance is above warranty.max_break (0.25) are not sold at all: no sale without the warranty.
-- each unit is also checked at b = 0.25 (stress) and the log says when the first ask would lose money there.
+- goods whose break chance is above warranty.max_break (pricing.json, 0.5 from 11/06) are not sold at all: no sale without
+  the warranty.
+- each unit is also checked at b = max(0.25, its own b) (stress) and the log says when the first ask would lose money there.
 pricing.json "price" holds the numbers.
 """
 import math
@@ -22,11 +23,18 @@ def cfg_of(pricing):
     return {**DEFAULTS, **((pricing or {}).get("price") or {})}
 
 
-def break_for(kind, measured, cfg):
-    """b for the floor: 0 for food; for goods the prior, or the ledger's rate when it is higher."""
+def break_for(kind, measured, cfg, grade=None):
+    """b for the floor: 0 for food; for goods the prior, or the ledger's rate when it is higher. price.grade_break (the
+    market's rate per grade) is a floor under it too: without break stats, or with a grade too thin to measure, a C unit
+    (34% break) would otherwise be priced at the 8% prior. A unit with no rate and no known grade keeps 0.15."""
     if kind != "goods":
         return 0.0
-    return max(cfg["goods_break"], measured or 0.0)
+    by_grade = cfg.get("grade_break") if isinstance(cfg.get("grade_break"), dict) else {}
+    g = by_grade.get(grade)
+    g = g if isinstance(g, (int, float)) and not isinstance(g, bool) and 0 <= g < 1 else None
+    if g is None:
+        g = DEFAULTS["goods_break"] if measured is None else 0.0
+    return max(cfg["goods_break"], measured or 0.0, g)
 
 
 def floor(cost, list_price, kind, b, cfg=None):
@@ -46,7 +54,10 @@ def opening(f, list_price, median=None, kind=None, paid=(), cfg=None, scarce=Non
     else:
         ratio = (cfg.get("kind_ratio") or {}).get(kind) or DEFAULTS["kind_ratio"].get(kind, 0.75)
         target, why = cfg["median_up"] * ratio * list_price, f"1.05 x {ratio:.1%} of list (no SKU median)"
-    if paid:
+    if paid and (median is None or cfg.get("paid_over_median", True)):
+        # price.paid_over_median false: with a ledger median our own best price is no longer a floor for the first ask.
+        # It held 353 of 433 first asks on 30만+ goods at 0.934 of list (11/06 11:02-17:18) while the top five sold the
+        # same SKUs at 0.70-0.79; G8ec51935 took 2 deals from 174 quotes (GPT Pro 11/06 16:45 §3.5-3)
         best = max(paid)
         if best > target:
             target, why = best, f"our own paid price {best}"
@@ -74,7 +85,7 @@ def quote(u, median=None, measured=None, paid=(), pricing=None):
     """Everything a unit's price rests on: {floor, open, b, stress_floor, refuse, why}."""
     cfg = cfg_of(pricing)
     kind, cost, lp = u.get("kind"), u["cost"], u.get("list_price") or 0
-    b = break_for(kind, measured, cfg)
+    b = break_for(kind, measured, cfg, u.get("grade"))
     max_break = ((pricing or {}).get("warranty") or {}).get("max_break", cfg["stress_break"])
     f = floor(cost, lp, kind, b, cfg)
     scarce = (cfg.get("scarce_asks") or {}).get(u.get("sku")) if isinstance(cfg.get("scarce_asks"), dict) else None
@@ -84,8 +95,8 @@ def quote(u, median=None, measured=None, paid=(), pricing=None):
     cap = ask_cap(cfg, u)
     if cap is not None and cap < p0:     # never under this unit's floor F
         p0, why = max(f, cap), f"ask cap {cap} for grade {u.get('grade')} (was {p0}, {why})"
-    stress = floor(cost, lp, kind, cfg["stress_break"], cfg) if kind == "goods" else f
-    return {"floor": f, "open": p0, "b": b, "stress_floor": stress, "why": why,
+    stress = floor(cost, lp, kind, max(cfg["stress_break"], b), cfg) if kind == "goods" else f
+    return {"floor": f, "open": p0, "b": b, "stress_floor": stress, "stress_b": max(cfg["stress_break"], b), "why": why,
             "refuse": kind == "goods" and b > max_break, "stress_loss": kind == "goods" and p0 < stress}
 
 
@@ -94,7 +105,7 @@ def line(u, q):
     out = (f"{u['sku']} unit {u['unit']} cost {math.ceil(u['cost'])} list {u.get('list_price')}: floor {q['floor']}"
            f" (b {q['b']:.0%}), first ask {q['open']} ({q['why']})")
     if u.get("kind") == "goods":
-        out += f", floor at b 25% {q['stress_floor']}" + (" - the first ask loses money there" if q["stress_loss"] else "")
+        out += f", floor at b {q.get('stress_b', 0.25):.0%} {q['stress_floor']}" + (" - the first ask loses money there" if q["stress_loss"] else "")
     if q["refuse"]:
         out += ", not sold: break chance above the warranty limit"
     return out

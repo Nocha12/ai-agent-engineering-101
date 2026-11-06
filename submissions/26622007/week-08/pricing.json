@@ -28,9 +28,9 @@
   },
   "objective": "profit",
   "concession": [
-    0.6,
-    0.4,
-    0.2
+    0.3,
+    0.2,
+    0.1
   ],
   "low_conversion": 0.6,
   "step_down": 0.05,
@@ -58,7 +58,7 @@
     "on_request_hours": 4,
     "max_hours": 6,
     "prior_break": 0.15,
-    "max_break": 0.25
+    "max_break": 0.5
   },
   "restock": {
     "keep_cash": 4500000,
@@ -242,9 +242,15 @@
     "min_profit": 1000,
     "min_profit_share": 0.03,
     "storage_share": 0.0025,
-    "goods_break": 0.15,
+    "goods_break": 0.08,
+    "grade_break": {
+      "A": 0.03,
+      "B": 0.122,
+      "C": 0.344
+    },
     "stress_break": 0.25,
     "median_up": 1.05,
+    "paid_over_median": false,
     "kind_ratio": {
       "food": 0.708,
       "goods": 0.755
@@ -283,7 +289,8 @@
         "C": 160000
       }
     },
-    "ask_caps_source": "review/ax-overnight-20261103/0600/gpt-pro-answer.md B2-B3: slow goods held since 04:4x-05:26 sold 0 at 1.05 x median / our own paid price; G6b9db161 2 units unsold 05:23-06:01 at scarce ask 392,986. Caps are the review's per-grade asks; each unit's floor F (b 0.15) still bounds them"
+    "ask_caps_source": "review/ax-overnight-20261103/0600/gpt-pro-answer.md B2-B3: slow goods held since 04:4x-05:26 sold 0 at 1.05 x median / our own paid price; G6b9db161 2 units unsold 05:23-06:01 at scarce ask 392,986. Caps are the review's per-grade asks; each unit's floor F (b 0.15) still bounds them",
+    "revenue_source": "GPT Pro 11/06 16:45 (review/W-20261106-1645-AXPro주기/gptpro-answer-1645.md §3.5-3, §3.2): first asks on 30만+ goods were our own best paid price (0.934 of list on average, 353 of 433, 11:02-17:18) and floors assumed b 0.15 for every grade, so the units scale 6 buys sold 42 of 445 quotes while the top five sold the same SKUs at 0.70-0.79. Now: the ledger median leads (paid_over_median false), b per unit = max(goods_break 0.08, its SKU x grade rate leaning on the grade's: A 3.0%, B 12.2%, C 34.4%), warranty.max_break 0.5 (hard_limits top) so C units are priced for their risk instead of refused (a C G754bf0ca unit at b 0.453, cost 0.305 of list, has floor 0.615 under the 0.714 median: worth selling), concession 0.6/0.4/0.2 -> 0.3/0.2/0.1."
   },
   "next_window": {
     "id": "carpet-G1465c678-one-unit",

@@ -132,7 +132,7 @@ class ShopForumTest(unittest.TestCase):
         with open(os.path.join(self.d, "catalog.json"), "w") as f:
             json.dump(catalog, f)
         with mock.patch.object(shop_forum.market_model, "break_stats", return_value={"sold": 100}), \
-                mock.patch.object(shop_forum.market_model, "break_chance", return_value=0.4):
+                mock.patch.object(shop_forum.market_model, "break_chance", return_value=0.6):
             shop_forum.maybe_run(self.d, now=NOW)
             line = shop_forum.maybe_run(self.d, now=NOW + 25 * 60)
         self.assertNotIn("G0be9ed07", (line or {}).get("post", ""))     # the seller refuses it, so the posts leave it out

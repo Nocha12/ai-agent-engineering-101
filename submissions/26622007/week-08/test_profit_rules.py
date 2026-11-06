@@ -230,11 +230,44 @@ class PriceTest(unittest.TestCase):
         self.assertEqual(profit_price.quote(g, measured=0.2)["b"], 0.2)
         self.assertEqual(profit_price.quote(g, measured=0.05)["b"], 0.15)
 
+    def test_with_a_median_our_own_paid_price_no_longer_leads_when_the_setting_says_so(self):
+        off = {"paid_over_median": False}
+        self.assertEqual(profit_price.opening(7000, 10000, median=8000, paid=[9500], cfg={**profit_price.DEFAULTS, **off})[0], 8400)
+        self.assertEqual(profit_price.opening(7000, 10000, paid=[9500], kind="goods", cfg={**profit_price.DEFAULTS, **off})[0], 9500)
+        u = {"sku": "G8ec51935", "kind": "goods", "cost": 736782, "list_price": 2320000}
+        q = profit_price.quote(u, median=0.757 * 2320000, paid=[2209874], pricing={"price": off})
+        self.assertEqual(q["open"], round(1.05 * 0.757 * 2320000))     # was 2,209,874 (0.953 of list) at 17:11 on 11/06
+        self.assertEqual(profit_price.quote(u, median=0.757 * 2320000, paid=[2209874])["open"], 2209874)  # default unchanged
+
+    def test_grade_break_is_a_floor_when_the_ledger_rate_is_missing_or_thin(self):
+        cfg = {"price": {"goods_break": 0.08, "grade_break": {"A": 0.03, "B": 0.122, "C": 0.344}}, "warranty": {"max_break": 0.5}}
+        c = {"sku": "S", "kind": "goods", "grade": "C", "cost": 305000, "list_price": 1000000}
+        self.assertEqual(profit_price.quote(c, pricing=cfg)["b"], 0.344)                    # no stats: not the 8% prior
+        self.assertEqual(profit_price.quote(c, measured=0.09, pricing=cfg)["b"], 0.344)     # a SKU's mixed rate: still C's
+        self.assertEqual(profit_price.quote(c, measured=0.4, pricing=cfg)["b"], 0.4)
+        a = {**c, "grade": "A"}
+        self.assertEqual(profit_price.quote(a, pricing=cfg)["b"], 0.08)
+        self.assertEqual(profit_price.quote({**c, "grade": None}, pricing=cfg)["b"], 0.15)  # no rate, no grade: old prior
+        self.assertEqual(profit_price.quote({**c, "grade": None}, measured=0.05, pricing=cfg)["b"], 0.08)
+        q = profit_price.quote(c, pricing=cfg)
+        self.assertGreaterEqual(q["floor"] * (1 - 0.344), 305000)                          # expected take covers the cost
+        self.assertIn("floor at b 34%", profit_price.line({**c, "unit": "u"}, q))
+
+    def test_stress_floor_is_never_under_the_units_own_break_chance(self):
+        g = {"kind": "goods", "cost": 6000, "list_price": 10000}
+        q = profit_price.quote(g, measured=0.34, pricing={"warranty": {"max_break": 0.45}})
+        self.assertEqual(q["stress_floor"], q["floor"])
+        self.assertFalse(q["refuse"])
+        self.assertTrue(profit_price.quote(g, measured=0.5, pricing={"warranty": {"max_break": 0.45}})["refuse"])
+
     def test_shipped_settings(self):
         with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
             p = json.load(f)
-        self.assertEqual(p["concession"], [0.6, 0.4, 0.2])
-        self.assertEqual(profit_price.cfg_of(p)["goods_break"], 0.15)
+        self.assertEqual(p["concession"], [0.3, 0.2, 0.1])       # GPT Pro 11/06 16:45 §3.2: revenue first, nearer the median
+        self.assertEqual(profit_price.cfg_of(p)["goods_break"], 0.08)  # the least b; a unit's grade sets the rest
+        self.assertIs(profit_price.cfg_of(p)["paid_over_median"], False)
+        self.assertEqual(profit_price.cfg_of(p)["grade_break"], {"A": 0.03, "B": 0.122, "C": 0.344})
+        self.assertEqual(p["warranty"]["max_break"], 0.5)         # C units (34% of them break) are priced, not refused
         r = p["restock"]
         self.assertEqual((r["max_stock_cost"], r["max_units_per_sku"], r["cover_hours"], r["keep_cash"],
                           r["food_max_stock_cost"], r["high_price_goods"], r["high_price_max_units"]),

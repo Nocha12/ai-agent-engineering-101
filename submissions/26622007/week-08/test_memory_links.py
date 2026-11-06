@@ -62,12 +62,21 @@ class LinkTest(unittest.TestCase):
         self.assertEqual((s["sold"], s["broke"], s["rate"]), (2, 1, 0.5))
         self.assertEqual(s["by_grade"]["C"], {"sold": 1, "broke": 1})
         self.assertEqual(s["by_shop"]["https://a"], {"sold": 1, "broke": 0})
+        self.assertEqual(s["by_sku_grade"]["H1|C"], {"sold": 1, "broke": 1})
 
     def test_no_estimate_until_there_is_data_then_it_leans_on_the_overall_rate(self):
         self.assertIsNone(mm.break_chance({"sold": 10, "broke": 1, "rate": 0.1, "by_sku": {}}, "H1"))
         s = {"sold": 100, "broke": 10, "rate": 0.1, "by_sku": {"H1": {"sold": 20, "broke": 10}}}
         self.assertAlmostEqual(mm.break_chance(s, "H9"), 0.1)
         self.assertAlmostEqual(mm.break_chance(s, "H1"), (10 + 2) / 40)
+        g = {"sold": 1000, "broke": 100, "rate": 0.1, "by_sku": {"H1": {"sold": 20, "broke": 10}},
+             "by_grade": {"A": {"sold": 800, "broke": 24}, "C": {"sold": 200, "broke": 70}, "B": {"sold": 10, "broke": 5}},
+             "by_sku_grade": {"H1|C": {"sold": 20, "broke": 10}}}
+        self.assertAlmostEqual(mm.unit_break_chance(g, "H1", "C"), (10 + 20 * 0.35) / 40)   # SKU x grade, leaning on C
+        self.assertAlmostEqual(mm.unit_break_chance(g, "H2", "A"), 0.03)                     # no SKU x grade sales: the grade
+        self.assertAlmostEqual(mm.unit_break_chance(g, "H1", "B"), mm.break_chance(g, "H1"))  # too few B sales: the SKU
+        self.assertAlmostEqual(mm.unit_break_chance(g, "H1", None), mm.break_chance(g, "H1"))
+        self.assertIsNone(mm.unit_break_chance({"sold": 10, "broke": 1, "rate": 0.1, "by_sku": {}}, "H1", "A"))
 
     def test_settle_keeps_the_warranty(self):
         e = {"kind": "settle", "seq": 1, "ts": T, "round": 3, "data": {"item": "H1", "warranty_hours": 6}}
