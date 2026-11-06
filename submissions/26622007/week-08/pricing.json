@@ -212,7 +212,8 @@
   },
   "buyer": {
     "max_price_share": 1.0,
-    "quote_shops": 10
+    "quote_shops": 10,
+    "oneshot": true
   },
   "memory": {
     "long_term_chars": 4000,
