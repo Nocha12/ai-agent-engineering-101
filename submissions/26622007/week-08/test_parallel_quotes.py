@@ -340,9 +340,10 @@ class EnoughQuotes(unittest.TestCase):
 
 class NextBatchEarly(unittest.TestCase):
     """Most of a batch has answered and no ask is within my limit: the next batch is asked now, not after the slowest shop
-    (11/06 23:29-00:55: 52 of 97 orders had no fit in the first 10, found 17 s on average into the quotes)."""
+    (11/06 23:29-00:55: 52 of 97 orders had no fit in the first 10, found 17 s on average into the quotes). Off by default
+    since 11/07 06:40 (QUOTE_NEXT_SHARE 1.0); these tests set 0.7 to keep the path working if it is turned back on."""
 
-    def run_batches(self, asks, slow, names="abcdzefghi", k=5):
+    def run_batches(self, asks, slow, names="abcdzefghi", k=5, share=0.7):
         s = [{"name": n, "url": f"https://{n}.example", "usable": [{"sku": "H1", "name": "x", "qty": 1, "list_price": 10000}]}
              for n in names]
         seen = []
@@ -353,7 +354,8 @@ class NextBatchEarly(unittest.TestCase):
             out[sh["name"]] = {"ask": asks.get(sh["name"], 9000), "text": "", "refused": None}
         with mock.patch.object(market_buyer, "quote", fake_quote), mock.patch.object(market_buyer, "log"), \
                 mock.patch.object(market_buyer, "cancel_quietly", lambda q, n: None), \
-                mock.patch.object(market_buyer, "STARTED", time.time()):
+                mock.patch.object(market_buyer, "STARTED", time.time()), \
+                mock.patch.object(market_buyer, "QUOTE_NEXT_SHARE", share if share is not None else market_buyer.QUOTE_NEXT_SHARE):
             t0 = time.time()
             best, got = market_buyer.best_quote(s[0], s[1:], {}, {}, 20000, lambda x: None, {"quote_shops": k}, wait=5)
             return best, time.time() - t0, seen
@@ -376,6 +378,13 @@ class NextBatchEarly(unittest.TestCase):
     def test_near_quote_until_the_batch_is_waited_for_as_before(self):
         with mock.patch.object(market_buyer, "QUOTE_UNTIL", 1):
             best, _, seen = self.run_batches({"z": 5000}, {"z": 0.5})
+        self.assertEqual(best["name"], "z")
+        self.assertNotIn("e", seen)
+
+    def test_by_default_the_slow_shop_of_the_batch_is_waited_for_before_the_next(self):
+        # 11/07 06:40: off by default (QUOTE_NEXT_SHARE 1.0) - market steady at 0.44-0.45, my conversion 0.57 -> 0.45 and
+        # deals 40 -> 35 an hour after it (00:04-02:01); orders with a 2nd batch found a fitting ask 8 of 31 -> 1 of 35
+        best, _, seen = self.run_batches({"z": 5000}, {"z": 0.5}, share=None)
         self.assertEqual(best["name"], "z")
         self.assertNotIn("e", seen)
 

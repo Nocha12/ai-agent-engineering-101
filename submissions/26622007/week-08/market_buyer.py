@@ -680,8 +680,10 @@ TALK_OVER_SHARE = 0.20  # the best opening ask more than this over my limit: the
 #                         conversion fell to 0.24 (market 0.46); a talk is ~8 s now and the 20 s an order floor takes ~3 s of it
 #                         05:30-06:00 at 0.10: 3-10% over closed 8 of 14, deals 37 -> 54/h, conversion 0.26 -> 0.40; 06:00 to 0.20
 #                         for the 25 orders 10-20% over that ended untalked (6 of 33 closed before, 0.32 of list kept)
-QUOTE_NEXT_SHARE = 0.7  # share of a batch answered with no ask within my limit before the next batch is asked (11/07 01:00: 52 of
-#                         97 orders had none in the first 10, found 17 s on average into the quotes, the slowest shop setting it)
+QUOTE_NEXT_SHARE = 1.0  # share of a batch answered with no ask within my limit before the next batch is asked (11/07 01:00: 52 of
+#                         97 orders had none in the first 10, found 17 s on average into the quotes, the slowest shop setting it).
+#                         0.7 from 01:03; 06:40 back to 1.0 (the whole batch): market steady at 0.44-0.45, my conversion 0.57 ->
+#                         0.45 and deals 40 -> 35/h (00:04-01:02 vs 01:02-02:01); orders with a 2nd batch fit 8 of 31 -> 1 of 35
 QUOTE_ROUNDS = 3       # batches of quote_shops shops asked while none so far had a unit for me (another buyer holds it)
 QUOTE_UNTIL = 100      # seconds into the run by which a further batch must be done: the talk needs the rest of the 300 s
 QUOTE_LATE = 60        # seconds into the run after which no new shop is asked for a quote
