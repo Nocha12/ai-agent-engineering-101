@@ -266,7 +266,10 @@ class HarnessCycleTest(unittest.TestCase):
         self.git("config", "user.name", "t")
         self.git("add", "-A")
         self.git("commit", "-qm", "start")
+        # cycle() reloads scorecard (79df539), which put the real board() back over the fake one below: the tests read the
+        # live board, and its board_drift alert 11/06 18:2x-19:30 failed every no-code cycle. Keep the loaded module.
         patches = [mock.patch.object(mh, "ROOT", self.root), mock.patch.object(mh, "KIT_PATTERN", ""),
+                   mock.patch.object(mh, "refresh_scorecard", lambda: mh.scorecard),
                    mock.patch.object(mh, "CANARY_SECONDS", 0), mock.patch.dict(os.environ, {"META_CODEX": fake}),
                    mock.patch.object(mh.scorecard, "board", lambda *a, **k: {"round": 3}),
                    mock.patch.object(mh.scorecard.patch_notes, "check", lambda *a, **k: {"error": "offline in tests"})]
