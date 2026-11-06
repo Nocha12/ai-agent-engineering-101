@@ -2,6 +2,7 @@
 (11/07 02:00, 대표님 "판단을 Jev 맡기고 출력은 룰베이스로"). On 2,772 seller-harness turns (11/06 17:18-11/07 02:00) the code
 already fixed the action; the harness only chose the counter inside [floor, ask], and floor + share x (ask - floor) with
 the share by round (0.62, 0.53, 0.46, then 0.25) gave its price within 1% on 84% and within 3% on 95% of counters."""
+import re
 import unittest
 from unittest import mock
 
@@ -102,23 +103,42 @@ class SellerTurnTest(unittest.TestCase):
     def test_a_question_without_a_price_goes_to_the_harness(self):
         self.assertIsNone(negotiate.seller_turn("Does it last 540 hours?", DEAL, 26000, jev("none")))
 
-    def test_at_the_reserve_the_line_promises_no_discount(self):
-        d = negotiate.seller_turn("15000", dict(DEAL, ask=20000), 20000)
-        self.assertEqual((d["action"], d["price"]), ("counter", 20000))
-        self.assertNotRegex(d["message"], r"(?i)come down|lower|discount|reduce|meet you|a bit more")
+    # The line is picked at random (random.choice), so each case runs once per line of its list: a test that sees one
+    # random line failed one run in three when a HOLD line said "lower" (11/07 02:48 a96e97a, 03:20).
+    PROMISE = r"(?i)come down|lower|discount|reduce|meet you|partway|better price|a bit more"
 
-    def test_holding_the_ask_at_the_floor_promises_no_discount(self):
-        # "I cannot go lower than this" (negotiate.HOLD) refuses a discount; the line is picked at random, so a bare
-        # "lower" made this test fail one run in three (11/07 01:35 Pro cycle). Every HOLD line is checked each run.
-        for hold in negotiate.HOLD:
-            with mock.patch.object(negotiate.random, "choice", side_effect=lambda seq, h=hold: h if seq is negotiate.HOLD else seq[0]):
-                d = negotiate.seller_turn("25999", dict(DEAL, ask=26000), 26000)
+    def each_line(self, lines, text, deal, floor, **kw):
+        for line in lines:
+            with mock.patch.object(negotiate.random, "choice", side_effect=lambda seq, l=line: l if seq is lines else 1 / 0):
+                d = negotiate.seller_turn(text, deal, floor, **kw)
+            self.assertEqual(d["message"], line.format(offer=d["buyer_offer"]))
+            yield line, d
+
+    def test_at_the_reserve_no_line_promises_a_discount(self):
+        for line, d in self.each_line(negotiate.FINAL, "15000", dict(DEAL, ask=20000), 20000):
+            self.assertEqual((d["action"], d["price"]), ("counter", 20000))
+            self.assertNotRegex(d["message"], self.PROMISE, line)
+
+    def test_holding_the_ask_at_the_floor_no_line_promises_a_discount(self):
+        for line, d in self.each_line(negotiate.HOLD, "25999", dict(DEAL, ask=26000), 26000):
             self.assertEqual((d["action"], d["price"]), ("counter", 26000))
-            self.assertIn(hold.split("{")[0], d["message"])
-            self.assertNotRegex(d["message"], r"(?i)come down|(?<!cannot go )lower|better price|discount|meet you|partway")
+            self.assertNotRegex(d["message"], self.PROMISE, line)
+
+    def test_coming_down_every_line_names_the_offer_and_no_price(self):
+        for line, d in self.each_line(negotiate.LINES, "21000", DEAL, 26000):
+            self.assertLess(d["price"], DEAL["ask"])
+            self.assertIn("21000", d["message"])
+            self.assertEqual(re.findall(r"\d+", d["message"]), ["21000"], line)
+
+    def test_no_line_trips_seller_py_s_at_reserve_rewrite(self):
+        # seller.py replaces an at-reserve line that matches this with FINAL_LINES; ours must never need it
+        rewrite = r"(?i)come down|go lower|lower (it|the price)|reduce|meet you|discount|a bit more"
+        for line in negotiate.FINAL + negotiate.HOLD + [negotiate.LAST]:
+            self.assertNotRegex(line, rewrite)
 
     def test_at_the_round_limit_the_line_fits_the_reject_seller_py_adds(self):
         d = negotiate.seller_turn("21000", dict(DEAL, rounds=10), 26000, max_rounds=10)
+        self.assertEqual(d["message"], negotiate.LAST.format(offer=21000))
         self.assertNotRegex(d["message"], r"(?i)come down|better price|partway|lowest|floor")
 
     def test_jev_reading_our_current_ask_needs_words_of_agreement(self):

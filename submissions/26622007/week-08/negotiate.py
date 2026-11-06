@@ -43,7 +43,8 @@ LINES = ["Thanks for your offer of {offer}. I can come down a little.",
 # the buyer names our own current ask: taken by Jev only with words of agreement ("OK, 30000 it is. Deal at 30000.");
 # "Your 30000 is too much, I offer 22000" read wrong would close at a price the buyer did not mean (review 11/07, Low)
 AGREE = re.compile(r"\b(?:deal|ok|okay|accept(?:ed)?|it is|fine|works|yes|agreed? to buy)\b", re.I)
-HOLD = ["Thanks for your offer of {offer}. I cannot go lower than this.",
+# no "lower": seller.py's at-reserve rewrite reads "go lower" as a promise (test_negotiate checks every line)
+HOLD = ["Thanks for your offer of {offer}. This is the least I can take.",
         "I appreciate the offer of {offer}, but this price stays."]
 LAST = "Thank you for your offer of {offer}."
 FINAL = ["Thanks for your offer of {offer}. This is already the lowest price we can sell it for.",
