@@ -882,7 +882,7 @@ def recent_quote_yields(md, category, now=None, hours=RECENT_FIT_HOURS):
     now = time.time() if now is None else now
     attempts, shares = collections.Counter(), collections.Counter()
     for r in recent_orders(md, now, hours):
-        if r.get("category") != category or r.get("kind") != "food":
+        if r.get("category") != category or r.get("kind") != "food" or r.get("quote_attempts_complete") is not True:
             continue
         for q in r.get("quotes") or ():
             if not isinstance(q, dict) or not isinstance(q.get("shop"), str):
@@ -930,6 +930,7 @@ def start_quotes(shops, order, budget, chance_of, got, ctl):
     for s in shops:
         o = pick_offer(s["usable"], budget)
         s["_offer"], s["_b"] = o, chance_of(o["sku"]) or 0
+        s["_quote_attempted"] = True  # published before the thread: failed or still pending calls must be counted
         th = threading.Thread(target=quote, args=(s, o["name"], o["sku"], order, got, ctl), daemon=True)
         th.start()
         threads[s["name"]] = th
@@ -1304,8 +1305,9 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
     qs = []
     for s in shops:
         q = quotes.get(s["name"])
-        if q is None:
+        if q is None and not s.get("_quote_attempted"):
             continue
+        q = q or {}
         o = s.get("_offer") or {}
         ask_ = q.get("ask")
         lim = min(value_limit(o, args.budget, 0, buyer_cfg()), saved_cap(o, s.get("_b", 0))) if o.get("list_price") else None
@@ -1330,6 +1332,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
                                                       for o in s.get("usable") or []][:3]} for s in shops][:20],
         "n_candidates": len(shops),    # lists cut so a line stays one small append (buyer runs can overlap)
         "food_quote_yield": order.get("kind") == "food" and quote_yield_arm(order.get("order")),
+        "quote_attempts_complete": len(qs) == sum(bool(s.get("_quote_attempted") or s["name"] in quotes) for s in shops),
         "quotes": qs, "first_choice": first_choice, "how": choose_path(first_reason), "shop": best, "reason": (reason or "")[:300],
         "sku": (offer or {}).get("sku"), "list_price": (offer or {}).get("list_price"), "limit": limit,
         "break_chance": round(chance, 4) if isinstance(chance, (int, float)) else None,

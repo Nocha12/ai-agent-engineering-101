@@ -3,6 +3,7 @@ import json
 import os
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -17,13 +18,42 @@ class ExperimentArms(unittest.TestCase):
         self.assertFalse(mb.quote_yield_arm("o-0", {"BUYER_QUOTE_YIELD": "0"}))
 
 
+class AttemptRecording(unittest.TestCase):
+    def test_network_failure_is_a_zero_quote_in_the_order_record(self):
+        s = {"name": "failed", "url": "https://example.invalid", "reviews": [],
+             "usable": [{"sku": "G1", "name": "food", "list_price": 100}]}
+        got = {}
+        with mock.patch.object(mb, "serves_acp", side_effect=TimeoutError("test network boundary")):
+            threads = mb.start_quotes([s], {"kind": "food"}, 100, lambda sku: 0, got, mb.quote_ctl())
+            for th in threads.values():
+                th.join(2)
+        r = mb.order_record({"order": "o-0", "kind": "food"}, SimpleNamespace(budget=100, item="c"),
+                            [s], got, "failed", "", s, "", s["usable"][0], 70, None,
+                            {"state": "ERROR"}, None, {}, [], [], False, "shop", {}, {})
+        self.assertTrue(r["quote_attempts_complete"])
+        self.assertEqual(len(r["quotes"]), 1)
+        self.assertEqual(r["quotes"][0]["shop"], "failed")
+        self.assertFalse(r["quotes"][0]["fit"])
+        self.assertIsNone(r["quotes"][0]["ask"])
+
+    def test_legacy_response_only_history_does_not_train_attempt_yield(self):
+        now = time.time()
+        rows = [{"ts": now - 10, "category": "c", "kind": "food",
+                 "quotes": [{"shop": "a", "ask": 50, "list_price": 100, "fit": True}]} for _ in range(10)]
+        with tempfile.TemporaryDirectory() as md:
+            os.mkdir(os.path.join(md, "measure"))
+            with open(os.path.join(md, "measure", "orders.jsonl"), "w") as f:
+                f.writelines(json.dumps(r) + "\n" for r in rows)
+            self.assertEqual(mb.recent_quote_yields(md, "c", now=now), {})
+
+
 class FoodQuoteYield(unittest.TestCase):
     def test_food_prefetch_values_valid_saved_share_not_review_count(self):
         now = time.time()
         shops = [{"name": "cheap", "reviews": [{}], "usable": []},
                  {"name": "famous", "reviews": [{}] * 100, "usable": []},
                  {"name": "new", "reviews": [], "usable": []}]
-        rows = [{"ts": now - 60 - i, "category": "c", "kind": "food", "budget": 1000,
+        rows = [{"ts": now - 60 - i, "category": "c", "kind": "food", "quote_attempts_complete": True, "budget": 1000,
                  "quotes": [{"shop": "cheap", "ask": 50, "list_price": 100, "fit": True},
                             {"shop": "famous", "ask": 69, "list_price": 100, "fit": True}]}
                 for i in range(3)]
@@ -44,8 +74,8 @@ class FoodQuoteYield(unittest.TestCase):
     def test_failures_count_and_future_other_category_and_goods_do_not_train_food(self):
         now = time.time()
         quotes = lambda fit: [{"shop": "a", "ask": 50, "list_price": 100, "fit": fit}]
-        rows = [{"ts": now - 10, "category": "c", "kind": "food", "quotes": quotes(True)} for _ in range(3)]
-        rows += [{"ts": now - 5, "category": "c", "kind": "food", "quotes": quotes(False)}]
+        rows = [{"ts": now - 10, "category": "c", "kind": "food", "quote_attempts_complete": True, "quotes": quotes(True)} for _ in range(3)]
+        rows += [{"ts": now - 5, "category": "c", "kind": "food", "quote_attempts_complete": True, "quotes": quotes(False)}]
         rows += [{"ts": now + 1, "category": "c", "kind": "food", "quotes": quotes(True)},
                  {"ts": now - 20, "category": "other", "kind": "food", "quotes": quotes(True)},
                  {"ts": now - 20, "category": "c", "kind": "goods", "quotes": quotes(True)}]
