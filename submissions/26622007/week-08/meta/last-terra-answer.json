@@ -1,80 +1,65 @@
 {
   "changed": true,
-  "hypothesis": "재입고 판단에서 완료된 공급창의 단위별 판매와 숙성 순기여를 함께 확인하면 재고 불명을 이유로 검증된 상품의 보충을 제한하는 판단이 줄어든다.",
-  "change_summary": "restock.GOAL에 검증된 고가 SKU 하나에 대해 supply_audit와 cohort_profit을 호출하고 결과를 판단 이유에 인용하는 지침을 추가했다. 재고 설정과 매입량은 변경하지 않았다. 전체 테스트 780개가 통과했다.",
-  "target_metric": "근거 완비 재입고 판단 수와 재고 불명에 따른 축소 건수",
-  "expected": "12시간 내 재입고 판단 3건 중 근거 완비 2건 이상, 재고 불명 축소 0건을 목표로 한다. 추가 Players 효과는 아직 추정할 수 없다.",
+  "hypothesis": "재입고 에이전트에 SKU별 재고 집계가 실제로 전달되면 재고 불명을 이유로 검증된 상품의 보충을 제한하는 판단이 줄어든다.",
+  "change_summary": "my_state의 개별 재고 상세 목록을 각각 최대 5개로 제한해 SKU별 집계가 공통 응답 크기 제한 안에 들어가도록 수정했다. 현재 재고 기준 원본과 전달 결과 모두 69개 SKU를 포함했으며, 70개 SKU와 상세 100개 요청을 사용하는 전달 경로 테스트를 추가했다. 전체 테스트 751개가 통과했다.",
+  "target_metric": "my_state 호출 후 SKU별 재고 불명을 이유로 보충을 제한한 재입고 결정 건수",
+  "expected": "다음 재입고 결정 3건에서 재고 불명에 따른 제한을 0건으로 낮춘다. Players의 추가 상승폭은 아직 추정할 수 없다.",
   "evidence": [
     {
-      "ref": "meta/evidence/terra-1107-123642-audit.jsonl:2",
-      "excerpt": "\"bought_first_window\": 2, \"sold_by_second_close\": 2",
-      "meaning": "G24f5f979는 첫 완료창 입고 2개를 둘째 창 종료까지 모두 판매했고 숙성 53건의 건당 순기여는 154,973원이다."
+      "ref": "meta/evidence/terra-1107-112418.json:18907",
+      "excerpt": "the current stock-by-SKU details are unavailable",
+      "meaning": "최근 재입고 결정은 SKU별 재고 불명을 소량 보충의 이유로 들었다."
     },
     {
-      "ref": "meta/evidence/terra-1107-123642-audit.jsonl:4",
-      "excerpt": "\"bought_first_window\": 1, \"sold_by_second_close\": 1",
-      "meaning": "Gb5d0dde7는 첫 완료창 입고 1개를 판매했고 숙성 61건의 건당 순기여는 15,186원이다."
+      "ref": ".market/tool_calls.jsonl:8547",
+      "excerpt": "\"tool\": \"my_state\", \"args\": {\"limit\": 100}, \"ok\": true, \"seconds\": 0.06, \"chars\": 24284",
+      "meaning": "같은 결정에서 사용한 도구의 원본 응답은 24,284자였다."
     },
     {
-      "ref": "logs/market-kit.log:164400",
-      "excerpt": "12:04:15 [buyer] [restock] guard: Gb5d0dde7 6 -> 1 (units per SKU)",
-      "meaning": "첫 공급창에서 SKU별 수량 제한이 제안을 줄였으나 이 행만으로 실제 구속 상한이 sku_target_units인지 확정할 수 없다."
+      "ref": "agent_tools.py:26",
+      "excerpt": "MAX_RESULT = 8000",
+      "meaning": "도구 응답은 에이전트에 전달될 때 8,000자로 제한된다."
     },
     {
-      "ref": "logs/market-kit.log:180254",
-      "excerpt": "12:24:02 [buyer] [restock] guard: Gb5d0dde7 7 -> 2 (units per SKU)",
-      "meaning": "둘째 공급창에도 SKU별 수량 제한이 있었으며 목표치 확대의 나머지 조건을 별도로 확인해야 한다."
+      "ref": "test_my_state_inventory.py:40",
+      "excerpt": "self.assertEqual(len(delivered[\"by_sku\"]), 70)",
+      "meaning": "큰 상세 요청에서도 전달된 결과에 70개 SKU 집계가 남는지 검증한다."
     },
     {
-      "ref": ".market/decisions.jsonl:6958",
-      "excerpt": "Current stock is already large (202 units costing 120.2m)",
-      "meaning": "직전 변경 이후 확인된 재입고 판단은 재고 현황을 인용했지만 재고 규모를 보수적 판단의 이유로 들었다."
-    },
-    {
-      "ref": "meta/evidence/terra-1107-123642.json:19188",
-      "excerpt": "\"settled_as_shop\": 301",
-      "meaning": "직전 팩 이후 상점 정산은 301건이다."
-    },
-    {
-      "ref": "restock.py:583",
-      "excerpt": "For one proven high-price SKU relevant to this decision, call supply_audit with its sku and cohort_profit with the same",
-      "meaning": "이번 실험의 도구 사용 지침이다."
-    },
-    {
-      "ref": "meta/evidence/terra-1107-123642-tests.txt:1366",
-      "excerpt": "Ran 780 tests in 46.365s",
-      "meaning": "지정 환경의 전체 테스트 실행 결과다."
+      "ref": "meta/evidence/terra-1107-112418.json:19177",
+      "excerpt": "\"no_stock\": 9",
+      "meaning": "직전 팩 이후 품절 기록이 9건 있었다."
     }
   ],
   "evidence_gap": {
-    "missing": "새 지침이 실제 재입고 판단과 Players에 미치는 효과는 아직 관측되지 않았다.",
-    "measurement": "두 완료 공급창의 단위 ID와 숙성 순기여를 이번 주기에 계산하고 재입고 지침에 두 도구의 사용을 추가했다. 이후 판단의 호출과 이유를 기록해 평가한다.",
+    "missing": "수정된 집계가 실제 재입고 판단과 Players에 미치는 효과는 아직 관측되지 않았다.",
+    "measurement": "이번 주기에 실제 재고 스냅샷과 전달 제한 함수를 대조하고 전달 경로 테스트를 추가했다. 다음 재입고 결정의 도구 호출과 이유를 확인한다.",
     "judge_line": {
-      "metric": "단위 ID와 숙성 순기여를 함께 인용한 재입고 판단 수 및 재고 불명 축소 건수",
-      "direction": "above",
-      "threshold": "근거 완비 2건 이상 및 재고 불명 축소 0건",
-      "min_sample": "재입고 판단 3건과 서로 다른 완료 공급창 2개",
-      "expires": "2026-11-08 00:36 KST",
-      "undo": "기준 미달 또는 표본 부족이면 이번 restock.GOAL 추가 문장만 제거한다. 도구 결과 오류가 확인되면 supply_audit와 해당 테스트도 제거한다."
+      "metric": "my_state 호출 후 SKU별 재고 불명을 이유로 보충을 제한한 결정 건수",
+      "direction": "below",
+      "threshold": "1건",
+      "min_sample": "my_state를 호출한 재입고 결정 3건",
+      "expires": "2026-11-07 14:00 KST",
+      "undo": "기준을 충족하지 못하면 도구 응답 소비 경로를 다시 수정하거나 이번 상세 목록 제한을 철회한다."
     }
   },
-  "previous_verdict": "keep",
-  "previous_reason": "직전 my_state 전달 수정 후 확인된 판단 1건은 202개 재고와 SKU별 현황을 인용했고 재고 불명을 이유로 들지 않았다. 3건 표본은 아직 부족하므로 기존 11월 7일 14:00 판정선을 유지한다.",
-  "grade_summary": "Players는 1.567로 보합이며 61명 중 10위, 선두와 0.152점 차이다. Shop ALL 0.804, Buyer ALL 0.763이고 board_drift는 각각 0이다. 직전 이후 상점 정산 301건, 구매 결제 82건, 품절 13건, checkout 거절 21건, 정산 거절 1건이다. 최근 로그 표본에서 원가 미만 제안·보증 거절·포럼 게시 및 투표 거절은 각각 0건, 구매 결제 거절은 2건이다. Book은 197,869,343원에서 193,286,816원으로 감소했다. 24시간 초과 재고는 28개·250,400원, 보관 손실 누계는 1,053,684원, 등급 하락 49건·0원이며 제외된 도구는 없다. 환불의 과거 추정 누계 269건과 원장 주문 연결 집계 254건은 구분하며 SKU 축소 근거로 추정 누계를 사용하지 않는다. 경보는 없다. Patch 3.5는 이미 평가됐고 구매자 포럼 평점을 백분위 대신 원값으로 반영하며 유료 비추천 비용은 shop book을 낮춘다.",
+  "previous_verdict": "fix",
+  "previous_reason": "직전 SKU 집계 추가는 도구 자체에서는 성공했지만 24,284자 응답이 8,000자 전달 제한에 걸려 집계가 잘렸다. 이후 실제 결정도 재고 불명을 이유로 들었으므로 전달 경로를 고쳤다.",
+  "grade_summary": "Players는 1.564→1.567로 61명 중 10위다. 상점 ALL 0.809, 구매자 ALL 0.758이며 양쪽 board_drift는 0, 선두 격차는 0.136이다. 직전 팩 이후 상점 정산 201건, 구매 지급 42건, 품절 9건, 구매 지급 거절 2건, checkout 거절 15건, 정산 거절 1건이다. 최근 로그 표본의 원가 미만 제안·보증 거절·포럼 게시 및 투표 거절은 각각 0건이다. Book은 197,736,946→197,869,343원이고 24시간 초과 재고는 27개·240,962원이다. 보관 손실 누계는 999,005원, 등급 하락 49건·0원이며 제외된 도구는 없다. 환불은 과거 추정 254건·102,750,376원과 원장 주문 연결 240건·98,917,798원을 구분한다. alert surge: Gef4d3036 한 단위 원가가 정가의 90.6%이나 숙성 888건의 건당 순기여는 5,201원으로 양수다. 이 한 단위만으로 축소하지 않고 동일 단위의 두 공급창 잔류와 이후 숙성 손익을 확인한다.",
   "weakest": [
     "상점 매출",
     "구매자 Saved"
   ],
   "strategy_check": {
-    "current": "인증·정직한 등급·보증을 내세운 폭넓은 식품과 생활용품 및 검증된 고가 가구·침구 판매, 구매자 Saved 중심 선택",
-    "gap_cause": "unclear",
+    "current": "인증과 정직한 등급, 보증을 내세운 폭넓은 상품 판매와 검증된 고가 재고 회전 확대",
+    "gap_cause": "bug",
     "keep_or_shift": "keep",
-    "reason": "최근 7.2시간 Players 성장은 우리 +0.041, 바로 위 gom31 -0.030, 선두 +0.013이며 13.2시간은 각각 +0.094, -0.075, -0.010이다. 다만 3.6시간에는 우리 -0.002, 선두 +0.011로 선두에 뒤졌다. 상점은 9,435거래·17,415방문·매출 15.73억원이고 book 선두 yms979는 16,092거래·23,639방문·매출 51.99억원이며 인증·정직한 등급과 무보증을 내세운다. 우리는 공개 재고·카드·포럼으로 유입하고 원가와 보증비용 하한을 지켜 양보한다. 24시간 초과 재고 28개와 book 하락은 회전 및 환불 관찰이 필요하지만 다른 전략의 추가 ΔPlayers를 입증하지 않는다. 다음 Saved 0.2715까지 0.0034가 필요하고 통과 효과는 약 0.00926점, 다음 매출 16.78억원까지 1.046억원이 필요하고 효과는 약 0.00526점이다. 공급창 실험 자체의 추가 Players 효과는 미확정이다."
+    "reason": "최근 7.2시간 Players 성장은 우리 +0.052, 바로 위 -0.027, 선두 +0.002이고 12.4시간에는 각각 +0.096, -0.063, -0.028로 격차를 줄였다. 식품·생활용품과 매트리스·침구를 공개 재고와 카드·포럼으로 알리고 원가·보증 하한과 양보를 유지한다. 우리 상점은 9,137거래·16,978방문·매출 15.12억원, book 선두 yms979는 15,797거래·23,244방문·매출 51.40억원이며 인증과 정직한 등급을 약속하지만 무보증이다. Saved는 다음 값 0.272까지 0.0059가 필요해 통과 시 약 0.01389점이고, 매출은 다음 값 16.65억원까지 1.53억원이 필요해 약 0.00526점이다. 최근 SKU별 재고 집계가 전달 과정에서 잘린 실행 결함을 우선 고친다. 경쟁자별 SKU·구매자 거래와 변경의 추가 ΔPlayers는 이번 주기에 완전히 비교하지 못했다."
   },
-  "action_kind": "prompt",
+  "action_kind": "tool_fix",
   "experiment": {
-    "id": "supply-audit-context-113730",
-    "step": "start",
-    "result": "등록된 첫 대기 실험을 시작했다. 기준은 재입고 3판단과 완료 공급창 2개에서 근거 완비 2건 이상, 재고 불명 축소 0건이며 12시간 후 판정한다."
+    "id": "",
+    "step": "none",
+    "result": "진행 중이거나 대기 중인 실험이 0개다."
   }
 }

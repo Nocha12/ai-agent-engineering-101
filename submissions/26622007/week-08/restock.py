@@ -579,12 +579,8 @@ c0 is the formula's proposal for this state; follow it, change it or ignore it, 
 first; the code then fills the room the limits leave with the formula's lines, because buyers only see shops that stock
 the ordered category and a shop's visits follow how much it stocks. c1 is how your own earlier
 stock decisions turned out: what sold, what is left, what is gone unsold. Learn from it: a judgment that failed should not repeat.
-c2 is the shop's own memory: long-term notes, lessons from earlier mistakes that match this state, and recent days.
-For one proven high-price SKU relevant to this decision, call supply_audit with its sku and cohort_profit with the same
-sku. In why, cite the two completed windows' observed unit IDs and sales and the mature net per sale, including missing
-data. Remaining units are not necessarily extra units; do not infer a purchase from the first observation. These results
-alone do not justify a target increase: check the guard's binding target and six-hour book as well.
-The code keeps every line inside the shop's current limits (pricing.json), which start cautious and widen as results earn it."""
+c2 is the shop's own memory: long-term notes, lessons from earlier mistakes that match this state, and recent days. The
+code keeps every line inside the shop's current limits (pricing.json), which start cautious and widen as results earn it."""
 
 
 def keys_for(proposal, inv, catalog):
