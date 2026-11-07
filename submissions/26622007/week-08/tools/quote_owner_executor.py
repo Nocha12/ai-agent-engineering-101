@@ -194,6 +194,8 @@ def execute_apply(args, *, write=atomic_write):
             raise ValueError('exact plan confirmation required')
         originals = {n: (safe_file(target, n).read_bytes()
                          if safe_file(target, n).exists() else None) for n in FILES}
+        if originals[FILES[3]] is None:
+            raise ValueError('existing buyer entry required')
         backup = stage / 'backup'
         backup.mkdir(mode=0o700)
         for name, data in originals.items():
@@ -229,6 +231,22 @@ def execute_apply(args, *, write=atomic_write):
                 errors.append('entry: ' + str(recovery))
             return dict(status='failed', error=str(exc), written=written,
                         sourcedOFF=sourced_off(target), recovery_errors=errors)
+
+
+def execute_off(args):
+    target = repository(args.target)
+    with owner_lock(target):
+        head = revision(args.expected_head)
+        if git(target, 'rev-parse', 'HEAD').decode().strip() != head:
+            raise ValueError('target HEAD changed')
+        if args.confirm != f'off:{target}:{head}':
+            raise ValueError('exact OFF confirmation required')
+        path = safe_file(target, FILES[0])
+        try:
+            atomic_write(path, OFF)
+            return dict(status='off', sourcedOFF=sourced_off(target))
+        except (OSError, ValueError) as exc:
+            return dict(status='failed', error=str(exc), sourcedOFF=sourced_off(target))
 
 
 def prepare(args):
@@ -271,9 +289,13 @@ def main():
             p.add_argument('--' + name, required=True)
         if command == 'apply':
             p.add_argument('--confirm', required=True)
+    p = commands.add_parser('off')
+    for name in ('target', 'expected-head', 'confirm'):
+        p.add_argument('--' + name, required=True)
     args = parser.parse_args()
     try:
-        result = {'prepare': prepare, 'plan': plan, 'apply': execute_apply}[args.command](args)
+        result = {'prepare': prepare, 'plan': plan, 'apply': execute_apply,
+                  'off': execute_off}[args.command](args)
     except (ValueError, SyntaxError, TypeError, KeyError, OSError, subprocess.SubprocessError) as exc:
         print(json.dumps(dict(status='rejected', error=str(exc))))
         return 2

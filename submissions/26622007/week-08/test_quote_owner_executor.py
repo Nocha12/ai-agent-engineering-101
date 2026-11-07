@@ -1,11 +1,13 @@
 """Owner CLI contracts exercised only in newly created temporary Git repositories."""
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
 
 
 CLI = Path(__file__).parent / 'tools/quote_owner_executor.py'
@@ -14,6 +16,13 @@ FILES = [PREFIX + name for name in (
     'buyer_quote_alignment_policy.py', 'buyer_quote_alignment.py',
     'tools/quote_alignment_measure.py', 'market_buyer.py')]
 OFF = b"SOURCE_CONTROL = True\nENABLED = False\nSTART = 0\nSTUDY = ''\n"
+
+
+def executor():
+    spec = importlib.util.spec_from_file_location('quote_owner_executor', CLI)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class OwnerCLI(unittest.TestCase):
@@ -116,6 +125,42 @@ class OwnerCLI(unittest.TestCase):
         self.assertEqual((self.stage / 'backup' / FILES[3]).read_bytes(), b'# target\n')
         for p in others:
             self.assertEqual(p.read_bytes(), b'fixture dirty bytes\x00\xff')
+
+    def test_transition_order_and_partial_failure_leave_off_restore_entry(self):
+        self.prepare()
+        module = executor()
+        args = SimpleNamespace(target=str(self.target), expected_head=self.head,
+                               staging=str(self.stage),
+                               manifest_sha256=self.prepared['manifest_sha256'],
+                               confirm=self.plan()['confirm'])
+        seen = []
+
+        def disk_write(path, data):
+            name = str(path.relative_to(self.target))
+            module.atomic_write(path, data)
+            seen.append(name)
+            if len(seen) > 1:
+                self.assertEqual((self.target / FILES[0]).read_bytes(), OFF)
+            if len(seen) == 4:
+                raise OSError('fixture failure after entry replace')
+
+        result = module.execute_apply(args, write=disk_write)
+        self.assertEqual(seen[:4], FILES)
+        self.assertEqual(result['status'], 'failed')
+        self.assertTrue(result['sourcedOFF'])
+        self.assertEqual(result['recovery_errors'], [])
+        self.assertEqual((self.target / FILES[3]).read_bytes(), b'# target\n')
+        self.assertEqual((self.target / FILES[0]).read_bytes(), OFF)
+
+    def test_off_requires_confirmation_and_disables_an_on_fixture(self):
+        on = b"SOURCE_CONTROL = True\nENABLED = True\nSTART = 2000000000\nSTUDY = 'fixture'\n"
+        (self.target / FILES[0]).write_bytes(on)
+        args = ('off', '--target', self.target, '--expected-head', self.head, '--confirm')
+        self.cli(*args, 'wrong', ok=False)
+        self.assertEqual((self.target / FILES[0]).read_bytes(), on)
+        result = self.cli(*args, f'off:{self.target}:{self.head}')
+        self.assertTrue(result['sourcedOFF'])
+        self.assertEqual((self.target / FILES[0]).read_bytes(), OFF)
 
 
 if __name__ == '__main__':
