@@ -24,6 +24,7 @@ import argparse
 import asyncio
 import base64
 import concurrent.futures
+import contextlib
 import functools
 import hmac
 import hashlib
@@ -59,10 +60,12 @@ import negotiate
 import seller_reader_trial
 import seller_concession_trial
 import seller_opening_default
+import seller_drain
 
 READER_TRIAL = seller_reader_trial.Trial()
 CONCESSION_TRIAL = seller_concession_trial.Trial()
 OPENING_DEFAULT = seller_opening_default.OpeningDefault()
+DRAIN = seller_drain.Drain()
 import agent_memory
 import hard_limits
 import market_model
@@ -501,6 +504,10 @@ class Seller(AgentExecutor):
         return item, d
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
+        with DRAIN.turn():
+            await self._execute(context, event_queue)
+
+    async def _execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         task = context.current_task
         if task is None:
             task = new_task_from_user_message(context.message)
@@ -511,6 +518,11 @@ class Seller(AgentExecutor):
         text = (get_message_text(context.message) or "")[:MAX_TEXT]
         deal = self.open.get(task.id)
         log(f"task {task.id[:8]} <- {text!r}")
+
+        if deal is None and DRAIN.active():   # seller_drain: restarting; talks under way go on, new ones wait a minute
+            await up.reject(say("Sorry, the shop is restarting for an update. Please ask again in a minute."))
+            log(f"task {task.id[:8]} -> REJECTED (draining for a restart)")
+            return
 
         if deal is None and self.stock.economy():
             await self.open_from_stock(task, text, up, say)
@@ -758,10 +770,19 @@ def build(url, catalog, name):
     )
     stock = StockBook()
     acp = AcpCheckout(url, load_shop_key, log, stock=stock, gate=acp_gate.Gate(log=log, warm=bool(os.environ.get("RENDER_EXTERNAL_URL"))))   # tunneled: the kit serves ACP
-    handler = DefaultRequestHandler(agent_executor=Seller(catalog, name, stock, acp), task_store=InMemoryTaskStore(),
-                                    agent_card=card)
+    shop = Seller(catalog, name, stock, acp)
+    handler = DefaultRequestHandler(agent_executor=shop, task_store=InMemoryTaskStore(), agent_card=card)
+
+    @contextlib.asynccontextmanager
+    async def lifespan(app):
+        drain = asyncio.create_task(DRAIN.loop(shop, flush_memory, log))
+        try:
+            yield
+        finally:
+            drain.cancel()
+
     return Starlette(routes=create_agent_card_routes(card, card_modifier=fresh_card) + acp.routes() + [Route("/_kitlog", kitlog)]
-                     + create_jsonrpc_routes(handler, "/"))
+                     + create_jsonrpc_routes(handler, "/"), lifespan=lifespan)
 
 
 KITLOGS = {"market-kit.log": "logs/market-kit.log", "market-kit.log.1": "logs/market-kit.log.1",
