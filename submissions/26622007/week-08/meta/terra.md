@@ -46,7 +46,7 @@ revenue is 60만+ goods. Read the caps from pricing.json and hard_limits.py, not
 person, "완전 풀어버려", no bankruptcy) restock.max_stock_cost has no top in hard_limits.BOUNDS and stands at 1,000,000,000;
 the old 15M start and 150M bound are gone, and hard_limits.META_FLOOR still refuses a cap under 10M. What holds buying
 back is the cash buffer (hard_limits.cash_buffer) and real demand. Grow
-max_stock_cost one step (up to x2, x5 on a strong sample) and the sku_target_units of the SKUs that sold, when all three
+max_stock_cost one step (read the current hard_limits step bounds; the old x2/x5 rise limits are superseded) and the sku_target_units of the SKUs that sold, when all three
 hold since the last change: (1) the cap binds: guard "stock cost" cuts on priority / proven lines in the last two
 supply windows (for sku_target_units alone, "units per SKU" cuts on that SKU's lines in those windows, with the SKU held at its sku_target_units (not at
 high_price_max_units, max_units_per_sku or a surge cap), count instead:
@@ -209,3 +209,9 @@ Astra 2026-11-05 09:38 correction:
 - Read the current SKU targets and listed SKUs from pricing.json, not from an older strategy's numbers (the 11/05 09:38
   targets G6/G75 1 and G1515 4 are long gone); the person's uncapped buyer rule remains in force.
   A successful one-unit trial does not justify unattended permanent restocking. Rejudge its own sale after six hours.
+
+Astra 2026-11-07 11:37 판정선: supply_audit는 두 완료 공급창의 unit ID 판매/잔류를 읽는 도구다.
+잔류는 추가분이라는 뜻이 아니며 첫 관측은 매입으로 세지 않는다. guard의 실제 구속 target, cohort_profit 숙성 순기여,
+6h book을 함께 확인한다. meta/strategy.md와 experiments의 순서대로 사용한다. my_state 3판단 중 재고불명 축소0건은
+11/07 14:00 판정한다. 상한 1B가 묶이지 않았다는 이유로 SKU target 검증까지 생략하지 않는다.
+최근 세 주기의 계산 가능한 같은 결측을 반복하면 no_change 근거로 쓰지 말고 이 도구와 원장 측정을 수행한다.

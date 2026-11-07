@@ -410,12 +410,6 @@ def since_last(card, kind="terra", now=None):
     ALL from cash to book) is marked: its shop ALL moved with the formula, not only with trading."""
     now = time.time() if now is None else now
     folder = os.path.join(ROOT, "meta", "evidence")
-    # only the harness's own packs: the models save their test runs and audits here too (astra-1104-090509-review.json)
-    packs = sorted((p for p in os.listdir(folder) if re.fullmatch(rf"{kind}-\d+(-\d+)?\.json", p)),
-                   key=lambda p: os.path.getmtime(os.path.join(folder, p))) if os.path.isdir(folder) else []
-    if not packs:
-        return {"first": True}
-
     def load(p):
         try:
             with open(os.path.join(folder, p), encoding="utf-8") as f:
@@ -423,6 +417,38 @@ def since_last(card, kind="terra", now=None):
             return x if isinstance(x, dict) else None
         except (OSError, ValueError):
             return None
+
+    def pack_time(p):
+        # Git checkout/restores change mtime, not the scorecard observation time.
+        value = (load(p) or {}).get("time")
+        try:
+            return datetime.datetime.fromisoformat(value).timestamp()
+        except (ValueError, TypeError):
+            return os.path.getmtime(os.path.join(folder, p))
+
+    every = sorted((pack_time(p), p) for p in os.listdir(folder)
+                   if re.fullmatch(r"(terra|astra)-\d+(-\d+)?\.json", p)
+                   and pack_time(p) < now and load(p) is not None) if os.path.isdir(folder) else []
+    packs = [p for _, p in every if p.startswith(kind + "-")]
+    if not packs:
+        return {"first": True}
+
+    missing_cycle = None
+    try:
+        with open(os.path.join(ROOT, "meta", "changes.jsonl"), encoding="utf-8") as f:
+            cycles = [json.loads(line) for line in f if line.strip()]
+        prior = [(datetime.datetime.fromisoformat(r["time"]).timestamp(), r["cycle"])
+                 for r in cycles if r.get("cycle", "").startswith(kind + "-")]
+        prior = [(t, c) for t, c in prior if t < now]
+        if prior:
+            t, cycle = max(prior)
+            if cycle + ".json" not in packs:
+                missing_cycle = cycle
+                candidates = [p for pt, p in every if pt <= t]
+                if candidates:
+                    packs = [candidates[-1]]
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
 
     prev = load(packs[-1])
     if prev is None:
@@ -434,18 +460,21 @@ def since_last(card, kind="terra", now=None):
     # the 22:26 Terra pack saw 46 shop settles of 144 (the hour before the 21:58 move was lost)
     old = scorecard.log_counts(ROOT, "market-kit.log.1", start=a.get("lines", 0)) if rotated else {}
     delta = {k: (b[k] + old.get(k, 0) if rotated else b[k] - a.get(k, 0)) for k in b if isinstance(b[k], int) and k != "tracebacks_open"}
-    out = {"previous": packs[-1], "log_rotated": rotated, "log_counts": {k: v for k, v in delta.items() if v},
+    invalid = [k for k, v in delta.items() if v < 0]
+    # Across multiple rotations .log.1 cannot reconstruct all missing segments.
+    # A negative count is unavailable evidence, never negative business activity.
+    for k in invalid:
+        delta[k] = None
+    out = {"missing_previous_cycle": missing_cycle, "log_count_gaps": invalid, "previous": packs[-1], "log_rotated": rotated, "log_counts": {k: v for k, v in delta.items() if v or v is None},
            "players": [obj(prev).get("players"), obj(card).get("players")], "shop": [prev.get("shop"), card.get("shop")],
-           "across_score_switch": os.path.getmtime(os.path.join(folder, packs[-1])) < SCORE_SWITCH <= now, "baselines": {}}
-    every = sorted((os.path.getmtime(os.path.join(folder, p)), p) for p in os.listdir(folder)
-                   if re.fullmatch(r"(terra|astra)-\d+(-\d+)?\.json", p))
+           "across_score_switch": pack_time(packs[-1]) < SCORE_SWITCH <= now, "baselines": {}}
     for h in BASELINE_HOURS:      # the newest pack at least h hours old, any kind: the 6 and 12 hour trend
         old = [p for t, p in every if t <= now - h * 3600]
         base = load(old[-1]) if old else None
         if base is None:
             out["baselines"][f"{h}h"] = None
             continue
-        t = os.path.getmtime(os.path.join(folder, old[-1]))
+        t = pack_time(old[-1])
         out["baselines"][f"{h}h"] = {"pack": old[-1], "hours": round((now - t) / 3600, 1),
                                      "players": [obj(base).get("players"), obj(card).get("players")],
                                      "shop_all": [(obj(base).get("shops") or {}).get("all"), (obj(card).get("shops") or {}).get("all")],
