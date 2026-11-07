@@ -977,11 +977,12 @@ def start_quotes(shops, order, budget, chance_of, got, ctl):
     return threads
 
 
-def prefetch_pool(left, memory, md, category, k, rival=frozenset(), kind=None, order_id=None):
+def prefetch_pool(left, memory, md, category, k, rival=frozenset(), kind=None, order_id=None, yield_arm=None):
     """The k - 1 shops quoted before the harness has chosen (the chosen shop takes the last slot of the first batch),
     and every shop that could be quoted, in quote order; revenue rivals of my shop after the others (rival_deny)."""
     others = [s for s in left if not caught_cheating(my_history(memory, s["name"]))]
-    yields = recent_quote_yields(md, category) if kind == "food" and quote_yield_arm(order_id) else None
+    active = quote_yield_arm(order_id) if yield_arm is None else yield_arm
+    yields = recent_quote_yields(md, category) if kind == "food" and active else None
     others = rival_deny.others_first(quote_order(others, recent_fits(md, category), k, yields), rival)
     return others[:max(0, k - 1)], others
 
@@ -1371,7 +1372,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "candidates": [{"shop": s["name"], "offers": [{"sku": o.get("sku"), "qty": o.get("qty"), "list_price": o.get("list_price")}
                                                       for o in s.get("usable") or []][:3]} for s in shops][:20],
         "n_candidates": len(shops),    # lists cut so a line stays one small append (buyer runs can overlap)
-        "food_quote_yield": order.get("kind") == "food" and quote_yield_arm(order.get("order")),
+        "food_quote_yield": order.get("_food_quote_yield", order.get("kind") == "food" and quote_yield_arm(order.get("order"))),
         "one_won_probe": probe_arm,
         "opening_price": next((p for who, p in out.get("history") or [] if who == "you offered"), None),
         "quote_attempts_complete": len(qs) == sum(bool(s.get("_quote_attempted") or s["name"] in quotes) for s in shops),
@@ -1405,6 +1406,9 @@ def main():
         shops = [s for s in json.load(f) if s.get("url") and s.get("name")]
     order = load_json(args.order, {}) if args.order else {}
     r3 = isinstance(order, dict) and bool(order.get("acceptable"))
+    if r3:
+        order["_buyer_started_at"] = time.time()
+        order["_food_quote_yield"] = order.get("kind") == "food" and quote_yield_arm(order.get("order"))
     md = os.path.dirname(args.shops) or "."
     catalog = load_json(os.path.join(md, "catalog.json"), {}) if r3 else {}
     if r3:
@@ -1423,7 +1427,7 @@ def main():
             records.write(md, "orders", {"order": order.get("order"), "category": order.get("category"), "kind": order.get("kind"),
                                          "budget": args.budget, "acceptable": len(order.get("acceptable") or []),
                                          "use_within_hours": order.get("use_within_hours"), "candidates": [],
-                                         "food_quote_yield": order.get("kind") == "food" and quote_yield_arm(order.get("order")),
+                                         "food_quote_yield": order["_food_quote_yield"],
                                          "quotes": [], "quote_attempts_complete": True,
                                          "state": "NO_SHOP_IN_STOCK", "seconds": {"end": round(time.time() - STARTED, 2)}})
         print(json.dumps({"shop": "", "receipt": None, **({} if r3 else {"stars": 1, "review": "No shops to trade with."})}))
@@ -1449,7 +1453,8 @@ def main():
         log(f"[choose] {sum(s['name'] in rival for s in left)} of {len(left)} shops are revenue rivals of my shop: asked last")
     if r3:
         k = int(buyer_cfg().get("quote_shops", 1))
-        early, quotable = prefetch_pool(left, memory, md, order.get("category"), k, rival, kind=order.get("kind"), order_id=order.get("order"))
+        early, quotable = prefetch_pool(left, memory, md, order.get("category"), k, rival, kind=order.get("kind"), order_id=order.get("order"),
+                                         yield_arm=order["_food_quote_yield"])
         try:
             gave_up = hopeless(quotable or left, args.budget, recent_asks(md), buyer_cfg())
         except Exception as e:  # noqa: BLE001 - an odd record line must not end the run before the result line
@@ -1554,7 +1559,9 @@ def main():
         resume = (q["url"], q["task"]) if r3 and resumable(q) else None
         cfg = buyer_cfg()
         steps = oneshot.steps(cfg) if r3 and oneshot.enabled(cfg) else None
-        if steps and resume and order.get("kind") == "food" and q.get("ask_src") == "text" and \
+        if steps and resume and not order.get("_food_quote_yield") and \
+                order.get("_buyer_started_at", 0) >= ONE_WON_PROBE_START and \
+                order.get("kind") == "food" and q.get("ask_src") == "text" and \
                 oneshot.turn(None, q.get("text"), [], limit, steps, q.get("ask"), False) is not None:
             probe_arm = opening_probe_arm(md, shop["name"], order.get("order"), sku=key,
                                           use_within=order.get("use_within_hours"))
