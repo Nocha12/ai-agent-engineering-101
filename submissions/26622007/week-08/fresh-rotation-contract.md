@@ -1,7 +1,10 @@
 # Fresh order hash slot candidate
 
-Source policy: `buyer_fresh_rotation.py`: ENABLED=False, START=0, END=0,
-STUDY=fresh-uuid-slot-v1. No environment switch. Independent files under
+Source policy: `buyer_fresh_rotation.py`: ENABLED=False,
+START=1794075900 (2026-11-08 03:25 KST), END=1794077700 (03:55 KST),
+STUDY=fresh-uuid-slot-20261108-0325. This retained past window was not a
+local activation; it is not reused or extended here. No experiment environment
+switch. Independent files under
 `<market-dir>/buyer_fresh_rotation/<sha256([study,order])>/`.
 Do not activate with B1, quote alignment, goods-first-one, extra-quote,
 firm, first95 or cap95 windows. Source overlap guard excludes these live windows;
@@ -10,7 +13,18 @@ No activation, market access or effect estimate was performed locally.
 
 ## Policy and population
 
-Goods only. Reserve ITT before catalog/product selection, using full canonical
+Goods with the actual rule chooser only. Main resolves `choose_by_rule()` once
+per invocation (nonempty BUYER_CHOOSE_ENGINE overrides pricing.json; only rule
+selects the rule engine) and passes the same boolean to admission, first dispatch,
+chooser, ACP retry and downstream preference. It is never loaded from persisted
+order/context fields. Direct dispatch/chooser calls resolve the current engine.
+Reserve/decide require explicit `rule_engine is True`; missing or nonboolean
+evidence fails closed. Nonrule invocations cannot receive a fresh allocation or
+apply B from an existing persisted context. Existing agent enough/hurry/ACP and
+actual-quote behavior remain the baseline; the rule selection separation below
+does not claim agent selection is invariant to quotes.
+
+Reserve ITT before catalog/product selection, using full canonical
 order UUID or genuine o-12hex key (UUID5 allocation, never reconstructed history).
 SHA256(study:allocationUUID) chooses equally probable A/B. Finite samples need
 not balance. Immutable assignment fixes retries. Old/terminal/resumed input is
@@ -22,7 +36,13 @@ SHA256(order-key)-indexed shop in that same fit×rival partition. Exactly one sw
 same member selection is a no-op. Fitted and other rival partitions retain their
 slots. Quota, input pool, selected_offer, price, stock/warranty checks and all
 negotiation/payment/hold policies are unchanged. Only actual prefetch can apply
-the swap. Later batches use the same complete reordered pool without extra quota.
+the swap. The full quotable pool stays canonical for later batches; rule first
+selection uses baseline `selection_asked`, while actual `asked` comes from started
+`threads` and controls top-up, enough, duplicate prevention and cancellation.
+For otherwise equal downstream candidates, the final tie-break uses canonical
+preference, not arrival or treatment order. The single-variable hypothesis is
+limited to rule runs; quote availability, response timing, final deal and economic
+outcomes are not asserted invariant. No extra quote quota is added.
 Common eligibility means unequal SETS of first k-1 members. No membership
 difference remains ITT/no-op. Unknown/oversized snapshot fails to baseline;
 unknown is never a recent inquiry or evidence of unavailable stock.
@@ -73,6 +93,7 @@ IO exception/timeout/late publication and IO Thread.start slot recovery.
 Parent performs independent review, changed-file security/gitleaks and host
 full checks. Local targeted checks do not establish live safety or superiority.
 
-Rollback: keep/set ENABLED=False, START=0, END=0 and release through parent gate.
+Rollback: retain ENABLED=False and the existing past window; any later release
+or future window requires the parent's separate procedure.
 For source rollback use git revert of this candidate's commits (preserve history).
 Retain all evidence; never remove/reuse B1 or other study journals.

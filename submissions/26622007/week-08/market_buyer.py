@@ -1045,7 +1045,7 @@ def close_prefetch(pre):
         cancel_quietly(dict(q, closed=False), n)
 
 
-def start_quotes(shops, order, budget, chance_of, got, ctl):
+def start_quotes(shops, order, budget, chance_of, got, ctl, *, rule_engine=None):
     """Starts one quote thread per shop now, into got; returns {name: thread} for best_quote(pre=...).
     The market hands a buyer one open order at a time and the next one 20 s after the last at the earliest (ledger
     11/06 13:23-15:50: 49 buyers, no buyer with two open orders, the busiest 15 at 20.0-20.6 s between orders, us at 54.6 s).
@@ -1063,7 +1063,9 @@ def start_quotes(shops, order, budget, chance_of, got, ctl):
         order["_stock_quotable"][:] = [by_name[n] for n in names]
         shops[:] = order["_stock_quotable"][:max(0, order["_stock_k"] - 1)]
         order["_stock_dispatched"] = True
-    fresh_ctx = order.get("_fresh_rotation")
+    # Resolve on direct calls too; persisted order fields cannot authorize B.
+    rule_engine = choose_by_rule() if rule_engine is None else rule_engine
+    fresh_ctx = order.get("_fresh_rotation") if rule_engine is True else None
     if (fresh_ctx and order.get("_stock_phase") == "prefetch"
             and not order.get("_fresh_dispatched") and order.get("_fresh_inputs")):
         baseline, fits, rival, k, _ = order["_fresh_inputs"]
@@ -1071,7 +1073,7 @@ def start_quotes(shops, order, budget, chance_of, got, ctl):
         # Keep quotable in baseline preference order for subsequent batches.
         order["_fresh_selection_asked"] = {s["name"] for s in baseline[:max(0, k - 1)]}
         p = buyer_fresh_rotation.plan(baseline, fits, rival, k=k, order_id=order.get("order"))
-        names = buyer_fresh_rotation.decide(fresh_ctx, p)
+        names = buyer_fresh_rotation.decide(fresh_ctx, p, rule_engine=rule_engine)
         names = names if names is not None else [s["name"] for s in baseline]
         by_name = {s["name"]: s for s in baseline}
         shops[:] = [by_name[n] for n in names[:max(0, k - 1)]]
@@ -1152,12 +1154,13 @@ def hurried(pre):
         return False
 
 
-def choose_racing(pick, memory, item, budget, pre):
+def choose_racing(pick, memory, item, budget, pre, *, rule_engine=None):
     """choose() runs in a thread; when the prefetched quotes are enough (QUOTE_ENOUGH asks, one within my limit) before it
     answers, the quotes decide and the agent's answer is not waited for (HarnessError: the most reviewed shop goes first and
     best_quote picks by price). 11/07 02:00: fitting orders spent a median 7.5 s choosing though the quote, not the agent,
     picked the shop in 74% of orders; the run's exit ends the abandoned thread (daemon)."""
-    if pre is not None and choose_by_rule():
+    rule_engine = choose_by_rule() if rule_engine is None else rule_engine
+    if pre is not None and rule_engine is True:
         return rule_choose(pick, memory, item, pre.get("selection_asked", pre.get("asked")) or (), budget=budget)
     if not (pre and pre.get("enough")):
         return choose(pick, memory, item, budget)
@@ -1196,7 +1199,7 @@ def quotes_enough(shops, got, budget, cfg):
 
 
 def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOTE_WAIT, rounds=QUOTE_ROUNDS, pre=None,
-               rival=frozenset()):
+               rival=frozenset(), rule_engine=None):
     """(shop, quotes): of the chosen shop and up to quote_shops - 1 others, the one whose opening ask leaves the most
     expected surplus (list price, less the chance of breaking, less the ask). Quotes run at once, each in its own thread.
     When no shop of a batch asks a price within my limit (all out of stock, held by other buyers' talks, or asking too
@@ -1213,7 +1216,7 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
     later = [s for s in others if s["name"] not in asked and s["name"] != chosen["name"]]
     rest = [chosen] + early + later
     preference = {}
-    if order.get("_fresh_inputs"):
+    if order.get("_fresh_inputs") and (choose_by_rule() if rule_engine is None else rule_engine) is True:
         baseline, _, _, baseline_k, _ = order["_fresh_inputs"]
         baseline_asked = {s["name"] for s in baseline[:max(0, baseline_k - 1)]}
         candidates = [s for s in baseline if s["name"] != chosen["name"]]
@@ -1618,6 +1621,10 @@ def main():
     ap.add_argument("--order", help="order.json from the kit; Round 3 orders carry the acceptable SKUs")
     args = ap.parse_args()
 
+    # One actual engine for admission, first dispatch, selection and ACP retry.
+    # Never restore this decision from an order/context loaded on restart.
+    rule_engine = choose_by_rule()
+
     global MEMORY
     if not MEMORY:
         test = os.path.basename(args.shops).startswith("test-shops")
@@ -1648,6 +1655,7 @@ def main():
             buyer_stock_evidence, buyer_goods_first_one, buyer_goods_quote_probe,
             buyer_firm_trial, buyer_first95_trial, buyer_cap95_trial))
         order["_fresh_rotation"] = buyer_fresh_rotation.reserve(md, order,
+            rule_engine=rule_engine,
             conflict=bool(overlapping or order.get("_quote_alignment") or order.get("_goods_extra_quote_probe")))
     catalog = load_json(os.path.join(md, "catalog.json"), {}) if r3 else {}
     if r3:
@@ -1718,7 +1726,8 @@ def main():
         if PREFETCH_QUOTES and not gave_up and k >= 2 and early:
             order["_stock_phase"] = "prefetch"
             pre = {"got": {}, "ctl": quote_ctl(), "asked": {s["name"] for s in early}}
-            pre["threads"] = start_quotes(early, order, args.budget, chance_of, pre["got"], pre["ctl"])
+            pre["threads"] = start_quotes(early, order, args.budget, chance_of, pre["got"], pre["ctl"],
+                                          rule_engine=rule_engine)
             pre["asked"] = set(pre["threads"])  # final validated batch, including a baseline fallback
             if "_fresh_selection_asked" in order:
                 pre["selection_asked"] = order["_fresh_selection_asked"]
@@ -1732,9 +1741,9 @@ def main():
             pick = [s for s in left if s["name"] not in rival] or left     # the harness chooses among non-rivals when any
             for attempt in range(ACP_TRIES):
                 try:
-                    if attempt and hurried(pre) and not choose_by_rule():   # a retry after a shop with no ACP: the quotes decide, no new agent run
+                    if attempt and hurried(pre) and not rule_engine:   # a retry after a shop with no ACP: the quotes decide, no new agent run
                         raise HarnessError("the quotes are in")
-                    shop, reason = choose_racing(pick, memory, args.item, args.budget, pre)
+                    shop, reason = choose_racing(pick, memory, args.item, args.budget, pre, rule_engine=rule_engine)
                 except HarnessError as e:
                     unknown = [s for s in pick if not caught_cheating(my_history(memory, s["name"]))] or pick
                     shop, reason = max(unknown, key=lambda s: len(s.get("reviews") or [])), f"harness failed ({e}); most reviewed"
@@ -1756,7 +1765,7 @@ def main():
         try:
             order["_stock_phase"] = "best_quote"
             best, quotes = best_quote(shop, others, order, catalog, args.budget, chance_of, buyer_cfg(), pre=pre, rival=rival,
-                                      rounds=quote_rounds(order)) \
+                                      rounds=quote_rounds(order), rule_engine=rule_engine) \
                 if (pre or time.time() - STARTED < 60) and not gave_up else (shop, {})
         except BaseException:
             close_prefetch(pre)

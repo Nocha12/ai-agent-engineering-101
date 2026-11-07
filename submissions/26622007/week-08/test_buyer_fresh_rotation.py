@@ -14,8 +14,8 @@ class Rotation(unittest.TestCase):
         shops = [{"name": n, "usable": [{"name": "item", "sku": "sku-a", "list_price": 100}]} for n in "abc"]
         fits = collections.defaultdict(int)
         with tempfile.TemporaryDirectory() as md, patch.multiple(r, ENABLED=True, START=100, END=200), \
-                patch.object(mb, "quote", return_value=None), patch.object(r.time, "time", return_value=102):
-            ctx = r.reserve(md, self.order(), now=102)
+                patch.object(mb, "quote", return_value=None), patch.object(mb, "choose_by_rule", return_value=True), patch.object(r.time, "time", return_value=102):
+            ctx = r.reserve(md, self.order(), now=102, rule_engine=True)
             ctx["arm"] = "B"
             ordered = list(shops)
             order = {**self.order(), "_fresh_rotation": ctx, "_stock_phase": "prefetch",
@@ -46,7 +46,7 @@ class Rotation(unittest.TestCase):
                     patch.multiple(r, ENABLED=True, START=100, END=200), \
                     patch.multiple(stock, ENABLED=False, START=102, END=150), \
                     patch.object(r.time, "time", return_value=103), patch.object(mb, "quote", return_value=None):
-                ctx = r.reserve(md, self.order(), now=101)
+                ctx = r.reserve(md, self.order(), now=101, rule_engine=True)
                 ctx["arm"] = "B"
                 p = r.plan(shops, collections.Counter(), set(), k=2, order_id=self.order()["order"])
                 original = r._io
@@ -57,7 +57,7 @@ class Rotation(unittest.TestCase):
                 if not during_io:
                     stock.ENABLED = True
                 with patch.object(r, "_io", side_effect=change_window):
-                    self.assertEqual(r.decide(ctx, p), p["baseline"])
+                    self.assertEqual(r.decide(ctx, p, rule_engine=True), p["baseline"])
                 order = {**self.order(), "_fresh_rotation": ctx, "_stock_phase": "prefetch",
                          "_fresh_inputs": (list(shops), collections.Counter(), set(), 2, list(shops))}
                 batch = shops[:1]
@@ -69,30 +69,45 @@ class Rotation(unittest.TestCase):
     def order(self):
         return {"order": "o-0123456789ab", "kind": "goods", "_buyer_started_at": 101}
 
+    def test_missing_or_nonboolean_rule_evidence_fails_closed_even_with_saved_b(self):
+        with tempfile.TemporaryDirectory() as md, patch.multiple(r, ENABLED=True, START=100, END=200):
+            ctx = r.reserve(md, self.order(), now=102, rule_engine=True)
+            ctx["arm"] = "B"
+            p = r.plan([{"name": n} for n in "abc"], collections.Counter(), set(),
+                       k=2, order_id=self.order()["order"])
+            self.assertTrue(p["eligible"])
+            self.assertIsNone(r.reserve(md, self.order(), now=102))
+            self.assertEqual(r.decide(ctx, p, now=102), list("abc"))
+            for engine in (False, None, "rule", "agent", 1):
+                with self.subTest(engine=engine):
+                    self.assertIsNone(r.reserve(md, self.order(), now=102, rule_engine=engine))
+                    self.assertEqual(r.decide(ctx, p, now=102, rule_engine=engine), list("abc"))
+            self.assertEqual(r.decide(ctx, p, now=102, rule_engine=True), list("cba"))
+
     def test_retry_off_end_unknown_and_conflict(self):
         with tempfile.TemporaryDirectory() as md, patch.multiple(r, ENABLED=True, START=100, END=200):
-            a = r.reserve(md, self.order(), now=102)
-            b = r.reserve(md, self.order(), now=103)
+            a = r.reserve(md, self.order(), now=102, rule_engine=True)
+            b = r.reserve(md, self.order(), now=103, rule_engine=True)
             self.assertEqual(a, b)
             self.assertIn(a["arm"], "AB")
-            self.assertIsNone(r.reserve(md, self.order(), now=200))
-            self.assertIsNone(r.reserve(md, self.order(), now=99))
-            self.assertIsNone(r.reserve(md, self.order(), now=102, conflict=True))
+            self.assertIsNone(r.reserve(md, self.order(), now=200, rule_engine=True))
+            self.assertIsNone(r.reserve(md, self.order(), now=99, rule_engine=True))
+            self.assertIsNone(r.reserve(md, self.order(), now=102, conflict=True, rule_engine=True))
             for extra in ({"order": "unknown"}, {"_buyer_started_at": 103},
                           {"state": "REJECTED"}, {"resume": True}, {"kind": "food"}):
-                self.assertIsNone(r.reserve(md, {**self.order(), **extra}, now=102))
+                self.assertIsNone(r.reserve(md, {**self.order(), **extra}, now=102, rule_engine=True))
             with patch.object(r, "ENABLED", False):
-                self.assertIsNone(r.reserve(md, self.order(), now=102))
+                self.assertIsNone(r.reserve(md, self.order(), now=102, rule_engine=True))
 
     def test_failed_io_and_thread_start_return_baseline(self):
         with tempfile.TemporaryDirectory() as md, patch.multiple(r, ENABLED=True, START=100, END=200):
             with patch("buyer_stock_evidence.os.link", side_effect=OSError):
-                self.assertIsNone(r.reserve(md, self.order(), now=102))
+                self.assertIsNone(r.reserve(md, self.order(), now=102, rule_engine=True))
             # Failed starts must release admission; more failures than slots.
             for _ in range(8):
                 with patch("buyer_stock_evidence.threading.Thread.start", side_effect=RuntimeError):
-                    self.assertIsNone(r.reserve(md, self.order(), now=102))
-            self.assertIsNotNone(r.reserve(md, self.order(), now=102))
+                    self.assertIsNone(r.reserve(md, self.order(), now=102, rule_engine=True))
+            self.assertIsNotNone(r.reserve(md, self.order(), now=102, rule_engine=True))
 
     def test_timeout_cannot_authorize_late_treatment(self):
         import buyer_stock_evidence as io
@@ -106,16 +121,16 @@ class Rotation(unittest.TestCase):
             finally:
                 finished.set()
         with tempfile.TemporaryDirectory() as md, patch.multiple(r, ENABLED=True, START=100, END=200):
-            ctx = r.reserve(md, self.order(), now=102)
+            ctx = r.reserve(md, self.order(), now=102, rule_engine=True)
             ctx["arm"] = "B"
             shops = [{"name": n} for n in "abc"]
             p = r.plan(shops, collections.defaultdict(int), set(), k=2, order_id=self.order()["order"])
             with patch.object(r, "_once", side_effect=stalled):
-                self.assertEqual(r.decide(ctx, p, now=102), p["baseline"])
+                self.assertEqual(r.decide(ctx, p, now=102, rule_engine=True), p["baseline"])
                 self.assertTrue(entered.is_set())
                 released.set()
                 self.assertTrue(finished.wait(2))
-            self.assertEqual(r.decide(ctx, p, now=200), p["baseline"])
+            self.assertEqual(r.decide(ctx, p, now=200, rule_engine=True), p["baseline"])
 
     def test_single_swap_preserves_partitions_and_detects_membership(self):
         shops = [{"name": n, "reviews": [], "usable": [{"sku": "sku-a"}]} for n in "abcdef"]

@@ -39,11 +39,11 @@ def competing_window(now):
         buyer_firm_trial, buyer_first95_trial, buyer_cap95_trial))
 
 
-def reserve(md, order, *, now=None, conflict=False):
+def reserve(md, order, *, now=None, conflict=False, rule_engine=False):
     live = now is None
     now = time.time() if now is None else now
     oid, started = _order_id(order.get("order")), order.get("_buyer_started_at")
-    if (conflict or not active(now) or not oid or order.get("kind") != "goods"
+    if (rule_engine is not True or conflict or not active(now) or not oid or order.get("kind") != "goods"
             or not _number(started) or not START <= started <= now
             or order.get("task") or order.get("resume") or order.get("state") in ("REJECTED", "CANCELED", "COMPLETED")):
         return None
@@ -90,12 +90,12 @@ def plan(baseline, fits, rivals, *, k, order_id):
     return result
 
 
-def decide(ctx, p, *, now=None):
+def decide(ctx, p, *, now=None, rule_engine=False):
     if not ctx or not p:
         return None
     def valid():
         at = time.time() if now is None else now
-        return (active(at) and not competing_window(at)
+        return (rule_engine is True and active(at) and not competing_window(at)
                 and (ctx["study"], ctx["start"], ctx["end"]) == (STUDY, START, END))
     if not valid():
         return p["baseline"]

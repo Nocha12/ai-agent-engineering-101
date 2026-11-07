@@ -42,7 +42,7 @@ class FreshChoiceBoundary(unittest.TestCase):
             stack.enter_context(patch.object(buyer, "buyer_rpc", side_effect=lambda u, m, p: canceled.append(p["id"])))
             order = {"order": "00000000-0000-4000-8000-000000000001", "kind": "goods",
                      "_buyer_started_at": now, "_stock_phase": "prefetch"}
-            order["_fresh_rotation"] = rotation.reserve(md, order)
+            order["_fresh_rotation"] = rotation.reserve(md, order, rule_engine=True)
             order["_fresh_rotation"]["arm"] = arm
             existing = set(threading.enumerate())
             try:
@@ -203,6 +203,14 @@ class FreshChoiceBoundary(unittest.TestCase):
                     self.assertEqual(canceled.count("t-c"), 1)
 
     def test_main_real_rule_and_acp_fallback_preserve_first_choice(self):
+        self.main_engine_case("rule")
+
+    def test_main_nonrule_override_rejects_fresh_assignment(self):
+        for engine in ("agent", "invalid"):
+            with self.subTest(engine=engine):
+                self.main_engine_case(engine)
+
+    def main_engine_case(self, engine):
         # Keep shipped k and all selection/quote functions. Only HTTP/RPC and
         # temporary input files differ from the product invocation.
         for acp_missing in (None, "j"):
@@ -216,7 +224,7 @@ class FreshChoiceBoundary(unittest.TestCase):
                     for i in range(1, 500):
                         oid = f"00000000-0000-4000-8000-{i:012d}"
                         candidate = dict(order, order=oid)
-                        ctx = rotation.reserve(md, candidate)
+                        ctx = rotation.reserve(md, candidate, rule_engine=True)
                         slot = int.from_bytes(hashlib.sha256(oid.encode()).digest(), "big") % 12
                         if ctx["arm"] == arm and slot >= 9:
                             order = candidate
@@ -237,7 +245,15 @@ class FreshChoiceBoundary(unittest.TestCase):
                             return Mock(status_code=404 if acp_missing and f"//{acp_missing}." in url else 200)
                         return Mock(json=lambda: {"supportedInterfaces": [{"protocolBinding": "JSONRPC",
                             "protocolVersion": "1.0", "url": url.split("/.well-known")[0] + "/a2a"}]})
-                    with patch.object(buyer, "MEMORY", os.path.join(md, "memory.json")), \
+                    def ask(prompt, schema, system, **kwargs):
+                        final_schema = schema["properties"]["final"]["anyOf"][0]
+                        allowed = final_schema["properties"]["shop"]["enum"]
+                        final = {"shop": "j" if "j" in allowed else "k", "reason": "fixture"}
+                        return {"action": "finish", "reason": "fixture", "evidence": ["c0"],
+                                "tool": "", "args_json": "{}", "final": final}
+                    with patch.dict(os.environ, {"BUYER_CHOOSE_ENGINE": engine}), \
+                            patch.object(buyer, "ask", side_effect=ask), \
+                            patch.object(buyer, "MEMORY", os.path.join(md, "memory.json")), \
                             patch.object(buyer.httpx, "get", side_effect=http), \
                             patch.object(sys, "argv", ["buyer", "--shops", os.path.join(md, "shops.json"),
                                 "--order", os.path.join(md, "order.json"), "--item", "item", "--budget", "20000"]), \
@@ -247,9 +263,14 @@ class FreshChoiceBoundary(unittest.TestCase):
                         row = json.loads(out.readlines()[-1])
                     attempts = [json.loads(p.read_text()) for p in Path(ctx["directory"]).glob("attempt-*.json")]
                     prefetched = {a["shop"] for a in attempts if a["phase"] == "prefetch"}
-                    self.assertEqual(len(prefetched), 9)
-                    self.assertEqual(prefetched, set("abcdefghi") if arm == "A" else
-                        (set("abcdefghi") - {"a"}) | {"abcdefghijkl"[slot]})
+                    if engine == "rule":
+                        self.assertEqual(len(prefetched), 9)
+                        self.assertEqual(prefetched, set("abcdefghi") if arm == "A" else
+                            (set("abcdefghi") - {"a"}) | {"abcdefghijkl"[slot]})
+                    else:
+                        self.assertIsNone(row["fresh_rotation"]["arm"])
+                        self.assertEqual(prefetched, set())
+                        self.assertEqual(set(sent[:9]), set("abcdefghi"))
                     results.append(row["first_choice"])
                     self.assertEqual(len(sent), len(set(sent)))
             self.assertEqual(results, ["j", "j"] if acp_missing is None else ["k", "k"])
