@@ -2,6 +2,28 @@
  "about": "Evidenced experiments, one at a time, in order (meta/terra.md 'Experiments'). Add at the end with every field filled and the evidence cited; meta/experiments_log.jsonl holds which one runs.",
  "queue": [
   {
+   "id": "carpet-G1465c678-one-unit",
+   "change": "One unit of G1465c678 (list 307,000; worst cost at the highest surge 345,375): next_window target 1, priority_skus gets it with sku_target_units 1 so the guard lets one high-price unit through, no repeat until judged.",
+   "evidence": "GPT Pro 11/05 product candidates: the next high-price candidate in the current exploration budget; market mature sales 29 at 3 shops, 0 refunds, 21 of them at one shop, so whether we sell it is unknown.",
+   "metric": "the unit's net contribution 6 h after its sale (settled price - cost - refund - storage), or unsold after two supply windows",
+   "direction": "above",
+   "threshold": "net contribution > 0 and sold within 2 supply windows",
+   "min_sample": "1 unit",
+   "hours": 12,
+   "undo": "drop it from next_window, priority_skus and sku_target_units; no repeat"
+  },
+  {
+   "id": "g6-a-ask-cap-343k",
+   "change": "price.ask_caps.G6b9db161.A 350,000 -> 343,000 (first ask 2% lower), nothing else.",
+   "evidence": "GPT Pro 11/05 priority 7: G6 A 64 mature sales, 5 refunds, mean paid 345,584, contribution 52,388 per sale; book breaks even at +13.9% units, revenue at +2.04%; the data has no count of orders lost on price, so it is a test.",
+   "metric": "G6 A units sold per hour and net contribution per hour, same grade and stock hours, against the 20 mature sales before",
+   "direction": "above",
+   "threshold": "net contribution per hour >= the previous 20 sales' rate",
+   "min_sample": "20 mature sales after the change",
+   "hours": 24,
+   "undo": "price.ask_caps.G6b9db161.A back to 350000"
+  },
+  {
    "id": "supply-audit-context-113730",
    "change": "restock.GOAL에 supply_audit와 cohort_profit으로 검증 고가 SKU 한 개의 두 공급창을 확인하는 지침 추가; 설정과 매입량은 그대로",
    "evidence": "meta/evidence/astra-1107-113730-probes.jsonl:4 G03d0199f 1입고 0판매; :6 G24f5f979 1입고 1판매; meta/changes.jsonl:72 반복 미확인",
@@ -13,26 +35,15 @@
    "undo": "이번 restock.GOAL 추가 문장만 제거; 기존 my_state와 총상한은 유지. 도구 결과 오류면 supply_audit와 해당 테스트 제거"
   },
   {
-   "id": "replenish-vs-expand-234803",
-   "change": "기존 c0 보충과 target 확대를 구별하는 restock.GOAL 문장 추가. 기존 target 보충에 확대용 guard/book 증거를 요구하지 않고 SKU 손실·기한·현금완충은 유지. 직전 실험 drop 기록 후 시작.",
-   "evidence": "meta/evidence/astra-1107-234803-probes.jsonl:26; .market/decisions.jsonl:7045 기존 보충을 확대 근거 결측 때문에 거부. 24판단/도구쌍20/최종 단위ID0.",
-   "metric": "기존 목표 보충과 목표 확대를 구별한 판단 수; 확대 근거 결측만으로 기존 보충을 거부한 수",
+   "id": "forum-demand-join-113730",
+   "change": "주 실험 종료 뒤 forum 분석 맥락에 구합니다 3개를 catalog_search/auto_market_research의 실제 결제 SKU와 연결하도록 추가; 매입·메시지·투표 없음",
+   "evidence": "meta/evidence/astra-1107-113730-audit-v3.jsonl:201: #30979 곡물 예산1만원대 72h, #30992 신선조개류 주문3건 실패",
+   "metric": "예산·잔여기한·실제 settle 근거를 함께 확인한 수요 후보 수",
    "direction": "above",
-   "threshold": "구별 판단 >=3, 혼동 거부 =0",
-   "min_sample": "서로 다른 재입고 판단 3건",
+   "threshold": "유효 후보 >=1, 잘못 연결한 결제행 =0",
+   "min_sample": "수요글 3개; 없으면 표본부족으로 종료",
    "hours": 12,
-   "undo": "이번 구분 문장만 제거; 기존 formula 보충과 hard_limits는 유지. 11/08 11:48 KST까지 판정, 표본 부족이면 확대하지 않음."
-  },
-  {
-   "id": "forum-demand-join-234803",
-   "change": "첫 실험 종료 뒤 수요 #36857/#36787/#36863을 catalog SKU·구매자별 paid settle·현재 재고와 연결하는 읽기 전용 맥락 추가. 보충 자동 실행이나 메시지 전송 없음.",
-   "evidence": "meta/evidence/astra-1107-234803-verified.jsonl:7 청소기21정산 중 dragonash9; :8 계란10정산. 포럼 자기보고19/11회 주문은 미판매 확정 근거가 아님.",
-   "metric": "예산·기한·인증·실제 결제와 구매자시각을 확인한 후보 수 및 오연결 수",
-   "direction": "above",
-   "threshold": "유효 후보 >=1, 오연결 =0",
-   "min_sample": "수요글 3개; 없으면 표본 부족으로 종료",
-   "hours": 12,
-   "undo": "새 수요 연결 맥락 문장만 제거; 매입·게시·투표 없음"
+   "undo": "이번 수요 연결 맥락 문장만 제거; 후보 자동매입 금지"
   }
  ]
 }

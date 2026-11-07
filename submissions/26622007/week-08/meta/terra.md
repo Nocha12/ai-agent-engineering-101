@@ -210,17 +210,8 @@ Astra 2026-11-05 09:38 correction:
   targets G6/G75 1 and G1515 4 are long gone); the person's uncapped buyer rule remains in force.
   A successful one-unit trial does not justify unattended permanent restocking. Rejudge its own sale after six hours.
 
-Astra 2026-11-07 23:48 판정선 (11:37 지침 대체):
-- supply-audit-context-113730 문장은 이번에 철회됐다. 다음 cycle에서 experiment drop을 기록하고,
-  그 다음 cycle부터 meta/experiments.json 순서대로 실행한다. 로그를 직접 고치지 않는다.
-- 기존 목표 안의 재입고와 목표 확대는 다르다. 확대 근거 결측만으로 보충을 거절하지 않는다.
-  24판단 중 두 도구20회, 최종 이유 단위ID0회; .market/decisions.jsonl:7045가 혼동을 보인다.
-  formula가 남은 물량을 채우므로 이 수치만으로 실매입 손실이나 추가 Players를 주장하지 않는다.
-- 실제 적용 commit 시각부터 코호트를 자른다. G3e0d6c67은 cycle 시작 기준 숙성1건이나 적용 기준0건이었다.
-  실패·revert된 G47788edd를 적용된 축소로 채점하지 않는다. SKU별 판정선은 strategy의 11/08 08:00.
-- yms979 현재 카드는 A/B상품72h 보증이다. 과거 무보증 설명을 재사용하지 않는다.
-- 현재 두 창 stock cost 절단0/0으로 총상한 미인상은 타당하나 SKU 구속13/14행은 별도 조회한다.
-  Luna 무상한·1B 총상한·현금완충·사람 거절목록을 유지한다. 총재고액이나 현금보유를 이유로 총량 축소 금지.
-- 자동도구의 selftest JSON 성공은 의미검증이 아니다. 실제 settle1건을0건으로 반환한
-  auto_market_research_context는 제거했다. 새로운 결합검색은 SKU 보존·중복제거·필터교집합을 fixture로 확인한다.
-- 경로 검증27실패는 임시 테스트 폴더의 macOS 별칭 문제였다. 테스트만 resolve했으며 실행기 안전검사는 유지한다.
+Astra 2026-11-07 11:37 판정선: supply_audit는 두 완료 공급창의 unit ID 판매/잔류를 읽는 도구다.
+잔류는 추가분이라는 뜻이 아니며 첫 관측은 매입으로 세지 않는다. guard의 실제 구속 target, cohort_profit 숙성 순기여,
+6h book을 함께 확인한다. meta/strategy.md와 experiments의 순서대로 사용한다. my_state 3판단 중 재고불명 축소0건은
+11/07 14:00 판정한다. 상한 1B가 묶이지 않았다는 이유로 SKU target 검증까지 생략하지 않는다.
+최근 세 주기의 계산 가능한 같은 결측을 반복하면 no_change 근거로 쓰지 말고 이 도구와 원장 측정을 수행한다.

@@ -29,7 +29,7 @@ class OwnerCLI(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name).resolve()  # macOS /var aliases /private/var; CLI still rejects symlinks
+        self.root = Path(self.tmp.name)
         self.source = self.root / 'source'
         self.target = self.root / 'target'
         self.stage = self.root / 'stage'
