@@ -69,6 +69,7 @@ import shelf_life_reply
 import exact_accept_trial
 import exact_counter_trial
 import seller_grade_preference
+import food_opening_trial
 
 READER_TRIAL = seller_reader_trial.Trial()
 CONCESSION_TRIAL = seller_concession_trial.Trial()
@@ -82,6 +83,7 @@ SHELF_REPLY = shelf_life_reply.ShelfLifeTrial()
 EXACT_ACCEPT = exact_accept_trial.ExactAcceptTrial()
 EXACT_COUNTER = exact_counter_trial.ExactCounterTrial()
 GRADE_PREFERENCE = seller_grade_preference.GradePreferenceTrial()
+FOOD_OPENING = food_opening_trial.FoodOpeningTrial()
 import agent_memory
 import hard_limits
 import market_model
@@ -456,6 +458,11 @@ class Seller(AgentExecutor):
         deal["reader_trial_policy_sha"] = hashlib.sha256(json.dumps(pricing, sort_keys=True).encode()).hexdigest()
         deal["reader_trial"] = await asyncio.to_thread(READER_TRIAL.assign, task.id, deal)
         await asyncio.to_thread(OPENING_DEFAULT.quote, task.id, deal, CONCESSION_TRIAL)
+        await asyncio.to_thread(FOOD_OPENING.quote, task.id, deal, turn_floor,
+                                blocked=bool(grade_assignment.get("id")),
+                                others=(READER_TRIAL, CONCESSION_TRIAL, LATE_CONCESSION,
+                                        LATE_SPEED, JEV_TRANSPORT, SHELF_REPLY,
+                                        EXACT_ACCEPT, EXACT_COUNTER, GRADE_PREFERENCE, OPENING_CUE))
         await asyncio.to_thread(LATE_CONCESSION.quote, task.id, deal)
         await asyncio.to_thread(LATE_SPEED.quote, task.id, deal)
         await asyncio.to_thread(JEV_TRANSPORT.quote, task.id, deal)
@@ -650,6 +657,7 @@ class Seller(AgentExecutor):
                 EXACT_ACCEPT.trace(task.id, deal, reader, trial_started, {}, "counter", deal["ask"], 0)
                 EXACT_COUNTER.trace(task.id, deal, reader, trial_started, {}, "counter", deal["ask"], 0)
                 GRADE_PREFERENCE.trace(task.id, deal, reader, trial_started, {}, "counter", deal["ask"], 0)
+                FOOD_OPENING.trace(task.id, deal, reader, trial_started, {}, "counter", deal["ask"], 0)
                 # the talk stays open: a bare number next turn reaches the fallback above without the harness
                 await up.requires_input(say(fallback_reply(deal), deal["ask"]))
                 log(f"task {task.id[:8]} -> INPUT_REQUIRED (harness failed; asked for a bare number)")
@@ -665,6 +673,7 @@ class Seller(AgentExecutor):
                 EXACT_ACCEPT.trace(task.id, deal, reader, trial_started, {}, "failed", None, 0)
                 EXACT_COUNTER.trace(task.id, deal, reader, trial_started, {}, "failed", None, 0)
                 GRADE_PREFERENCE.trace(task.id, deal, reader, trial_started, {}, "failed", None, 0)
+                FOOD_OPENING.trace(task.id, deal, reader, trial_started, {}, "failed", None, 0)
                 await up.failed(say("The shop cannot answer right now."))
                 self.free(task.id, deal)
                 del self.open[task.id]
@@ -685,6 +694,7 @@ class Seller(AgentExecutor):
             EXACT_ACCEPT.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], 0)
             EXACT_COUNTER.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], 0)
             GRADE_PREFERENCE.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], 0)
+            FOOD_OPENING.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], 0)
             log(f"task {task.id[:8]} no offer in the message; asking again")
             await up.requires_input(say(shelf_text if shelf_text is not None else
                                         f"Please tell me the price you offer. My price: {deal['ask']}.", deal["ask"]))
@@ -710,6 +720,7 @@ class Seller(AgentExecutor):
             EXACT_ACCEPT.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], offer)
             EXACT_COUNTER.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], offer)
             GRADE_PREFERENCE.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], offer)
+            FOOD_OPENING.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], offer)
             deal["told_ask"] = True
             deal["history"].append(("you asked", deal["ask"]))
             await up.requires_input(say(f"You offered more than our price. Our price is only {deal['ask']}; "
@@ -725,6 +736,7 @@ class Seller(AgentExecutor):
         EXACT_ACCEPT.trace(task.id, deal, reader, trial_started, d, action, price, offer)
         EXACT_COUNTER.trace(task.id, deal, reader, trial_started, d, action, price, offer)
         GRADE_PREFERENCE.trace(task.id, deal, reader, trial_started, d, action, price, offer)
+        FOOD_OPENING.trace(task.id, deal, reader, trial_started, d, action, price, offer)
         if action == "accept":
             receipt = (self.stock_receipt(task.id, deal, int(offer)) if deal.get("unit") else
                        {"shop": self.name, "item": deal["name"], "price": int(offer), "task": task.id})
@@ -786,6 +798,7 @@ class Seller(AgentExecutor):
             EXACT_ACCEPT.event(task_id, deal, result, price, observed_at)
             EXACT_COUNTER.event(task_id, deal, result, price, observed_at)
             GRADE_PREFERENCE.event(task_id, deal, result, price, observed_at)
+            FOOD_OPENING.event(task_id, deal, result, price, observed_at)
         except Exception:
             MEMORY_FAILURES.append(True)
             raise
