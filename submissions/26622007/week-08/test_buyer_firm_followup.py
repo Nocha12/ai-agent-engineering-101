@@ -80,12 +80,6 @@ class FirmTests(unittest.TestCase):
         self.assertIsNone(oneshot.turn(None, text, history, 100, goods=True))
         self.assertIsNone(self.call(text=text))
 
-    def test_composition_preserves_an_existing_ladder_decision(self):
-        # Future caller contract; there is deliberately no market callback edit.
-        existing = {"shop_price":120,"action":"walk_away","price":0}
-        result = existing if existing is not None else self.call()
-        self.assertIs(result, existing)
-
 TEXT = 'Counteroffer: 120. This is my lowest price.'
 if __name__ == "__main__":
     unittest.main()

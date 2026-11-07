@@ -58,3 +58,60 @@ review는 diff 검토 준비까지이며 독립 리뷰 통과를 주장하지 �
 보안: 제품·운영·키·원격 변경 0; 원문 문형 도구출력 0
 정정 대조: 19:32 우선; 857 HOLD 유지; 첫 quote 중복/날짜 확대 제외; 지급 수명 원인 유지
 되돌리는 법: 준비 커밋을 git revert로 되돌림, 이력 재작성 금지; 운영 변경 없음
+
+
+## 19:55 재개 — 순수 모듈 구현
+
+기준 cb1ecc6 준비 이력 보존. 구현 커밋 b83a7f0 및 후속 검토 정리.
+mp-tdd 실제 SKILL/tests/mocking, vendor alias로 resolve한 gstack-investigate/review,
+work-review 본문과 재현 조건 전략을 읽었다. 독립 리뷰는 지시대로 부모 단계다.
+monitor 도구 미제공으로 수집 생략; 이 작업은 위임 작업이므로 follow-up 제출 없음.
+
+원인: oneshot.text_price 전체일치/strict 문법 범위 밖인 후속 고수 문장 11회.
+private 입력을 기존 harness1925_replay.py의 순수 재구성 부분으로 복원하여
+저장 replay의 본문 SHA와 history를 대조했다. 숫자 정규화 결과는 기존 합성 fixture와
+11/11 동일하다. 문형 정정 불필요. 원문/주소/서명 출력·커밋 없음.
+
+공개 seam은 buyer_firm_followup.turn. 기본 arm=None/A는 None이며 B만 후보다.
+metadata=None, policy_ok is True, 양의 정수 cap, 완전한 교대 history,
+단일 fullmatch 양의 ask=직전 ask>=내 직전 offer일 때만 oneshot.code_turn을 재사용한다.
+history의 offer가 ask/cap를 넘거나 정수 아닌 값이면 거절한다. goods의 기존
+ask_read.no_warranty 거절도 중복 유지한다. 문장 자체는 보증 증거가 아니며
+policy_ok는 호출자가 기존 보증 등 정책을 이미 검증했다는 명시적 계약이다.
+첫 card/metadata/상승 ask/날짜/할인/다른 상품/무보증/다중 숫자는 None.
+walk_away의 price=0은 송신 offer 0이 아니다. 가격식 재구현 없음.
+
+연결 계약: 기존 price_ladder 결과가 None일 때만 후보를 호출한다.
+기존 결과가 있으면 그대로 보존한다. 현재 market_buyer/buyer callback 수정 0,
+quote-owner/첫 quote 정합화/seller/ask_read/oneshot 수정 0. 제품 통합은 부모 후속이다.
+
+RED: 미구현 import 실패 영수증 firm-red 195818. 이후 tracer GREEN.
+최초 tracer 1건 RED→GREEN 뒤 경계 테스트를 보강했다. 모든 보강 테스트가
+각각 RED였다는 주장은 하지 않는다. 구현 세부 호출 mock 없이 공개 seam만 시험한다.
+검토 중 호출자 계약을 재현하지 못하는 자기충족 composition 테스트 1건은 제거했다.
+
+환경: 요구 Python3, 실제 /opt/homebrew/bin/python3 (3.15), 순수 helper는 표준 라이브러리만 사용.
+초기 인접 test_oneshot/test_ask_read 포함 시도는 httpx 미설치 import 오류 2건,
+41개 실행 실패로 기록되며 통과/skip 처리하지 않는다. fake buyer.talk는 미실시.
+최종 firm-pure는 helper 13개 시험만 대상으로 하며 인접 전체 회귀를 대체하지 않는다.
+전체857/bind/nested 거절시험 재실행 0. 기존857 HOLD는 그대로다.
+
+순수 재생 도구 /tmp/ax-firm-replay.py, 최소 결과 /tmp/ax-firm-replay-result.json.
+14관측 중 11후속행은 후보 결정=기존 유효 ask 반사실 code 결정, 날짜3행 None.
+328246군은 첫 후보 시점부터 walk; 684608군은 cap 상승 후 walk.
+11행은 관측 history 각각의 판정이며 변경된 경로로 11번 실제 호출된다는 뜻이 아니다.
+policy_ok=True는 재생 가정이며 실제 정책 객체 보존/시장 성사 증거는 아니다.
+11회 호출 감축 기회 상한과 deal 보장0을 구분한다. 시장/LLM/RPC 호출0, 실AB0.
+원래 조건: 실제 시장 협상/지급. 시험 조건: 저장 입력+관측 history 순수 재생.
+결론은 helper 구현·순수 판정에 한정하며 시장/지급/전체 wrapper 안전은 미검증이다.
+
+최종 clean HEAD 후 공식 VERIFY_RECEIPT_ROOT=/tmp/ax-quote-owner-receipts로
+firm-pure/firm-replay/firm-diff/firm-syntax 및 check를 실행한다.
+중앙 receipts 쓰기·권한변경·새 root/add-dir·우회 0. 최종 HEAD·소스 SHA·영수증은
+/tmp/ax-buyer-firm-1955-result.md에 기록한다(커밋 후 변동 없는 검증 기록).
+
+리뷰 결과: 위험도 저 · 자기검토 지적 1건 수정(자기충족 시험 제거) · 독립리뷰 부모 대기
+검증: 최종 receipt 결과는 외부 결과문서 참조; fake talk/인접 회귀/전체857/시장 통합/실AB 미검증
+보안: 순수 입력 최소 집계, 원문/키/env/주소/서명 출력 없음; 운영/SSH/push/권한 변경0
+정정 대조: fixture 11/11 동일; 날짜3행 제외; 857 HOLD; 호출 기회≠성사; 기본 OFF; callback 미연결
+되돌리는 법: 새 구현 커밋을 git revert로 역커밋(이력 보존); 운영 변경 없음
