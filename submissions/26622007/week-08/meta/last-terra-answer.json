@@ -1,65 +1,70 @@
 {
   "changed": true,
-  "hypothesis": "숙성 판매에서 손실이 확인된 G19a70f63의 목표 재고를 한 개 줄이면 이 SKU의 추가 손실을 줄여 현행 정책 대비 book을 개선할 수 있다. 판매 기회 감소와 실제 Players 효과는 함께 판정해야 한다.",
-  "change_summary": "G19a70f63의 재고 목표를 3개에서 2개로 낮췄다. 전체 테스트 844개가 통과했다. 최근 두 완료 공급창에서 해당 SKU의 입고가 관측되지 않아 변경의 즉각적인 효과는 아직 확인되지 않았다.",
-  "target_metric": "G19a70f63 변경 이후 숙성 판매당 순기여와 시간당 순기여, Players",
-  "expected": "기존 숙성 표본의 건당 손실 151,011.60원을 줄이는 방향을 기대한다. 추가 Players 효과는 판매 기회와 경쟁자 이동에 따라 미정이다.",
+  "hypothesis": "재입고 판단에서 실험의 필수 감사 지시를 제거하면 재고 금액이나 감사 결측만을 이유로 기존 매입 제안을 광범위하게 보류하는 판단이 줄어들어 판매 기회를 회복할 수 있다.",
+  "change_summary": "만료된 supply-audit 실험의 restock.py 지시문을 제거했다. 도구와 재고 한도는 유지했다. 전체 검사를 막던 테스트의 임시 경로도 정규화했다. 변경 전 1,008개 중 27개가 실패했고, 변경 후 1,008개 모두 통과했다. 커밋과 push는 하지 않았다.",
+  "target_metric": "변경 후 재고 불명 또는 재고 부담만을 이유로 광범위한 매입을 보류한 재입고 판단 수와 판매·Players 변화",
+  "expected": "재입고 판단 3건에서 해당 보류 0건을 기대한다. 추가 매출이나 Players 상승 폭은 아직 추정할 근거가 없다.",
   "evidence": [
     {
-      "ref": "meta/evidence/terra-1107-194952.json:17408",
-      "excerpt": "\"paid\": 10,",
-      "meaning": "해당 SKU의 숙성 판매가 축소 기준인 10건에 도달했다."
+      "ref": "meta/evidence/terra-1108-064500.json:19531",
+      "excerpt": "\"why\": \"Skip this restock. Existing inventory and carrying-cost exposure are substantial; although G00327e80 has positive mature net, its audit has no observed unit IDs across either completed window and lacks complete coverage. Without evidence of a binding guard cut and a nonfalling six-hour book, the audit and cohort do not justify an increase.\",",
+      "meaning": "감사 결측과 재고 부담이 광범위한 매입 보류 판단에 연결됐다."
     },
     {
-      "ref": "meta/evidence/terra-1107-194952.json:17417",
-      "excerpt": "\"net_per_sale\": -151011.6",
-      "meaning": "원가와 주문 연결 환불을 반영한 숙성 판매당 순기여가 음수다."
+      "ref": "meta/evidence/terra-1108-064500.json:19534",
+      "excerpt": "\"reason\": \"The formula proposes a broad restock, but current stock is already 170 units costing 127.2m, including 65 mattresses and 58 sofas/chairs, while balance is 123.1m. Earlier decisions show broad additions were avoided; G00327e80 has 3 units on hand and has sold well historically, but the required audit does not support buying more: its two completed windows (1794084264 and 1794085360) report no observed unit IDs bought, sold, remaining, or exited; coverage is therefore missing, not evidence of zero sales. The cohort has 51 mature sales with known costs and one linked refund, net 13,481,826 or 264,349.53 per sale, with no missing cost or warranty data. Positive mature net alone is insufficient: the binding guard target and six-hour-old book evidence are not supplied, so do not increase its target. Avoid the formula’s extensive additions and carrying costs.\",",
+      "meaning": "이 사례의 SKU는 숙성 51건에서 건당 264,349.53원 흑자였으나 감사 자료는 불완전했다."
     },
     {
-      "ref": "logs/market-kit.log:80749",
-      "excerpt": "guard: G19a70f63 2 -> 1 (units per SKU)",
-      "meaning": "해당 SKU의 수량 가드가 재입고 제안을 제한한 사례다."
+      "ref": "meta/evidence/terra-1108-064500.json:230",
+      "excerpt": "\"me\": 0.006,",
+      "meaning": "최근 6.1시간 우리 Players 성장량이다."
     },
     {
-      "ref": "meta/evidence/terra-1107-194952-supply.json:1",
-      "excerpt": "\"bought_first_window\": 0, \"sold_by_second_close\": 0",
-      "meaning": "최근 두 완료 공급창의 관측만으로는 목표 축소의 실제 판매 효과를 추정할 수 없다."
+      "ref": "meta/evidence/terra-1108-064500.json:232",
+      "excerpt": "\"above\": -0.009,",
+      "meaning": "같은 기간 바로 위 경쟁자의 Players 변화량이다."
     },
     {
-      "ref": "meta/evidence/terra-1107-194952.json:4",
-      "excerpt": "llm_cache: cached input share 0.013 over 145 calls in the last hour",
-      "meaning": "캐시 입력 비율 경보다. 호출 수 제한은 없다."
+      "ref": "meta/evidence/terra-1108-064500-head-tests.log:1954",
+      "excerpt": "FAILED (failures=27)",
+      "meaning": "변경 전 전체 검사에서 기존 실패가 재현됐다."
+    },
+    {
+      "ref": "meta/evidence/terra-1108-064500-tests.log:1577",
+      "excerpt": "OK",
+      "meaning": "변경 후 전체 테스트가 통과했다."
     }
   ],
   "evidence_gap": {
-    "missing": "목표 축소 이후 G19a70f63의 숙성 판매와 판매 기회비용은 아직 없으며, 캐시 비율 하락의 원인도 확정되지 않았다.",
-    "measurement": "이번 주기에 두 공급창의 단위 ID와 태그별 캐시 토큰을 계산했다. 다음 판정에서는 변경 시각을 start로 cohort_profit을 조회해 시간당 순기여를 비교하고, 캐시는 태그별 입력·캐시 토큰을 다시 비교한다.",
+    "missing": "실험 지시 제거 후 실제 재입고 판단과 판매 효과는 아직 관측되지 않았다.",
+    "measurement": "이번 주기에 실험 지시를 제거했다. 이후 재입고 판단 3건의 이유와 실제 매입·판매를 기록해 비교한다.",
     "judge_line": {
-      "metric": "G19a70f63 변경 후 숙성 판매당 순기여 및 시간당 순기여",
-      "direction": "above",
-      "threshold": "판매당 순기여 0원 초과 및 축소 전 대비 시간당 순기여 개선",
-      "min_sample": "변경 후 원가와 보증이 확인된 숙성 판매 10건",
-      "expires": "2026-11-08 19:49 KST",
-      "undo": "충분한 표본에서 판매 기회 감소를 반영한 시간당 순기여가 악화되면 목표를 3으로 복원한다. 표본 미달이면 미확정으로 보고한다."
+      "metric": "재고 불명 또는 재고 부담만을 이유로 광범위하게 매입을 보류한 판단 수",
+      "direction": "below",
+      "threshold": "1건",
+      "min_sample": "변경 후 재입고 판단 3건",
+      "expires": "2026-11-08 18:45 KST",
+      "undo": "판단 3건 중 해당 보류가 발생하면 제거 효과와 원인을 재검토한다. 표본 부족이면 효과 미확정으로 보고한다."
     }
   },
   "previous_verdict": "keep",
-  "previous_reason": "직전 주기는 운영 변경이 없었다. Players는 1.594에서 1.596으로 상승했으나 이를 직전 조치의 인과 효과로 해석하지 않는다.",
-  "grade_summary": "Players 1.594→1.596, 62명 중 10위이며 선두와 0.120점 차이다. Shop ALL 0.814, Buyer ALL 0.782이고 두 board_drift는 0이다. 직전 이후 상점 정산 314건, 구매 결제 61건, 품절 22건, 구매 결제 거절 1건, checkout 거절 15건이다. 최근 로그 표본의 원가 미만 제안·보증 거절·포럼 게시 및 투표 거절은 각각 0건이다. Book은 216,820,832→221,309,047원이며 24시간 초과 재고는 31개·1,930,954원, 제외된 도구는 없다. 보관 손실 누계는 1,365,633원, 등급 하락은 58건·0원이다. 환불 추정 누계 321건·151,707,941원에는 과거 추정이 포함되므로 SKU 판정에는 주문 연결 숙성 코호트를 사용했다. 폐기 손실은 별도 집계가 없어 0으로 단정하지 않는다. alert llm_cache: 최근 145건의 캐시 비율은 0.013, 이전 6시간은 0.082다. 이번 시간 seller 94건·restock 13건의 캐시 토큰은 각각 0이고 forum 14건은 3,481이다. 호출을 줄이지 않으며 다음 시간 태그별 토큰을 비교해 지속 여부를 판정한다. 새 패치는 없으며 Patch 3.5의 구매자 포럼 평점 원값과 유료 비추천 비용이 적용된다.",
+  "previous_reason": "마지막 승인 변경은 G19a70f63 목표를 3개에서 2개로 낮춘 것이다. 변경 후 숙성 판매와 시간당 순기여가 확인되지 않아 효과 판정은 유보하고 유지한다. 이후 여러 변경은 검사 실패로 거절되어 실행 중인 변경으로 취급하지 않는다.",
+  "grade_summary": "Players는 1.635로 62명 중 6위이며 선두와 0.054 차이다. 마지막 승인 팩은 약 10.9시간 전이므로 시간당 차분이 아니다. 그 사이 Players 1.596→1.635, Shop ALL 0.814→0.834, Buyer ALL 0.782→0.801, book 221,309,047→246,951,268원이다. 보드 계산 오차는 양쪽 0이고 새 패치와 경보는 없다. 현재 표본은 품절 1건, 원가 미만 제안·보증 거절·구매 결제 거절·포럼 게시 및 투표 거절 각 0건, checkout 거절 1건이다. 24시간 초과 재고는 44개·15,895,543원이고 제외된 도구는 없다. 보관 손실 누계는 1,893,605원, 등급 하락 76건·0원이다. 환불 누계 188,760,888원에는 과거 추정이 섞여 있으며 폐기 손실은 집계 부재로 확정하지 않는다.",
   "weakest": [
-    "G19a70f63의 숙성 순기여",
+    "상점 book과 매출을 뒷받침하는 재입고 판단",
     "구매자 Saved"
   ],
   "strategy_check": {
-    "current": "인증·정직한 등급·72시간 상품 보증을 내세운 폭넓은 식품과 생활용품 및 검증된 고가 가구·침구 판매, 구매자 Saved 중심 선택",
-    "gap_cause": "dials",
+    "current": "인증·정직한 등급·72시간 상품 보증을 내세운 폭넓은 식품과 생활용품 및 검증된 고가 가구·침구 판매, 구매자의 Saved 중심 선택",
+    "gap_cause": "bug",
     "keep_or_shift": "keep",
-    "reason": "6시간 Players 성장은 우리 +0.031, 바로 위 +0.029, 선두 −0.002이고 12시간은 각각 +0.047, −0.002, +0.004다. 현 전략을 이길 대안의 추가 효과는 입증되지 않았다. 공개 재고·카드·포럼 유입과 원가·보증 하한 협상을 유지한다. 우리는 11,333거래·20,094방문·매출 20.31억원이고 book 선두 yms979는 17,916거래·26,010방문·매출 57.28억원이며 인증과 정직한 등급을 내세우되 무보증이다. 24시간 초과 재고는 31개다. 다음 book 254,151,689원까지 33,027,950원이 필요해 통과 효과는 약 +0.00862이고, Saved 0.277까지 0.0014가 필요해 약 +0.00909다. 총상한이 두 창에서 구속됐다는 근거는 없어 상한을 올리지 않고, 숙성 손실이 확인된 한 SKU만 축소한다."
+    "reason": "최근 6.1시간 Players 변화는 우리 +0.006, 바로 위 inextro −0.009, 선두 −0.025이고 12.1시간은 각각 +0.041, −0.008, −0.032다. 현 전략을 유지한다. 우리는 공개 재고·카드·포럼으로 유입하고 원가와 보증비용 하한을 지키며 협상한다. 우리 상점은 14,042거래·24,022방문·매출 2,553,748,024원이고 book 선두 yms979는 19,719거래·29,022방문·매출 6,177,159,432원이며 무보증을 내세운다. 재고는 24시간 초과 44개지만 감사 결측을 전체 매입 보류에 연결한 판단이 실행상의 문제다. Saved 다음 상대 0.2898까지 0.0028이 필요하고 통과 효과는 +0.00909다. 다음 book 상대 323,360,767원까지는 76,417,207원이 필요해 단기 문턱이 더 멀다."
   },
-  "action_kind": "settings",
+  "action_kind": "prompt",
   "experiment": {
     "id": "supply-audit-context-113730",
-    "step": "continue",
-    "result": "11월 7일 14:02 시작, 11월 8일 02:02 판정이다. 최근 판단에서 공급창 단위 ID와 숙성 순기여를 함께 인용한 사례가 있으나 최종 기준인 근거 완비 판단 2건 이상과 재고 불명 축소 0건은 종료 시 전체 표본으로 판정한다."
+    "step": "drop",
+    "result": "12시간 실험은 만료됐다. 기간 내 재입고 판단 24건에서 감사 결측과 재고 부담을 이유로 광범위한 매입을 보류한 사례가 있어 재고 불명 축소 0건 기준을 충족하지 못했다. 지정된 지시문을 제거했다."
   }
 }
