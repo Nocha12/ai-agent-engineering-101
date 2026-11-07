@@ -37,6 +37,35 @@ class Rotation(unittest.TestCase):
                 for t in started.values():
                     t.join()
 
+    def test_overlap_after_reserve_fails_closed_at_decide_and_dispatch(self):
+        import buyer_stock_evidence as stock
+        import market_buyer as mb
+        shops = [{"name": n, "usable": [{"name": "item", "sku": "sku-a", "list_price": 100}]} for n in "abc"]
+        for during_io in (False, True):
+            with self.subTest(during_io=during_io), tempfile.TemporaryDirectory() as md, \
+                    patch.multiple(r, ENABLED=True, START=100, END=200), \
+                    patch.multiple(stock, ENABLED=False, START=102, END=150), \
+                    patch.object(r.time, "time", return_value=103), patch.object(mb, "quote", return_value=None):
+                ctx = r.reserve(md, self.order(), now=101)
+                ctx["arm"] = "B"
+                p = r.plan(shops, collections.Counter(), set(), k=2, order_id=self.order()["order"])
+                original = r._io
+                def change_window(fn, *args):
+                    result = original(fn, *args)
+                    stock.ENABLED = True
+                    return result
+                if not during_io:
+                    stock.ENABLED = True
+                with patch.object(r, "_io", side_effect=change_window):
+                    self.assertEqual(r.decide(ctx, p), p["baseline"])
+                order = {**self.order(), "_fresh_rotation": ctx, "_stock_phase": "prefetch",
+                         "_fresh_inputs": (list(shops), collections.Counter(), set(), 2, list(shops))}
+                batch = shops[:1]
+                threads = mb.start_quotes(batch, order, 100, lambda _: 0, {}, mb.quote_ctl())
+                for th in threads.values():
+                    th.join()
+                self.assertEqual(list(threads), ["a"])
+
     def order(self):
         return {"order": "o-0123456789ab", "kind": "goods", "_buyer_started_at": 101}
 

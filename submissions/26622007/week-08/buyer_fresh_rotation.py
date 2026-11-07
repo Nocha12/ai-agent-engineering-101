@@ -25,6 +25,20 @@ def active(now):
             and isinstance(STUDY, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", STUDY) is not None)
 
 
+def competing_window(now):
+    # Read live module scalars, not the reserve-time snapshot. Keep the direct
+    # decide seam fail-closed too, including a window opening during bounded IO.
+    import buyer_stock_evidence
+    import buyer_goods_first_one
+    import buyer_goods_quote_probe
+    import buyer_firm_trial
+    import buyer_first95_trial
+    import buyer_cap95_trial
+    return any(m.ENABLED and m.START <= now < m.END for m in (
+        buyer_stock_evidence, buyer_goods_first_one, buyer_goods_quote_probe,
+        buyer_firm_trial, buyer_first95_trial, buyer_cap95_trial))
+
+
 def reserve(md, order, *, now=None, conflict=False):
     live = now is None
     now = time.time() if now is None else now
@@ -80,7 +94,9 @@ def decide(ctx, p, *, now=None):
     if not ctx or not p:
         return None
     def valid():
-        return active(time.time() if now is None else now) and (ctx["study"], ctx["start"], ctx["end"]) == (STUDY, START, END)
+        at = time.time() if now is None else now
+        return (active(at) and not competing_window(at)
+                and (ctx["study"], ctx["start"], ctx["end"]) == (STUDY, START, END))
     if not valid():
         return p["baseline"]
     row = {"schema": 1, "event": "decision", "order": ctx["order"], "study": ctx["study"],
