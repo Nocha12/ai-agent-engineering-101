@@ -20,11 +20,11 @@ IO_TIMEOUT = .15
 MAX_BYTES = 262144
 _SLOTS = threading.BoundedSemaphore(4)
 ROOT = "buyer_stock_evidence"
-# Source-only, OFF with no future experiment window. Activation requires review.
-ENABLED = False
-STUDY = ""
-START = 0
-END = 0
+# Source-only reviewed 30-minute experiment; END stops new assignments.
+ENABLED = True
+STUDY = "b1-stock-order-20261108-0210"
+START = 1794071400  # 2026-11-08 02:10 KST
+END = 1794073200    # 2026-11-08 02:40 KST
 
 
 def _io(operation, fallback=None):
