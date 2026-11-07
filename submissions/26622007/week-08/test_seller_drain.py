@@ -94,7 +94,7 @@ class PersistenceTest(unittest.TestCase):
                 mock.patch.object(seller, 'log'):
             s._remember_now('t', deal, 'rejected')
             with self.assertRaises(RuntimeError):
-                seller.flush_memory()
+                seller.flush_memory(strict=True)
 
 
 class QuietContractTest(unittest.TestCase):
