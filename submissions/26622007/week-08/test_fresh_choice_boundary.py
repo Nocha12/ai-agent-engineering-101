@@ -79,6 +79,30 @@ class FreshChoiceBoundary(unittest.TestCase):
                     self.assertEqual([s["name"] for s in full], list("abc"))
                     buyer.close_prefetch(pre)
 
+    def test_persisted_b_ctx_cannot_dispatch_with_nonrule_engine(self):
+        for engine in ("agent", "invalid"):
+            with self.subTest(engine=engine), self.flow("B") as f:
+                shops, order, md, sent, _ = f
+                # A restart loads an existing B allocation; no persisted engine
+                # field is authority for this process's actual chooser.
+                order = json.loads(json.dumps(order))
+                with patch.dict(os.environ, {"BUYER_CHOOSE_ENGINE": engine}):
+                    full, pre = self.prefetch(shops, order, md)
+                    self.assertEqual(pre["asked"], {"a"})
+                    self.assertEqual(set(sent), {"a"})
+                    self.assertNotIn("selection_asked", pre)
+                    for enough in (False, True):
+                        pre["enough"] = lambda: enough
+                        with patch.object(buyer, "choose", return_value=(shops[1], "agent fixture")) as choose:
+                            if enough:
+                                with self.assertRaises(buyer.HarnessError):
+                                    buyer.choose_racing(shops, {"trades": []}, "item", 20000, pre)
+                                choose.assert_not_called()
+                            else:
+                                self.assertEqual(buyer.choose_racing(shops, {"trades": []}, "item", 20000, pre)[0], shops[1])
+                                choose.assert_called_once()
+                    buyer.close_prefetch(pre)
+
     def test_downstream_ties_keep_baseline_preference_after_actual_prefetch(self):
         with self.flow("B", asks={"a": 7500, "b": 9000, "c": 7500}) as f:
             shops, order, md, sent, _ = f
