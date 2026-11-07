@@ -275,6 +275,56 @@ class OwnerCLI(unittest.TestCase):
         self.apply()
         self.assertEqual((self.target / FILES[0]).read_bytes(), OFF)
 
+    def test_new_install_allows_absent_quote_files_but_keeps_existing_entry(self):
+        for name in FILES[:3]:
+            (self.target / name).unlink()
+        self.git(self.target, 'add', '-u')
+        self.git(self.target, 'commit', '-qm', 'target without quote files')
+        self.head = self.git(self.target, 'rev-parse', 'HEAD').strip()
+        self.prepare()
+        self.assertTrue(self.apply()['sourcedOFF'])
+        manifest = json.loads((self.stage / 'backup/manifest.json').read_bytes())
+        self.assertIsNone(manifest['files'][FILES[0]])
+        self.assertEqual((self.target / FILES[3]).read_bytes(), b'# source\n')
+
+    def test_head_change_during_transition_stops_before_entry(self):
+        self.prepare()
+        module = executor()
+        args = SimpleNamespace(target=str(self.target), expected_head=self.head,
+            staging=str(self.stage), manifest_sha256=self.prepared['manifest_sha256'],
+            confirm=self.plan()['confirm'])
+        count = 0
+
+        def change_head(path, data):
+            nonlocal count
+            module.atomic_write(path, data)
+            count += 1
+            if count == 3:
+                self.git(self.target, 'commit', '--allow-empty', '-qm', 'concurrent head fixture')
+
+        result = module.execute_apply(args, write=change_head)
+        self.assertEqual(result['status'], 'failed')
+        self.assertTrue(result['sourcedOFF'])
+        self.assertIn('HEAD changed', result['error'])
+        self.assertEqual((self.target / FILES[3]).read_bytes(), b'# target\n')
+
+    def test_external_entry_edit_is_not_overwritten_before_entry_attempt(self):
+        self.prepare()
+        module = executor()
+        args = SimpleNamespace(target=str(self.target), expected_head=self.head,
+            staging=str(self.stage), manifest_sha256=self.prepared['manifest_sha256'],
+            confirm=self.plan()['confirm'])
+
+        def change_entry(path, data):
+            module.atomic_write(path, data)
+            if path == self.target / FILES[2]:
+                (self.target / FILES[3]).write_bytes(b'# concurrent edit\n')
+
+        result = module.execute_apply(args, write=change_entry)
+        self.assertEqual(result['status'], 'failed')
+        self.assertTrue(result['sourcedOFF'])
+        self.assertEqual((self.target / FILES[3]).read_bytes(), b'# concurrent edit\n')
+
 
 if __name__ == '__main__':
     unittest.main()
