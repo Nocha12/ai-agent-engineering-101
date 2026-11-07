@@ -58,6 +58,7 @@ import buyer_opening_discount
 import buyer_goods_quote_probe
 import buyer_goods_first_one
 import buyer_quote_alignment
+import buyer_firm_trial
 import rival_deny
 
 # Revenue rivals of my shop asked last (rival_deny): off from 11/07 00:30. With best_quote stopping at QUOTE_ENOUGH asks they
@@ -1415,6 +1416,19 @@ def choose_path(reason):
     return "code_single" if r.endswith("the only shop in the pool") else "single_ask"
 
 
+def firm_followup_turn(baseline, meta, text, history, limit, budget, order, shop, sku, quoted):
+    """Existing refusal/cap verdict only; receipt proof is checked after talk."""
+    if baseline is not None or not buyer_firm_trial.ENABLED:
+        return baseline
+    policy_ok = (isinstance(budget, int) and not isinstance(budget, bool) and
+                 isinstance(limit, int) and not isinstance(limit, bool) and 0 < limit <= budget and
+                 not quoted.get("refused") and not quote_refused(quoted.get("text"), order) and
+                 not goods_text_refused(quoted.get("text"), order) and
+                 not goods_text_refused(text, order))
+    return buyer_firm_trial.turn(baseline, meta, text, history, limit, order=order,
+        shop=shop, sku=sku, policy_ok=policy_ok, now=time.time(), log=log)
+
+
 def order_record(order, args, shops, quotes, first_choice, first_reason, shop, reason, offer, limit, chance, out, rec, result,
                  problems, warnings, short, why, stages, catalog, probe_arm=None):
     """measure.py orders.jsonl: what this order offered, who quoted what and why each lost, and how it ended. The kit's
@@ -1452,6 +1466,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "food_quote_yield": order.get("_food_quote_yield", order.get("kind") == "food" and quote_yield_arm(order.get("order"))),
         "goods_extra_quote_probe": order.get("_goods_extra_quote_probe"),
         "quote_alignment_arm": (order.get("_quote_alignment") or {}).get("arm"),
+        "firm_trial": buyer_firm_trial.measurement(order, out),
         "turns": dict(out.get("turns") or {}),
         "goods_extra_quote_started": order.get("_goods_extra_quote_started"),
         "goods_extra_quote_added": order.get("_goods_extra_quote_added", 0),
@@ -1683,7 +1698,8 @@ def main():
             if goods_first_arm and d and d.get("action") == "offer" and not any(who == "you offered" for who, _ in history):
                 order["_goods_first_one_original"] = d["price"]
                 order["_goods_first_one_price"] = result["price"]
-            return result
+            return firm_followup_turn(result, meta, text, history, limit, args.budget,
+                                      order, shop["name"], key, q) if r3 else result
 
         if steps:
             log(f"[offer] oneshot: {', '.join(f'{s:.2f}' for s in steps)} of the first ask, then the counter, priced by code")
@@ -1703,6 +1719,9 @@ def main():
         out = {"state": f"ERROR {type(e).__name__}", "task": None, "receipt": None, "history": [], "agreed": None,
                "holds": 0}
     stages["talk"] = time.time()
+    if order.get("_firm_trial"):
+        log("[firm-history] " + json.dumps({"order": order.get("order"),
+            **buyer_firm_trial.measurement(order, out)}, sort_keys=True))
 
     rec = out["receipt"] if out["state"] == "TASK_STATE_COMPLETED" else None
     problems, warnings = check_receipt(rec, out, args.item, args.budget, order, catalog) if rec is not None else ([], [])

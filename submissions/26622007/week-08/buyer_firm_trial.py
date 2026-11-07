@@ -34,6 +34,8 @@ def turn(baseline, meta, text, history, limit, *, order, shop, sku, policy_ok, n
     """Retain baseline unless this exact eligible goods follow-up is assigned B."""
     if baseline is not None or ENABLED is not True:
         return baseline
+    if not isinstance(order, dict):
+        return baseline
     started = order.get("_buyer_started_at")
     if not all(_number(v) for v in (START, END, now, started)) or not (
             0 < START < END == START + 1800 and START <= started <= now < END):
