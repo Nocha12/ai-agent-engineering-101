@@ -63,6 +63,8 @@ import seller_late_concession
 import seller_opening_default
 import seller_drain
 import seller_opening_cue
+import seller_late_speed
+import seller_jev_transport
 
 READER_TRIAL = seller_reader_trial.Trial()
 CONCESSION_TRIAL = seller_concession_trial.Trial()
@@ -70,6 +72,8 @@ LATE_CONCESSION = seller_late_concession.LateConcession()
 OPENING_DEFAULT = seller_opening_default.OpeningDefault()
 DRAIN = seller_drain.Drain()
 OPENING_CUE = seller_opening_cue.OpeningCue()
+LATE_SPEED = seller_late_speed.LateSpeed()
+JEV_TRANSPORT = seller_jev_transport.JevTransport()
 import agent_memory
 import hard_limits
 import market_model
@@ -312,7 +316,8 @@ def turn_floor(deal):
     ask. An ask already under the round's floor (a reserve counter, a schedule changed mid-talk) stands: 11/06 22:45 task
     390b9f8c countered at the reserve 2,467,210, then asked 2,486,269 when the buyer offered that ask."""
     f = shop_memory.concession_floor(deal.get("open", deal["ask"]), deal["reserve"], deal["rounds"], deal.get("kind"))
-    return LATE_CONCESSION.floor(deal, max(deal["reserve"], min(f, deal["ask"])))
+    original = max(deal["reserve"], min(f, deal["ask"]))
+    return LATE_SPEED.floor(deal, LATE_CONCESSION.floor(deal, original), original)
 
 
 def price_guards(deal, action, price, offer, floor):
@@ -438,6 +443,8 @@ class Seller(AgentExecutor):
         deal["reader_trial"] = await asyncio.to_thread(READER_TRIAL.assign, task.id, deal)
         await asyncio.to_thread(OPENING_DEFAULT.quote, task.id, deal, CONCESSION_TRIAL)
         await asyncio.to_thread(LATE_CONCESSION.quote, task.id, deal)
+        await asyncio.to_thread(LATE_SPEED.quote, task.id, deal)
+        await asyncio.to_thread(JEV_TRANSPORT.quote, task.id, deal)
         ask_price = deal["ask"]
         quote_text = (f"{stock_line(u)}. Every deal comes with a signed receipt and the market's "
                       f"certificate of the unit.{' ' + note if note else ''} My price: {ask_price}.")
@@ -588,7 +595,7 @@ class Seller(AgentExecutor):
         trial_started = time.monotonic()
         deal["reader_trial_input_sha"] = hashlib.sha256(text.encode()).hexdigest()
         deal["reader_trial_template_offer"] = seller_reader_trial.template_offer(text)
-        reader = seller_reader_trial.Reader(fast_classify.jev_offer if fast_classify.JEV_ON else None,
+        reader = seller_reader_trial.Reader(JEV_TRANSPORT.reader(deal) if fast_classify.JEV_ON else None,
                                             READER_TRIAL.arm(deal.get("reader_trial") or {}))
         deal["reader_trial_floor"] = floor_now
         jev = reader if fast_classify.JEV_ON or reader.arm == "B" else None   # lazy, one call a turn
@@ -614,6 +621,8 @@ class Seller(AgentExecutor):
                 CONCESSION_TRIAL.trace(task.id, deal, reader, trial_started, {}, "counter", deal["ask"], 0)
                 LATE_CONCESSION.trace(task.id, deal, reader, trial_started, {}, "counter", deal["ask"], 0)
                 OPENING_CUE.trace(task.id, deal, reader, trial_started, {}, "counter", deal["ask"], 0)
+                LATE_SPEED.trace(task.id, deal, reader, trial_started, {}, "counter", deal["ask"], 0)
+                JEV_TRANSPORT.trace(task.id, deal, reader, trial_started, {}, "counter", deal["ask"], 0)
                 # the talk stays open: a bare number next turn reaches the fallback above without the harness
                 await up.requires_input(say(fallback_reply(deal), deal["ask"]))
                 log(f"task {task.id[:8]} -> INPUT_REQUIRED (harness failed; asked for a bare number)")
@@ -623,6 +632,8 @@ class Seller(AgentExecutor):
                 CONCESSION_TRIAL.trace(task.id, deal, reader, trial_started, {}, "failed", None, 0)
                 LATE_CONCESSION.trace(task.id, deal, reader, trial_started, {}, "failed", None, 0)
                 OPENING_CUE.trace(task.id, deal, reader, trial_started, {}, "failed", None, 0)
+                LATE_SPEED.trace(task.id, deal, reader, trial_started, {}, "failed", None, 0)
+                JEV_TRANSPORT.trace(task.id, deal, reader, trial_started, {}, "failed", None, 0)
                 await up.failed(say("The shop cannot answer right now."))
                 self.free(task.id, deal)
                 del self.open[task.id]
@@ -637,6 +648,8 @@ class Seller(AgentExecutor):
             CONCESSION_TRIAL.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], 0)
             LATE_CONCESSION.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], 0)
             OPENING_CUE.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], 0)
+            LATE_SPEED.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], 0)
+            JEV_TRANSPORT.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], 0)
             log(f"task {task.id[:8]} no offer in the message; asking again")
             await up.requires_input(say(f"Please tell me the price you offer. My price: {deal['ask']}.", deal["ask"]))
             return
@@ -655,6 +668,8 @@ class Seller(AgentExecutor):
             CONCESSION_TRIAL.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], offer)
             LATE_CONCESSION.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], offer)
             OPENING_CUE.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], offer)
+            LATE_SPEED.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], offer)
+            JEV_TRANSPORT.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], offer)
             deal["told_ask"] = True
             deal["history"].append(("you asked", deal["ask"]))
             await up.requires_input(say(f"You offered more than our price. Our price is only {deal['ask']}; "
@@ -664,6 +679,8 @@ class Seller(AgentExecutor):
         CONCESSION_TRIAL.trace(task.id, deal, reader, trial_started, d, action, price, offer)
         LATE_CONCESSION.trace(task.id, deal, reader, trial_started, d, action, price, offer)
         OPENING_CUE.trace(task.id, deal, reader, trial_started, d, action, price, offer)
+        LATE_SPEED.trace(task.id, deal, reader, trial_started, d, action, price, offer)
+        JEV_TRANSPORT.trace(task.id, deal, reader, trial_started, d, action, price, offer)
         if action == "accept":
             receipt = (self.stock_receipt(task.id, deal, int(offer)) if deal.get("unit") else
                        {"shop": self.name, "item": deal["name"], "price": int(offer), "task": task.id})
@@ -719,6 +736,8 @@ class Seller(AgentExecutor):
             CONCESSION_TRIAL.event(task_id, deal, result, price, observed_at)
             LATE_CONCESSION.event(task_id, deal, result, price, observed_at)
             OPENING_CUE.event(task_id, deal, result, price, observed_at)
+            LATE_SPEED.event(task_id, deal, result, price, observed_at)
+            JEV_TRANSPORT.event(task_id, deal, result, price, observed_at)
         except Exception:
             MEMORY_FAILURES.append(True)
             raise

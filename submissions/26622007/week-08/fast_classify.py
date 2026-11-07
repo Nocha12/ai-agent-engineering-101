@@ -56,7 +56,7 @@ def written(text):
     return {int(n) for n in re.findall(r"\d+", re.sub(r"(?<=\d),(?=\d)", "", text or ""))}
 
 
-def jev_offer(text):
+def jev_offer(text, post=None):
     """(the price the buyer offers now, Jev's confidence) for a message, by one Choice question over the numbers written
     in it and "none"; JEV_DOWN when the call fails or is slower than JEV_SECONDS, (None, 0) when there is nothing to ask.
     Each call is a line in llm_calls.jsonl (tag seller-jev)."""
@@ -71,7 +71,7 @@ def jev_offer(text):
                                     "criteria": crit}}}
     started = time.time()
     try:
-        r = httpx.post(JEV_URL, json=body, headers={"Authorization": f"Bearer {key}"}, timeout=JEV_SECONDS)
+        r = (httpx.post if post is None else post)(JEV_URL, json=body, headers={"Authorization": f"Bearer {key}"}, timeout=JEV_SECONDS)
         j = r.json() if r.status_code == 200 else None
         a = j["answers"]["offer"] if j else None
         choice, conf = (str(a["choice"]), float(a.get("confidence") or 0)) if a else (None, None)

@@ -58,10 +58,13 @@ def compact(e):
     else the market adds is listed in the cursor file ("fields") to check once Round 3 is open."""
     d = e.get("data") or {}
     base = {"k": e["kind"], "seq": e["seq"], "ts": e.get("ts"), "buyer": d.get("buyer"), "order": d.get("order")}
+    if e["kind"] == "supply" and d.get("shop") == os.environ.get("SHOP_MARKET_NAME", "nocha12"):
+        # Keep our delivery proof even when every unit sells between inventory snapshots.
+        return {**base, "shop": d["shop"], "sku": d.get("sku"), "units": d.get("units")}
     if e["kind"] == "settle":
         return {**base, "sku": d.get("item"), "amount": d.get("amount"), "grade": d.get("grade"),
                 "honest": d.get("claim_honest"), "shop": d.get("shop") or d.get("payee"),
-                "warranty": d.get("warranty_hours")}
+                "warranty": d.get("warranty_hours"), "unit": d.get("unit")}
     if e["kind"] == "broken":
         return {**base, "sku": d.get("item")}
     if e["kind"] == "result" and d.get("shop"):       # names the shop by order, in case a settle entry does not
