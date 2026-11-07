@@ -57,8 +57,10 @@ import acp_gate
 import fast_classify
 import negotiate
 import seller_reader_trial
+import seller_concession_trial
 
 READER_TRIAL = seller_reader_trial.Trial()
+CONCESSION_TRIAL = seller_concession_trial.Trial()
 import agent_memory
 import hard_limits
 import market_model
@@ -422,6 +424,7 @@ class Seller(AgentExecutor):
         deal["reader_trial_grade"] = u.get("grade")
         deal["reader_trial_policy_sha"] = hashlib.sha256(json.dumps(pricing, sort_keys=True).encode()).hexdigest()
         deal["reader_trial"] = await asyncio.to_thread(READER_TRIAL.assign, task.id, deal)
+        await asyncio.to_thread(CONCESSION_TRIAL.quote, task.id, deal)
         ask_price = deal["ask"]
         await up.requires_input(say(f"{stock_line(u)}. Every deal comes with a signed receipt and the market's "
                                     f"certificate of the unit.{' ' + note if note else ''} My price: {ask_price}.", ask_price))
@@ -542,6 +545,7 @@ class Seller(AgentExecutor):
             log(f"task {task.id[:8]} -> INPUT_REQUIRED {item['id']} ask {ask_price}")
             return
 
+        CONCESSION_TRIAL.restore(deal)
         deal["rounds"] += 1
         if deal.get("unit"):
             if not self.stock.available(deal["unit"], task.id):
@@ -672,6 +676,7 @@ class Seller(AgentExecutor):
             self._remember_now(*entry)
 
     def _remember_now(self, task_id, deal, result, price=None):
+        CONCESSION_TRIAL.event(task_id, deal, result, price)
         try:
             shop_memory.record({"task": task_id, "item": deal.get("key") or deal["name"], "sku": deal["id"],
                                 "unit": deal.get("unit"), "cost": deal.get("cost"), "reserve": deal["reserve"],
