@@ -9,6 +9,14 @@ from unittest import mock
 import market_buyer as mb
 
 
+class ExperimentArms(unittest.TestCase):
+    def test_stable_half_split_and_missing_id_is_control(self):
+        self.assertTrue(mb.quote_yield_arm("o-0", {}))
+        self.assertFalse(mb.quote_yield_arm("o-2", {}))
+        self.assertFalse(mb.quote_yield_arm(None, {}))
+        self.assertFalse(mb.quote_yield_arm("o-0", {"BUYER_QUOTE_YIELD": "0"}))
+
+
 class FoodQuoteYield(unittest.TestCase):
     def test_food_prefetch_values_valid_saved_share_not_review_count(self):
         now = time.time()
@@ -24,11 +32,11 @@ class FoodQuoteYield(unittest.TestCase):
             with open(os.path.join(md, "measure", "orders.jsonl"), "w") as f:
                 f.writelines(json.dumps(r) + "\n" for r in rows)
             with mock.patch.dict(os.environ, {"BUYER_QUOTE_YIELD": "1"}):
-                early, all_shops = mb.prefetch_pool(shops, {"trades": []}, md, "c", 3, kind="food")
+                early, all_shops = mb.prefetch_pool(shops, {"trades": []}, md, "c", 3, kind="food", order_id="o-0")
             self.assertEqual([s["name"] for s in all_shops], ["cheap", "new", "famous"])
             self.assertEqual([s["name"] for s in early], ["cheap", "new"])
             with mock.patch.dict(os.environ, {"BUYER_QUOTE_YIELD": "0"}):
-                _, old = mb.prefetch_pool(shops, {"trades": []}, md, "c", 3, kind="food")
+                _, old = mb.prefetch_pool(shops, {"trades": []}, md, "c", 3, kind="food", order_id="o-0")
             self.assertEqual([s["name"] for s in old], ["famous", "new", "cheap"])
             _, goods = mb.prefetch_pool(shops, {"trades": []}, md, "c", 3, kind="goods")
             self.assertEqual([s["name"] for s in goods], ["famous", "new", "cheap"])

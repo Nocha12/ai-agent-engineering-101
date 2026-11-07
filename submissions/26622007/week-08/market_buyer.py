@@ -32,6 +32,7 @@ What the code does and what the harness does:
   Only one thing carries over from the earlier file: shops caught cheating on a receipt.
 """
 import argparse
+import hashlib
 import json
 import collections
 import contextlib
@@ -866,6 +867,13 @@ def quote_fitted(q, budget, cfg):
     return ask <= min(value_limit({"list_price": lp}, budget, 0, cfg), saved_cap({"list_price": lp}, 0))
 
 
+def quote_yield_arm(order_id, env=None):
+    """Stable 50/50 food scheduling pilot; no order id or BUYER_QUOTE_YIELD=0 keeps control."""
+    env = os.environ if env is None else env
+    return bool(isinstance(order_id, str) and order_id and env.get("BUYER_QUOTE_YIELD", "1") != "0"
+                and hashlib.sha256(order_id.encode()).digest()[0] % 2 == 0)
+
+
 def recent_quote_yields(md, category, now=None, hours=RECENT_FIT_HOURS):
     """Food quote scheduling only: valid saved share per attempted quote in this category, before now.
     A failed/refused quote is zero, not dropped. Two prior attempts with .0875 yield temper small samples;
@@ -928,11 +936,11 @@ def start_quotes(shops, order, budget, chance_of, got, ctl):
     return threads
 
 
-def prefetch_pool(left, memory, md, category, k, rival=frozenset(), kind=None):
+def prefetch_pool(left, memory, md, category, k, rival=frozenset(), kind=None, order_id=None):
     """The k - 1 shops quoted before the harness has chosen (the chosen shop takes the last slot of the first batch),
     and every shop that could be quoted, in quote order; revenue rivals of my shop after the others (rival_deny)."""
     others = [s for s in left if not caught_cheating(my_history(memory, s["name"]))]
-    yields = recent_quote_yields(md, category) if kind == "food" and os.environ.get("BUYER_QUOTE_YIELD", "1") != "0" else None
+    yields = recent_quote_yields(md, category) if kind == "food" and quote_yield_arm(order_id) else None
     others = rival_deny.others_first(quote_order(others, recent_fits(md, category), k, yields), rival)
     return others[:max(0, k - 1)], others
 
@@ -1321,6 +1329,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "candidates": [{"shop": s["name"], "offers": [{"sku": o.get("sku"), "qty": o.get("qty"), "list_price": o.get("list_price")}
                                                       for o in s.get("usable") or []][:3]} for s in shops][:20],
         "n_candidates": len(shops),    # lists cut so a line stays one small append (buyer runs can overlap)
+        "food_quote_yield": order.get("kind") == "food" and quote_yield_arm(order.get("order")),
         "quotes": qs, "first_choice": first_choice, "how": choose_path(first_reason), "shop": best, "reason": (reason or "")[:300],
         "sku": (offer or {}).get("sku"), "list_price": (offer or {}).get("list_price"), "limit": limit,
         "break_chance": round(chance, 4) if isinstance(chance, (int, float)) else None,
@@ -1393,7 +1402,7 @@ def main():
         log(f"[choose] {sum(s['name'] in rival for s in left)} of {len(left)} shops are revenue rivals of my shop: asked last")
     if r3:
         k = int(buyer_cfg().get("quote_shops", 1))
-        early, quotable = prefetch_pool(left, memory, md, order.get("category"), k, rival, kind=order.get("kind"))
+        early, quotable = prefetch_pool(left, memory, md, order.get("category"), k, rival, kind=order.get("kind"), order_id=order.get("order"))
         try:
             gave_up = hopeless(quotable or left, args.budget, recent_asks(md), buyer_cfg())
         except Exception as e:  # noqa: BLE001 - an odd record line must not end the run before the result line
