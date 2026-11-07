@@ -268,9 +268,13 @@ def pending(md, inv, now=None):
     delivered, sold, present = {}, {}, set()
     me = os.environ.get("SHOP_MARKET_NAME", "nocha12")
     for r in rows_of(md):
-        if r.get("k") == "settle" and r.get("shop") == me and isinstance(r.get("unit"), str) \
+        # Settlement shop is a URL or display name, not the supply owner ID.
+        # A sale may clear stock only by joining SKU + unit to OUR supply below
+        # (or an on-hand unit already counted by the snapshot), never by shop text.
+        if r.get("k") == "settle" and isinstance(r.get("unit"), str) and isinstance(r.get("sku"), str) \
                 and hard_limits.number(r.get("ts")) and r["ts"] <= now:
-            sold[r["unit"]] = r["ts"]
+            key = (r["unit"], r["sku"])
+            sold[key] = max(sold.get(key, -1), r["ts"])
         if r.get("k") == "supply" and r.get("shop") == me and hard_limits.number(r.get("ts")):
             for uid in r.get("units") if isinstance(r.get("units"), list) else ():
                 if isinstance(uid, str):
@@ -290,7 +294,7 @@ def pending(md, inv, now=None):
             raise ValueError(f"{SENT}: {s.get('sku')} has no usable worst cost")
         candidates = [uid for uid, (sku, at) in delivered.items() if uid not in used
                       and sku == s["sku"] and s["at"] <= at <= min(now, s["at"] + PENDING_SECONDS)
-                      and (uid in present or sold.get(uid, -1) >= at)]
+                      and (uid in present or sold.get((uid, sku), -1) >= at)]
         came = min(s["qty"], len(candidates))
         used.update(candidates[:came])
         # A ledger confirmation says nothing about the age of this wallet snapshot.

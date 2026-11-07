@@ -39,6 +39,67 @@ class DeliveryTest(unittest.TestCase):
         # Inventory/wallet could predate the supply: do not free its cash.
         self.assertEqual(sum(w["worst"] * w.get("cash_qty", w["qty"]) for w in waiting), 30000)
 
+    def test_actual_closed_window_releases_five_sold_units_but_keeps_full_cash(self):
+        from pathlib import Path
+        fixture = json.loads((Path(__file__).parent / "testdata" /
+                              "restock_closed_supply_sales.json").read_text())
+        Path(self.md, restock.SENT).write_text(json.dumps(fixture["sent"]))
+        Path(self.md, market_model.ROWS).write_text(
+            "".join(json.dumps(row) + "\n" for row in fixture["cache"]))
+        waiting = restock.pending(self.md, fixture["inventory"], now=fixture["observed_at"])
+        self.assertEqual(sum(w["qty"] for w in waiting), 0)
+        self.assertEqual(sum(w["cash_qty"] for w in waiting), 85)
+        self.assertAlmostEqual(sum(w["worst"] * w["cash_qty"] for w in waiting), 24953766.315)
+
+    def sale(self, uid, ts=1011, sku="H1", shop="https://shop.example", seq=200):
+        row = market_model.compact({"kind": "settle", "seq": seq, "ts": ts,
+                                   "data": {"shop": shop, "item": sku, "unit": uid}})
+        with open(os.path.join(self.md, market_model.ROWS), "a") as f:
+            f.write(json.dumps(row) + "\n")
+
+    def test_sale_shop_url_or_display_name_joins_only_our_supply(self):
+        self.sent()
+        self.supply(["u1", "u2"], sold=False)
+        self.sale("u1")
+        self.sale("u2", shop="Store display name", seq=201)
+        waiting = restock.pending(self.md, {"units": []}, now=1080)
+        self.assertEqual(sum(w["qty"] for w in waiting), 0)
+        self.assertEqual(sum(w["worst"] * w["cash_qty"] for w in waiting), 30000)
+        self.assertEqual(restock.pending(self.md, {"units": []}, now=1240), [])
+
+    def test_sale_cannot_create_delivery_or_clear_unsold_stock(self):
+        self.sent()
+        self.supply(["u1", "u2"], sold=False)
+        # Valid-looking sales cannot clear missing ownership, another SKU, an
+        # unsold unit, or sales before delivery / after this observation.
+        self.sale("foreign", shop="nocha12")
+        self.sale("u1", sku="OTHER", seq=201)
+        self.sale("u1", ts=1009, seq=202)
+        self.sale("u2", ts=1081, seq=203)
+        self.assertEqual(restock.pending(self.md, {"units": []}, now=1080)[0]["qty"], 2)
+
+    def test_other_supply_owner_cannot_be_cleared_by_matching_sale_name(self):
+        self.sent()
+        self.supply(["foreign"], shop="other", sold=False)
+        self.sale("foreign", shop="nocha12")
+        self.assertEqual(restock.pending(self.md, {"units": []}, now=1080)[0]["qty"], 2)
+
+    def test_sale_rows_are_order_independent_and_units_are_consumed_once(self):
+        self.sent(1)
+        self.sent(1, at=1020)
+        self.sale("u1", ts=1030)
+        self.supply(["u1"], ts=1022, sold=False)
+        self.sale("u1", ts=1021, seq=201)  # older duplicate must not hide valid sale
+        waiting = restock.pending(self.md, {"units": []}, now=1080)
+        self.assertEqual(sum(w["qty"] for w in waiting), 1)
+        self.assertEqual(sum(w["cash_qty"] for w in waiting), 2)
+
+    def test_old_url_settlement_and_supply_do_not_clear_new_request(self):
+        self.sent(1, at=1020)
+        self.supply(["u1"], ts=1010, sold=False)
+        self.sale("u1")
+        self.assertEqual(restock.pending(self.md, {"units": []}, now=1080)[0]["qty"], 1)
+
     def test_partial_supply_broken_or_sold_units_still_delivered(self):
         self.sent()
         self.supply(["u1"])
