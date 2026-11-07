@@ -59,6 +59,7 @@ import buyer_goods_quote_probe
 import buyer_goods_first_one
 import buyer_quote_alignment
 import buyer_firm_trial
+import buyer_first95_trial
 import rival_deny
 
 # Revenue rivals of my shop asked last (rival_deny): off from 11/07 00:30. With best_quote stopping at QUOTE_ENOUGH asks they
@@ -1467,6 +1468,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "goods_extra_quote_probe": order.get("_goods_extra_quote_probe"),
         "quote_alignment_arm": (order.get("_quote_alignment") or {}).get("arm"),
         "firm_trial": buyer_firm_trial.measurement(order, out),
+        "first95_trial": buyer_first95_trial.measurement(order, out),
         "turns": dict(out.get("turns") or {}),
         "goods_extra_quote_started": order.get("_goods_extra_quote_started"),
         "goods_extra_quote_added": order.get("_goods_extra_quote_added", 0),
@@ -1699,8 +1701,13 @@ def main():
             if goods_first_arm and d and d.get("action") == "offer" and not any(who == "you offered" for who, _ in history):
                 order["_goods_first_one_original"] = d["price"]
                 order["_goods_first_one_price"] = result["price"]
-            return firm_followup_turn(result, meta, text, history, limit, args.budget,
-                                      order, shop["name"], key, q) if r3 else result
+            result = firm_followup_turn(result, meta, text, history, limit, args.budget,
+                                        order, shop["name"], key, q) if r3 else result
+            return buyer_first95_trial.turn(result, history, limit, steps, order=order,
+                shop=shop["name"], sku=key, probe=bool(not r3 or discount_arm or probe_arm or
+                    goods_first_arm or order.get("_one_won_default") or
+                    order.get("_goods_extra_quote_probe") or order.get("_quote_alignment") or
+                    order.get("_food_quote_yield")), now=time.time(), log=log)
 
         if steps:
             log(f"[offer] oneshot: {', '.join(f'{s:.2f}' for s in steps)} of the first ask, then the counter, priced by code")
@@ -1723,6 +1730,10 @@ def main():
     if order.get("_firm_trial"):
         log("[firm-history] " + json.dumps({"order": order.get("order"),
             **buyer_firm_trial.measurement(order, out)}, sort_keys=True))
+
+    if order.get("_first95_trial"):
+        log("[first95-history] " + json.dumps({"order": order.get("order"),
+            **buyer_first95_trial.measurement(order, out)}, sort_keys=True))
 
     rec = out["receipt"] if out["state"] == "TASK_STATE_COMPLETED" else None
     problems, warnings = check_receipt(rec, out, args.item, args.budget, order, catalog) if rec is not None else ([], [])
