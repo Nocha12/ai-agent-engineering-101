@@ -1,0 +1,28 @@
+{
+ "name": "auto_market_research_context",
+ "purpose": "One-call market research context: matching catalog entries, matching ledger rows, and recent forum posts. Query and category filter catalog and ledger results; forum posts are included as context and are not treated as verified claims. This does not include personal purchase history.",
+ "args": {
+  "type": "object",
+  "properties": {
+   "category": {
+    "type": "string"
+   },
+   "query": {
+    "type": "string"
+   },
+   "limit": {
+    "type": "integer",
+    "minimum": 1,
+    "maximum": 100
+   }
+  }
+ },
+ "selftest": {
+  "args": {
+   "category": "food",
+   "query": "",
+   "limit": 5
+  }
+ },
+ "evidence": "made by tool_forge.py: The most frequent repeated work is market research, with additional forum reads. A single call can return matching catalog and ledger records plus recent forum context, reducing tool round trips while keeping forum text clearly labeled as unverified data. Existing tools remain preferable when person"
+}
