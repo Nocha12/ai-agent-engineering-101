@@ -123,10 +123,13 @@ class MainOverlap(unittest.TestCase):
         p.start()
         self.addCleanup(p.stop)
 
-    def run_main(self, shops, hopeless=False, choose_s=0.5, quote_s=0.5, choose_fails=False, asks=None, slower=None, deal=None):
+    def run_main(self, shops, hopeless=False, choose_s=0.5, quote_s=0.5, choose_fails=False, asks=None, slower=None, deal=None, synchronize_overlap=False):
         printed, events, cancelled = [], [], []
         self.cancelled = cancelled
         lock = threading.Lock()
+        four_started = threading.Event()
+        choice_end = threading.Event()
+        pre_count = [0]
 
         def note(what):
             with lock:
@@ -134,7 +137,14 @@ class MainOverlap(unittest.TestCase):
 
         def fake_quote(s, label, key, order, out, ctl=None):
             note(f"quote {s['name']}")
+            if synchronize_overlap:
+                with lock:
+                    pre_count[0] += 1
+                    if pre_count[0] == 4:
+                        four_started.set()
             time.sleep(quote_s + (slower or {}).get(s["name"], 0))
+            if synchronize_overlap and not choice_end.wait(0.8):
+                raise AssertionError("choice must overlap quotes")
             q = {"ask": (asks or {}).get(s["name"], 7000 if s["name"] == "c" else 9000), "text": "", "url": s["url"],
                  "task": open_task(s["name"]), "refused": None}
             with ctl["lock"]:            # as quote() does: publish closed when the choice was made first
@@ -146,8 +156,12 @@ class MainOverlap(unittest.TestCase):
         def fake_choose(s, m, i, b, hurry=None, stop=None):
             self.stop = stop
             note("choose start")
+            if synchronize_overlap and not four_started.wait(0.8):
+                raise AssertionError("four quotes must start during choice")
             time.sleep(choose_s)
             note("choose end")
+            if synchronize_overlap:
+                choice_end.set()
             if choose_fails:
                 raise RuntimeError("boom")
             return s[0], "t"
@@ -193,7 +207,9 @@ class MainOverlap(unittest.TestCase):
 
     def test_quotes_start_before_the_choice_ends_and_the_two_overlap(self):
         shops = [dict(shop(n), offers=[{"sku": "H1", "name": "청소기", "qty": 1}]) for n in "abcdef"]
-        out, events, took, orders = self.run_main(shops)
+        # Chooser-first case: keep both simulated work durations, but publish
+        # quotes only after choice end; quote-first cancellation has its own test.
+        out, events, took, orders = self.run_main(shops, synchronize_overlap=True)
         t = {w: ts for w, ts in events}
         quoted = [w for w, _ in events if w.startswith("quote ")]
         self.assertEqual(len(quoted), 5)                              # quote_shops in all, nobody twice
