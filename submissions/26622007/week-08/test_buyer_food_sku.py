@@ -3,6 +3,14 @@ from unittest.mock import patch
 import buyer_food_sku as f
 
 class FoodSku(unittest.TestCase):
+    def test_study_duration_is_bounded_to_thirty_or_sixty_minutes(self):
+        order = dict(kind="food", order="duration-test", _buyer_started_at=101)
+        with patch.object(f, "ENABLED", True), patch.object(f, "START", 100), patch.object(f, "END", 3700):
+            self.assertTrue(f.active(order, 102))
+            self.assertFalse(f.active(order, 3700))
+        with patch.object(f, "ENABLED", True), patch.object(f, "START", 100), patch.object(f, "END", 3699):
+            self.assertFalse(f.active(order, 102))
+
     def test_paid_prior_policy(self):
         offers = [dict(sku="a", list_price=100), dict(sku="b", list_price=200)]
         rows = [dict(order="old1", shop="url", sku="b", price=120, time=990,

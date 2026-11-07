@@ -10,10 +10,10 @@ import os
 import statistics
 import tempfile
 
-ENABLED = False
-START = 0
-END = 0
-STUDY = "food-sku-v1"
+ENABLED = True
+START = 1794058800  # 2026-11-07 22:40 KST
+END = 1794062400  # 2026-11-07 23:40 KST
+STUDY = "food-sku-20261107-2240"
 MAX_BYTES = 8 << 20
 
 
@@ -34,7 +34,7 @@ def active(order, now):
     return (ENABLED is True and order.get("kind") == "food" and
             isinstance(order.get("order"), str) and 0 < len(order["order"]) <= 96 and
             all(number(x) for x in (START, END, t, now)) and
-            0 < START < END == START + 1800 and START <= t <= now < END)
+            0 < START < END and END - START in (1800, 3600) and START <= t <= now < END)
 
 
 def evidence(payments, settled, orders, started, need):

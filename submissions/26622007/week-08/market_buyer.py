@@ -494,6 +494,9 @@ def rule_choose(shops, memory, item, asked=(), budget=None):
         if t.get("item") == receipt_item and t.get("result") == "deal" and not t.get("problems") and \
                 isinstance(t.get("price"), (int, float)):
             paid[t["shop"]] = min(paid.get(t["shop"], t["price"]), t["price"])
+    key_label = receipt_item if isinstance(receipt_item, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,96}", receipt_item) else "<category>"
+    key_matches = sum(s["name"] in paid for s in pool)
+    log(f"[choose-key] sku_key={key_label} canonical={int(receipt_item != item)} pool_matches={key_matches} receipt_memory_only=1")
     best = min(enumerate(pool), key=lambda x: (x[1]["name"] in asked, paid.get(x[1]["name"], float("inf")),
                                                 -len(x[1].get("reviews") or []), x[0]))[1]
     how = "not yet asked" if best["name"] not in asked else "asked already"
