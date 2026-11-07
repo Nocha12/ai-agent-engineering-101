@@ -58,9 +58,11 @@ import fast_classify
 import negotiate
 import seller_reader_trial
 import seller_concession_trial
+import seller_opening_default
 
 READER_TRIAL = seller_reader_trial.Trial()
 CONCESSION_TRIAL = seller_concession_trial.Trial()
+OPENING_DEFAULT = seller_opening_default.OpeningDefault()
 import agent_memory
 import hard_limits
 import market_model
@@ -424,7 +426,7 @@ class Seller(AgentExecutor):
         deal["reader_trial_grade"] = u.get("grade")
         deal["reader_trial_policy_sha"] = hashlib.sha256(json.dumps(pricing, sort_keys=True).encode()).hexdigest()
         deal["reader_trial"] = await asyncio.to_thread(READER_TRIAL.assign, task.id, deal)
-        await asyncio.to_thread(CONCESSION_TRIAL.quote, task.id, deal)
+        await asyncio.to_thread(OPENING_DEFAULT.quote, task.id, deal, CONCESSION_TRIAL)
         ask_price = deal["ask"]
         await up.requires_input(say(f"{stock_line(u)}. Every deal comes with a signed receipt and the market's "
                                     f"certificate of the unit.{' ' + note if note else ''} My price: {ask_price}.", ask_price))
