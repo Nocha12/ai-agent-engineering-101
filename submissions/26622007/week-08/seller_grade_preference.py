@@ -10,6 +10,8 @@ PREFERENCES=(
 
 def preference_needs(text):
     if not isinstance(text,str):return None
+    # Only plain natural-language requests: never interpret structured/quoted data.
+    if any(ch in text for ch in ('{','}','[',']','"')):return None
     found=[p for p in PREFERENCES if p in text]
     if len(found)!=1 or text.count(found[0])!=1:return None
     phrase=found[0];start=text.index(phrase);end=start+len(phrase)

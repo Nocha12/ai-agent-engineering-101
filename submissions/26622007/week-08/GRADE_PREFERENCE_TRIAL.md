@@ -2,7 +2,7 @@
 
 Use only after the current exact-counter cohort has finished and its practical decision is recorded. Do not deploy or activate concurrently with that cohort.
 
-Three complete known preference sentences are supported. A mandatory JSON grade policy, extra unknown/strict grade qualifier, repeated/ambiguous sentence or embedded JSON string stays unchanged. SKU, certificate and shelf requirements must remain identical. Only known A/B/C stock is considered. The original input is retained for product/category matching and warranty processing.
+Three complete known preference sentences are supported. All structured or quoted requests (JSON braces/arrays/double quotes), a mandatory JSON grade policy, extra unknown/strict grade qualifier, and repeated/ambiguous sentences stay unchanged. This conservative plain-text subset avoids treating even malformed/nested JSON strings as instructions. SKU, certificate and shelf requirements must remain identical. Only known A/B/C stock is considered. The original input is retained for product/category matching and warranty processing.
 
 StockBook.pick first performs the original choice. Any successful original choice is returned unchanged, even if a fallback could be cheaper. Only when that same matching stock group has no original fit may B evaluate the optional-grade fallback through the same unfit predicate, units snapshot, rank and expiry ordering. No unit hold, warranty, price floor, certificate, stock, cash or receipt guard changes.
 

@@ -71,3 +71,12 @@ class GradePreferenceTests(unittest.TestCase):
             self.assertTrue(changed["contaminated"]);self.assertEqual(t.arm(changed),"A")
             self.assertIsNone(t.enroll("bad-prefix","G12345678. "+BC,101)["id"])
             self.assertEqual(sum(a.get("id") is not None for _,a in included),200)
+
+    def test_json_string_braces_and_quoted_structured_context_do_not_relax(self):
+        from seller_grade_preference import preference_needs
+        for text in ("G12345678 "+json.dumps({"note":BC+"{"}),
+                     "G12345678 "+json.dumps({"note":{"text":BC+"}"}}),
+                     "G12345678 "+json.dumps([BC]),
+                     json.dumps(BC),
+                     "G12345678 {"+BC):
+            self.assertIsNone(preference_needs(text),text[:12])
