@@ -133,8 +133,8 @@ def negotiate(card_url, item, budget, note="", request=None, resume=None, stop_i
 
     agreed is the last price we offered, which is what the shop accepted when the task completes.
     request is the first message; Round 3 names the name and SKU the shop has.
-    resume=(rpc url, task) goes on with a talk already opened (a quote); stop_if(shop text) returning a reason ends the
-    talk before any offer (it is cancelled, nothing was promised).
+    resume=(rpc url, task) goes on with a talk already opened (a quote); stop_if(shop text, turn) returning a reason ends
+    the talk on that turn, before any offer to it and with no harness call (it is cancelled, nothing was bought).
     take_at: a machine-readable ask (message metadata) at or under it is offered back at once, with no counter and no
     harness call (market_buyer sets it for food, where countering lost more deals than it saved).
     ladder(metadata ask, shop text, history): the turn priced by code (oneshot.turn), or None for the harness.
@@ -179,7 +179,7 @@ def talk(url, t, item, budget, note, out, stop_if=None, take_at=None, reply_to=N
         if st != "TASK_STATE_INPUT_REQUIRED":
             break
         text, meta = message_text(t), metadata_ask(t)
-        why = stop_if(text) if stop_if and turn == 1 else None
+        why = stop_if(text, turn) if stop_if else None
         if why:
             log(f"stop before any offer: {why}")
             out["stopped"] = why
@@ -201,6 +201,17 @@ def talk(url, t, item, budget, note, out, stop_if=None, take_at=None, reply_to=N
         if fast:
             log(f"FAST the ask {fast['shop_price']} is at or under my last offer -> offering it, no harness call")
         code = ladder(meta, text, history) if ladder and not fast else None
+        answer = reply_to(text) if reply_to and not fast and not code else None
+        if answer and answer not in answered:
+            # the shop asks how long the unit must last before it takes a number (mjforge 11/07 09:19: my 6339 got the
+            # same question back): answered by code, no harness call; once each, a shop that asks again gets the harness
+            answered.add(answer)
+            log(f"the shop asks a question before it takes a number -> {answer!r}, no harness call")
+            nt = send(url, answer, task_id)
+            if nt is None:
+                break
+            t = nt
+            continue
         if code:
             log(f"CODE the ask {code['shop_price']} ({'metadata' if meta is not None else 'shop template'}) -> "
                 f"{code['action']} {code['price'] or ''}, no harness call")

@@ -16,6 +16,8 @@ label (cases in testdata/ask_read_cases.jsonl).
 """
 import re
 
+import hard_limits
+
 MAX_CHARS = 2000
 NUM = r"(?:[1-9][0-9]{0,2}(?:,[0-9]{3})+|[1-9][0-9]{0,11})"
 # a number that is a price: not followed by a digit, a decimal, a letter, a unit, % or a money word
@@ -183,7 +185,7 @@ WARRANTY_HOURS = re.compile(r"(?<![\w.])(?P<n>[0-9]{1,4}(?:\.[0-9]+)?|one|two|th
                             r"(?P<n2>[0-9]{1,4}(?:\.[0-9]+)?)[ \t]*(?P<u2>h|hours?|days?)\b", re.I)
 WORD_N = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "twelve": 12, "twenty-four": 24,
           "forty-eight": 48, "seventy-two": 72}
-GOODS_WARRANTY_HOURS = 6     # hard_limits.BUYER_GOODS_WARRANTY_HOURS: the kit pays for goods only with that much
+GOODS_WARRANTY_HOURS = hard_limits.BUYER_GOODS_WARRANTY_HOURS     # the kit pays for goods only with that much
 
 
 def no_warranty(text):

@@ -46,6 +46,7 @@ import re
 import threading
 
 import agent_loop
+import ask_read
 import hard_limits
 import harness
 import market_model
@@ -621,6 +622,15 @@ def shop_question_reply(text, order):
     if not isinstance(h, (int, float)) or isinstance(h, bool) or h <= 0 or not USE_WITHIN_ASKED.search(text or ""):
         return None
     return f"use within {int(-(-h // 1))}h"
+
+
+def goods_text_refused(text, order):
+    """Why a goods talk ends on this turn by code, with no harness call: the shop's text, on any turn, says the unit comes
+    without a warranty, with a 0 h one, or only with one shorter than the 6 h I buy goods with (ask_read.no_warranty).
+    Goods without that warranty are never bought, so walking away here is the whole decision (11/07 09:15)."""
+    if order.get("kind") != "goods" or not ask_read.no_warranty(text):
+        return None
+    return f"the shop's text offers this goods unit without a {hard_limits.BUYER_GOODS_WARRANTY_HOURS} h warranty"
 
 
 def quote_refused(text, order):
@@ -1456,7 +1466,8 @@ def main():
             log(f"[offer] oneshot: {', '.join(f'{s:.2f}' for s in steps)} of the first ask, then the counter, priced by code")
         talk_mode = f"oneshot {list(steps)}" if steps else "harness"
         out = negotiate(shop["url"], label, limit, note, request_text(label, key, order) if r3 else None, resume=resume,
-                        stop_if=(lambda text: quote_refused(text, order)) if r3 else None,
+                        stop_if=(lambda text, turn: (quote_refused(text, order) if turn == 1 else None)
+                                 or goods_text_refused(text, order)) if r3 else None,
                         reply_to=(lambda text: shop_question_reply(text, order)) if r3 else None,
                         ladder=(lambda meta, text, history: oneshot.turn(meta, text, history, limit, steps,
                                                                           q.get("ask") if resume else None,
