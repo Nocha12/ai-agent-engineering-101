@@ -50,9 +50,15 @@ class OwnerCLI(unittest.TestCase):
         return json.loads(result.stdout)
 
     def prepare(self):
-        return self.cli('prepare', '--source', self.source, '--commit', self.commit,
+        self.prepared = self.cli('prepare', '--source', self.source, '--commit', self.commit,
                         '--target', self.target, '--expected-head', self.head,
                         '--staging', self.stage)
+        return self.prepared
+
+    def plan(self, ok=True):
+        return self.cli('plan', '--target', self.target, '--expected-head', self.head,
+                        '--staging', self.stage, '--manifest-sha256',
+                        self.prepared['manifest_sha256'], ok=ok)
 
     def test_prepare_pins_four_blobs_outside_target(self):
         result = self.prepare()
@@ -66,6 +72,24 @@ class OwnerCLI(unittest.TestCase):
         self.assertEqual(result['manifest_sha256'], hashlib.sha256(
             (self.stage / 'manifest.json').read_bytes()).hexdigest())
         self.assertEqual(self.git(self.target, 'status', '--porcelain'), '')
+
+    def test_plan_is_read_only_and_rejects_tampering_head_and_dirty(self):
+        self.prepare()
+        before = {str(p.relative_to(self.target)): p.read_bytes()
+                  for p in self.target.rglob('*') if p.is_file()}
+        plan = self.plan()
+        self.assertEqual(plan['order'], FILES)
+        self.assertEqual(before, {str(p.relative_to(self.target)): p.read_bytes()
+                                 for p in self.target.rglob('*') if p.is_file()})
+        p = self.stage / FILES[1]
+        p.write_bytes(b'# tampered\n')
+        self.assertEqual(self.plan(ok=False)['status'], 'rejected')
+        p.write_bytes((self.source / FILES[1]).read_bytes())
+        (self.target / FILES[3]).write_bytes(b'# dirty\n')
+        self.plan(ok=False)
+        (self.target / FILES[3]).write_bytes(b'# target\n')
+        self.git(self.target, 'commit', '--allow-empty', '-qm', 'changed head')
+        self.plan(ok=False)
 
 
 if __name__ == '__main__':
