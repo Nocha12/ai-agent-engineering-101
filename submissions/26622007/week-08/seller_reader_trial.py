@@ -165,6 +165,7 @@ class Trial:
             return
         record = {"ts":time.time(), "id":a["id"], "task":task,
                   "input_sha":deal.get("reader_trial_input_sha"), "policy_sha":deal.get("reader_trial_policy_sha"),
+                  "template_offer":deal.get("reader_trial_template_offer"),
                   "harness_used":bool(deal.get("reader_trial_harness_used")), "jev_calls":reader.jev_calls,
                   "history":deal.get("history") or [], "unit":deal.get("unit"), "sku":deal.get("id"),
                   "kind":deal.get("kind"), "grade":deal.get("reader_trial_grade"), "cost":deal.get("cost"),
@@ -175,7 +176,7 @@ class Trial:
                   "jev_confidence":reader.confidence if reader.source == "jev" else None,
                   "seconds":time.monotonic()-started,
                   "raw":{k:raw.get(k) for k in ("action","price","buyer_offer")},
-                  "action":action, "price":price, "offer":offer, "no_offer":not bool(offer)}
+                  "action":action, "price":offer if action == "accept" else price, "offer":offer, "no_offer":not bool(offer)}
         try:
             data = (json.dumps(record, allow_nan=False, separators=(",",":"))+"\n").encode()
             fd = os.open(self.root / "seller_reader_trial.jsonl", os.O_WRONLY|os.O_CREAT|os.O_APPEND, 0o600)

@@ -121,6 +121,19 @@ class TrialTests(unittest.TestCase):
         self.assertNotIn("private", json.dumps(record))
         self.assertNotIn("external text", json.dumps(record))
 
+    def test_guard_coerced_accept_trace_is_the_receipt_price(self):
+        import seller, time
+        self.config()
+        a = self.trial.assign("guard-price", DEAL, 100)
+        d = dict(DEAL, reader_trial=a)
+        action, price = seller.price_guards(d, "counter", 80000, 90000, 55000)
+        self.assertEqual((action, price), ("accept", 80000))
+        self.trial.trace("guard-price", d, Reader(None), time.monotonic(),
+                         {"action":"counter","price":80000,"buyer_offer":90000}, action,price,90000)
+        rec = json.loads((self.root / "seller_reader_trial.jsonl").read_text())
+        self.assertEqual(rec["price"], 90000)
+        self.assertEqual(rec["raw"]["price"], 80000)
+
     def test_trace_failure_does_not_raise(self):
         import time
         self.config()

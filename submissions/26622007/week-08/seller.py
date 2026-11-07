@@ -559,6 +559,7 @@ class Seller(AgentExecutor):
         floor_now = turn_floor(deal)
         trial_started = time.monotonic()
         deal["reader_trial_input_sha"] = hashlib.sha256(text.encode()).hexdigest()
+        deal["reader_trial_template_offer"] = seller_reader_trial.template_offer(text)
         reader = seller_reader_trial.Reader(fast_classify.jev_offer if fast_classify.JEV_ON else None,
                                             READER_TRIAL.arm(deal.get("reader_trial") or {}))
         deal["reader_trial_floor"] = floor_now
