@@ -1,0 +1,14 @@
+{
+ "citations": 271,
+ "citation_problems": [],
+ "policy_problems": [],
+ "pricing_unchanged": true,
+ "tests": {
+  "before": 948,
+  "before_failures": 27,
+  "after": 948,
+  "after_passed": true
+ },
+ "grades": 127,
+ "keep_or_drop": 138
+}
