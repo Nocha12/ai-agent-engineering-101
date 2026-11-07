@@ -934,6 +934,17 @@ def opening_probe_arm(md, shop, order_id, env=None, now=None, sku=None, use_with
         return None
 
 
+ONE_WON_DEFAULT_START = 1794030000  # 14:40, after separate non-target opener pilot
+
+
+def one_won_default(shop, kind, steps, env=None, now=None):
+    """Provisional default for the single food shop with positive pilot outcomes; off switch wins."""
+    env = os.environ if env is None else env
+    now = time.time() if now is None else now
+    return (shop == "11im" and kind == "food" and steps == (.9,) and
+            now >= ONE_WON_DEFAULT_START and env.get("BUYER_ONE_WON_11IM", "1") == "1")
+
+
 def opening_probe_turn(meta, text, history, limit, steps, quoted, goods, arm):
     """Only the first validated food code offer changes to exactly 1; all later turns keep oneshot."""
     d = oneshot.turn(meta, text, history, limit, steps, quoted, goods)
@@ -1403,6 +1414,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "n_candidates": len(shops),    # lists cut so a line stays one small append (buyer runs can overlap)
         "food_quote_yield": order.get("_food_quote_yield", order.get("kind") == "food" and quote_yield_arm(order.get("order"))),
         "one_won_probe": probe_arm,
+        "one_won_default": order.get("_one_won_default", False),
         "opening_discount_probe": order.get("_opening_discount_probe"),
         "opening_price": next((p for who, p in out.get("history") or [] if who == "you offered"), None),
         "quote_attempts_complete": len(qs) == sum(bool(s.get("_quote_attempted") or s["name"] in quotes) for s in shops),
@@ -1595,6 +1607,7 @@ def main():
                 oneshot.turn(None, q.get("text"), [], limit, steps, q.get("ask"), False) is not None:
             probe_arm = opening_probe_arm(md, shop["name"], order.get("order"), sku=key,
                                           use_within=order.get("use_within_hours"))
+            order["_one_won_default"] = probe_arm is None and one_won_default(shop["name"], order.get("kind"), steps)
         discount_arm = None
         if steps == (.9,) and resume and probe_arm is None and not order.get("_food_quote_yield") and \
                 order.get("kind") == "food" and q.get("ask_src") == "text" and \
@@ -1611,7 +1624,8 @@ def main():
                         reply_to=(lambda text: shop_question_reply(text, order)) if r3 else None,
                         ladder=(lambda meta, text, history: (buyer_opening_discount.turn if discount_arm else opening_probe_turn)(
                             meta, text, history, limit, steps, q.get("ask") if resume else None,
-                            order.get("kind") == "goods", discount_arm or probe_arm))
+                            order.get("kind") == "goods", discount_arm or probe_arm or
+                            ("B" if order.get("_one_won_default") else None)))
                         if steps else None,
                         take_at=min(limit, int(offer["list_price"] * FOOD_TAKE_SHARE))
                         if r3 and FOOD_TAKE_ASK and order.get("kind") == "food" else None)
