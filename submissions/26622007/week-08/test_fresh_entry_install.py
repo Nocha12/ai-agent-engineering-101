@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 from tools import fresh_entry_install as install
 
+SOURCE_REPO = Path(__file__).resolve().parents[3]
+
 
 class FreshEntryInstall(unittest.TestCase):
     def fixture(self, root):
@@ -130,7 +132,7 @@ class FreshEntryInstall(unittest.TestCase):
                 self.assertFalse(list(root.glob(".fresh-stage-*")))
 
     def test_real_pinned_sources_import_before_after_and_after_rollback(self):
-        repo = Path(__file__).resolve().parents[3]
+        repo = SOURCE_REPO  # archive runner supplies the original object store
         base = "38a80667c02bd6a18c4bf6527371c153708d67bc"
         candidate = "1567b832adc05b06025c6c6f06c7ba1ea5c957da"
         release = install.release(repo, base, candidate)
