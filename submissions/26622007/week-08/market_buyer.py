@@ -937,12 +937,13 @@ def opening_probe_arm(md, shop, order_id, env=None, now=None, sku=None, use_with
 ONE_WON_DEFAULT_START = 1794030000  # 14:40, after separate non-target opener pilot
 
 
-def one_won_default(shop, kind, steps, env=None, now=None):
+def one_won_default(shop, kind, steps, env=None, now=None, started_at=None):
     """Provisional default for the single food shop with positive pilot outcomes; off switch wins."""
     env = os.environ if env is None else env
     now = time.time() if now is None else now
     return (shop == "11im" and kind == "food" and steps == (.9,) and
-            now >= ONE_WON_DEFAULT_START and env.get("BUYER_ONE_WON_11IM", "1") == "1")
+            now >= ONE_WON_DEFAULT_START and isinstance(started_at, (int, float)) and
+            started_at >= ONE_WON_DEFAULT_START and env.get("BUYER_ONE_WON_11IM", "1") == "1")
 
 
 def opening_probe_turn(meta, text, history, limit, steps, quoted, goods, arm):
@@ -1607,7 +1608,8 @@ def main():
                 oneshot.turn(None, q.get("text"), [], limit, steps, q.get("ask"), False) is not None:
             probe_arm = opening_probe_arm(md, shop["name"], order.get("order"), sku=key,
                                           use_within=order.get("use_within_hours"))
-            order["_one_won_default"] = probe_arm is None and one_won_default(shop["name"], order.get("kind"), steps)
+            order["_one_won_default"] = probe_arm is None and one_won_default(
+                shop["name"], order.get("kind"), steps, started_at=order.get("_buyer_started_at"))
         discount_arm = None
         if steps == (.9,) and resume and probe_arm is None and not order.get("_food_quote_yield") and \
                 order.get("kind") == "food" and q.get("ask_src") == "text" and \
