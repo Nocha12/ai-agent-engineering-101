@@ -1283,7 +1283,7 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
             if not rest or time.time() - STARTED >= buyer_goods_quote_probe.EARLY_SECONDS or any(th.is_alive() for th in threads):
                 break
             # Snapshot only: later negotiation/stock response is not a counterfactual settled outcome.
-                first_scores = [(surplus(s), preference.get(s["name"], i), s) for i, s in enumerate(pool) if surplus(s) is not None]
+            first_scores = [(surplus(s), preference.get(s["name"], i), s) for i, s in enumerate(pool) if surplus(s) is not None]
             if first_scores:
                 picked = max(first_scores, key=lambda x: (fits(x[2]), x[0] - rival_deny.penalty(x[2]["name"], rival),
                              (got.get(x[2]["name"]) or {}).get("ask_src") != "text", -x[1]))[2]
