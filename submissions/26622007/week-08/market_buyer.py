@@ -475,21 +475,28 @@ def choose_by_rule():
     return isinstance(cfg, dict) and str(cfg.get("engine", "")).lower() == "rule"
 
 
-def rule_choose(shops, memory, item, asked=()):
+def rule_choose(shops, memory, item, asked=(), budget=None):
     """(shop, reason) without an agent call. The choice only adds a shop to the quotes, and best_quote then picks by
     price (kit log 08:33-09:31: of 102 orders the agent chose for, 91 picks were shops the prefetch had asked already and
     1 new pick was kept to a deal). So: a shop of the pool not yet asked first, then the lowest price it sold me this
     item at, then the most reviewed, then list order."""
     pool, mode, _ = choose_pool(shops, memory, item)
+    # Keep the category-based pool unchanged. Compare receipt prices only when
+    # every shop would offer the same SKU at this budget; different SKUs are not comparable.
+    receipt_item = item
+    if budget is not None and all(s.get("usable") for s in pool):
+        skus = {pick_offer(s["usable"], budget).get("sku") for s in pool}
+        if len(skus) == 1 and None not in skus and "" not in skus:
+            receipt_item = next(iter(skus))
     paid = {}
     for t in memory["trades"]:
-        if t.get("item") == item and t.get("result") == "deal" and not t.get("problems") and \
+        if t.get("item") == receipt_item and t.get("result") == "deal" and not t.get("problems") and \
                 isinstance(t.get("price"), (int, float)):
             paid[t["shop"]] = min(paid.get(t["shop"], t["price"]), t["price"])
     best = min(enumerate(pool), key=lambda x: (x[1]["name"] in asked, paid.get(x[1]["name"], float("inf")),
                                                 -len(x[1].get("reviews") or []), x[0]))[1]
     how = "not yet asked" if best["name"] not in asked else "asked already"
-    price = f", sold me {item} at {paid[best['name']]:g}" if best["name"] in paid else ""
+    price = f", sold me {receipt_item} at {paid[best['name']]:g}" if best["name"] in paid else ""
     return best, f"{mode} rule: {how}{price}, {len(best.get('reviews') or [])} reviews"
 
 
@@ -1059,7 +1066,7 @@ def choose_racing(pick, memory, item, budget, pre):
     best_quote picks by price). 11/07 02:00: fitting orders spent a median 7.5 s choosing though the quote, not the agent,
     picked the shop in 74% of orders; the run's exit ends the abandoned thread (daemon)."""
     if pre is not None and choose_by_rule():
-        return rule_choose(pick, memory, item, pre.get("asked") or ())
+        return rule_choose(pick, memory, item, pre.get("asked") or (), budget=budget)
     if not (pre and pre.get("enough")):
         return choose(pick, memory, item, budget)
     if hurried(pre):          # already clear: no agent call at all (its first step is never cut short)
