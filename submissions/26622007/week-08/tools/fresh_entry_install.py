@@ -34,6 +34,7 @@ FILES = ("fresh-rotation-contract.md", "test_buyer_fresh_rotation.py",
          "test_fresh_choice_boundary.py", ENTRY)
 PAYLOAD = (HELPER,) + FILES
 CONTROLS = {"tools/fresh_entry_install.py", "test_fresh_entry_install.py"}
+CONTROLS.update({"tools/fresh_snapshot.py", "test_fresh_snapshot.py"})
 
 
 def blob_id(data):

@@ -97,3 +97,39 @@ Rollback: retain ENABLED=False and the existing past window; any later release
 or future window requires the parent's separate procedure.
 For source rollback use git revert of this candidate's commits (preserve history).
 Retain all evidence; never remove/reuse B1 or other study journals.
+# Opt-in verified runtime image (local preparation only)
+
+`tools.fresh_snapshot` builds a new artifact from pinned Git objects: all top-level
+non-test Python files and `pricing.json`. The fresh helper's code and four scalar
+settings determine its versioned module name. The candidate entry imports that
+literal name; the retained-helper rollback entry, which has no fresh references,
+is kept byte-identical. Source flags and past windows are unchanged. Synthetic
+settings overrides are artifact-only and require all four scalars and a full
+1800-second window. No future operating window is selected by this tool.
+
+The generated command embeds the bootstrap and expected artifact SHA256. With a
+trusted interpreter, it verifies one bounded regular-file read, holds those bytes
+in memory, and loads local modules and declared resources from that same image.
+Late imports and helper settings cannot switch to a later filesystem version.
+Existing runtime data paths remain in the original working directory. This is
+not an OS sandbox: interpreter, installed dependencies, command/bootstrap, runtime
+data and process memory require their existing trust controls. Direct OS-level
+file access outside the declared loader/read interfaces is not intercepted.
+
+Publication creates a new artifact name without replacing any destination. It
+does not install into a checkout, update HEAD/index, stop writers, or switch an
+already-running buyer kit. Retain both candidate and rollback artifacts; selecting
+the previous trusted command is the image rollback, while already-running readers
+retain their own verified bytes. Do not use the helper-deleting rollback
+`7313949`; the retained-helper source rollback is `6a23d40`.
+
+The existing kit `run_buyer` command interface accepts this command, as covered
+by an isolated actual-buyer/no-shops test. `cmd_join` loads `agent.json` once;
+there is no established live reload/admission API here. Connecting an existing
+kit to a trusted command and excluding modification of that trust anchor remains
+an OPEN operating contract. The unrestricted meta model child is not confined
+by its working directory. A directory's mode, serial checks, flock or an
+`exclusive_writer=True` assertion cannot establish this boundary. Legacy mutable
+entry installation still has the noncooperating-writer race and must not be
+described as closed by these opt-in tests. No operating transition is authorized
+or performed by this preparation.
