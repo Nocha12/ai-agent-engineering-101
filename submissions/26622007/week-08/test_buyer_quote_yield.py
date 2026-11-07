@@ -1,5 +1,8 @@
 """Quote scheduling at its public prefetch boundary; no market or model calls."""
 import json
+import contextlib
+import io
+import sys
 import os
 import tempfile
 import time
@@ -8,6 +11,25 @@ import unittest
 from unittest import mock
 
 import market_buyer as mb
+
+
+class NoStockITT(unittest.TestCase):
+    def test_no_stock_order_still_records_its_assigned_arm(self):
+        with tempfile.TemporaryDirectory() as md:
+            for name, data in [("shops.json", []), ("order.json", {"order": "o-0", "kind": "food", "acceptable": ["G1"]})]:
+                with open(os.path.join(md, name), "w") as f:
+                    json.dump(data, f)
+            argv = ["market_buyer", "--shops", os.path.join(md, "shops.json"), "--order",
+                    os.path.join(md, "order.json"), "--item", "food", "--budget", "100"]
+            with mock.patch.object(sys, "argv", argv), mock.patch.object(mb, "MEMORY", os.path.join(md, "mem.json")), \
+                    mock.patch.dict(os.environ, {"BUYER_QUOTE_YIELD": "1"}), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(mb.main(), 0)
+            with open(os.path.join(md, "measure", "orders.jsonl")) as f:
+                r = json.loads(f.readline())
+            self.assertTrue(r["food_quote_yield"])
+            self.assertTrue(r["quote_attempts_complete"])
+            self.assertEqual(r["quotes"], [])
+            self.assertEqual(r["state"], "NO_SHOP_IN_STOCK")
 
 
 class ExperimentArms(unittest.TestCase):

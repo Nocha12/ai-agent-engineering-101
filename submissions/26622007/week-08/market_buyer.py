@@ -1381,6 +1381,8 @@ def main():
             records.write(md, "orders", {"order": order.get("order"), "category": order.get("category"), "kind": order.get("kind"),
                                          "budget": args.budget, "acceptable": len(order.get("acceptable") or []),
                                          "use_within_hours": order.get("use_within_hours"), "candidates": [],
+                                         "food_quote_yield": order.get("kind") == "food" and quote_yield_arm(order.get("order")),
+                                         "quotes": [], "quote_attempts_complete": True,
                                          "state": "NO_SHOP_IN_STOCK", "seconds": {"end": round(time.time() - STARTED, 2)}})
         print(json.dumps({"shop": "", "receipt": None, **({} if r3 else {"stars": 1, "review": "No shops to trade with."})}))
         return 0
