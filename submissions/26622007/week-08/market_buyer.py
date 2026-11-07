@@ -47,6 +47,7 @@ import httpx
 import re
 import threading
 
+import buyer_food_sku
 import agent_loop
 import ask_read
 import hard_limits
@@ -576,6 +577,15 @@ def pick_offer(offers, budget):
     return max(within, key=lambda o: o["list_price"]) if within else min(offers, key=lambda o: o["list_price"])
 
 
+def selected_offer(shop, budget):
+    """Canonical frozen SKU for skip, quotes and final talk.
+
+    rule_choose intentionally keeps its pre-treatment baseline prospective hint:
+    treatment must not also change the shop ranking. It is not a paid-SKU claim.
+    """
+    return buyer_food_sku.offer(shop, budget, pick_offer)
+
+
 def accept_policy(order):
     """What the kit checks before paying. A food unit that does not last is worth 0, so it needs the proof; goods that
     break are worth 0 too, so they need a warranty covering the whole six hours they can break in (hard_limits)."""
@@ -870,7 +880,7 @@ def hopeless(pool, budget, asks, cfg, min_asks=HOPELESS_MIN_ASKS):
     if not pool:
         return False
     for s in pool:
-        o = pick_offer(s["usable"], budget)
+        o = selected_offer(s, budget)
         seen = asks.get(o["sku"]) or []
         cap = min(value_limit(o, budget, 0, cfg), saved_cap(o, 0))
         if len(seen) < min_asks or min(seen) <= cap:
@@ -1033,7 +1043,7 @@ def start_quotes(shops, order, budget, chance_of, got, ctl):
     So orders cannot run side by side: the time to win is inside one order, and the quotes run while the harness chooses."""
     threads = {}
     for s in shops:
-        o = pick_offer(s["usable"], budget)
+        o = selected_offer(s, budget)
         s["_offer"], s["_b"] = o, chance_of(o["sku"]) or 0
         s["_quote_attempted"] = True  # published before the thread: failed or still pending calls must be counted
         th = threading.Thread(target=quote, args=(s, o["name"], o["sku"], order, got, ctl), daemon=True)
@@ -1478,6 +1488,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "firm_trial": buyer_firm_trial.measurement(order, out),
         "first95_trial": buyer_first95_trial.measurement(order, out),
         "cap95_trial": buyer_cap95_trial.measurement(order, out),
+        "food_sku_trial": order.get("_food_sku_trial"),
         "turns": dict(out.get("turns") or {}),
         "goods_extra_quote_started": order.get("_goods_extra_quote_started"),
         "goods_extra_quote_added": order.get("_goods_extra_quote_added", 0),
@@ -1573,6 +1584,12 @@ def main():
         left = rival_deny.others_first(left, rival)
         log(f"[choose] {sum(s['name'] in rival for s in left)} of {len(left)} shops are revenue rivals of my shop: asked last")
     if r3:
+        frozen = buyer_food_sku.reserve(md, SETTLED, order, left, args.budget, pick_offer,
+            lambda o: min(value_limit(o, args.budget, 0, buyer_cfg()), saved_cap(o, 0)), time.time())
+        if frozen is not None:
+            order["_food_sku_trial"] = frozen
+            for s in left:
+                s["_food_sku"] = frozen["shops"].get(s["name"])
         k = int(buyer_cfg().get("quote_shops", 1))
         early, quotable = prefetch_pool(left, memory, md, order.get("category"), k, rival, kind=order.get("kind"), order_id=order.get("order"),
                                          yield_arm=order["_food_quote_yield"])
@@ -1630,7 +1647,7 @@ def main():
             shop = best
             log(f"[choose] {shop['url']}: {shop['name']} - {reason}")
         stages["quotes"] = time.time()
-    offer = pick_offer(shop["usable"], args.budget) if r3 else None
+    offer = selected_offer(shop, args.budget) if r3 else None
     key = offer["sku"] if r3 else args.item     # prices are comparable within a SKU, not within a category
     label = offer["name"] if r3 else args.item
     chance = None
