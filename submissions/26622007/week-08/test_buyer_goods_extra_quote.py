@@ -69,6 +69,9 @@ class QuoteBoundary(unittest.TestCase):
         self.assertEqual(best["name"],"c")
         self.assertEqual(calls,[["a","b"],["c"]])
         self.assertIn("_goods_extra_quote_started",order)
+        self.assertEqual(order["_goods_extra_quote_added"],1)
+        self.assertEqual(order["_goods_extra_quote_baseline"]["shop"],"a")
+        self.assertTrue(order["_goods_extra_quote_baseline"]["would_skip_at_snapshot"])
         for args in ({"arm":"A"},{"kind":"food"},{"elapsed":9},{"first_price":60}):
             best,calls,order=self.run_quotes(**args)
             self.assertEqual(len(calls),1,args)

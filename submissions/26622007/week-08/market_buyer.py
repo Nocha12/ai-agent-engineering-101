@@ -1127,7 +1127,11 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
         if r:
             log(f"[quote] none of {len(pool)} shops asked within my limit; asking {len(batch)} more")
         threads = [asked[s["name"]] for s in batch if s["name"] in asked]
-        new = start_quotes([s for s in batch if s["name"] not in asked], order, budget, chance_of, got, ctl)
+        new_shops = [s for s in batch if s["name"] not in asked]
+        if extra and r:
+            order["_goods_extra_quote_started"] = time.time()
+            order["_goods_extra_quote_added"] = len(new_shops)
+        new = start_quotes(new_shops, order, budget, chance_of, got, ctl)
         asked.update(new)
         threads += list(new.values())
         pool += batch
@@ -1155,7 +1159,17 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
         if extra and r == 0:
             if not rest or time.time() - STARTED >= buyer_goods_quote_probe.EARLY_SECONDS or any(th.is_alive() for th in threads):
                 break
-            order["_goods_extra_quote_started"] = time.time()
+            # Snapshot only: later negotiation/stock response is not a counterfactual settled outcome.
+            first_scores = [(surplus(s), i, s) for i, s in enumerate(pool) if surplus(s) is not None]
+            if first_scores:
+                picked = max(first_scores, key=lambda x: (fits(x[2]), x[0] - rival_deny.penalty(x[2]["name"], rival),
+                             (got.get(x[2]["name"]) or {}).get("ask_src") != "text", -x[1]))[2]
+                o, q = picked["_offer"], got[picked["name"]]
+                cap = min(value_limit(o, budget, picked.get("_b") or 0, cfg), saved_cap(o, picked.get("_b") or 0))
+                order["_goods_extra_quote_baseline"] = {"shop": picked["name"], "sku": o["sku"],
+                    "ask": q["ask"], "limit": cap, "would_skip_at_snapshot": q["ask"] > cap * (1 + TALK_OVER_SHARE)}
+            else:
+                order["_goods_extra_quote_baseline"] = {"shop": chosen["name"], "would_skip_at_snapshot": None}
     scored = [(surplus(s), i, s) for i, s in enumerate(pool) if surplus(s) is not None]
     # an ask read from the text ranks after a metadata ask of the same fit and share (a misread or made-up text ask
     # must not take the trade from a shop that stated its price in data; independent review 11/06 13:30)
@@ -1425,6 +1439,8 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "food_quote_yield": order.get("_food_quote_yield", order.get("kind") == "food" and quote_yield_arm(order.get("order"))),
         "goods_extra_quote_probe": order.get("_goods_extra_quote_probe"),
         "goods_extra_quote_started": order.get("_goods_extra_quote_started"),
+        "goods_extra_quote_added": order.get("_goods_extra_quote_added", 0),
+        "goods_extra_quote_baseline": order.get("_goods_extra_quote_baseline"),
         "one_won_probe": probe_arm,
         "one_won_default": order.get("_one_won_default", False),
         "opening_discount_probe": order.get("_opening_discount_probe"),
