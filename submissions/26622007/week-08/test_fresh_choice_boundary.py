@@ -12,7 +12,7 @@ import market_buyer as buyer
 
 class FreshChoiceBoundary(unittest.TestCase):
     @contextlib.contextmanager
-    def flow(self, arm, names="abc", *, different_sku=False):
+    def flow(self, arm, names="abc", *, different_sku=False, asks=None):
         shops = [{"name": n, "url": f"https://{n}.example", "reviews": [],
                   "usable": [{"sku": "sku-" + (n if different_sku else "a"),
                               "name": "item", "list_price": 10000}]} for n in names]
@@ -23,8 +23,9 @@ class FreshChoiceBoundary(unittest.TestCase):
         def send(url, text):
             n = url.split("//")[1].split(".")[0]
             sent.append(n)
-            return {"id": "t-" + n, "status": {"state": "TASK_STATE_INPUT_REQUIRED"},
-                    "metadata": {"ask": 6500}}
+            return {"id": "t-" + n, "status": {"state": "TASK_STATE_INPUT_REQUIRED",
+                    "message": {"role": "agent", "parts": [],
+                                "metadata": {"ask": (asks or {}).get(n, 6500)}}}}
         with tempfile.TemporaryDirectory() as md, contextlib.ExitStack() as stack:
             now = time.time()
             stack.enter_context(patch.multiple(rotation, ENABLED=True, START=now-1, END=now+120))
@@ -65,6 +66,21 @@ class FreshChoiceBoundary(unittest.TestCase):
                     self.assertEqual(chosen["name"], "b")
                     self.assertEqual([s["name"] for s in full], list("abc"))
                     buyer.close_prefetch(pre)
+
+    def test_downstream_ties_keep_baseline_preference_after_actual_prefetch(self):
+        with self.flow("B", asks={"a": 7500, "b": 9000, "c": 7500}) as f:
+            shops, order, md, sent, _ = f
+            full, pre = self.prefetch(shops, order, md)
+            chosen, _ = buyer.choose_racing(shops, {"trades": []}, "item", 20000, pre)
+            order["_stock_phase"] = "best_quote"
+            # No first-batch ask fits, so the canonical next shop is asked.
+            # Equal surplus must use baseline b,a,c preference, not c,b,a arrival.
+            best, got = buyer.best_quote(chosen, [s for s in full if s is not chosen], order, {}, 20000,
+                lambda _: 0, {"quote_shops": 2}, wait=.2, rounds=2, pre=pre)
+            self.assertEqual(best["name"], "a")
+            self.assertEqual(collections.Counter(sent), collections.Counter("abc"))
+            self.assertTrue(buyer.resumable(got["a"]))
+            self.assertFalse(buyer.resumable(got["c"]))
 
 
 if __name__ == "__main__":
