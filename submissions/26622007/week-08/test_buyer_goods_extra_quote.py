@@ -12,7 +12,13 @@ from unittest import mock
 import market_buyer as mb
 import buyer_goods_quote_probe as probe
 
-class Assignments(unittest.TestCase):
+class EnabledPilot(unittest.TestCase):
+    def setUp(self):
+        p=mock.patch.object(probe,"ENABLED",True)
+        p.start();self.addCleanup(p.stop)
+
+
+class Assignments(EnabledPilot):
     def test_goods_only_window_off_retry_and_pending_balance(self):
         with tempfile.TemporaryDirectory() as md:
             def reserve(i):
@@ -22,6 +28,8 @@ class Assignments(unittest.TestCase):
             self.assertEqual(arms.count("A"),4)
             self.assertEqual(arms.count("B"),4)
             self.assertEqual(probe.reserve(md,{"kind":"goods","order":"0","category":"c"},now=probe.END+1,env={}),arms[0])
+            with mock.patch.object(probe,"ENABLED",False):
+                self.assertIsNone(probe.reserve(md,{"kind":"goods","order":"0","category":"c"},now=probe.START+1,env={}))
             self.assertIsNone(probe.reserve(md,{"kind":"food","order":"f"},now=probe.START,env={}))
             self.assertIsNone(probe.reserve(md,{"kind":"goods","order":"x"},now=probe.START-1,env={}))
             self.assertIsNone(probe.reserve(md,{"kind":"goods","order":"x"},now=probe.END,env={}))
@@ -32,7 +40,7 @@ class Assignments(unittest.TestCase):
             self.assertIsNone(probe.reserve(md,{"kind":"goods","order":"x"},now=probe.START,env={}))
             with open(os.path.join(md,probe.JOURNAL)) as f:self.assertEqual(f.read(),"{")
 
-class AdmissionBoundary(unittest.TestCase):
+class AdmissionBoundary(EnabledPilot):
     def test_no_stock_stays_in_reserved_itt_and_records_arm(self):
         with tempfile.TemporaryDirectory() as md:
             for name,data in (("shops.json",[]),("order.json",{"kind":"goods","order":"empty","category":"c","acceptable":["G1"]})):
@@ -49,7 +57,7 @@ class AdmissionBoundary(unittest.TestCase):
 class DoneThread:
     def is_alive(self):return False
 
-class QuoteBoundary(unittest.TestCase):
+class QuoteBoundary(EnabledPilot):
     def shops(self):
         return [{"name":n,"url":"https://example.invalid/"+n,"usable":[{"sku":"G1","name":"x","list_price":100}]} for n in ("a","b","c")]
     def run_quotes(self,arm="B",kind="goods",elapsed=4,first_price=90,pending=False):

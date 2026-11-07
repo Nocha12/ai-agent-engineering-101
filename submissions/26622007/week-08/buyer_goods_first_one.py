@@ -8,12 +8,12 @@ import time
 import ask_read
 import oneshot
 
-ENABLED = False  # activation needs a new review gate after the current goods pilot
-START = 1794037200  # proposed 16:40, not an activation promise
-END = 1794039000    # proposed 17:10
+ENABLED = True  # eligible goods first-code-offer only, after reviewed pilot activation
+START = 1794037500  # 11/07 16:45 KST
+END = 1794039300    # 11/07 17:15 KST
 SHOPS = frozenset(("25620027","mjforge"))
 JOURNAL = "goods_first_one_assignments.json"
-STUDY = "goods-first-one-20261107-1640"
+STUDY = "goods-first-one-20261107-1645"
 
 def first_decision(q,limit,steps):
     if steps != (.9,) or limit<1 or q.get("refused") or ask_read.no_warranty(q.get("text") or ""):
