@@ -866,12 +866,35 @@ def quote_fitted(q, budget, cfg):
     return ask <= min(value_limit({"list_price": lp}, budget, 0, cfg), saved_cap({"list_price": lp}, 0))
 
 
-def quote_order(others, fits, k):
-    """The shops quoted after the chosen one: those that fitted lately first, by reviews, but one slot of the first batch
+def recent_quote_yields(md, category, now=None, hours=RECENT_FIT_HOURS):
+    """Food quote scheduling only: valid saved share per attempted quote in this category, before now.
+    A failed/refused quote is zero, not dropped. Two prior attempts with .0875 yield temper small samples;
+    fewer than three observed attempts use the prior yield, with reviews breaking ties. No goods risk is inferred from food.
+    """
+    now = time.time() if now is None else now
+    attempts, shares = collections.Counter(), collections.Counter()
+    for r in recent_orders(md, now, hours):
+        if r.get("category") != category or r.get("kind") != "food":
+            continue
+        for q in r.get("quotes") or ():
+            if not isinstance(q, dict) or not isinstance(q.get("shop"), str):
+                continue
+            name, ask, lp = q["shop"], q.get("ask"), q.get("list_price")
+            attempts[name] += 1
+            if q.get("fit") is True and not str(q.get("lost") or "").startswith("refused") and \
+                    isinstance(ask, (int, float)) and not isinstance(ask, bool) and \
+                    isinstance(lp, (int, float)) and not isinstance(lp, bool) and 0 < ask <= lp:
+                shares[name] += 1 - ask / lp
+    return {name: (shares[name] + .175) / (n + 2) for name, n in attempts.items() if n >= 3}
+
+
+def quote_order(others, fits, k, yields=None):
+    """The shops quoted after the chosen one: fitters by optional food yield then reviews; one slot of the first batch
     goes to a shop that has not, so a cheaper shop can still be found (sorting on the fit count alone let one shop with 52
     fits take every first batch, and a shop never asked never gets a fit)."""
     by_reviews = lambda s: -len(s.get("reviews") or [])
-    fitted = sorted((s for s in others if fits[s["name"]] > 0), key=by_reviews)
+    fitted = sorted((s for s in others if fits[s["name"]] > 0),
+                    key=lambda s: (-(yields or {}).get(s["name"], .0875), by_reviews(s)))
     fresh = sorted((s for s in others if fits[s["name"]] <= 0), key=by_reviews)
     head = max(0, k - 2)          # the first batch: the chosen shop, k - 2 that fitted, one that has not
     return fitted[:head] + fresh[:1] + fitted[head:] + fresh[1:]
@@ -905,11 +928,12 @@ def start_quotes(shops, order, budget, chance_of, got, ctl):
     return threads
 
 
-def prefetch_pool(left, memory, md, category, k, rival=frozenset()):
+def prefetch_pool(left, memory, md, category, k, rival=frozenset(), kind=None):
     """The k - 1 shops quoted before the harness has chosen (the chosen shop takes the last slot of the first batch),
     and every shop that could be quoted, in quote order; revenue rivals of my shop after the others (rival_deny)."""
     others = [s for s in left if not caught_cheating(my_history(memory, s["name"]))]
-    others = rival_deny.others_first(quote_order(others, recent_fits(md, category), k), rival)
+    yields = recent_quote_yields(md, category) if kind == "food" and os.environ.get("BUYER_QUOTE_YIELD", "1") != "0" else None
+    others = rival_deny.others_first(quote_order(others, recent_fits(md, category), k, yields), rival)
     return others[:max(0, k - 1)], others
 
 
@@ -1369,7 +1393,7 @@ def main():
         log(f"[choose] {sum(s['name'] in rival for s in left)} of {len(left)} shops are revenue rivals of my shop: asked last")
     if r3:
         k = int(buyer_cfg().get("quote_shops", 1))
-        early, quotable = prefetch_pool(left, memory, md, order.get("category"), k, rival)
+        early, quotable = prefetch_pool(left, memory, md, order.get("category"), k, rival, kind=order.get("kind"))
         try:
             gave_up = hopeless(quotable or left, args.budget, recent_asks(md), buyer_cfg())
         except Exception as e:  # noqa: BLE001 - an odd record line must not end the run before the result line
