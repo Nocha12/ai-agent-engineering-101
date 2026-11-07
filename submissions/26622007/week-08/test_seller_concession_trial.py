@@ -60,3 +60,64 @@ class ConcessionTests(unittest.TestCase):
             t.quote('off',d,100)
             self.assertEqual(d['ask'],100000)
             self.assertFalse((Path(root)/'seller_concession_trial.sqlite3').exists())
+
+    def test_reentry_keeps_current_control_quote_and_marks_contamination(self):
+        from seller_concession_trial import Trial
+        with tempfile.TemporaryDirectory() as root:
+            p = Path(root)
+            (p/'seller_concession_trial.json').write_text(json.dumps(dict(enabled=True,id='p',start=100,end=1900,seed=1)))
+            for task in ('one', 'two'):
+                old = dict(id='sku',unit='old',kind='goods',cost=50000,reserve=80000,open=100000,ask=100000,history=[('you asked',100000)])
+                original = Trial(p).quote(task, old, 100)
+                current = dict(old,unit='new',reserve=150000,open=200000,ask=200000,history=[('you asked',200000)])
+                t = Trial(p)
+                t.quote(task,current,101)
+                self.assertEqual(current['ask'],200000)
+                t.restore(current)
+                self.assertEqual(current['ask'],200000)
+                self.assertEqual(t.arm(current['concession_trial']),'A')
+                self.assertEqual(t.assign(task,old,102),original)
+                event=json.loads((p/'seller_concession_trial.jsonl').read_text().splitlines()[-1])
+                self.assertTrue(event['contaminated'])
+                self.assertEqual(event['original_open'],100000)
+                self.assertEqual(event['current_open'],200000)
+
+    def test_turn_trace_records_guarded_decision_without_reader_enrollment(self):
+        from seller_concession_trial import Trial
+        from types import SimpleNamespace
+        import time
+        import seller
+        with tempfile.TemporaryDirectory() as root:
+            p=Path(root)
+            (p/'seller_concession_trial.json').write_text(json.dumps(dict(enabled=True,id='p',start=100,end=1900,seed=1)))
+            t=Trial(p)
+            d=dict(id='sku',unit='u',kind='goods',cost=50000,reserve=80000,open=100000,ask=100000,rounds=1,history=[('you asked',100000)],reader_trial_floor=90000,reader_trial_harness_used=True)
+            t.quote('uuid',d,100)
+            action,price=seller.price_guards(d,'accept',70000,70000,90000)
+            t.trace('uuid',d,SimpleNamespace(source='jev',jev_calls=1),time.monotonic(),{},action,price,70000)
+            r=json.loads((p/'seller_concession_trial.jsonl').read_text().splitlines()[-1])
+            self.assertEqual(r['event'],'turn')
+            self.assertEqual((r['action'],r['price'],r['offer']),('counter',90000,70000))
+            self.assertEqual((r['ask'],r['floor'],r['source'],r['jev_calls'],r['harness_used']),(d['ask'],90000,'jev',1,True))
+            self.assertGreaterEqual(r['seconds'],0)
+            self.assertFalse((p/'seller_reader_trial.jsonl').exists())
+
+    def test_all_reader_trace_sites_also_emit_concession_turn(self):
+        import ast
+        tree=ast.parse((Path(__file__).parent/'seller.py').read_text())
+        sites=0
+        for node in ast.walk(tree):
+            for value in ast.iter_fields(node):
+                body=value[1]
+                if not isinstance(body,list):
+                    continue
+                for i,stmt in enumerate(body):
+                    if not isinstance(stmt,ast.Expr) or not isinstance(stmt.value,ast.Call):
+                        continue
+                    call=stmt.value
+                    if isinstance(call.func,ast.Attribute) and isinstance(call.func.value,ast.Name) and call.func.value.id=='READER_TRIAL' and call.func.attr=='trace':
+                        sites+=1
+                        next_call=body[i+1].value
+                        self.assertEqual(ast.unparse(next_call.func),'CONCESSION_TRIAL.trace')
+                        self.assertEqual([ast.dump(a) for a in call.args],[ast.dump(a) for a in next_call.args])
+        self.assertEqual(sites,5)

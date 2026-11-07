@@ -587,12 +587,14 @@ class Seller(AgentExecutor):
                 log(f"fallback: unambiguous numeric offer {offer}")
             elif fallback_reply(deal):
                 READER_TRIAL.trace(task.id, deal, reader, trial_started, {}, "counter", deal["ask"], 0)
+                CONCESSION_TRIAL.trace(task.id, deal, reader, trial_started, {}, "counter", deal["ask"], 0)
                 # the talk stays open: a bare number next turn reaches the fallback above without the harness
                 await up.requires_input(say(fallback_reply(deal), deal["ask"]))
                 log(f"task {task.id[:8]} -> INPUT_REQUIRED (harness failed; asked for a bare number)")
                 return
             else:
                 READER_TRIAL.trace(task.id, deal, reader, trial_started, {}, "failed", None, 0)
+                CONCESSION_TRIAL.trace(task.id, deal, reader, trial_started, {}, "failed", None, 0)
                 await up.failed(say("The shop cannot answer right now."))
                 self.free(task.id, deal)
                 del self.open[task.id]
@@ -604,6 +606,7 @@ class Seller(AgentExecutor):
             offer = 0
         if not offer:
             READER_TRIAL.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], 0)
+            CONCESSION_TRIAL.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], 0)
             log(f"task {task.id[:8]} no offer in the message; asking again")
             await up.requires_input(say(f"Please tell me the price you offer. My price: {deal['ask']}.", deal["ask"]))
             return
@@ -619,12 +622,14 @@ class Seller(AgentExecutor):
             # higher offer has chosen it.
             log(f"FAIR offer {offer} > our ask {deal['ask']} -> tell the buyer our price")
             READER_TRIAL.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], offer)
+            CONCESSION_TRIAL.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], offer)
             deal["told_ask"] = True
             deal["history"].append(("you asked", deal["ask"]))
             await up.requires_input(say(f"You offered more than our price. Our price is only {deal['ask']}; "
                                         f"send it to close the deal. My price: {deal['ask']}.", deal["ask"]))
             return
         READER_TRIAL.trace(task.id, deal, reader, trial_started, d, action, price, offer)
+        CONCESSION_TRIAL.trace(task.id, deal, reader, trial_started, d, action, price, offer)
         if action == "accept":
             receipt = (self.stock_receipt(task.id, deal, int(offer)) if deal.get("unit") else
                        {"shop": self.name, "item": deal["name"], "price": int(offer), "task": task.id})
@@ -669,14 +674,14 @@ class Seller(AgentExecutor):
         """Hands the write to one writer thread and returns at once. shop_memory.record rewrites the whole Round 3 file
         (10.5 MB, 26,865 talks on 11/06 16:24: 0.28 s a write, and growing) and was called on the event loop at the end of
         every talk, so every other buyer's talk with this shop stood still meanwhile. One worker keeps the writes in order."""
-        entry = (task_id, dict(deal, history=list(deal.get("history") or [])), result, price)
+        entry = (task_id, dict(deal, history=list(deal.get("history") or [])), result, price, time.time())
         try:
             MEMORY_WRITER.submit(self._remember_now, *entry)
         except RuntimeError:          # the interpreter is shutting down: write it here, as before
             self._remember_now(*entry)
 
-    def _remember_now(self, task_id, deal, result, price=None):
-        CONCESSION_TRIAL.event(task_id, deal, result, price)
+    def _remember_now(self, task_id, deal, result, price=None, observed_at=None):
+        CONCESSION_TRIAL.event(task_id, deal, result, price, observed_at)
         try:
             shop_memory.record({"task": task_id, "item": deal.get("key") or deal["name"], "sku": deal["id"],
                                 "unit": deal.get("unit"), "cost": deal.get("cost"), "reserve": deal["reserve"],

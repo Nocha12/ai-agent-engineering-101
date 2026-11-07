@@ -91,16 +91,25 @@ class Trial:
     def arm(self, assignment):
         c = self.config()
         # Existing enrollment survives normal end; absence/invalidity fails closed.
-        if not c or c.get("stop") or c["id"] != assignment.get("id"):
+        if assignment.get("contaminated") or not c or c.get("stop") or c["id"] != assignment.get("id"):
             return "A"
         return assignment.get("arm", "A")
 
     def quote(self, task, deal, now=None):
         """Change only the first public ask; retain the original schedule anchor."""
         a = self.assign(task, deal, now)
+        if a.get('id'):
+            snapshot = {"unit": deal.get("unit"), "sku": deal.get("id"),
+                        "kind": deal.get("kind"), "grade": deal.get("reader_trial_grade"),
+                        "cost": deal.get("cost"), "reserve": deal["reserve"], "open": deal["open"],
+                        "expires_at": deal.get("expires_at"), "policy_sha": deal.get("reader_trial_policy_sha")}
+            if any(a.get(k) != v for k, v in snapshot.items()):
+                # Do not mutate the enrollment denominator or mix historical prices with a new unit.
+                a = dict(a, contaminated=True, invalid_reason="snapshot_mismatch")
+                self.invalid("snapshot_mismatch")
         deal['concession_trial'] = a
         if a.get('id'):
-            original = a['open']
+            original = deal['open'] if a.get('contaminated') else a['open']
             deal['ask'] = max(deal['reserve'], round(original * .97)) if self.arm(a) == 'B' else original
             deal['history'][0] = ('you asked', deal['ask'])
             self.event(task, deal, 'quote', deal['ask'], now)
@@ -109,18 +118,22 @@ class Trial:
     def restore(self, deal):
         """On invalid/stop return untouched opening to control; never raise a later counter."""
         a = deal.get('concession_trial') or {}
-        if a.get('id') and self.arm(a) != a.get('arm') and deal.get('rounds', 0) == 0:
+        if a.get('id') and not a.get('contaminated') and self.arm(a) != a.get('arm') and deal.get('rounds', 0) == 0:
             deal['ask'] = a['open']
             deal['history'][0] = ('you asked', a['open'])
 
-    def event(self, task, deal, event, price=None, now=None):
+    def event(self, task, deal, event, price=None, now=None, **fields):
         a = deal.get('concession_trial') or {}
         if not a.get('id'):
             return
         try:
             rec = dict(ts=time.time() if now is None else now, task=task, id=a['id'],
                        arm=a['arm'], effective_arm=self.arm(a), event=event, price=price,
-                       original_open=a['open'], reserve=a['reserve'], cost=a.get('cost'))
+                       original_open=a['open'], reserve=a['reserve'], cost=a.get('cost'),
+                       contaminated=bool(a.get('contaminated')), invalid_reason=a.get('invalid_reason'),
+                       current_open=deal.get('open'), current_reserve=deal.get('reserve'),
+                       unit=deal.get('unit'), sku=deal.get('id'), assignment_unit=a.get('unit'))
+            rec.update(fields)
             fd = os.open(self.root / 'seller_concession_trial.jsonl', os.O_WRONLY|os.O_CREAT|os.O_APPEND, 0o600)
             try:
                 data = (json.dumps(rec, allow_nan=False)+'\n').encode()
@@ -131,8 +144,19 @@ class Trial:
         except Exception:
             self.invalid('trace')
 
+    def trace(self, task, deal, reader, started, raw, action, price, offer):
+        """Called at exactly the legacy reader trace sites, after final price guards."""
+        self.event(task, deal, 'turn', offer if action == 'accept' else price,
+                   action=action, offer=offer, ask=deal['ask'], floor=deal.get('reader_trial_floor'),
+                   seconds=time.monotonic()-started, source=reader.source, jev_calls=reader.jev_calls,
+                   harness_used=bool(deal.get('reader_trial_harness_used')), round=deal['rounds'],
+                   raw={k: raw.get(k) for k in ('action', 'price', 'buyer_offer')})
+
     def readout(self, trial_id, now=None):
-        """ITT denominators include no replies. Outcomes mature after 600 seconds."""
+        """Non-authoritative auxiliary event readout; not ledger settlement evidence.
+
+        ITT denominators include no replies. Outcomes mature after 600 seconds.
+        """
         now = time.time() if now is None else now
         result = {arm: dict(assigned=0, mature=0, deals=0, gross_margin=0) for arm in ('A','B')}
         path = self.root / 'seller_concession_trial.sqlite3'
