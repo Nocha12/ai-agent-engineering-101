@@ -248,7 +248,7 @@ class StockBook:
                 self._drop(unit)
         return [u for u in inv if not expired(u, now) and u["unit"] not in self.held and u["unit"] not in self.sold]
 
-    def pick(self, text, now=None, rank=None):
+    def pick(self, text, now=None, rank=None, *, allow_grade_preference=False, selection=None):
         """(unit, None) for what the buyer asked (SKU first, then name, then category): among the units that fit the buyer's
         needs (needs()/unfit()), the one that expires first. Among units that never expire (goods), rank(u) (the seller
         passes the unit's floor) comes before the oldest: 11/06 21:2x the oldest G24f5f979 cost 0.74 of list after a
@@ -267,6 +267,17 @@ class StockBook:
                 return min(ok, key=lambda u: (u.get("expires_at") or float("inf"),
                                               0 if rank is None or u.get("expires_at") else _rank(rank, u),
                                               u.get("supplied_at") or 0)), None
+            if allow_grade_preference:
+                from seller_grade_preference import preference_needs
+                fallback=preference_needs(text)
+                extra=[u for u in fit if unfit(u,fallback,now) is None] if fallback else []
+                if extra:
+                    chosen=min(extra,key=lambda u:(u.get("expires_at") or float("inf"),
+                               0 if rank is None or u.get("expires_at") else _rank(rank,u),
+                               u.get("supplied_at") or 0))
+                    if selection is not None:
+                        selection.update(preference_used=True,baseline_miss=unfit(fit[0],need,now))
+                    return chosen,None
             return None, unfit(fit[0], need, now)
         return None, "not in stock"
 
