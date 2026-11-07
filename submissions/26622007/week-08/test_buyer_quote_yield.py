@@ -95,6 +95,10 @@ class FoodQuoteYield(PhaseOne):
                 early, all_shops = mb.prefetch_pool(shops, {"trades": []}, md, "c", 3, kind="food", order_id="o-0")
             self.assertEqual([s["name"] for s in all_shops], ["cheap", "new", "famous"])
             self.assertEqual([s["name"] for s in early], ["cheap", "new"])
+            with mock.patch.object(mb.time, "time", return_value=mb.QUOTE_YIELD_END+1):
+                _, pinned = mb.prefetch_pool(shops, {"trades": []}, md, "c", 3, kind="food",
+                                             order_id="o-0", yield_arm=True)
+            self.assertEqual([s["name"] for s in pinned], ["cheap", "new", "famous"])
             with mock.patch.dict(os.environ, {"BUYER_QUOTE_YIELD": "0"}):
                 _, old = mb.prefetch_pool(shops, {"trades": []}, md, "c", 3, kind="food", order_id="o-0")
             self.assertEqual([s["name"] for s in old], ["famous", "new", "cheap"])

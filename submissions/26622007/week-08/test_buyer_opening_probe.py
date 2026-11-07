@@ -27,6 +27,19 @@ class BalancedProbe(unittest.TestCase):
             self.assertEqual(mb.opening_probe_arm(md, "11im", "o-old", {"BUYER_ONE_WON_PROBE":"1"}, now=mb.ONE_WON_PROBE_START+1), "A")
 
 
+    def test_same_sku_and_required_life_are_balanced_before_shop_total(self):
+        rows = [{"ts": mb.ONE_WON_PROBE_START, "order": "o1", "shop": "11im", "sku": "G1",
+                 "use_within_hours": 72, "one_won_probe": "A"},
+                {"ts": mb.ONE_WON_PROBE_START, "order": "o2", "shop": "11im", "sku": "G2",
+                 "use_within_hours": 72, "one_won_probe": "B"}]
+        with tempfile.TemporaryDirectory() as md:
+            os.mkdir(os.path.join(md,"measure"))
+            with open(os.path.join(md,"measure","orders.jsonl"),"w") as f:
+                f.writelines(json.dumps(r)+"\n" for r in rows)
+            self.assertEqual(mb.opening_probe_arm(md,"11im","new",{},now=mb.ONE_WON_PROBE_START+1,
+                                                  sku="G1",use_within=72),"B")
+
+
 class ProbeTalk(unittest.TestCase):
     def test_only_first_valid_food_code_offer_is_one_then_normal_counter(self):
         h=[]
