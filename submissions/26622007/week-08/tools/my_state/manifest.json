@@ -1,6 +1,6 @@
 {
  "name": "my_state",
- "purpose": "My shop now: balance, stock count and cost by category and every SKU, units expiring within 24 h, oldest units.",
+ "purpose": "My shop now: balance, stock count and cost by category and every SKU, plus up to five units expiring within 24 h and five oldest units.",
  "args": {
   "type": "object",
   "properties": {
