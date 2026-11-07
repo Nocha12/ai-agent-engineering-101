@@ -28,7 +28,6 @@ The seller and the buyer both decide through ask(). Three backends:
 Either way the answer is validated again here (fields, types, enums) before use.
 """
 import fcntl
-import hashlib
 import json
 import os
 import re
@@ -188,33 +187,6 @@ def _openrouter_key():
     return None
 
 
-def _parse_diagnostic(stage, error, tag):
-    """Best-effort allowlisted metadata; never expose the answer or exception text."""
-    try:
-        if stage not in ("outer_json", "inner_json", "schema_validation"):
-            return
-        roles = ("restock-agent", "forum-agent", "seller-harness", "buyer-harness", "buyer-agent")
-        meta = {"stage": stage, "role": tag if tag in roles else "other",
-                "kind": "schema" if stage == "schema_validation" else "shape"}
-        if isinstance(error, json.JSONDecodeError):
-            doc, pos = error.doc, error.pos
-            end = pos
-            while end < len(doc) and doc[end] in " \t\r\n":
-                end += 1
-            char = doc[end:end + 1]
-            tail = ("none" if not char else "object" if char == "{" else
-                    "array" if char == "[" else "string" if char == '"' else
-                    "number" if char in "-0123456789" else
-                    "literal" if char in "tfn" else "other")
-            meta.update(kind="json_decode", pos=pos, lineno=error.lineno, colno=error.colno,
-                        chars=len(doc), sha256=hashlib.sha256(doc.encode("utf-8", "surrogatepass")).hexdigest(),
-                        tail_kind=tail)
-        log("harness", "parse_diag " + json.dumps(meta, sort_keys=True))
-    except Exception:
-        # Observability must not replace the existing reject/retry outcome.
-        pass
-
-
 def _ask_openrouter(prompt, schema, system, tag, timeout=None):
     key = _openrouter_key()
     if not key:
@@ -268,16 +240,12 @@ def _ask_openrouter(prompt, schema, system, tag, timeout=None):
                 if attempt < tries:
                     time.sleep(min(3 * attempt, max(0, limit - (time.time() - first)) / 4))
                 continue
-            stage = "outer_json"
             try:
                 content = r.json()["choices"][0]["message"]["content"]
-                stage = "inner_json"
-                decoded = json.loads(content)
-                stage = "schema_validation"
-                answer = validate(decoded, schema)
+                answer = validate(json.loads(content), schema)
             except (KeyError, IndexError, TypeError, ValueError, HarnessError) as e:
-                last = f"invalid answer: {stage}"
-                _parse_diagnostic(stage, e, tag)
+                last = f"invalid answer: {e}"
+                log(tag, f"attempt {attempt}: {last}")
                 record_call(tag, prompt, system, time.time() - started, False)
                 continue
             record_call(tag, prompt, system, time.time() - started, True, r.json().get("usage"))
