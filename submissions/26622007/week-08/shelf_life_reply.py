@@ -48,17 +48,20 @@ class ShelfLifeTrial(OpeningCue):
     def reply(self,text,deal,now=None):
         deal["shelf_reply_used"]=False
         deal["shelf_reply_sha256"]=None
-        answer=factual_answer(text,deal,now)
-        deal["shelf_eligible"]=answer is not None
-        deal["_shelf_answer"]=({k:answer[k] for k in ("hours","required","at")} if answer else {})
+        deal["shelf_eligible"]=False
+        deal["_shelf_answer"]={}
         a=deal.get("shelf_life") or {}
-        if not answer or not a.get("id") or self.arm(a)!="B":return None
+        # Check every enrolled arm and input before eligibility can early-return.
         # Negotiated ask may change; the unit, opening anchor and terms may not.
         snapshot=self._snapshot(deal)
-        if any(a.get(k)!=v for k,v in snapshot.items() if k!="ask"):
+        if a.get("id") and any(a.get(k)!=v for k,v in snapshot.items() if k!="ask"):
             deal["shelf_life"]=dict(a,contaminated=True)
             self.invalid("shelf_snapshot")
             return None
+        answer=factual_answer(text,deal,now)
+        deal["shelf_eligible"]=answer is not None
+        deal["_shelf_answer"]=({k:answer[k] for k in ("hours","required","at")} if answer else {})
+        if not answer or not a.get("id") or self.arm(a)!="B":return None
         deal["shelf_reply_used"]=True
         deal["shelf_reply_sha256"]=hashlib.sha256(answer["message"].encode()).hexdigest()
         return answer["message"]

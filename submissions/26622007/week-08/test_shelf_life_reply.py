@@ -37,6 +37,19 @@ class ShelfTrialTest(unittest.TestCase):
             t.event("b",b,"turn",old,1002)
             e=json.loads((t.root/"seller_concession_trial.jsonl").read_text().splitlines()[-1]);self.assertTrue(e["shelf_reply_used"]);self.assertEqual(e["id"],"adopted-v1")
             self.assertIsNone(t.reply("I offer 12000.",b,1003));self.assertFalse(b["shelf_reply_used"]);self.assertFalse(b["shelf_eligible"])
+    def test_all_enrolled_arms_detect_mutation_even_when_answer_ineligible(self):
+        for arm in ("A","B"):
+            for message in ("I offer 12000.", "How many hours of shelf life does this unit have left? It must last at least 1 hours."):
+                with self.subTest(arm=arm,message=message),tempfile.TemporaryDirectory() as root:
+                    t=ShelfLifeTrial(root);t.root.mkdir(parents=True);(t.root/"adopted").touch()
+                    d=self.deal();t.quote("registered",d,1000)
+                    d["shelf_life"]["arm"]=arm
+                    d["expires_at"]=900
+                    self.assertIsNone(t.reply(message,d,1001))
+                    self.assertTrue(d["shelf_life"].get("contaminated"))
+                    self.assertEqual(d["shelf_life"]["arm"],arm)
+                    self.assertFalse(d["shelf_reply_used"])
+
     def test_expiry_snapshot_mutation_and_new_only_disable(self):
         with tempfile.TemporaryDirectory() as root:
             t=ShelfLifeTrial(root);t.root.mkdir(parents=True);(t.root/"adopted").touch();d=self.deal();t.quote("b",d,1000)
