@@ -1510,7 +1510,8 @@ def main():
     order = load_json(args.order, {}) if args.order else {}
     r3 = isinstance(order, dict) and bool(order.get("acceptable"))
     if r3:
-        order["_buyer_started_at"] = time.time()
+        # Keep a retained invocation start on resume; invalid values fail closed in the trial.
+        order.setdefault("_buyer_started_at", time.time())
         order["_food_quote_yield"] = order.get("kind") == "food" and quote_yield_arm(order.get("order"))
     md = os.path.dirname(args.shops) or "."
     if r3:
