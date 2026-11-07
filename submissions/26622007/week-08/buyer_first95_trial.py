@@ -8,10 +8,10 @@ import json
 import math
 import re
 
-ENABLED = False
-START = 0
-END = 0
-STUDY = "goods-first95-v1"
+ENABLED = True
+START = 1794053700  # 2026-11-07 21:15 KST
+END = 1794055500  # 2026-11-07 21:45 KST
+STUDY = "goods-first95-20261107-2115"
 
 
 def _id(value):
