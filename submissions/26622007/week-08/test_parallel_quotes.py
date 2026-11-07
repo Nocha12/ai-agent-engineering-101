@@ -118,6 +118,11 @@ class MainOverlap(unittest.TestCase):
     CATALOG = {"H1": {"list_price": 10000, "kind": "goods"}}
     ORDER = {"order": "o-1", "item": "청소기", "budget": 20000, "acceptable": ["H1"], "kind": "goods", "category": "가전>청소기"}
 
+    def setUp(self):   # these runs are about the agent's choice racing the quotes, whatever pricing.json's buyer_choose says
+        p = mock.patch.dict(os.environ, {"BUYER_CHOOSE_ENGINE": "agent"})
+        p.start()
+        self.addCleanup(p.stop)
+
     def run_main(self, shops, hopeless=False, choose_s=0.5, quote_s=0.5, choose_fails=False, asks=None, slower=None, deal=None):
         printed, events, cancelled = [], [], []
         self.cancelled = cancelled

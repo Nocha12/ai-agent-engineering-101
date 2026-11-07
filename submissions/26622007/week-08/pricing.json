@@ -1,4 +1,5 @@
 {
+  "buyer_choose": {"engine": "rule"},
   "tiers": [
     {
       "min_reviews": 0,
