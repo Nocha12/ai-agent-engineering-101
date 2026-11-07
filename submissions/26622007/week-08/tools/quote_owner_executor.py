@@ -1,4 +1,4 @@
-"""Local, pinned four-file quote deployment preparation. Never runs buyer code."""
+"""Local pinned four-file owner CLI. Apply installs forced OFF; never runs buyer code."""
 import argparse
 import ast
 from contextlib import contextmanager
@@ -209,7 +209,22 @@ def execute_apply(args, *, write=atomic_write):
             'head': args.expected_head,
             'files': {n: digest(b) if b is not None else None for n, b in originals.items()}
         }, sort_keys=True) + '\n').encode())
+        # Persist directory links as well as backup file contents before touching target.
+        for directory in sorted((p for p in backup.rglob('*') if p.is_dir()),
+                                key=lambda p: len(p.parts), reverse=True):
+            fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+        for directory in (backup, stage):
+            fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
         written = []
+        entry_attempted = False
         try:
             for name in FILES:
                 if git(target, 'rev-parse', 'HEAD').decode().strip() != args.expected_head:
@@ -218,8 +233,12 @@ def execute_apply(args, *, write=atomic_write):
                 actual = p.read_bytes() if p.exists() else None
                 if actual != originals[name]:
                     raise ValueError('target changed during apply')
+                if name == FILES[3]:
+                    entry_attempted = True
                 write(p, OFF if name == FILES[0] else blobs[name])
                 written.append(name)
+            if git(target, 'rev-parse', 'HEAD').decode().strip() != args.expected_head:
+                raise ValueError('target HEAD changed during apply')
             return dict(status='applied', written=written, sourcedOFF=sourced_off(target))
         except Exception as exc:
             errors = []
@@ -227,10 +246,11 @@ def execute_apply(args, *, write=atomic_write):
                 write(safe_file(target, FILES[0]), OFF)
             except Exception as recovery:
                 errors.append('OFF: ' + str(recovery))
-            try:
-                write(safe_file(target, FILES[3]), originals[FILES[3]])
-            except Exception as recovery:
-                errors.append('entry: ' + str(recovery))
+            if entry_attempted:
+                try:
+                    write(safe_file(target, FILES[3]), originals[FILES[3]])
+                except Exception as recovery:
+                    errors.append('entry: ' + str(recovery))
             return dict(status='failed', error=str(exc), written=written,
                         sourcedOFF=sourced_off(target), recovery_errors=errors)
 

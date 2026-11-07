@@ -214,6 +214,67 @@ class OwnerCLI(unittest.TestCase):
         (self.target / FILES[3]).chmod(0o755)
         self.plan(ok=False)
 
+    def test_all_transition_failures_report_off_and_keep_entry(self):
+        module = executor()
+        for step in range(1, 5):
+            with self.subTest(step=step):
+                for name in FILES:
+                    (self.target / name).write_bytes(OFF if name == FILES[0] else b'# target\n')
+                self.stage = self.root / f'failure-{step}'
+                self.prepare()
+                args = SimpleNamespace(target=str(self.target), expected_head=self.head,
+                    staging=str(self.stage), manifest_sha256=self.prepared['manifest_sha256'],
+                    confirm=self.plan()['confirm'])
+                attempts = []
+
+                def fail_once(path, data):
+                    attempts.append(path)
+                    if len(attempts) == step:
+                        raise OSError('fixture transition failure')
+                    module.atomic_write(path, data)
+
+                result = module.execute_apply(args, write=fail_once)
+                self.assertEqual(result['status'], 'failed')
+                self.assertTrue(result['sourcedOFF'])
+                self.assertEqual((self.target / FILES[3]).read_bytes(), b'# target\n')
+
+    def test_persistent_off_write_failure_reports_false(self):
+        on = b"SOURCE_CONTROL = True\nENABLED = True\nSTART = 2000000000\nSTUDY = 'fixture'\n"
+        (self.target / FILES[0]).write_bytes(on)
+        self.git(self.target, 'add', FILES[0])
+        self.git(self.target, 'commit', '-qm', 'on fixture only')
+        self.head = self.git(self.target, 'rev-parse', 'HEAD').strip()
+        self.prepare()
+        module = executor()
+        args = SimpleNamespace(target=str(self.target), expected_head=self.head,
+            staging=str(self.stage), manifest_sha256=self.prepared['manifest_sha256'],
+            confirm=self.plan()['confirm'])
+
+        def refuse_policy(path, data):
+            if path == self.target / FILES[0]:
+                raise OSError('fixture persistent write failure')
+            module.atomic_write(path, data)
+
+        result = module.execute_apply(args, write=refuse_policy)
+        self.assertFalse(result['sourcedOFF'])
+        self.assertEqual(result['status'], 'failed')
+        self.assertEqual(len(result['recovery_errors']), 1)
+
+    def test_on_staged_policy_is_forced_off_and_prepare_rejects_nested_staging(self):
+        on = b"SOURCE_CONTROL = True\nENABLED = True\nSTART = 2000000000\nSTUDY = 'fixture'\n"
+        (self.source / FILES[0]).write_bytes(on)
+        self.git(self.source, 'add', FILES[0])
+        self.git(self.source, 'commit', '-qm', 'on fixture only')
+        self.commit = self.git(self.source, 'rev-parse', 'HEAD').strip()
+        self.cli('prepare', '--source', self.source, '--commit', self.commit,
+                 '--target', self.target, '--expected-head', self.head,
+                 '--staging', self.target / 'nested', ok=False)
+        self.assertFalse((self.target / 'nested').exists())
+        self.prepare()
+        self.assertEqual(self.plan()['policy'], 'forced-OFF')
+        self.apply()
+        self.assertEqual((self.target / FILES[0]).read_bytes(), OFF)
+
 
 if __name__ == '__main__':
     unittest.main()
