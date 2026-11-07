@@ -1212,6 +1212,14 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
     early = [s for s in others if s["name"] in asked and s["name"] != chosen["name"]]
     later = [s for s in others if s["name"] not in asked and s["name"] != chosen["name"]]
     rest = [chosen] + early + later
+    preference = {}
+    if order.get("_fresh_inputs"):
+        baseline, _, _, baseline_k, _ = order["_fresh_inputs"]
+        baseline_asked = {s["name"] for s in baseline[:max(0, baseline_k - 1)]}
+        candidates = [s for s in baseline if s["name"] != chosen["name"]]
+        ranked = [chosen] + [s for s in candidates if s["name"] in baseline_asked] + \
+            [s for s in candidates if s["name"] not in baseline_asked]
+        preference = {s["name"]: i for i, s in enumerate(ranked)}
     first = max(k, 1 + len(early))
     # a slow choice: the quotes already asked are read (until QUOTE_UNTIL), no new shop is asked (377c7da quoted none past 60 s)
     late = bool(pre) and time.time() - STARTED > QUOTE_LATE     # without pre, main() calls this only before 60 s
@@ -1275,7 +1283,7 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
             if not rest or time.time() - STARTED >= buyer_goods_quote_probe.EARLY_SECONDS or any(th.is_alive() for th in threads):
                 break
             # Snapshot only: later negotiation/stock response is not a counterfactual settled outcome.
-            first_scores = [(surplus(s), i, s) for i, s in enumerate(pool) if surplus(s) is not None]
+                first_scores = [(surplus(s), preference.get(s["name"], i), s) for i, s in enumerate(pool) if surplus(s) is not None]
             if first_scores:
                 picked = max(first_scores, key=lambda x: (fits(x[2]), x[0] - rival_deny.penalty(x[2]["name"], rival),
                              (got.get(x[2]["name"]) or {}).get("ask_src") != "text", -x[1]))[2]
@@ -1285,7 +1293,7 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
                     "ask": q["ask"], "limit": cap, "would_skip_at_snapshot": q["ask"] > cap * (1 + TALK_OVER_SHARE)}
             else:
                 order["_goods_extra_quote_baseline"] = {"shop": chosen["name"], "would_skip_at_snapshot": None}
-    scored = [(surplus(s), i, s) for i, s in enumerate(pool) if surplus(s) is not None]
+    scored = [(surplus(s), preference.get(s["name"], i), s) for i, s in enumerate(pool) if surplus(s) is not None]
     # an ask read from the text ranks after a metadata ask of the same fit and share (a misread or made-up text ask
     # must not take the trade from a shop that stated its price in data; independent review 11/06 13:30)
     meta = lambda s: (got.get(s["name"]) or {}).get("ask_src") != "text"
