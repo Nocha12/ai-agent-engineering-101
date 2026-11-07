@@ -109,6 +109,8 @@ def validate(args):
         if entry:
             if entry[0] != '100644' or not path.exists():
                 raise ValueError('target file mode or existence mismatch')
+            if path.stat().st_mode & 0o111:
+                raise ValueError('allowlisted target mode dirty')
             if path.read_bytes() != git(target, 'show', head + ':' + name):
                 raise ValueError('allowlisted target dirty')
         elif path.exists():

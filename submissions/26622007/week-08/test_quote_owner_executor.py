@@ -162,6 +162,58 @@ class OwnerCLI(unittest.TestCase):
         self.assertTrue(result['sourcedOFF'])
         self.assertEqual((self.target / FILES[0]).read_bytes(), OFF)
 
+    def test_rejects_manifest_edits_symlinks_and_staged_target_changes(self):
+        self.prepare()
+        manifest = self.stage / 'manifest.json'
+        original = manifest.read_bytes()
+        manifest.write_bytes(original + b' ')
+        self.plan(ok=False)
+        manifest.write_bytes(original)
+        p = self.stage / FILES[1]
+        p.unlink()
+        p.symlink_to(self.source / FILES[1])
+        self.plan(ok=False)
+        p.unlink()
+        p.write_bytes((self.source / FILES[1]).read_bytes())
+        target = self.target / FILES[1]
+        target.unlink()
+        target.symlink_to(self.source / FILES[1])
+        self.plan(ok=False)
+        target.unlink()
+        target.write_bytes(b'# target\n')
+        target.write_bytes(b'# staged\n')
+        self.git(self.target, 'add', FILES[1])
+        target.write_bytes(b'# target\n')
+        self.plan(ok=False)
+
+    def test_policy_acceptance_requires_exact_four_literal_types(self):
+        invalid = [
+            OFF.replace(b'True', b'1'), OFF.replace(b'False', b'0'),
+            OFF.replace(b'START = 0', b'START = True'),
+            OFF.replace(b'START = 0', b'START = -1'),
+            OFF.replace(b'START = 0', b'START = 1.0'),
+            OFF.replace(b"STUDY = ''", b"STUDY = '" + b'x' * 65 + b"'"),
+            OFF.replace(b"STUDY = ''", "STUDY = '한글'".encode()),
+            OFF + b'EXTRA = 1\n', OFF + b'ENABLED = False\n',
+            OFF.replace(b'START = 0', b'START = int(0)'),
+            OFF.replace(b'ENABLED = False', b'ENABLED = True'),
+        ]
+        for index, data in enumerate(invalid):
+            with self.subTest(index=index):
+                (self.source / FILES[0]).write_bytes(data)
+                self.git(self.source, 'add', FILES[0])
+                self.git(self.source, 'commit', '-qm', 'invalid policy fixture')
+                self.commit = self.git(self.source, 'rev-parse', 'HEAD').strip()
+                self.stage = self.root / f'stage-{index}'
+                self.prepare()
+                self.plan(ok=False)
+                self.assertEqual((self.target / FILES[0]).read_bytes(), OFF)
+
+    def test_target_mode_dirty_is_rejected(self):
+        self.prepare()
+        (self.target / FILES[3]).chmod(0o755)
+        self.plan(ok=False)
+
 
 if __name__ == '__main__':
     unittest.main()
