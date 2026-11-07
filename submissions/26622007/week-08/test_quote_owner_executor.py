@@ -29,7 +29,9 @@ class OwnerCLI(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name)
+        # macOS exposes temporary directories through /var -> /private/var.
+        # Supply canonical fixture paths without weakening the CLI's symlink guard.
+        self.root = Path(self.tmp.name).resolve()
         self.source = self.root / 'source'
         self.target = self.root / 'target'
         self.stage = self.root / 'stage'
