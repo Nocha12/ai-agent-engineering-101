@@ -26,6 +26,7 @@ import base64
 import concurrent.futures
 import functools
 import hmac
+import hashlib
 import json
 import math
 import os
@@ -55,6 +56,9 @@ from harness import HarnessError, ask
 import acp_gate
 import fast_classify
 import negotiate
+import seller_reader_trial
+
+READER_TRIAL = seller_reader_trial.Trial()
 import agent_memory
 import hard_limits
 import market_model
@@ -415,6 +419,9 @@ class Seller(AgentExecutor):
             # here" (62 of 62 in the Round 3 ledger), and that review then stands among the 10 every buyer is shown.
             deal["receipt_item"] = (u.get("category") or "").split(">")[-1].strip() or u["sku"]
         note = self.warranty_terms(deal, text)
+        deal["reader_trial_grade"] = u.get("grade")
+        deal["reader_trial_policy_sha"] = hashlib.sha256(json.dumps(pricing, sort_keys=True).encode()).hexdigest()
+        deal["reader_trial"] = await asyncio.to_thread(READER_TRIAL.assign, task.id, deal)
         ask_price = deal["ask"]
         await up.requires_input(say(f"{stock_line(u)}. Every deal comes with a signed receipt and the market's "
                                     f"certificate of the unit.{' ' + note if note else ''} My price: {ask_price}.", ask_price))
@@ -550,12 +557,18 @@ class Seller(AgentExecutor):
             say = lambda text, ask=None: plain(f"{note} {text}", ask)
         # in a thread: the Jev call takes about 0.4 s and must not hold the other talks
         floor_now = turn_floor(deal)
-        jev = functools.lru_cache(maxsize=1)(fast_classify.jev_offer) if fast_classify.JEV_ON else None   # one call a turn
+        trial_started = time.monotonic()
+        deal["reader_trial_input_sha"] = hashlib.sha256(text.encode()).hexdigest()
+        reader = seller_reader_trial.Reader(fast_classify.jev_offer if fast_classify.JEV_ON else None,
+                                            READER_TRIAL.arm(deal.get("reader_trial") or {}))
+        deal["reader_trial_floor"] = floor_now
+        jev = reader if fast_classify.JEV_ON or reader.arm == "B" else None   # lazy, one call a turn
         fast = await asyncio.to_thread(fast_classify.seller_turn, text, deal, floor_now, jev)
         if not fast:   # NEGOTIATE_ENGINE=jevrule: Jev reads, a rule counters (negotiate.py); None when off
             fast = await asyncio.to_thread(negotiate.seller_turn_if_on, text, deal, floor_now, jev, MAX_ROUNDS)
         if fast:
             log(f"task {task.id[:8]} FAST {fast['why']}: no harness call")
+        deal["reader_trial_harness_used"] = fast is None
         try:
             d = fast or await asyncio.to_thread(decide_turn, deal, text)
         except HarnessError as e:
@@ -568,11 +581,13 @@ class Seller(AgentExecutor):
                      "buyer_offer": offer, "message": "Thank you for your offer."}
                 log(f"fallback: unambiguous numeric offer {offer}")
             elif fallback_reply(deal):
+                READER_TRIAL.trace(task.id, deal, reader, trial_started, {}, "counter", deal["ask"], 0)
                 # the talk stays open: a bare number next turn reaches the fallback above without the harness
                 await up.requires_input(say(fallback_reply(deal), deal["ask"]))
                 log(f"task {task.id[:8]} -> INPUT_REQUIRED (harness failed; asked for a bare number)")
                 return
             else:
+                READER_TRIAL.trace(task.id, deal, reader, trial_started, {}, "failed", None, 0)
                 await up.failed(say("The shop cannot answer right now."))
                 self.free(task.id, deal)
                 del self.open[task.id]
@@ -583,6 +598,7 @@ class Seller(AgentExecutor):
             log(f"GUARD buyer_offer {offer} is not a number in the message {sorted(written)} -> no offer")
             offer = 0
         if not offer:
+            READER_TRIAL.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], 0)
             log(f"task {task.id[:8]} no offer in the message; asking again")
             await up.requires_input(say(f"Please tell me the price you offer. My price: {deal['ask']}.", deal["ask"]))
             return
@@ -597,11 +613,13 @@ class Seller(AgentExecutor):
             # price instead and sell at whatever they then offer. Asked once: a buyer who repeats a
             # higher offer has chosen it.
             log(f"FAIR offer {offer} > our ask {deal['ask']} -> tell the buyer our price")
+            READER_TRIAL.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], offer)
             deal["told_ask"] = True
             deal["history"].append(("you asked", deal["ask"]))
             await up.requires_input(say(f"You offered more than our price. Our price is only {deal['ask']}; "
                                         f"send it to close the deal. My price: {deal['ask']}.", deal["ask"]))
             return
+        READER_TRIAL.trace(task.id, deal, reader, trial_started, d, action, price, offer)
         if action == "accept":
             receipt = (self.stock_receipt(task.id, deal, int(offer)) if deal.get("unit") else
                        {"shop": self.name, "item": deal["name"], "price": int(offer), "task": task.id})
