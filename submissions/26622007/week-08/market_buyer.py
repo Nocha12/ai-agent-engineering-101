@@ -397,13 +397,12 @@ def break_line(row):
     return f"\n  goods it sold that broke, in the ledger: {row['broke']} of {row['sold']}" if row and row["sold"] else ""
 
 
-def choose(shops, memory, item, budget, hurry=None, stop=None):
-    """Returns (shop, reason).
+def choose_pool(shops, memory, item):
+    """(pool, mode, task) choose() picks from.
 
     Code removes cheaters, dead shops, shops whose receipts were unsigned and shops with clearly bad
     reviews. Then it sets the pool: mostly shops with few or no reviews that I have not tried yet
-    (looking for good shops others have not found), otherwise the shops I found cheap before.
-    The harness picks one shop from the pool."""
+    (looking for good shops others have not found), otherwise the shops I found cheap before."""
     candidates = []
     avg = my_avg_price(memory, item)
     for s in shops:
@@ -452,6 +451,42 @@ def choose(shops, memory, item, budget, hurry=None, stop=None):
         task = "Pick the shop most likely to be honest and cheap."
     log(f"[choose] mode {mode}: {len(pool)} of {len(candidates)} shops "
         f"({len(new)} new with <= {LOW_REVIEWS} reviews, {len(found)} found cheap before)")
+    return pool, mode, task
+
+
+def choose_by_rule():
+    """The shop is chosen by rule_choose, not the agent: env BUYER_CHOOSE_ENGINE=rule|agent first, else pricing.json
+    "buyer_choose": {"engine": ...}, read every run; anything else is the agent (메인 11/07 09:30: the buyer made 80% of
+    the LLM calls, buyer-agent ~200/h at 4.5-5.4 s and ~8k tokens a call)."""
+    env = (os.environ.get("BUYER_CHOOSE_ENGINE") or "").strip().lower()
+    if env:
+        return env == "rule"
+    cfg = load_json(os.path.join(os.path.dirname(os.path.abspath(__file__)), "pricing.json"), {})
+    cfg = cfg.get("buyer_choose") if isinstance(cfg, dict) else None
+    return isinstance(cfg, dict) and str(cfg.get("engine", "")).lower() == "rule"
+
+
+def rule_choose(shops, memory, item, asked=()):
+    """(shop, reason) without an agent call. The choice only adds a shop to the quotes, and best_quote then picks by
+    price (kit log 08:33-09:31: of 102 orders the agent chose for, 91 picks were shops the prefetch had asked already and
+    1 new pick was kept to a deal). So: a shop of the pool not yet asked first, then the lowest price it sold me this
+    item at, then the most reviewed, then list order."""
+    pool, mode, _ = choose_pool(shops, memory, item)
+    paid = {}
+    for t in memory["trades"]:
+        if t.get("item") == item and t.get("result") == "deal" and not t.get("problems") and \
+                isinstance(t.get("price"), (int, float)):
+            paid[t["shop"]] = min(paid.get(t["shop"], t["price"]), t["price"])
+    best = min(enumerate(pool), key=lambda x: (x[1]["name"] in asked, paid.get(x[1]["name"], float("inf")),
+                                                -len(x[1].get("reviews") or []), x[0]))[1]
+    how = "not yet asked" if best["name"] not in asked else "asked already"
+    price = f", sold me {item} at {paid[best['name']]:g}" if best["name"] in paid else ""
+    return best, f"{mode} rule: {how}{price}, {len(best.get('reviews') or [])} reviews"
+
+
+def choose(shops, memory, item, budget, hurry=None, stop=None):
+    """Returns (shop, reason). choose_pool sets the pool; the harness picks one shop from it."""
+    pool, mode, task = choose_pool(shops, memory, item)
     if len(pool) == 1:
         return pool[0], f"{mode}: the only shop in the pool"
 
@@ -891,6 +926,8 @@ def choose_racing(pick, memory, item, budget, pre):
     answers, the quotes decide and the agent's answer is not waited for (HarnessError: the most reviewed shop goes first and
     best_quote picks by price). 11/07 02:00: fitting orders spent a median 7.5 s choosing though the quote, not the agent,
     picked the shop in 74% of orders; the run's exit ends the abandoned thread (daemon)."""
+    if pre is not None and choose_by_rule():
+        return rule_choose(pick, memory, item, pre.get("asked") or ())
     if not (pre and pre.get("enough")):
         return choose(pick, memory, item, budget)
     if hurried(pre):          # already clear: no agent call at all (its first step is never cut short)
@@ -1222,6 +1259,8 @@ def choose_path(reason):
         return "quote"
     if " agent: " in r:
         return "agent"
+    if re.match(r"[\w-]+ rule: ", r):
+        return "rule"
     return "code_single" if r.endswith("the only shop in the pool") else "single_ask"
 
 
@@ -1340,7 +1379,7 @@ def main():
         stats = ledger_breaks(md, catalog) if order.get("kind") == "goods" else None
         chance_of = (lambda sku: market_model.break_chance(stats, sku)) if stats else (lambda sku: None)
         if PREFETCH_QUOTES and not gave_up and k >= 2 and early:
-            pre = {"got": {}, "ctl": quote_ctl()}
+            pre = {"got": {}, "ctl": quote_ctl(), "asked": {s["name"] for s in early}}
             pre["threads"] = start_quotes(early, order, args.budget, chance_of, pre["got"], pre["ctl"])
             pre["enough"] = lambda: quotes_enough(early, pre["got"], args.budget, buyer_cfg())
             log(f"[quote] asking {', '.join(s['name'] for s in early)} while choosing")
@@ -1352,7 +1391,7 @@ def main():
             pick = [s for s in left if s["name"] not in rival] or left     # the harness chooses among non-rivals when any
             for attempt in range(ACP_TRIES):
                 try:
-                    if attempt and hurried(pre):     # a retry after a shop with no ACP: the quotes decide, no new agent run
+                    if attempt and hurried(pre) and not choose_by_rule():   # a retry after a shop with no ACP: the quotes decide, no new agent run
                         raise HarnessError("the quotes are in")
                     shop, reason = choose_racing(pick, memory, args.item, args.budget, pre)
                 except HarnessError as e:
