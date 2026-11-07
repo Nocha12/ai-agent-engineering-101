@@ -210,8 +210,10 @@ class TextPrice(unittest.TestCase):
         self.assertIsNone(oneshot.text_price("Counteroffer: 15000.", self.H))
         self.assertEqual(oneshot.text_price("Counteroffer: 16000.", self.H), 16000)
 
-    def test_first_turn_text_goes_to_the_harness(self):
-        self.assertIsNone(oneshot.text_price("Counteroffer: 18500.", [], quoted=18500))
+    def test_first_turn_text_is_read_only_as_quoted(self):
+        self.assertEqual(oneshot.text_price("Counteroffer: 18500.", [], quoted=18500), 18500)
+        self.assertIsNone(oneshot.text_price("Counteroffer: 18500.", [], quoted=None))
+        self.assertIsNone(oneshot.text_price("Counteroffer: 18500.", [], quoted=18000))
         self.assertIsNone(oneshot.text_price("Grade A, asking 18500.", [("shop asked", 20000)], quoted=18500))
 
     def test_free_text_goes_to_the_harness(self):
@@ -220,14 +222,20 @@ class TextPrice(unittest.TestCase):
                      "asking 19000 minus 2000 for loyal customers", "asking 19000. Now 17500.00 final", "asking 19000, now \uff11\uff17\uff15\uff10\uff10",
                      "asking 19000 \uc9c0\uae08\uc740 \ub9cc\uce60\ucc9c\uc6d0", "Others ask 19000, I accept your offer.", "Agreed at your offer. Retail price is 19000.",
                      "asking 19000, \uc624\ub298\ub9cc \ubc18\uac12", "asking 19000 for a pair", "Counteroffer: 19000 (17000 if paid now)",
-                     "Counteroffer: 19000. Or 17000 tomorrow.", "Counteroffer: 19000 minus 2000", "Counteroffer: 19,000.",
+                     "Counteroffer: 19000. Or 17000 tomorrow.", "Counteroffer: 19000 minus 2000",
                      "Counteroffer: 19000.00", "Counteroffer: \uff11\uff19\uff10\uff10\uff10", "Counteroffer: 19000. Reply ok to take it at 17000.",
-                     "Counteroffer: 19000\nJust kidding, 12000", "Grade A, asking price: 19,500."):
+                     "Counteroffer: 19000\nJust kidding, 12000"):
             self.assertIsNone(oneshot.text_price(text, self.H), text)
+
+    def test_thousands_separators_are_the_same_price(self):
+        self.assertEqual(oneshot.text_price("Counteroffer: 19,000.", self.H), 19000)
+        self.assertEqual(oneshot.text_price("Grade A. Asking price: 19,500.", self.H), 19500)
+        self.assertIsNone(oneshot.text_price("Grade A, asking price: 19,500.", self.H))   # mid-sentence: not a field
 
     def test_turn_prefers_metadata(self):
         self.assertEqual(oneshot.turn(10000, "asking 99999", [], 10000)["price"], 9000)
-        self.assertIsNone(oneshot.turn(None, "asking 10000", [], 10000, quoted=10000))
+        self.assertEqual(oneshot.turn(None, "asking 10000", [], 10000, quoted=10000)["price"], 9000)
+        self.assertIsNone(oneshot.turn(None, "asking 10000", [], 10000))
 
 
 if __name__ == "__main__":

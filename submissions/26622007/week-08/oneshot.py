@@ -11,14 +11,19 @@ up to 5). BUYER_ONESHOT=1 / 0 (true / false, on / off) in the environment wins o
 not move buyer.oneshot (hard_limits.FIXED).
 
 An ask in the message metadata is priced by code. Only 80 of 1,419 asks logged came that way; an ask written in text is
-priced by code only on a later turn and only when the whole text is one of the shop templates in TEMPLATE ("Counteroffer:
-13049.", "11300 is too low. Counteroffer price: 13049."); any other text goes to the harness. Four independent reviews
-(11/07) broke every reading of free text by word lists ("Was asking 20000, now just 12000", "asking 19000 minus 2000",
-"Others ask 19000, I accept your offer"): free text cannot be read safely without the harness, a fixed template can.
-The first turn's text (the quote) goes to the harness too: one call instead of 3.8.
+priced by code when the whole text is one of the shop templates in TEMPLATE ("Counteroffer: 13049.", "11300 is too low.
+Counteroffer price: 13049.") or ask_read reads it by rule: one ask word and number, every other number placed (name, SKU,
+hours, list price, my offer named back), no word that can change it (was, now, minus, other, each, ...). Four independent
+reviews (11/07) broke readings of free text by word lists ("Was asking 20000, now just 12000", "asking 19000 minus 2000",
+"Others ask 19000, I accept your offer"); ask_read leaves each of those to the harness. The first turn's text (the quote)
+is priced by code only when ask_read reads the same ask market_buyer read from it and checked against the list price
+(quoted); on the 2,613 harness turns logged 11/04-11/07 it read 87.9% of the quotes and 89.5% of later turns, every one
+the price the harness read (review/W-20261107-0840-AX호가정규식).
 """
 import os
 import re
+
+import ask_read
 
 STEPS = (0.9,)
 MAX_STEPS = 5
@@ -53,26 +58,38 @@ def steps(cfg):
     return tuple(float(x) for x in s)
 
 
-def text_price(text, history, quoted=None):
-    """The shop's ask from its text on a later turn, or None for the harness: the text must be one TEMPLATE whole, the
-    number it names my own last offer where it names one, and the ask not over the shop's last ask nor under my last
-    offer. quoted is kept for the callers; the first turn's text always goes to the harness."""
+def text_price(text, history, quoted=None, goods=False):
+    """The shop's ask from its text, or None for the harness. A later turn's text: one TEMPLATE whole, or a text
+    ask_read reads by rule; the number it names as my offer must be my last offer, and the ask not over the shop's last
+    ask nor under my last offer. The first turn's text (the quote): ask_read's reading only when it is quoted, the ask
+    market_buyer read from the same text and checked against the SKU's list price (text_ask_checked). Goods whose text
+    says they come without a warranty are never priced from the text (ask_read.no_warranty)."""
+    if goods and ask_read.no_warranty(text):
+        return None
     mine = [p for who, p in history if who == "you offered"]
     asks = [p for who, p in history if who == "shop asked"]
     if not asks or not mine:
-        return None
+        if asks or mine or not isinstance(quoted, int) or isinstance(quoted, bool) or quoted <= 0:
+            return None
+        p, _ = ask_read.read(text)
+        return p if p == quoted else None
     m = TEMPLATE.fullmatch(text or "")
-    if not m or (m.group("mine") and int(m.group("mine")) != mine[-1]):
-        return None
-    p = int(m.group("p"))
+    if m:
+        if m.group("mine") and int(m.group("mine")) != mine[-1]:
+            return None
+        p = int(m.group("p"))
+    else:
+        p, yours = ask_read.read(text)
+        if p is None or any(y != mine[-1] for y in yours):
+            return None
     if p <= 0 or p > asks[-1] or p < mine[-1]:
         return None
     return p
 
 
-def turn(meta, text, history, limit, steps=STEPS, quoted=None):
+def turn(meta, text, history, limit, steps=STEPS, quoted=None, goods=False):
     """code_turn on the metadata ask, else on text_price; None leaves the turn to the harness."""
-    return code_turn(meta if meta is not None else text_price(text, history, quoted), history, limit, steps)
+    return code_turn(meta if meta is not None else text_price(text, history, quoted, goods), history, limit, steps)
 
 
 def code_turn(ask, history, limit, steps=STEPS):
