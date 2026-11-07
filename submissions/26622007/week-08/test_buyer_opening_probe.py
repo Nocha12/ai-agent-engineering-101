@@ -56,6 +56,20 @@ class BalancedProbe(unittest.TestCase):
             with open(path) as f:self.assertEqual(f.read(),"{")
 
 
+class DefaultScope(unittest.TestCase):
+    def test_order_started_before_default_is_not_promoted_when_quote_returns_late(self):
+        self.assertFalse(mb.one_won_default("11im","food",(.9,),{},now=1794030001,started_at=1794029999))
+
+    def test_default_only_11im_food_normal_steps_after_start_and_off_wins(self):
+        t=1794030000
+        self.assertTrue(mb.one_won_default("11im","food",(.9,),{},now=t,started_at=t))
+        self.assertFalse(mb.one_won_default("11im","food",(.9,),{},now=t-1,started_at=t-1))
+        self.assertFalse(mb.one_won_default("choo-chu","food",(.9,),{},now=t,started_at=t))
+        self.assertFalse(mb.one_won_default("11im","goods",(.9,),{},now=t,started_at=t))
+        self.assertFalse(mb.one_won_default("11im","food",(.8,),{},now=t,started_at=t))
+        self.assertFalse(mb.one_won_default("11im","food",(.9,),{"BUYER_ONE_WON_11IM":"0"},now=t,started_at=t))
+
+
 class ProbeTalk(unittest.TestCase):
     def test_only_first_valid_food_code_offer_is_one_then_normal_counter(self):
         h=[]
