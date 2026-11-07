@@ -75,7 +75,9 @@ class ChooseRule(unittest.TestCase):
                    dict(deal("b", 1, "G1"), result="error")]
         for record in invalid:
             with self.subTest(record=record):
-                chosen, _ = mb.rule_choose(shops[:2], {"trades": [record]}, "goods", budget=100)
+                chosen, _ = mb.rule_choose(shops[:2], {"trades": [deal("a", 100, "other"),
+                                                               deal("b", 100, "other"), record]},
+                                           "goods", budget=100)
                 self.assertEqual(chosen["name"], "a")
 
     def test_budget_offer_and_ambiguous_or_legacy_fallback(self):
