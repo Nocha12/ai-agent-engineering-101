@@ -101,6 +101,41 @@ def read_rows(path):
     return rows
 
 
+def read_order_rows(path):
+    """Read a fixed-size snapshot, projecting only policy inputs.
+    Bounds are local to this reader; other ledgers retain their 8 MiB contract.
+    Reject the entire history on incomplete/malformed/oversize input.
+    """
+    max_snapshot, max_line, max_rows = 128 << 20, 128 << 10, 50000
+    rows = []
+    with open(path, "rb") as src:
+        remaining = os.fstat(src.fileno()).st_size
+        if remaining > max_snapshot:
+            raise ValueError("order history too large")
+        while remaining:
+            line = src.readline(min(remaining, max_line + 1))
+            remaining -= len(line)
+            if not line or len(line) > max_line or not line.endswith(b"\n"):
+                raise ValueError("incomplete order history")
+            if not line.strip():
+                continue
+            if len(rows) >= max_rows:
+                raise ValueError("too many orders")
+            try:
+                r = json.loads(line)
+            except RecursionError as exc:
+                raise ValueError("invalid order nesting") from exc
+            if not isinstance(r, dict):
+                raise ValueError("invalid order")
+            seconds = r.get("seconds")
+            rows.append({**{k: r.get(k) for k in
+                         ("order", "kind", "passed_to_kit", "sku", "ts", "use_within_hours")},
+                         "seconds": {"end": seconds.get("end")} if isinstance(seconds, dict) else None})
+        if os.fstat(src.fileno()).st_size < src.tell():
+            raise ValueError("truncated order history")
+    return rows
+
+
 def reserve(md, settled_path, order, shops, budget, baseline, cap, now):
     """Freeze the whole shop map serially before any decision. Retry reads only it.
     No assignment if there is no distinct pre-treatment alternative in any shop.
@@ -124,7 +159,7 @@ def reserve(md, settled_path, order, shops, budget, baseline, cap, now):
         # on retry. Concurrent initial callers fail closed rather than wait.
         os.mkdir(path + ".seen")
         h = evidence(read_rows(os.path.join(md, "payments.jsonl")), read_rows(settled_path),
-                     read_rows(os.path.join(md, "measure", "orders.jsonl")),
+                     read_order_rows(os.path.join(md, "measure", "orders.jsonl")),
                      order["_buyer_started_at"], order.get("use_within_hours", 0))
         choices, different = {}, False
         arm = allocation(oid)

@@ -88,3 +88,93 @@ class Paths(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class RealSizeHistory(unittest.TestCase):
+    def test_large_projected_reserve(self):
+        import tempfile, os, json
+        import market_buyer as m
+        with tempfile.TemporaryDirectory() as d:
+            os.mkdir(os.path.join(d,"measure"))
+            pays=[dict(order="p"+str(i),paid=True) for i in range(2)]
+            settled=[dict(order=r["order"],shop="url",sku="b",price=100,time=990,use_within_hours=10.0) for r in pays]
+            rows=[dict(order="p"+str(i),kind="food",passed_to_kit=True,sku="b",ts=995,
+                       seconds=dict(end=20),use_within_hours=10.0,irrelevant="x"*5000) for i in range(2000)]
+            for name,data in (("payments.jsonl",pays),("settled.jsonl",settled),("measure/orders.jsonl",rows)):
+                with open(os.path.join(d,name),"w") as dst:
+                    for r in data: dst.write(json.dumps(r)+"\n")
+            self.assertGreater(os.path.getsize(os.path.join(d,"measure/orders.jsonl")),8<<20)
+            shop=dict(name="s",url="url",usable=[dict(sku="a",list_price=100),dict(sku="b",list_price=200)])
+            with patch.object(f,"ENABLED",True),patch.object(f,"START",900),patch.object(f,"END",2700):
+                got=f.reserve(d,os.path.join(d,"settled.jsonl"),dict(kind="food",order="new",_buyer_started_at=1000,use_within_hours=5),[shop],150,m.pick_offer,lambda o:140,1000)
+            self.assertIn(got.get("arm"),("A","B"))
+            self.assertEqual(got["shops"]["s"]["candidate"],"b")
+
+    def test_projected_bounds_and_strict_sources(self):
+        import tempfile, os, json
+        with tempfile.TemporaryDirectory() as d:
+            path=os.path.join(d,"orders")
+            for data in (b'{}',b'[]\n',b'broken\n',b'{"x":"'+b'x'*(128<<10)+b'"}\n',b'{}\n'*50001):
+                with open(path,"wb") as dst: dst.write(data)
+                with self.assertRaises(ValueError): f.read_order_rows(path)
+            with open(path,"wb") as dst: dst.truncate((128<<20)+1)
+            with self.assertRaises(ValueError): f.read_order_rows(path)
+            r=dict(order="x",kind="food",passed_to_kit=True,sku="b",ts=995,seconds=dict(end=20,private="drop"),use_within_hours=10.0,private="drop")
+            with open(path,"w") as dst: dst.write(json.dumps(r)+"\n")
+            projected=f.read_order_rows(path)
+            self.assertNotIn("private",projected[0])
+            self.assertEqual(projected[0]["seconds"],dict(end=20))
+            p=[dict(order="x",paid=True)]
+            s=[dict(order="x",shop="url",sku="b",price=100,time=990,use_within_hours=10.0)]
+            self.assertEqual(f.evidence(p,s,projected,1000,5),{("url","b"):[100]})
+            for ps,ss,ms in ((p+p,s,projected),(p,s+s,projected),(p,s,projected+projected)):
+                self.assertEqual(f.evidence(ps,ss,ms,1000,5),{})
+            for field,value in (("ts",1000),("passed_to_kit",1),("use_within_hours",None),("seconds",None)):
+                bad=dict(projected[0],**{field:value})
+                self.assertEqual(f.evidence(p,s,[bad],1000,5),{})
+
+    def test_main_ast_two_arms_quote_to_final_offer(self):
+        # Execute only the real main canonical final selection assignment, never
+        # main's market, harness, RPC or persistence side effects.
+        import ast, inspect
+        import market_buyer as m
+        body=ast.parse(inspect.getsource(m.main)).body[0].body
+        final=next(n for n in body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=="offer" for t in n.targets))
+        for arm,sku in (("A","a"),("B","b")):
+            a=dict(sku="a",name="a",list_price=100,qty=2)
+            b=dict(sku="b",name="b",list_price=200,qty=2)
+            shop=dict(name="s",url="url",usable=[a,b],_food_sku=dict(url="url",selected=sku))
+            with patch.object(m,"quote") as quote:
+                self.assertFalse(m.hopeless([shop],150,{},{}))
+                threads=m.start_quotes([shop],dict(kind="food"),150,lambda _:0,{},m.quote_ctl())
+                for t in threads.values(): t.join()
+            scope=dict(selected_offer=m.selected_offer,shop=shop,r3=True,args=type("Args",(),dict(budget=150))())
+            exec(compile(ast.fix_missing_locations(ast.Module(body=[final],type_ignores=[])),"main-final-seam","exec"),scope)
+            self.assertEqual(quote.call_args.args[2],sku)
+            self.assertEqual(shop["_offer"]["sku"],sku)
+            self.assertEqual(scope["offer"]["sku"],sku)
+            self.assertEqual(scope["offer"]["list_price"],100 if arm=="A" else 200)
+
+    def test_fixed_snapshot_append_and_truncate(self):
+        import tempfile, os, builtins
+        with tempfile.TemporaryDirectory() as d:
+            path=os.path.join(d,"orders")
+            original=b'{"order":"one"}\n'
+            real_open=builtins.open
+            class ChangingFile:
+                def __init__(self, shrink): self.src=real_open(path,"rb"); self.shrink=shrink
+                def __enter__(self): return self
+                def __exit__(self,*args): self.src.close()
+                def fileno(self): return self.src.fileno()
+                def tell(self): return self.src.tell()
+                def readline(self,n):
+                    line=self.src.readline(n)
+                    with real_open(path,"wb" if self.shrink else "ab") as out:
+                        if not self.shrink: out.write(b'{"order":"two"}\n')
+                    return line
+            for shrink in (False,True):
+                with real_open(path,"wb") as out: out.write(original)
+                with patch("builtins.open",return_value=ChangingFile(shrink)):
+                    if shrink:
+                        with self.assertRaises(ValueError): f.read_order_rows(path)
+                    else:
+                        self.assertEqual([r["order"] for r in f.read_order_rows(path)],["one"])
