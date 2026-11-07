@@ -18,7 +18,7 @@ _IO_SLOTS = threading.BoundedSemaphore(8)
 POLICY_PATH = os.path.join(os.path.dirname(__file__), "buyer_quote_alignment_policy.py")
 
 
-def source_environment(env):
+def _source_environment(env):
     # Fixed local source file, literal assignments only; never execute configuration.
     try:
         with open(POLICY_PATH, encoding="utf-8") as f:
@@ -38,25 +38,43 @@ def source_environment(env):
         return {}
 
 
-def bounded_append(path, row):
-    """Only the caller may publish; a stranded daemon can never publish a quote.
+def _bounded_io(operation, fallback):
+    """Bound ALL policy/journal IO with shared, nonqueued daemon admission.
 
-    Bound both waiting and worker count. A timed-out append may finish later;
-    its row records intent only, never confirmed application. Daemons do not
-    prevent per-order process exit, unlike an executor's non-daemon workers.
+    Timeout does not release a running worker's slot; only its completion does.
+    Construction/start failure leaves slot ownership with the caller.
     """
     if not _IO_SLOTS.acquire(blocking=False):
-        return False
-    done = threading.Event()
-    result = []
-    def write():
-        try:
-            result.append(append(path, row))
-        finally:
-            _IO_SLOTS.release()
-            done.set()
-    threading.Thread(target=write, daemon=True).start()
-    return bool(done.wait(IO_TIMEOUT) and result and result[0])
+        return fallback
+    slots = _IO_SLOTS
+    deadline = time.monotonic() + IO_TIMEOUT
+    try:
+        done = threading.Event()
+        result = []
+        def run():
+            try:
+                result.append(operation())
+            except Exception:
+                # Local IO/parse failures preserve the baseline path.
+                pass
+            finally:
+                slots.release()
+                done.set()
+        worker = threading.Thread(target=run, daemon=True)
+        worker.start()
+    except Exception:
+        slots.release()
+        return fallback
+    return result[0] if done.wait(max(0., deadline - time.monotonic())) and result else fallback
+
+
+def source_environment(env):
+    return _bounded_io(lambda: _source_environment(env), {})
+
+
+def bounded_append(path, row):
+    """Timed-out writes record intent only, never quote publication."""
+    return bool(_bounded_io(lambda: append(path, row), False))
 
 
 def current(context, env=None, now=None):
