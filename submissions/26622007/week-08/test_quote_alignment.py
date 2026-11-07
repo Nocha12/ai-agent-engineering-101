@@ -3,6 +3,9 @@ import json
 import os
 import tempfile
 import unittest
+import subprocess
+import sys
+from pathlib import Path
 from unittest import mock
 
 import buyer
@@ -125,3 +128,51 @@ class QuoteAlignment(unittest.TestCase):
                                                    shop="fixture", open_=True, refused=None, late=False, now=1002, env=env))
             self.assertIsNone(align.read_quote(context, TEXT, {"sku": SKU, "list_price": 10640}, None, None,
                                                shop="fixture", open_=True, refused=None, late=False, now=1002, env={}))
+
+
+class OfflineMeasurement(unittest.TestCase):
+    def test_cli_keeps_all_assigned_orders_and_missing_outcomes_in_itt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            def write(name, rows):
+                path = root / name
+                path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+                return path
+            assignments = [{"event": "assignment", "study": "s", "order": oid, "arm": arm,
+                            "at": at, "start": 1000, "end": 2800, "kind": "food"}
+                           for oid, arm, at in [("a", "A", 1001), ("b", "B", 1002), ("missing", "B", 1003),
+                                                ("outside", "B", 2800)]]
+            journal = write("journal", assignments + [
+                {"event": "quote", "study": "s", "order": "b", "arm": "B", "at": 1004,
+                 "shop": "other", "sku": SKU, "reason": "opportunity", "candidate": 8510, "applied": True}])
+            orders = write("orders", [
+                {"order": "a", "ts": 2801, "shop": "first", "sku": "G87654321", "first_choice": "first",
+                 "state": "TASK_STATE_COMPLETED", "price": 100, "turns": {"harness": 1}, "seconds": {"end": 20}},
+                {"order": "b", "ts": 2802, "shop": "other", "sku": SKU, "first_choice": "first",
+                 "state": "TASK_STATE_CANCELED", "turns": {"code": 2}, "seconds": {"end": 10}}])
+            payments = write("payments", [{"order": "a", "ts": 2803, "paid": False}])
+            settled = write("settled", [])
+            output = root / "report.json"
+            paths = [journal, orders, payments, settled]
+            before = [p.read_bytes() for p in paths]
+            cmd = [sys.executable, str(Path(__file__).parent / "tools/quote_alignment_measure.py"),
+                   "--start", "1000", "--end", "2800", "--asof", "3100", "--study", "s",
+                   "--journal", str(journal), "--orders", str(orders), "--payments", str(payments),
+                   "--settled", str(settled), "-o", str(output)]
+            run = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            result = json.loads(output.read_text())
+            self.assertEqual(result["arms"]["A"]["itt_orders"], 1)
+            self.assertEqual(result["arms"]["B"]["itt_orders"], 2)
+            self.assertEqual(result["arms"]["B"]["missing_order"], 1)
+            self.assertEqual(result["arms"]["A"]["paid_and_settled"], 0)
+            self.assertEqual(result["arms"]["B"]["opportunity_orders"], 1)
+            self.assertEqual(result["arms"]["B"]["selected_opportunity_orders"], 1)
+            self.assertEqual(result["arms"]["B"]["changed_shop_orders"], 1)
+            self.assertEqual(result["arms"]["A"]["harness_turns"], 1)
+            self.assertIsNone(result["arms"]["B"]["harness_turns_per_itt"])
+            self.assertEqual(before, [p.read_bytes() for p in paths])
+            # A report must never overwrite its own input.
+            cmd[-1] = str(journal)
+            self.assertNotEqual(subprocess.run(cmd, capture_output=True).returncode, 0)
+            self.assertEqual(before, [p.read_bytes() for p in paths])
