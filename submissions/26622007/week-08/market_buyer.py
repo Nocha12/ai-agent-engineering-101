@@ -36,6 +36,7 @@ import hashlib
 import json
 import collections
 import contextlib
+import fcntl
 import os
 import random
 import sys
@@ -867,11 +868,78 @@ def quote_fitted(q, budget, cfg):
     return ask <= min(value_limit({"list_price": lp}, budget, 0, cfg), saved_cap({"list_price": lp}, 0))
 
 
-def quote_yield_arm(order_id, env=None):
+QUOTE_YIELD_END = 1794022754       # 11/07 12:39:14 KST, bounded first experiment
+ONE_WON_PROBE_START = QUOTE_YIELD_END
+ONE_WON_PROBE_END = 1794026354     # 11/07 13:39:14 KST, no automatic adoption
+
+
+def quote_yield_arm(order_id, env=None, now=None):
     """Stable 50/50 food scheduling pilot; no order id or BUYER_QUOTE_YIELD=0 keeps control."""
     env = os.environ if env is None else env
-    return bool(isinstance(order_id, str) and order_id and env.get("BUYER_QUOTE_YIELD", "1") != "0"
+    now = time.time() if now is None else now
+    return bool(now < QUOTE_YIELD_END and isinstance(order_id, str) and order_id and env.get("BUYER_QUOTE_YIELD", "1") != "0"
                 and hashlib.sha256(order_id.encode()).digest()[0] % 2 == 0)
+
+
+ONE_WON_PROBE_SHOPS = frozenset(("11im", "choo-chu"))
+
+
+def opening_probe_arm(md, shop, order_id, env=None, now=None, sku=None, use_within=None):
+    """Reserve balanced assignments before negotiation, including pending orders; retries keep the reservation."""
+    env = os.environ if env is None else env
+    now = time.time() if now is None else now
+    if env.get("BUYER_ONE_WON_PROBE", "1") != "1" or shop not in ONE_WON_PROBE_SHOPS or not isinstance(order_id, str) or not order_id:
+        return None
+    path = os.path.join(md, "one_won_probe_assignments.json")
+    in_window = ONE_WON_PROBE_START <= now < ONE_WON_PROBE_END
+    if not in_window and not os.path.exists(path):
+        return None
+    try:
+        os.makedirs(md, exist_ok=True)
+        with open(path + ".lock", "a") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            try:
+                with open(path) as f:
+                    journal = json.load(f)
+            except FileNotFoundError:
+                journal = {"study": "one-won-20261107-1239", "orders": {}}
+            if not isinstance(journal, dict) or journal.get("study") != "one-won-20261107-1239" or \
+                    not isinstance(journal.get("orders"), dict) or \
+                    any(not isinstance(r, dict) or r.get("arm") not in ("A", "B") for r in journal["orders"].values()):
+                raise ValueError("invalid assignment journal")
+            prior = journal["orders"]
+            if order_id in prior:
+                return prior[order_id]["arm"]
+            if not in_window:
+                return None
+            same_shop = [r for r in prior.values() if r.get("shop") == shop]
+            matched = [r for r in same_shop if sku is not None and r.get("sku") == sku
+                       and r.get("use_within_hours") == use_within]
+            counts = collections.Counter(r["arm"] for r in matched)
+            if counts["A"] == counts["B"]:
+                counts = collections.Counter(r["arm"] for r in same_shop)
+            arm = ("A" if counts["A"] < counts["B"] else "B") if counts["A"] != counts["B"] else \
+                ("A" if hashlib.sha256((shop + order_id).encode()).digest()[0] % 2 else "B")
+            prior[order_id] = {"arm": arm, "shop": shop, "sku": sku, "use_within_hours": use_within, "at": now}
+            tmp = path + f".tmp.{os.getpid()}"
+            with open(tmp, "w") as f:
+                json.dump(journal, f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+            return arm
+    except (OSError, ValueError, TypeError) as e:
+        log(f"[opening probe] assignment unavailable ({type(e).__name__}); keeping baseline")
+        return None
+
+
+def opening_probe_turn(meta, text, history, limit, steps, quoted, goods, arm):
+    """Only the first validated food code offer changes to exactly 1; all later turns keep oneshot."""
+    d = oneshot.turn(meta, text, history, limit, steps, quoted, goods)
+    if arm == "B" and not goods and limit >= 1 and not any(who == "you offered" for who, _ in history) \
+            and d and d["action"] == "offer":
+        return {**d, "price": 1}
+    return d
 
 
 def recent_quote_yields(md, category, now=None, hours=RECENT_FIT_HOURS):
@@ -937,11 +1005,12 @@ def start_quotes(shops, order, budget, chance_of, got, ctl):
     return threads
 
 
-def prefetch_pool(left, memory, md, category, k, rival=frozenset(), kind=None, order_id=None):
+def prefetch_pool(left, memory, md, category, k, rival=frozenset(), kind=None, order_id=None, yield_arm=None):
     """The k - 1 shops quoted before the harness has chosen (the chosen shop takes the last slot of the first batch),
     and every shop that could be quoted, in quote order; revenue rivals of my shop after the others (rival_deny)."""
     others = [s for s in left if not caught_cheating(my_history(memory, s["name"]))]
-    yields = recent_quote_yields(md, category) if kind == "food" and quote_yield_arm(order_id) else None
+    active = quote_yield_arm(order_id) if yield_arm is None else yield_arm
+    yields = recent_quote_yields(md, category) if kind == "food" and active else None
     others = rival_deny.others_first(quote_order(others, recent_fits(md, category), k, yields), rival)
     return others[:max(0, k - 1)], others
 
@@ -1298,7 +1367,7 @@ def choose_path(reason):
 
 
 def order_record(order, args, shops, quotes, first_choice, first_reason, shop, reason, offer, limit, chance, out, rec, result,
-                 problems, warnings, short, why, stages, catalog):
+                 problems, warnings, short, why, stages, catalog, probe_arm=None):
     """measure.py orders.jsonl: what this order offered, who quoted what and why each lost, and how it ended. The kit's
     payment (.market/payments.jsonl) and the ledger's settle join on the order id."""
     best = shop["name"]
@@ -1331,7 +1400,9 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "candidates": [{"shop": s["name"], "offers": [{"sku": o.get("sku"), "qty": o.get("qty"), "list_price": o.get("list_price")}
                                                       for o in s.get("usable") or []][:3]} for s in shops][:20],
         "n_candidates": len(shops),    # lists cut so a line stays one small append (buyer runs can overlap)
-        "food_quote_yield": order.get("kind") == "food" and quote_yield_arm(order.get("order")),
+        "food_quote_yield": order.get("_food_quote_yield", order.get("kind") == "food" and quote_yield_arm(order.get("order"))),
+        "one_won_probe": probe_arm,
+        "opening_price": next((p for who, p in out.get("history") or [] if who == "you offered"), None),
         "quote_attempts_complete": len(qs) == sum(bool(s.get("_quote_attempted") or s["name"] in quotes) for s in shops),
         "quotes": qs, "first_choice": first_choice, "how": choose_path(first_reason), "shop": best, "reason": (reason or "")[:300],
         "sku": (offer or {}).get("sku"), "list_price": (offer or {}).get("list_price"), "limit": limit,
@@ -1363,6 +1434,9 @@ def main():
         shops = [s for s in json.load(f) if s.get("url") and s.get("name")]
     order = load_json(args.order, {}) if args.order else {}
     r3 = isinstance(order, dict) and bool(order.get("acceptable"))
+    if r3:
+        order["_buyer_started_at"] = time.time()
+        order["_food_quote_yield"] = order.get("kind") == "food" and quote_yield_arm(order.get("order"))
     md = os.path.dirname(args.shops) or "."
     catalog = load_json(os.path.join(md, "catalog.json"), {}) if r3 else {}
     if r3:
@@ -1381,7 +1455,7 @@ def main():
             records.write(md, "orders", {"order": order.get("order"), "category": order.get("category"), "kind": order.get("kind"),
                                          "budget": args.budget, "acceptable": len(order.get("acceptable") or []),
                                          "use_within_hours": order.get("use_within_hours"), "candidates": [],
-                                         "food_quote_yield": order.get("kind") == "food" and quote_yield_arm(order.get("order")),
+                                         "food_quote_yield": order["_food_quote_yield"],
                                          "quotes": [], "quote_attempts_complete": True,
                                          "state": "NO_SHOP_IN_STOCK", "seconds": {"end": round(time.time() - STARTED, 2)}})
         print(json.dumps({"shop": "", "receipt": None, **({} if r3 else {"stars": 1, "review": "No shops to trade with."})}))
@@ -1407,7 +1481,8 @@ def main():
         log(f"[choose] {sum(s['name'] in rival for s in left)} of {len(left)} shops are revenue rivals of my shop: asked last")
     if r3:
         k = int(buyer_cfg().get("quote_shops", 1))
-        early, quotable = prefetch_pool(left, memory, md, order.get("category"), k, rival, kind=order.get("kind"), order_id=order.get("order"))
+        early, quotable = prefetch_pool(left, memory, md, order.get("category"), k, rival, kind=order.get("kind"), order_id=order.get("order"),
+                                         yield_arm=order["_food_quote_yield"])
         try:
             gave_up = hopeless(quotable or left, args.budget, recent_asks(md), buyer_cfg())
         except Exception as e:  # noqa: BLE001 - an odd record line must not end the run before the result line
@@ -1485,6 +1560,7 @@ def main():
         log(f"[offer] {offer['sku']} {offer['name']}: list {offer['list_price']}, limit {limit}, {len(shop['usable'])} fit"
             + (f", breaks {chance:.1%} of the time in the ledger" if chance else ""))
     talk_mode = None      # no talk (NO_VALUE, an error before it)
+    probe_arm = None
     try:
         q = quotes.get(shop["name"]) or {}
         if r3 and gave_up:
@@ -1511,6 +1587,12 @@ def main():
         resume = (q["url"], q["task"]) if r3 and resumable(q) else None
         cfg = buyer_cfg()
         steps = oneshot.steps(cfg) if r3 and oneshot.enabled(cfg) else None
+        if steps and resume and not order.get("_food_quote_yield") and \
+                order.get("_buyer_started_at", 0) >= ONE_WON_PROBE_START and \
+                order.get("kind") == "food" and q.get("ask_src") == "text" and \
+                oneshot.turn(None, q.get("text"), [], limit, steps, q.get("ask"), False) is not None:
+            probe_arm = opening_probe_arm(md, shop["name"], order.get("order"), sku=key,
+                                          use_within=order.get("use_within_hours"))
         if steps:
             log(f"[offer] oneshot: {', '.join(f'{s:.2f}' for s in steps)} of the first ask, then the counter, priced by code")
         talk_mode = f"oneshot {list(steps)}" if steps else "harness"
@@ -1518,9 +1600,9 @@ def main():
                         stop_if=(lambda text, turn: (quote_refused(text, order) if turn == 1 else None)
                                  or goods_text_refused(text, order)) if r3 else None,
                         reply_to=(lambda text: shop_question_reply(text, order)) if r3 else None,
-                        ladder=(lambda meta, text, history: oneshot.turn(meta, text, history, limit, steps,
+                        ladder=(lambda meta, text, history: opening_probe_turn(meta, text, history, limit, steps,
                                                                           q.get("ask") if resume else None,
-                                                                          order.get("kind") == "goods"))
+                                                                          order.get("kind") == "goods", probe_arm))
                         if steps else None,
                         take_at=min(limit, int(offer["list_price"] * FOOD_TAKE_SHARE))
                         if r3 and FOOD_TAKE_ASK and order.get("kind") == "food" else None)
@@ -1576,7 +1658,7 @@ def main():
         try:
             records.write(md, "orders", {**order_record(order, args, shops, quotes, first_choice, first_reason, shop, reason, offer,
                                                         limit, chance, out, rec, result, problems, warnings, short, why, stages,
-                                                        catalog), "skipped_short_warranty": brief,
+                                                        catalog, probe_arm=probe_arm), "skipped_short_warranty": brief,
                                          "gave_up": gave_up, "rival_shop": shop["name"] in rival,
                                          "talk_mode": talk_mode, "turns": (out or {}).get("turns")})
         except Exception as e:   # noqa: BLE001 - a measurement never stops the result line the kit waits for
