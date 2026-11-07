@@ -708,6 +708,7 @@ class Seller(AgentExecutor):
     def _remember_now(self, task_id, deal, result, price=None, observed_at=None):
         try:
             CONCESSION_TRIAL.event(task_id, deal, result, price, observed_at)
+            LATE_CONCESSION.event(task_id, deal, result, price, observed_at)
         except Exception:
             MEMORY_FAILURES.append(True)
             raise
