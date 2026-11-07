@@ -10,6 +10,60 @@ import math
 import os
 import re
 import time
+import threading
+import ast
+
+IO_TIMEOUT = 0.15
+_IO_SLOTS = threading.BoundedSemaphore(8)
+POLICY_PATH = os.path.join(os.path.dirname(__file__), "buyer_quote_alignment_policy.py")
+
+
+def source_environment(env):
+    # Fixed local source file, literal assignments only; never execute configuration.
+    try:
+        with open(POLICY_PATH, encoding="utf-8") as f:
+            source = f.read(4097)
+        if len(source) > 4096:
+            return {}
+        values = {}
+        for node in ast.parse(source).body:
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+                values[node.targets[0].id] = ast.literal_eval(node.value)
+        if values.get("SOURCE_CONTROL") is not True:
+            return env
+        return {"BUYER_QUOTE_ALIGN": "1" if values.get("ENABLED") is True else "0",
+                "BUYER_QUOTE_ALIGN_START": str(values.get("START", "")),
+                "BUYER_QUOTE_ALIGN_STUDY": values.get("STUDY", "")}
+    except (OSError, ValueError, SyntaxError, TypeError):
+        return {}
+
+
+def bounded_append(path, row):
+    """Only the caller may publish; a stranded daemon can never publish a quote.
+
+    Bound both waiting and worker count. A timed-out append may finish later;
+    its row records intent only, never confirmed application. Daemons do not
+    prevent per-order process exit, unlike an executor's non-daemon workers.
+    """
+    if not _IO_SLOTS.acquire(blocking=False):
+        return False
+    done = threading.Event()
+    result = []
+    def write():
+        try:
+            result.append(append(path, row))
+        finally:
+            _IO_SLOTS.release()
+            done.set()
+    threading.Thread(target=write, daemon=True).start()
+    return bool(done.wait(IO_TIMEOUT) and result and result[0])
+
+
+def current(context, env=None, now=None):
+    p = parameters(env)
+    clock = time.time() if now is None else now
+    return bool(context and p and context.get("study") == p[0]
+                and context.get("start") == p[1] and p[1] <= clock < p[2])
 
 import ask_read
 
@@ -18,7 +72,7 @@ DURATION = 1800
 
 
 def parameters(env=None):
-    env = os.environ if env is None else env
+    env = source_environment(os.environ if env is None else env)
     if env.get("BUYER_QUOTE_ALIGN", "0") != "1":
         return None
     try:
@@ -26,7 +80,7 @@ def parameters(env=None):
     except (ValueError, TypeError):
         return None
     study = env.get("BUYER_QUOTE_ALIGN_STUDY", "")
-    if not math.isfinite(start) or start <= 0 or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", study):
+    if not isinstance(study, str) or not math.isfinite(start) or start <= 0 or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", study):
         return None
     return study, start, start + DURATION
 
@@ -47,28 +101,28 @@ def append(path, row):
 def reserve(md, order, now=None, env=None):
     """Assign all starting orders, including those with no eligible quote/product."""
     p = parameters(env)
-    now = time.time() if now is None else now
+    initial = time.time() if now is None else now
     oid = order.get("order")
-    if not p or not isinstance(oid, str) or not oid or not p[1] <= now < p[2]:
+    if not p or not isinstance(oid, str) or not oid or not p[1] <= initial < p[2]:
         return None
     arm = "AB"[hashlib.sha256((p[0] + ":" + oid).encode()).digest()[0] % 2]
     row = {"event": "assignment", "study": p[0], "order": oid, "arm": arm,
-           "at": now, "start": p[1], "end": p[2], "kind": order.get("kind"),
+           "at": initial, "start": p[1], "end": p[2], "kind": order.get("kind"),
            "category": order.get("category")}
     path = os.path.join(md, JOURNAL)
-    return dict(row, path=path) if append(path, row) else None
+    return dict(row, path=path) if bounded_append(path, row) and current(row, env, time.time() if now is None else now) else None
 
 
 def read_quote(context, text, offer, legacy, raw, *, shop, open_, refused, late,
                receipt=False, now=None, env=None):
     """Additional read only when legacy found no number; journal both arms.
 
-    Called only at quote publication, under quote_ctl's lock. Late, terminal,
+    Called outside quote_ctl's lock. Late, terminal,
     receipt and refused responses never receive a new quoted value.
     """
     p = parameters(env)
-    now = time.time() if now is None else now
-    if not context or not p or context.get("study") != p[0] or context.get("start") != p[1] or not p[1] <= now < p[2]:
+    initial = time.time() if now is None else now
+    if not context or not p or context.get("study") != p[0] or context.get("start") != p[1] or not p[1] <= initial < p[2]:
         return legacy
     candidate = None
     reason = "legacy"
@@ -87,8 +141,9 @@ def read_quote(context, text, offer, legacy, raw, *, shop, open_, refused, late,
                 reason = "opportunity"
     applied = candidate is not None and context.get("arm") == "B"
     row = {"event": "quote", "study": p[0], "order": context["order"], "arm": context["arm"],
-           "at": now, "shop": shop, "sku": offer.get("sku"), "legacy": legacy,
-           "candidate": candidate, "reason": reason, "applied": applied}
-    if not append(context["path"], row):
+           "at": initial, "shop": shop, "sku": offer.get("sku"), "legacy": legacy,
+           "candidate": candidate, "reason": reason, "applied": False,
+           "intended_applied": applied, "confirmation": "orders.quote_alignment_applied"}
+    if not bounded_append(context["path"], row) or not current(context, env, time.time() if now is None else now):
         return legacy
     return candidate if applied else legacy

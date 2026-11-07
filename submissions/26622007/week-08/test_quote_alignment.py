@@ -47,7 +47,8 @@ class QuoteAlignment(unittest.TestCase):
                 self.assertIsNone(oneshot.turn(None, TEXT, [], 7447, quoted=None))
                 with open(os.path.join(md, align.JOURNAL)) as f:
                     rows = [json.loads(x) for x in f]
-                self.assertTrue(any(r.get("event") == "quote" and r.get("applied") for r in rows))
+                self.assertTrue(any(r.get("event") == "quote" and r.get("intended_applied") for r in rows))
+                self.assertEqual(order["_quote_alignment_applied"], [{"shop":"fixture", "sku":SKU}])
 
     def quote(self, md, text=TEXT, arm="B", state="TASK_STATE_INPUT_REQUIRED", metadata=None,
               artifacts=None, late=False, offer=None, enabled=True, now=1001, order_kind="food"):

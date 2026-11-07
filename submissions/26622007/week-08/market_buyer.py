@@ -750,14 +750,19 @@ def quote(shop, label, key, order, out, ctl=None):
              "text_ask_raw": raw, "text": text[:300], "url": iface["url"], "task": t,
              "refused": quote_refused(text, order)}
         lock = (ctl or {}).get("lock")
+        # Journal IO must never own the decision/termination lock.
+        aligned = buyer_quote_alignment.read_quote(
+                order.get("_quote_alignment"), text, shop.get("_offer") or {}, ask, raw,
+                shop=shop["name"], open_=open_, refused=q["refused"], late=bool(ctl and ctl.get("done")),
+                receipt=bool(t.get("artifacts")))
         with lock if lock is not None else contextlib.nullcontext():
             late = ctl is not None and ctl.get("done") and ctl.get("winner") != shop["name"]
-            aligned = buyer_quote_alignment.read_quote(
-                order.get("_quote_alignment"), text, shop.get("_offer") or {}, ask, raw,
-                shop=shop["name"], open_=open_, refused=q["refused"], late=late,
-                receipt=bool(t.get("artifacts")))
-            if aligned is not None and ask is None:
+            context = order.get("_quote_alignment")
+            if (aligned is not None and ask is None and not (ctl and ctl.get("done"))
+                    and context and context["start"] <= time.time() < context["end"]):
                 q.update(ask=aligned, ask_src="text")
+                order.setdefault("_quote_alignment_applied", []).append(
+                    {"shop": shop["name"], "sku": (shop.get("_offer") or {}).get("sku")})
             out[shop["name"]] = dict(q, closed=True) if late else q      # closed before anyone can read it
         if late:
             cancel_quietly(q, shop["name"])
@@ -1744,7 +1749,8 @@ def main():
                                                         limit, chance, out, rec, result, problems, warnings, short, why, stages,
                                                         catalog, probe_arm=probe_arm), "skipped_short_warranty": brief,
                                          "gave_up": gave_up, "rival_shop": shop["name"] in rival,
-                                         "talk_mode": talk_mode, "turns": (out or {}).get("turns")})
+                                         "talk_mode": talk_mode, "turns": (out or {}).get("turns"),
+                                         "quote_alignment_applied": list(order.get("_quote_alignment_applied", []))})
         except Exception as e:   # noqa: BLE001 - a measurement never stops the result line the kit waits for
             log(f"[measure] order record failed: {type(e).__name__}: {e}")
     print(json.dumps(result, ensure_ascii=False), flush=True)

@@ -119,8 +119,14 @@ def summarize(journal, orders, payments, settled, start, end, asof, study):
             d["quote_events"] += len(qs)
             d["opportunity_quotes"] += len(eligible)
             d["opportunity_orders"] += bool(eligible)
-            d["applied_quotes"] += sum(q.get("applied") is True for q in qs)
-            d["applied_orders"] += any(q.get("applied") is True for q in qs)
+            # New rows are durable proposals only: a timed-out writer can finish
+            # later. Confirm actual publication from the final order record.
+            confirmed = (r or {}).get("quote_alignment_applied", [])
+            applied = [q for q in qs if (q.get("applied") is True if "confirmation" not in q else
+                       any(c.get("shop") == q.get("shop") and c.get("sku") == q.get("sku")
+                           for c in confirmed if isinstance(c, dict)))]
+            d["applied_quotes"] += len(applied)
+            d["applied_orders"] += bool(applied)
             reasons.update(str(q.get("reason")) for q in qs)
             if r is None:
                 d["missing_turns"] += 1
@@ -135,7 +141,8 @@ def summarize(journal, orders, payments, settled, start, end, asof, study):
             if s and number(s.get("price")) and number(r.get("limit")):
                 d["settlement_over_limit"] += s["price"] > r["limit"]
             turns = r.get("turns")
-            if isinstance(turns, dict) and all(number(v) and v >= 0 for v in turns.values()):
+            if (isinstance(turns, dict) and turns and set(turns) <= {"take", "fast", "code", "harness"}
+                    and all(number(v) and v >= 0 and int(v) == v for v in turns.values())):
                 d["harness_turns"] += turns.get("harness", 0)
                 d["harness_orders"] += turns.get("harness", 0) > 0
                 d["code_turns"] += turns.get("code", 0)
