@@ -47,7 +47,7 @@ class FreshEntryInstall(unittest.TestCase):
                 self.assertTrue((root / "buyer_fresh_rotation.py").is_file())
                 self.assertEqual((root / "market_buyer.py").read_bytes(), release["old_entry"])
                 install.atomic_write(path, data)
-            self.assertEqual(install.apply(root, release, write=write)["status"], "installed")
+            self.assertEqual(install.apply(root, release, write=write, exclusive_writer=True)["status"], "installed")
             self.assertEqual(seen, ["fresh-rotation-contract.md", "test_buyer_fresh_rotation.py",
                                     "test_fresh_choice_boundary.py", "market_buyer.py"])
             new_later = self.load_entry(root)
@@ -56,7 +56,7 @@ class FreshEntryInstall(unittest.TestCase):
                 saved = {n: sys.modules.pop(n, None) for n in ("shared", "buyer_fresh_rotation")}
                 try:
                     self.assertEqual(old_later(), "shared")
-                    install.rollback(root, release)
+                    install.rollback(root, release, exclusive_writer=True)
                     # New process code opened before rollback may import late.
                     self.assertEqual(new_later(), "newshared")
                     self.assertEqual(self.load_entry(root)(), "shared")
@@ -80,7 +80,7 @@ class FreshEntryInstall(unittest.TestCase):
                         install.atomic_write(path, data)
                         if path.name == fail_name:
                             raise OSError("fixture after replace")
-                    result = install.apply(root, release, write=write)
+                    result = install.apply(root, release, write=write, exclusive_writer=True)
                     self.assertEqual(result["status"], "failed")
                     self.assertEqual((root / "market_buyer.py").read_bytes(), release["old_entry"])
                     # Retain helper for processes that opened new entry already.
@@ -102,17 +102,17 @@ class FreshEntryInstall(unittest.TestCase):
                     (root / "__pycache__/buyer_fresh_rotation.fixture.pyc").write_bytes(b"collision")
                 before = (root / "market_buyer.py").read_bytes()
                 with self.assertRaises(ValueError):
-                    install.apply(root, release)
+                    install.apply(root, release, exclusive_writer=True)
                 self.assertEqual((root / "market_buyer.py").read_bytes(), before)
 
     def test_rollback_never_overwrites_drift_or_downgrades_helper(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             release = self.fixture(root)
-            install.apply(root, release)
+            install.apply(root, release, exclusive_writer=True)
             (root / "market_buyer.py").write_bytes(b"# another writer\n")
             with self.assertRaises(ValueError):
-                install.rollback(root, release)
+                install.rollback(root, release, exclusive_writer=True)
             self.assertEqual((root / "market_buyer.py").read_bytes(), b"# another writer\n")
 
     def test_helper_publication_failure_never_changes_entry(self):
@@ -127,7 +127,7 @@ class FreshEntryInstall(unittest.TestCase):
                     raise OSError("fixture publication failure")
                 with patch.object(install.os, "link", side_effect=broken):
                     with self.assertRaises(OSError):
-                        install.apply(root, release)
+                        install.apply(root, release, exclusive_writer=True)
                 self.assertEqual((root / "market_buyer.py").read_bytes(), release["old_entry"])
                 self.assertFalse(list(root.glob(".fresh-stage-*")))
 
@@ -144,6 +144,26 @@ class FreshEntryInstall(unittest.TestCase):
             with self.assertRaises(ValueError):
                 install.rollback(root, release)
             self.assertEqual({p.name: p.read_bytes() for p in root.iterdir()}, before)
+
+    def test_attestation_is_not_a_cas_against_a_noncooperating_writer(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            release = self.fixture(root)
+            calls = []
+            def race(path, data):
+                calls.append(path.name)
+                if path.name == install.ENTRY:
+                    path.write_bytes(b"# noncooperating writer\n")
+                install.atomic_write(path, data)
+            # No outside exclusion evidence: mutation is refused before writing.
+            with self.assertRaises(ValueError):
+                install.apply(root, release, write=race)
+            self.assertEqual(calls, [])
+            # A caller can falsely attest exclusivity. This unsupported case is
+            # still vulnerable; no repetition of validate or fake CAS closes it.
+            result = install.apply(root, release, write=race, exclusive_writer=True)
+            self.assertEqual(result["status"], "installed")
+            self.assertEqual((root / install.ENTRY).read_bytes(), release["blobs"][install.ENTRY])
 
     def test_real_pinned_sources_import_before_after_and_after_rollback(self):
         repo = SOURCE_REPO  # archive runner supplies the original object store
@@ -165,12 +185,12 @@ class FreshEntryInstall(unittest.TestCase):
             imported(False)
             previous = os.umask(0o077)
             try:
-                self.assertEqual(install.apply(root, release)["status"], "installed")
+                self.assertEqual(install.apply(root, release, exclusive_writer=True)["status"], "installed")
             finally:
                 os.umask(previous)
             self.assertEqual((root / install.HELPER).stat().st_mode & 0o777, 0o644)
             imported(True)
-            install.rollback(root, release)
+            install.rollback(root, release, exclusive_writer=True)
             imported(False)
             self.assertTrue((root / install.HELPER).exists())
 

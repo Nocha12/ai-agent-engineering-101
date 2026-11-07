@@ -3,6 +3,14 @@
 Not an admission lock or multi-file transaction. Existing helpers must be byte
 identical; the one new runtime helper is immutable and retained on rollback.
 CLI install/rollback require an exact plan token and separate operating approval.
+
+Mutation additionally requires exclusive_writer=True: a caller attestation, NOT
+a lock, CAS, approval, or proof. The operator must exclude every filesystem and
+Git writer (including the meta model subprocess, stage/commit/undo and deployers)
+for the full install/recovery/rollback interval and control the root and its
+ancestors. Ordinary buyer readers need not participate. Noncooperating writers
+or hostile directory replacement are unsupported; validation cannot close that
+race. The current meta harness does not implement this contract.
 """
 import argparse
 import ast
@@ -136,7 +144,13 @@ def publish_helper(root, data):
         temporary.unlink(missing_ok=True)
 
 
-def apply(root, spec, *, write=atomic_write):
+def require_exclusive_writer(exclusive_writer):
+    if exclusive_writer is not True:
+        raise ValueError("exclusive trusted writer contract required; current meta coordination unverified")
+
+
+def apply(root, spec, *, write=atomic_write, exclusive_writer=False):
+    require_exclusive_writer(exclusive_writer)
     root = validate(root, spec)
     publish_helper(root, spec["blobs"][HELPER])
     try:
@@ -159,7 +173,8 @@ def apply(root, spec, *, write=atomic_write):
                     helper_retained=True)
 
 
-def rollback(root, spec):
+def rollback(root, spec, *, exclusive_writer=False):
+    require_exclusive_writer(exclusive_writer)
     root = validate(root, spec, rollback=True)
     atomic_write(safe_file(root, ENTRY), spec["old_entry"])
     # Never unlink a helper: new code opened before this replace may import late.
@@ -172,6 +187,8 @@ def main():
     for n in ("repo", "base", "candidate", "root"):
         parser.add_argument("--" + n, required=True)
     parser.add_argument("--confirm")
+    parser.add_argument("--exclusive-writer", action="store_true",
+                        help="attest external exclusion of all writers and trusted directories; not a lock or proof")
     args = parser.parse_args()
     try:
         spec = release(args.repo, args.base, args.candidate)
@@ -184,7 +201,8 @@ def main():
         else:
             if args.confirm != token:
                 raise ValueError("exact plan confirmation required; separate operating approval also required")
-            result = apply(root, spec) if args.command == "install" else rollback(root, spec)
+            result = (apply(root, spec, exclusive_writer=args.exclusive_writer) if args.command == "install"
+                      else rollback(root, spec, exclusive_writer=args.exclusive_writer))
     except (OSError, ValueError, SyntaxError, subprocess.SubprocessError) as exc:
         print(json.dumps(dict(status="rejected", error=type(exc).__name__)))
         return 2
