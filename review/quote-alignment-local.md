@@ -184,3 +184,18 @@ Status: DONE_WITH_CONCERNS local candidate; independent review/live AB pending p
 보안: 자체 검토 통과, 독립 보안 검토 미실행; 비밀/env/config/운영 변경 없음
 정정 대조: goods 첫1원 비채택·11im 유지·0원 유효성 미확인·안전 fallback 보존·142800 내부 추정 한계 반영
 되돌리는 법: 부모 승인 경로에서 BUYER_QUOTE_ALIGN=0; 필요시 후보 feature 커밋 역순 revert, 원장 보존
+
+Final verification environment correction: first full run on Homebrew framework
+Python3.15.1 ran824 tests in49.059s, failures12/errors4, all traced to existing
+agent_tools sandbox child posix_spawn of Python.app being denied. 3.12/3.14
+Homebrew minimal probes reproduced it. Installed standalone CPython3.12.15
+minimal sandbox probe returned42/exit0 under the unchanged policy. No product
+sandbox guard/allowlist was edited or disabled. Fresh final venv:
+/tmp/ax-quote-candidate-py312 (standalone3.12.15), requirements.txt installed
+there; final tests use this interpreter. The initial failure receipt remains
+173029-quote-align-full.json; do not present it as a passing fullsuite.
+Assignment IO failure intentionally keeps legacy and cannot produce a durable
+reservation; ITT is the successfully journaled assignment population. Parent
+must reconcile runtime starting-order counts/journal health before adoption,
+and not claim every market attempt was successfully reserved. Journal corruption,
+snapshot temporal incompleteness and unresolved outcomes remain explicit limits.
