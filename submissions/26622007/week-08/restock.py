@@ -245,9 +245,11 @@ SENT = "restock_sent.json"
 
 
 def pending(md, inv, now=None):
-    """[{sku, qty, worst}] sent by this hook in the last PENDING_SECONDS and not yet in inventory.json (the file can lag
-    the supply): counted as stock already bought, so the next run does not buy it again. A record that cannot be read
-    raises (ValueError, OSError): the cash those lines took is not known, so main() buys nothing."""
+    """Recent requests: qty is undelivered stock, cash_qty reserves the full request.
+    Our compact supply/settle ledger retains unit IDs after sale/breakage. Until a request
+    expires, reserve its full worst cash cost even if the wallet snapshot is stale.
+    Missing historical supply rows conservatively fall back to current inventory.
+    Unreadable request state raises so main() buys nothing."""
     now = now or time.time()
     out = []
     try:
@@ -257,15 +259,44 @@ def pending(md, inv, now=None):
         sent = []
     if not isinstance(sent, list):
         raise ValueError(f"{SENT} is not a list")
-    for s in sent:
+    # A supply is immutable delivery evidence, but not proof of sale: if the
+    # snapshot is older than the supply, an absent UNSOLD unit still needs a stock
+    # reservation. Clear it only when on-hand already counts it or a settle proves
+    # it left. Never match supply before request time (even a five-second slack
+    # could reassign an expired request\'s unit to its later neighbour).
+    # Union by unit ID, and consume each ID once across overlapping requests.
+    delivered, sold, present = {}, {}, set()
+    me = os.environ.get("SHOP_MARKET_NAME", "nocha12")
+    for r in rows_of(md):
+        if r.get("k") == "settle" and r.get("shop") == me and isinstance(r.get("unit"), str) \
+                and hard_limits.number(r.get("ts")) and r["ts"] <= now:
+            sold[r["unit"]] = r["ts"]
+        if r.get("k") == "supply" and r.get("shop") == me and hard_limits.number(r.get("ts")):
+            for uid in r.get("units") if isinstance(r.get("units"), list) else ():
+                if isinstance(uid, str):
+                    delivered.setdefault(uid, (r.get("sku"), r["ts"]))
+    for i, u in enumerate(inv.get("units") or []):
+        if isinstance(u, dict) and hard_limits.number(u.get("supplied_at")):
+            uid = u.get("unit") or ("snapshot", i)
+            delivered.setdefault(uid, (u.get("sku"), u["supplied_at"]))
+            present.add(uid)
+    used = set()
+    for s in sorted(sent, key=lambda x: x.get("at", 0) if isinstance(x, dict)
+                    and hard_limits.number(x.get("at")) else 0):
         if not (isinstance(s, dict) and s.get("sku") and isinstance(s.get("qty"), int)
                 and isinstance(s.get("at"), (int, float)) and now - s["at"] < PENDING_SECONDS):
             continue
         if not hard_limits.number(s.get("worst", 0)) or s.get("worst", 0) < 0:
             raise ValueError(f"{SENT}: {s.get('sku')} has no usable worst cost")
-        came = sum(1 for u in inv.get("units") or [] if u.get("sku") == s["sku"] and (u.get("supplied_at") or 0) >= s["at"] - 5)
-        if s["qty"] > came:
-            out.append({"sku": s["sku"], "qty": s["qty"] - came, "worst": s.get("worst", 0)})
+        candidates = [uid for uid, (sku, at) in delivered.items() if uid not in used
+                      and sku == s["sku"] and s["at"] <= at <= min(now, s["at"] + PENDING_SECONDS)
+                      and (uid in present or sold.get(uid, -1) >= at)]
+        came = min(s["qty"], len(candidates))
+        used.update(candidates[:came])
+        # A ledger confirmation says nothing about the age of this wallet snapshot.
+        # Retain the full worst-case cash reservation until the request's usual expiry.
+        out.append({"sku": s["sku"], "qty": s["qty"] - came,
+                    "cash_qty": s["qty"], "worst": s.get("worst", 0)})
     return out
 
 
@@ -303,7 +334,7 @@ def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
     room = cfg.get("max_stock_cost", float("inf")) - held
     food_room = cfg.get("food_max_stock_cost", float("inf")) - food
     spare = min(balance - cfg["keep_cash"], hard_limits.spendable(balance, cfg.get("cash_buffer", hard_limits.STOP_BUYING_BELOW))) \
-        - sum(w["worst"] * w["qty"] for w in waiting)
+        - sum(w["worst"] * w.get("cash_qty", w["qty"]) for w in waiting)
     out, factors = [], surge(inv)
     for b in buy:
         x = catalog.get(b["sku"]) or {}
@@ -771,6 +802,20 @@ def late_lines(state, inv, buy, agent_skus=(), now=None):
     return send
 
 
+def forum_off_window(state, inv, now=None):
+    """Run the unchanged due policy only outside the supply protection interval.
+    The kit waits for process exit (market_kit.run_buyer), so printing early cannot
+    remove this wait. Leave due state untouched when deferred; the next closed
+    hook run retries normally. No worker, new call cap or external sender.
+    """
+    now = time.time() if now is None else now
+    r = inv.get("restock")
+    if isinstance(r, dict) and r.get("open") is False and hard_limits.number(r.get("opens_at")) \
+            and r["opens_at"] - now > 150:
+        return forum.maybe_run(state)
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--state", required=True)
@@ -858,7 +903,7 @@ def main():
         out["buy"] = with_trial(None, out["buy"], inv, catalog, cfg, hold=hold)
     agent_memory.maybe_consolidate(args.state)
     if os.environ.get("HARNESS"):
-        forum.maybe_run(args.state)     # the kit runs this hook once a minute in Round 3; forum.py keeps its own pace
+        forum_off_window(args.state, inv)   # closed hooks keep the same due policy; no model wait during supply
         tool_forge.maybe_run(args.state)
         rival_vote.maybe_run(args.state)    # a free dislike stance on a tied Players rival's buyer, never a paid vote
     shop_forum.maybe_run(args.state)    # the shop's own posts, written by code from its ledger rows and stock
@@ -866,7 +911,7 @@ def main():
     # reserved by guard() and the waiting lines, and with the balance far above STOP_BUYING_BELOW the line does not bind
     if first is None:
         out["buy"] = late_lines(args.state, inv, out.get("buy"), agent_skus)
-    owed = sum(w["worst"] * w["qty"] for w in waiting)      # lines already sent are bought out of the same cash
+    owed = sum(w["worst"] * w.get("cash_qty", w["qty"]) for w in waiting)      # lines already sent are bought out of the same cash
     out["buy"] = hard_limits.final_buy(out.get("buy"), inv.get("balance"), catalog, buffer=cfg["cash_buffer"] + owed)
     if out["buy"]:
         try:
