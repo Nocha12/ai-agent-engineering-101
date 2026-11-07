@@ -65,6 +65,7 @@ class TrialTests(unittest.TestCase):
                 self.assertEqual(first["_firm_trial"]["eligible"], 1)
         self.assertEqual(arms, {"A", "B"})
 
+    @patch.object(trial, "ENABLED", False)
     def test_off_preserves_baseline_and_does_not_assign(self):
         order = {"order": "o-test", "kind": "goods", "_buyer_started_at": 100}
         events = []

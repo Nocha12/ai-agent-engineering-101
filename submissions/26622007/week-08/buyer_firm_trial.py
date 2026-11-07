@@ -11,10 +11,10 @@ import re
 
 import buyer_firm_followup
 
-ENABLED = False
-START = 0
+ENABLED = True
+START = 1794050700  # 2026-11-07 20:25 KST, pending reviewed deployment
 END = START + 1800
-STUDY = "firm-followup-v1"
+STUDY = "firm-followup-20261107-2025"
 
 
 def _number(value):
