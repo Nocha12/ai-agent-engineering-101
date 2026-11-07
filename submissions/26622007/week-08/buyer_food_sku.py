@@ -112,7 +112,7 @@ def reserve(md, settled_path, order, shops, budget, baseline, cap, now):
     def retained():
         with open(path, encoding="utf-8") as src:
             value = json.load(src)
-        if value.get("study") != STUDY or value.get("order") != oid or not isinstance(value.get("shops"), dict):
+        if not isinstance(value, dict) or value.get("study") != STUDY or value.get("order") != oid or not isinstance(value.get("shops"), dict):
             raise ValueError("invalid snapshot")
         return value
     try:

@@ -69,6 +69,22 @@ class Paths(unittest.TestCase):
                 again=f.reserve(d,"unread",order,[s],150,m.pick_offer,lambda o:140,1001)
             self.assertEqual(first,again)
             self.assertIsNone(first["arm"])
+            snapshot = next(os.path.join(d,x) for x in os.listdir(d) if x.endswith(".json"))
+            os.unlink(snapshot)
+            with patch.object(f,"read_rows",side_effect=AssertionError):
+                missing=f.reserve(d,"unread",order,[s],150,m.pick_offer,lambda o:140,1002)
+            self.assertEqual(missing["fallback"],"history-or-snapshot-unavailable")
+
+    def test_malformed_snapshot_fails_closed(self):
+        import tempfile, os, json
+        import market_buyer as m
+        order=dict(kind="food",order="new",_buyer_started_at=1000)
+        with tempfile.TemporaryDirectory() as d:
+            path=os.path.join(d,".food-sku-"+f.hashlib.sha256((f.STUDY+"\\0new").encode()).hexdigest()+".json")
+            with open(path,"w") as out:
+                json.dump([],out)
+            got=f.reserve(d,"none",order,[],100,m.pick_offer,lambda o:70,1000)
+            self.assertEqual(got["fallback"],"history-or-snapshot-unavailable")
 
 if __name__ == "__main__":
     unittest.main()
