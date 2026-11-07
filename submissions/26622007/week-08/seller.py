@@ -55,7 +55,6 @@ from harness import HarnessError, ask
 import acp_gate
 import fast_classify
 import negotiate
-import seller_read
 import agent_memory
 import hard_limits
 import market_model
@@ -551,20 +550,12 @@ class Seller(AgentExecutor):
             say = lambda text, ask=None: plain(f"{note} {text}", ask)
         # in a thread: the Jev call takes about 0.4 s and must not hold the other talks
         floor_now = turn_floor(deal)
-        # a buyer kit's fixed sentence is read by rule, anything else by Jev (seller_read.py)
-        reader = seller_read.Reader(fast_classify.jev_offer if fast_classify.JEV_ON else None)
-        jev = functools.lru_cache(maxsize=1)(reader)   # one call a turn
-        fast = shelf = seller_read.shelf_turn(deal, text)
-        if shelf:
-            fast, line = shelf
-            plain_say = say
-            say = lambda text, ask=None: plain_say(f"{line} {text}", ask)
-        if not fast:
-            fast = await asyncio.to_thread(fast_classify.seller_turn, text, deal, floor_now, jev)
+        jev = functools.lru_cache(maxsize=1)(fast_classify.jev_offer) if fast_classify.JEV_ON else None   # one call a turn
+        fast = await asyncio.to_thread(fast_classify.seller_turn, text, deal, floor_now, jev)
         if not fast:   # NEGOTIATE_ENGINE=jevrule: Jev reads, a rule counters (negotiate.py); None when off
             fast = await asyncio.to_thread(negotiate.seller_turn_if_on, text, deal, floor_now, jev, MAX_ROUNDS)
         if fast:
-            log(f"task {task.id[:8]} FAST {fast['why']}{' (rule read)' if reader.rule else ''}: no harness call")
+            log(f"task {task.id[:8]} FAST {fast['why']}: no harness call")
         try:
             d = fast or await asyncio.to_thread(decide_turn, deal, text)
         except HarnessError as e:
