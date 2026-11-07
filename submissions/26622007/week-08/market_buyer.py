@@ -55,6 +55,7 @@ import market_model
 import measure as records    # measure.py; measure() below is the memory timing
 import oneshot
 import buyer_opening_discount
+import buyer_goods_quote_probe
 import rival_deny
 
 # Revenue rivals of my shop asked last (rival_deny): off from 11/07 00:30. With best_quote stopping at QUOTE_ENOUGH asks they
@@ -1116,7 +1117,9 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
         o = s["_offer"]
         b = chance_of(o["sku"]) or 0
         return got[s["name"]]["ask"] <= min(value_limit(o, budget, b, cfg), saved_cap(o, b))
-    for r in range(rounds):
+    extra = order.get("kind") == "goods" and order.get("_goods_extra_quote_probe") == "B" and rounds == 1 and not late
+    for r in range(rounds + int(extra)):
+        extra_deadline = time.time() + buyer_goods_quote_probe.EXTRA_WAIT if extra and r else None
         n = first if not r else k
         batch, rest = rest[:n], rest[n:]
         if not batch or (r and time.time() - STARTED > QUOTE_UNTIL):
@@ -1129,6 +1132,8 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
         threads += list(new.values())
         pool += batch
         end = time.time() + wait if not (r or late) else min(time.time() + wait, STARTED + QUOTE_UNTIL)
+        if extra_deadline is not None:
+            end = min(end, extra_deadline)
         more = r + 1 < rounds and bool(rest) and not late
         if not more:      # no batch after this one: the slow shops of the earlier batches are waited for too
             threads = [asked[s["name"]] for s in pool]
@@ -1147,6 +1152,10 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
         # over the limit ended the search while the next batch was never asked
         if any(surplus(s) is not None and fits(s) for s in pool):
             break
+        if extra and r == 0:
+            if not rest or time.time() - STARTED >= buyer_goods_quote_probe.EARLY_SECONDS or any(th.is_alive() for th in threads):
+                break
+            order["_goods_extra_quote_started"] = time.time()
     scored = [(surplus(s), i, s) for i, s in enumerate(pool) if surplus(s) is not None]
     # an ask read from the text ranks after a metadata ask of the same fit and share (a misread or made-up text ask
     # must not take the trade from a shop that stated its price in data; independent review 11/06 13:30)
@@ -1414,6 +1423,8 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
                                                       for o in s.get("usable") or []][:3]} for s in shops][:20],
         "n_candidates": len(shops),    # lists cut so a line stays one small append (buyer runs can overlap)
         "food_quote_yield": order.get("_food_quote_yield", order.get("kind") == "food" and quote_yield_arm(order.get("order"))),
+        "goods_extra_quote_probe": order.get("_goods_extra_quote_probe"),
+        "goods_extra_quote_started": order.get("_goods_extra_quote_started"),
         "one_won_probe": probe_arm,
         "one_won_default": order.get("_one_won_default", False),
         "opening_discount_probe": order.get("_opening_discount_probe"),
@@ -1453,6 +1464,9 @@ def main():
         order["_buyer_started_at"] = time.time()
         order["_food_quote_yield"] = order.get("kind") == "food" and quote_yield_arm(order.get("order"))
     md = os.path.dirname(args.shops) or "."
+    if r3:
+        order["_goods_extra_quote_probe"] = buyer_goods_quote_probe.reserve(
+            md, order, now=order["_buyer_started_at"])
     catalog = load_json(os.path.join(md, "catalog.json"), {}) if r3 else {}
     if r3:
         warm_ledger(md)      # food reads the rows only before its talk (shop_pattern): read them while the quotes run
@@ -1471,6 +1485,7 @@ def main():
                                          "budget": args.budget, "acceptable": len(order.get("acceptable") or []),
                                          "use_within_hours": order.get("use_within_hours"), "candidates": [],
                                          "food_quote_yield": order["_food_quote_yield"],
+                                         "goods_extra_quote_probe": order.get("_goods_extra_quote_probe"),
                                          "quotes": [], "quote_attempts_complete": True,
                                          "state": "NO_SHOP_IN_STOCK", "seconds": {"end": round(time.time() - STARTED, 2)}})
         print(json.dumps({"shop": "", "receipt": None, **({} if r3 else {"stars": 1, "review": "No shops to trade with."})}))
