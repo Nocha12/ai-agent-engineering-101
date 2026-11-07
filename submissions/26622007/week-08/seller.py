@@ -299,6 +299,7 @@ def break_chance(sku, grade=None):
 
 # the seller's memory writes, in order, off the event loop (Shop.remember). Its worker is not a daemon: the writes
 # queued when the seller stops are still made before it exits.
+MEMORY_FAILURES = []  # sticky failure watermark: a failed write forbids a clean drain
 MEMORY_WRITER = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="seller-memory")
 
 
@@ -361,6 +362,8 @@ def floor_rank(u, pricing):
 def flush_memory():
     """Waits for the memory writes queued so far (tests, and anything that reads the file right after a talk)."""
     MEMORY_WRITER.submit(lambda: None).result()
+    if MEMORY_FAILURES:
+        raise RuntimeError("memory persistence failed; drain is not clean")
 
 class Seller(AgentExecutor):
     def __init__(self, catalog, name, stock=None, acp=None):
@@ -519,7 +522,7 @@ class Seller(AgentExecutor):
         deal = self.open.get(task.id)
         log(f"task {task.id[:8]} <- {text!r}")
 
-        if deal is None and DRAIN.active():   # seller_drain: restarting; talks under way go on, new ones wait a minute
+        if DRAIN.closed or (deal is None and DRAIN.active()):   # seller_drain: restarting; talks under way go on, new ones wait a minute
             await up.reject(say("Sorry, the shop is restarting for an update. Please ask again in a minute."))
             log(f"task {task.id[:8]} -> REJECTED (draining for a restart)")
             return
@@ -695,7 +698,11 @@ class Seller(AgentExecutor):
             self._remember_now(*entry)
 
     def _remember_now(self, task_id, deal, result, price=None, observed_at=None):
-        CONCESSION_TRIAL.event(task_id, deal, result, price, observed_at)
+        try:
+            CONCESSION_TRIAL.event(task_id, deal, result, price, observed_at)
+        except Exception:
+            MEMORY_FAILURES.append(True)
+            raise
         try:
             shop_memory.record({"task": task_id, "item": deal.get("key") or deal["name"], "sku": deal["id"],
                                 "unit": deal.get("unit"), "cost": deal.get("cost"), "reserve": deal["reserve"],
@@ -704,6 +711,7 @@ class Seller(AgentExecutor):
                                 "offers": [p for who, p in deal["history"] if who == "buyer offered"],
                                 "warranty": deal.get("warranty"), "result": result, "price": price})
         except Exception as e:  # noqa: BLE001 - in the writer thread nobody else would see it
+            MEMORY_FAILURES.append(True)
             log(f"memory write failed: {type(e).__name__}: {e}")
         if deal.get("unit") and result == "deal":
             try:
@@ -780,6 +788,8 @@ def build(url, catalog, name):
             yield
         finally:
             drain.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await drain
 
     return Starlette(routes=create_agent_card_routes(card, card_modifier=fresh_card) + acp.routes() + [Route("/_kitlog", kitlog)]
                      + create_jsonrpc_routes(handler, "/"), lifespan=lifespan)

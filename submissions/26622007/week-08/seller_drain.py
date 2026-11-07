@@ -26,6 +26,7 @@ class Drain:
         self.root = Path(root) if root is not None else Path(os.environ.get("MARKET_DIR", ".market"))
         self.pid = os.getpid() if pid is None else pid
         self.inflight = 0
+        self.closed = False
 
     def active(self):
         try:
@@ -55,9 +56,12 @@ class Drain:
 
     async def tick(self, shop, flush):
         if not self.active():
+            self.closed = False
             return None
         c = self.census(shop)
         c["flushed"] = False
+        if c["quiet"]:
+            self.closed = True  # final latch: no new executor admission while flush yields
         if c["drained"]:
             await asyncio.to_thread(flush)
             c = self.census(shop)

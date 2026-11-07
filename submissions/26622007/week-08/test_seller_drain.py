@@ -84,6 +84,19 @@ class CensusTest(unittest.TestCase):
             self.assertEqual(flushed, [1])
 
 
+class PersistenceTest(unittest.TestCase):
+    def test_failed_memory_write_blocks_flush(self):
+        s = seller.Seller(catalog=None, name='test', stock=book())
+        deal = dict(name='chair', id='Gaaaaaaaa', reserve=1, history=[])
+        with mock.patch.object(seller, 'MEMORY_FAILURES', []), \
+                mock.patch.object(seller.CONCESSION_TRIAL, 'event'), \
+                mock.patch.object(seller.shop_memory, 'record', side_effect=OSError('disk')), \
+                mock.patch.object(seller, 'log'):
+            s._remember_now('t', deal, 'rejected')
+            with self.assertRaises(RuntimeError):
+                seller.flush_memory()
+
+
 class QuietContractTest(unittest.TestCase):
     def test_stale_and_wrong_pid_and_old_status_cannot_authorize_restart(self):
         from seller_drain_wait import quiet
