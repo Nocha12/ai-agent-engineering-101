@@ -59,6 +59,7 @@ import buyer_opening_discount
 import buyer_goods_quote_probe
 import buyer_goods_first_one
 import buyer_quote_alignment
+import buyer_stock_evidence
 import buyer_firm_trial
 import buyer_first95_trial
 import buyer_cap95_trial
@@ -778,6 +779,10 @@ def quote(shop, label, key, order, out, ctl=None):
                 order.get("_quote_alignment"), text, shop.get("_offer") or {}, ask, raw,
                 shop=shop["name"], open_=open_, refused=q["refused"], late=bool(ctl and ctl.get("done")),
                 receipt=bool(t.get("artifacts")))
+        if order.get("kind") == "goods" and order.get("_stock_evidence_md"):
+            buyer_stock_evidence.observe(order["_stock_evidence_md"], shop, key, text=text,
+                ask=aligned if aligned is not None else buyer_metadata_ask(t) or raw or buyer_text_ask(text),
+                snapshot_at=order.get("_stock_snapshot_at"))
         with lock if lock is not None else contextlib.nullcontext():
             late = ctl is not None and ctl.get("done") and ctl.get("winner") != shop["name"]
             context = order.get("_quote_alignment")
@@ -1044,6 +1049,19 @@ def start_quotes(shops, order, budget, chance_of, got, ctl):
     The market hands a buyer one open order at a time and the next one 20 s after the last at the earliest (ledger
     11/06 13:23-15:50: 49 buyers, no buyer with two open orders, the busiest 15 at 20.0-20.6 s between orders, us at 54.6 s).
     So orders cannot run side by side: the time to win is inside one order, and the quotes run while the harness chooses."""
+    if (order.get("_stock_current") and not order.get("_stock_dispatched")
+            and order.get("_stock_phase", "prefetch") == "prefetch"):
+        # The actual first batch can be delayed by give-up/ledger work after
+        # prefetch_pool. Revalidate again here, immediately before dispatch.
+        baseline = order["_stock_baseline"]
+        scheduled = buyer_stock_evidence.decide(order.get("_stock_evidence"), order.get("_stock_plan"),
+                                                current=order["_stock_current"])
+        names = scheduled if scheduled is not None else [s["name"] for s in baseline]
+        order["_stock_reordered"] = names != [s["name"] for s in baseline]
+        by_name = {s["name"]: s for s in baseline}
+        order["_stock_quotable"][:] = [by_name[n] for n in names]
+        shops[:] = order["_stock_quotable"][:max(0, order["_stock_k"] - 1)]
+        order["_stock_dispatched"] = True
     threads = {}
     for s in shops:
         o = selected_offer(s, budget)
@@ -1051,17 +1069,50 @@ def start_quotes(shops, order, budget, chance_of, got, ctl):
         s["_quote_attempted"] = True  # published before the thread: failed or still pending calls must be counted
         th = threading.Thread(target=quote, args=(s, o["name"], o["sku"], order, got, ctl), daemon=True)
         th.start()
+        if order.get("_stock_evidence") and not buyer_stock_evidence.attempt(
+                order["_stock_evidence"], s["name"], o["sku"], phase=order.get("_stock_phase", "quotes"),
+                intended_reorder=order.get("_stock_reordered", False)):
+            order["_stock_witness_failures"] = order.get("_stock_witness_failures", 0) + 1
         threads[s["name"]] = th
     return threads
 
 
-def prefetch_pool(left, memory, md, category, k, rival=frozenset(), kind=None, order_id=None, yield_arm=None):
+def prefetch_pool(left, memory, md, category, k, rival=frozenset(), kind=None, order_id=None, yield_arm=None,
+                  order=None, budget=None):
     """The k - 1 shops quoted before the harness has chosen (the chosen shop takes the last slot of the first batch),
     and every shop that could be quoted, in quote order; revenue rivals of my shop after the others (rival_deny)."""
     others = [s for s in left if not caught_cheating(my_history(memory, s["name"]))]
     active = quote_yield_arm(order_id) if yield_arm is None else yield_arm
     yields = recent_quote_yields(md, category) if kind == "food" and active else None
-    others = rival_deny.others_first(quote_order(others, recent_fits(md, category), k, yields), rival)
+    fits = recent_fits(md, category)
+    others = rival_deny.others_first(quote_order(others, fits, k, yields), rival)
+    if kind == "goods" and order is not None and budget is not None:
+        def current(at):
+            latest_fits = recent_fits(md, category, now=at)
+            current_left = left
+            if order.get("_stock_shops_path"):
+                raw = buyer_stock_evidence.listing(order["_stock_shops_path"])
+                if raw is None or any(not isinstance(s, dict) for s in raw):
+                    return None
+                current_by_name = {s["name"]: s for s in raw if s.get("name") and s.get("url")}
+                if set(current_by_name) != set(order["_stock_all_shop_names"]):
+                    return None  # a changed candidate pool must use the baseline
+                current_left = [{**s, **current_by_name[s["name"]]} for s in left]
+            current_rival = rival_deny.rivals(md, now=at) if RIVAL_DENY else rival
+            current_others = [s for s in current_left if not caught_cheating(my_history(memory, s["name"]))]
+            current_others = rival_deny.others_first(quote_order(current_others, latest_fits, k), current_rival)
+            return buyer_stock_evidence.plan(md, current_others, latest_fits, current_rival,
+                {s["name"]: selected_offer(s, budget)["sku"] for s in current_others}, k=k, now=at)
+        decision = buyer_stock_evidence.plan(md, others, fits, rival,
+                                             {s["name"]: selected_offer(s, budget)["sku"] for s in others}, k=k)
+        order["_stock_plan"] = decision
+        order["_stock_current"], order["_stock_baseline"], order["_stock_k"] = current, list(others), k
+        scheduled = buyer_stock_evidence.decide(order.get("_stock_evidence"), decision, current=current) if PREFETCH_QUOTES else None
+        if scheduled is not None:
+            order["_stock_reordered"] = scheduled != [s["name"] for s in others]
+            by_name = {s["name"]: s for s in others}
+            others = [by_name[n] for n in scheduled]
+        order["_stock_quotable"] = others
     return others[:max(0, k - 1)], others
 
 
@@ -1488,6 +1539,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "food_quote_yield": order.get("_food_quote_yield", order.get("kind") == "food" and quote_yield_arm(order.get("order"))),
         "goods_extra_quote_probe": order.get("_goods_extra_quote_probe"),
         "quote_alignment_arm": (order.get("_quote_alignment") or {}).get("arm"),
+        "stock_evidence": buyer_stock_evidence.measurement(order),
         "firm_trial": buyer_firm_trial.measurement(order, out),
         "first95_trial": buyer_first95_trial.measurement(order, out),
         "cap95_trial": buyer_cap95_trial.measurement(order, out),
@@ -1540,6 +1592,13 @@ def main():
         order["_food_quote_yield"] = order.get("kind") == "food" and quote_yield_arm(order.get("order"))
     md = os.path.dirname(args.shops) or "."
     if r3:
+        order["_stock_evidence_md"] = md
+        order["_stock_shops_path"] = args.shops
+        order["_stock_all_shop_names"] = [s["name"] for s in shops]
+        order["_stock_snapshot_at"] = time.time()
+        order["_stock_evidence"] = buyer_stock_evidence.reserve(md, order)
+        order["_stock_reservation_status"] = "reserved" if order["_stock_evidence"] else (
+            "unreserved" if buyer_stock_evidence.ENABLED else "off")
         order["_quote_alignment"] = buyer_quote_alignment.reserve(md, order, now=order["_buyer_started_at"])
         order["_goods_extra_quote_probe"] = buyer_goods_quote_probe.reserve(
             md, order, now=order["_buyer_started_at"])
@@ -1557,12 +1616,15 @@ def main():
     if not shops:
         log("[choose] no shops with this order in stock" if r3 else "[choose] no shops in the list")
         if r3:
+            order["_stock_terminal_written"] = buyer_stock_evidence.terminal(
+                order.get("_stock_evidence"), state="NO_SHOP_IN_STOCK", passed_to_kit=False)
             records.write(md, "orders", {"order": order.get("order"), "category": order.get("category"), "kind": order.get("kind"),
                                          "budget": args.budget, "acceptable": len(order.get("acceptable") or []),
                                          "use_within_hours": order.get("use_within_hours"), "candidates": [],
                                          "food_quote_yield": order["_food_quote_yield"],
                                          "goods_extra_quote_probe": order.get("_goods_extra_quote_probe"),
                                          "quote_alignment_arm": (order.get("_quote_alignment") or {}).get("arm"),
+                                         "stock_evidence": buyer_stock_evidence.measurement(order),
                                          "quotes": [], "quote_attempts_complete": True,
                                          "state": "NO_SHOP_IN_STOCK", "seconds": {"end": round(time.time() - STARTED, 2)}})
         print(json.dumps({"shop": "", "receipt": None, **({} if r3 else {"stars": 1, "review": "No shops to trade with."})}))
@@ -1595,7 +1657,7 @@ def main():
                 s["_food_sku"] = frozen["shops"].get(s["name"])
         k = int(buyer_cfg().get("quote_shops", 1))
         early, quotable = prefetch_pool(left, memory, md, order.get("category"), k, rival, kind=order.get("kind"), order_id=order.get("order"),
-                                         yield_arm=order["_food_quote_yield"])
+                                         yield_arm=order["_food_quote_yield"], order=order, budget=args.budget)
         try:
             gave_up = hopeless(quotable or left, args.budget, recent_asks(md), buyer_cfg())
         except Exception as e:  # noqa: BLE001 - an odd record line must not end the run before the result line
@@ -1605,8 +1667,10 @@ def main():
         stats = ledger_breaks(md, catalog) if order.get("kind") == "goods" else None
         chance_of = (lambda sku: market_model.break_chance(stats, sku)) if stats else (lambda sku: None)
         if PREFETCH_QUOTES and not gave_up and k >= 2 and early:
+            order["_stock_phase"] = "prefetch"
             pre = {"got": {}, "ctl": quote_ctl(), "asked": {s["name"] for s in early}}
             pre["threads"] = start_quotes(early, order, args.budget, chance_of, pre["got"], pre["ctl"])
+            pre["asked"] = set(pre["threads"])  # final validated batch, including a baseline fallback
             pre["enough"] = lambda: quotes_enough(early, pre["got"], args.budget, buyer_cfg())
             log(f"[quote] asking {', '.join(s['name'] for s in early)} while choosing")
     if gave_up:       # no talk follows, so the harness is not asked to choose either (it took a median 13.4 s)
@@ -1639,6 +1703,7 @@ def main():
         others = [s for s in quotable if s is not shop]
         # with quotes already asked, best_quote runs even late: it waits for them and closes every talk but the one kept
         try:
+            order["_stock_phase"] = "best_quote"
             best, quotes = best_quote(shop, others, order, catalog, args.budget, chance_of, buyer_cfg(), pre=pre, rival=rival,
                                       rounds=quote_rounds(order)) \
                 if (pre or time.time() - STARTED < 60) and not gave_up else (shop, {})
@@ -1812,6 +1877,10 @@ def main():
             result["receipt"] = None            # the kit pays any receipt that verifies: this one does not go through
         if accept_policy(order):
             result["accept"] = accept_policy(order)
+        if order.get("kind") == "goods" and asks:
+            buyer_stock_evidence.observe(md, shop, key, ask=asks[-1], snapshot_at=order.get("_stock_snapshot_at"))
+        order["_stock_terminal_written"] = buyer_stock_evidence.terminal(
+            order.get("_stock_evidence"), state=out.get("state"), passed_to_kit=result.get("receipt") is not None)
         try:
             records.write(md, "orders", {**order_record(order, args, shops, quotes, first_choice, first_reason, shop, reason, offer,
                                                         limit, chance, out, rec, result, problems, warnings, short, why, stages,
