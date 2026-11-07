@@ -1,4 +1,4 @@
-"""Inert preparation for a separate first1 goods pilot; never permits price0."""
+"""Bounded first1 goods pilot; never emits a zero-price offer."""
 import collections
 import fcntl
 import hashlib
