@@ -80,7 +80,7 @@ class Paths(unittest.TestCase):
         import market_buyer as m
         order=dict(kind="food",order="new",_buyer_started_at=1000)
         with tempfile.TemporaryDirectory() as d:
-            path=os.path.join(d,".food-sku-"+f.hashlib.sha256((f.STUDY+"\\0new").encode()).hexdigest()+".json")
+            path=os.path.join(d,".food-sku-"+f.hashlib.sha256((f.STUDY+chr(0)+"new").encode()).hexdigest()+".json")
             with open(path,"w") as out:
                 json.dump([],out)
             got=f.reserve(d,"none",order,[],100,m.pick_offer,lambda o:70,1000)
