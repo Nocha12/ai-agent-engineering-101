@@ -60,6 +60,7 @@ import buyer_goods_quote_probe
 import buyer_goods_first_one
 import buyer_quote_alignment
 import buyer_stock_evidence
+import buyer_fresh_rotation
 import buyer_firm_trial
 import buyer_first95_trial
 import buyer_cap95_trial
@@ -1062,13 +1063,36 @@ def start_quotes(shops, order, budget, chance_of, got, ctl):
         order["_stock_quotable"][:] = [by_name[n] for n in names]
         shops[:] = order["_stock_quotable"][:max(0, order["_stock_k"] - 1)]
         order["_stock_dispatched"] = True
+    fresh_ctx = order.get("_fresh_rotation")
+    if (fresh_ctx and order.get("_stock_phase") == "prefetch"
+            and not order.get("_fresh_dispatched") and order.get("_fresh_inputs")):
+        baseline, fits, rival, k, quotable = order["_fresh_inputs"]
+        p = buyer_fresh_rotation.plan(baseline, fits, rival, k=k, order_id=order.get("order"))
+        names = buyer_fresh_rotation.decide(fresh_ctx, p)
+        names = names if names is not None else [s["name"] for s in baseline]
+        by_name = {s["name"]: s for s in baseline}
+        quotable[:] = [by_name[n] for n in names]
+        shops[:] = quotable[:max(0, k - 1)]
+        order["_fresh_dispatched"] = True
+        order["_fresh_plan"] = p
     threads = {}
     for s in shops:
         o = selected_offer(s, budget)
         s["_offer"], s["_b"] = o, chance_of(o["sku"]) or 0
         s["_quote_attempted"] = True  # published before the thread: failed or still pending calls must be counted
-        th = threading.Thread(target=quote, args=(s, o["name"], o["sku"], order, got, ctl), daemon=True)
-        th.start()
+        try:
+            th = threading.Thread(target=quote, args=(s, o["name"], o["sku"], order, got, ctl), daemon=True)
+            th.start()
+        except Exception:
+            s.pop("_quote_attempted", None)
+            buyer_fresh_rotation.event(fresh_ctx, "start_failure", shop=s["name"], sku=o["sku"])
+            raise
+        started_at = time.time()
+        if fresh_ctx:
+            if not buyer_fresh_rotation.event(fresh_ctx, "attempt", shop=s["name"], sku=o["sku"],
+                    thread_started_at=started_at, boundary="quote_thread_started",
+                    phase=order.get("_stock_phase", "quotes")):
+                order["_fresh_witness_failures"] = order.get("_fresh_witness_failures", 0) + 1
         if order.get("_stock_evidence") and not buyer_stock_evidence.attempt(
                 order["_stock_evidence"], s["name"], o["sku"], phase=order.get("_stock_phase", "quotes"),
                 intended_reorder=order.get("_stock_reordered", False)):
@@ -1113,6 +1137,8 @@ def prefetch_pool(left, memory, md, category, k, rival=frozenset(), kind=None, o
             by_name = {s["name"]: s for s in others}
             others = [by_name[n] for n in scheduled]
         order["_stock_quotable"] = others
+    if order is not None and order.get("_fresh_rotation"):
+        order["_fresh_inputs"] = (list(others), fits, rival, k, others)
     return others[:max(0, k - 1)], others
 
 
@@ -1540,6 +1566,10 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "goods_extra_quote_probe": order.get("_goods_extra_quote_probe"),
         "quote_alignment_arm": (order.get("_quote_alignment") or {}).get("arm"),
         "stock_evidence": buyer_stock_evidence.measurement(order),
+        "fresh_rotation": {"study": (order.get("_fresh_rotation") or {}).get("study"),
+                           "arm": (order.get("_fresh_rotation") or {}).get("arm"),
+                           "eligible": (order.get("_fresh_plan") or {}).get("eligible"),
+                           "witness_failures": order.get("_fresh_witness_failures", 0)},
         "firm_trial": buyer_firm_trial.measurement(order, out),
         "first95_trial": buyer_first95_trial.measurement(order, out),
         "cap95_trial": buyer_cap95_trial.measurement(order, out),
@@ -1602,6 +1632,13 @@ def main():
         order["_quote_alignment"] = buyer_quote_alignment.reserve(md, order, now=order["_buyer_started_at"])
         order["_goods_extra_quote_probe"] = buyer_goods_quote_probe.reserve(
             md, order, now=order["_buyer_started_at"])
+        # Reserve ITT before catalog/product selection, only for new normal orders.
+        at = time.time()
+        overlapping = any(m.ENABLED and m.START <= at < m.END for m in (
+            buyer_stock_evidence, buyer_goods_first_one, buyer_goods_quote_probe,
+            buyer_firm_trial, buyer_first95_trial, buyer_cap95_trial))
+        order["_fresh_rotation"] = buyer_fresh_rotation.reserve(md, order,
+            conflict=bool(overlapping or order.get("_quote_alignment") or order.get("_goods_extra_quote_probe")))
     catalog = load_json(os.path.join(md, "catalog.json"), {}) if r3 else {}
     if r3:
         warm_ledger(md)      # food reads the rows only before its talk (shop_pattern): read them while the quotes run
@@ -1616,6 +1653,8 @@ def main():
     if not shops:
         log("[choose] no shops with this order in stock" if r3 else "[choose] no shops in the list")
         if r3:
+            buyer_fresh_rotation.event(order.get("_fresh_rotation"), "terminal",
+                                       state="NO_SHOP_IN_STOCK", passed_to_kit=False)
             order["_stock_terminal_written"] = buyer_stock_evidence.terminal(
                 order.get("_stock_evidence"), state="NO_SHOP_IN_STOCK", passed_to_kit=False)
             records.write(md, "orders", {"order": order.get("order"), "category": order.get("category"), "kind": order.get("kind"),
@@ -1881,6 +1920,8 @@ def main():
             buyer_stock_evidence.observe(md, shop, key, ask=asks[-1], snapshot_at=order.get("_stock_snapshot_at"))
         order["_stock_terminal_written"] = buyer_stock_evidence.terminal(
             order.get("_stock_evidence"), state=out.get("state"), passed_to_kit=result.get("receipt") is not None)
+        buyer_fresh_rotation.event(order.get("_fresh_rotation"), "terminal",
+                                   state=out.get("state"), passed_to_kit=result.get("receipt") is not None)
         try:
             records.write(md, "orders", {**order_record(order, args, shops, quotes, first_choice, first_reason, shop, reason, offer,
                                                         limit, chance, out, rec, result, problems, warnings, short, why, stages,
