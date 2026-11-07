@@ -99,6 +99,25 @@ For source rollback use git revert of this candidate's commits (preserve history
 Retain all evidence; never remove/reuse B1 or other study journals.
 # Opt-in verified runtime image (local preparation only)
 
+The supported executable subset is **rule selection with a prefetch context**.
+Snapshot bootstrap policy decorates verified buyer definitions before execution:
+actual engine resolution must return exactly True before main order handling;
+`choose_racing` requires that rule decision and a non-None prefetch context.
+Unsupported `choose`, agent_loop.decide and agent_tools discovery/selftest/boxed/
+execute/run terminate the entire process with exit 78 before their bodies run.
+This also covers the hurry first step and daemon-thread fallback. Failure is not
+a HarnessError or a recoverable fallback to negotiation. Rule selection itself,
+selection_asked/actual asked/threads and the ordinary non-snapshot source remain
+unchanged. Agent and absent-prefetch paths are explicitly unsupported here.
+
+Nested live tool manifests and subprocess tool.py are not in the verified image.
+The previous cwd-prefix change restored discovery from 0 to 17, but that was
+mutable live fallback, not immutable tool support. This snapshot now rejects
+those entry points rather than silently consuming them. A full agent image would
+need verified manifests, tool code/dependencies and a verified child launcher;
+this implementation does not claim that support. Credential, command,
+interpreter/third-party and ancestor trust contracts remain unverified.
+
 `tools.fresh_snapshot` builds a new artifact from pinned Git objects: all top-level
 non-test Python files and `pricing.json`. The fresh helper's code and four scalar
 settings determine its versioned module name. The candidate entry imports that

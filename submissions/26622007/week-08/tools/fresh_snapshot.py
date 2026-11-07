@@ -19,7 +19,7 @@ LIMIT = 16 * 1024 * 1024
 # Self-contained so the existing kit can hold it in its already-loaded command.
 # No mutable Python launcher file or checkout import is used by the child.
 BOOTSTRAP = r'''
-import argparse,builtins,hashlib,importlib.abc,importlib.util,io,json,os,re,stat,sys,types
+import argparse,ast,builtins,hashlib,importlib.abc,importlib.util,io,json,os,re,stat,sys,types
 p=argparse.ArgumentParser()
 p.add_argument('--image',required=True)
 p.add_argument('--sha256',required=True)
@@ -62,6 +62,56 @@ modules={name[:-3]:data for name,data in files.items() if name.endswith('.py')}
 if set(modules)&(set(sys.stdlib_module_names)|set(sys.modules)):
     raise SystemExit('snapshot module collision')
 sys.stderr.write('buyer_snapshot_verified sha256='+a.sha256+' commit='+m['commit']+'\n')
+def fatal(path):
+    # SystemExit in choose_racing's daemon would only stop that thread. Exit the
+    # process so neither HarnessError nor broad fallback handlers can trade on.
+    try:
+        os.write(2,('buyer_snapshot_unsupported '+path+'\n').encode())
+    finally:
+        os._exit(78)
+def denied(fn):
+    def blocked(*args,**kwargs):
+        fatal(fn.__module__+'.'+fn.__name__)
+    return blocked
+def rule_only(fn):
+    def resolve(*args,**kwargs):
+        try:
+            result=fn(*args,**kwargs)
+        except Exception:
+            fatal('engine-resolution')
+        if result is not True:
+            fatal('nonrule-engine')
+        return True
+    return resolve
+def main_only(fn):
+    def start(*args,**kwargs):
+        fn.__globals__['choose_by_rule']()
+        return fn(*args,**kwargs)
+    return start
+def racing_only(fn):
+    def select(pick,memory,item,budget,pre,*,rule_engine=None):
+        resolved=fn.__globals__['choose_by_rule']() if rule_engine is None else rule_engine
+        if resolved is not True or pre is None:
+            fatal('unsupported-choice-path')
+        return fn(pick,memory,item,budget,pre,rule_engine=resolved)
+    return select
+def sealed_compile(data,filename,namespace,module):
+    # Policies live in this trusted command, never in mutable env or live tools.
+    policies={}
+    if module=='market_buyer':
+        policies={'choose':'deny','choose_by_rule':'rule','main':'main','choose_racing':'racing'}
+    elif module=='agent_loop':
+        policies={'decide':'deny'}
+    elif module=='agent_tools':
+        policies={n:'deny' for n in ('discover','selftest','boxed','execute','run')}
+    decorators={'deny':denied,'rule':rule_only,'main':main_only,'racing':racing_only}
+    tree=ast.parse(data,filename)
+    for node in tree.body:
+        if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)) and node.name in policies:
+            key='__snapshot_policy_'+policies[node.name]
+            namespace[key]=decorators[policies[node.name]]
+            node.decorator_list.insert(0,ast.Name(id=key,ctx=ast.Load()))
+    return compile(ast.fix_missing_locations(tree),filename,'exec')
 class Loader(importlib.abc.MetaPathFinder,importlib.abc.Loader):
     def find_spec(self,fullname,path=None,target=None):
         return importlib.util.spec_from_loader(fullname,self) if fullname in modules else None
@@ -73,7 +123,7 @@ class Loader(importlib.abc.MetaPathFinder,importlib.abc.Loader):
         return modules[fullname].decode('utf-8')
     def exec_module(self,module):
         module.__file__=self.get_filename(module.__name__)
-        exec(compile(modules[module.__name__],module.__file__,'exec'),module.__dict__)
+        exec(sealed_compile(modules[module.__name__],module.__file__,module.__dict__,module.__name__),module.__dict__)
 loader=Loader()
 sys.meta_path.insert(0,loader)
 # Direct open()/Path.read_text() of declared source/policy/config consumes the
@@ -95,7 +145,7 @@ io.open=lambda *args,**kw:memory_open(original_io_open,*args,**kw)
 args=a.args[1:] if a.args[:1]==['--'] else a.args
 sys.argv=[prefix+m['entry']]+args
 namespace={'__name__':'__main__','__file__':sys.argv[0],'__package__':None,'__builtins__':builtins}
-exec(compile(files[m['entry']],sys.argv[0],'exec'),namespace)
+exec(sealed_compile(files[m['entry']],sys.argv[0],namespace,'market_buyer'),namespace)
 '''
 
 

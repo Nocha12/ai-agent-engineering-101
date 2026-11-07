@@ -1,5 +1,6 @@
 """Actual independent filesystem writer vs a verified in-memory buyer image."""
 import json
+import os
 from pathlib import Path
 import select
 import shlex
@@ -16,6 +17,114 @@ ROLLBACK = "6a23d40dc04c03aa0242bedcce55436dcb7a47a5"
 
 
 class FreshSnapshot(unittest.TestCase):
+    def actual_files(self, probe=None):
+        data, _ = image.snapshot_from_git(REPO, PIN)
+        manifest = json.loads(data)
+        files = {n: v.encode() for n, v in manifest["files"].items()}
+        files["buyer_fresh_rotation.py"] = files.pop(manifest["helper"] + ".py")
+        files["market_buyer.py"] = subprocess.check_output(
+            ["git", "show", PIN + ":submissions/26622007/week-08/market_buyer.py"], cwd=REPO)
+        if probe:
+            tail = b'if __name__ == "__main__":\n    sys.exit(main())'
+            self.assertIn(tail, files["market_buyer.py"])
+            files["market_buyer.py"] = files["market_buyer.py"].replace(tail, probe.encode())
+        return files
+
+    def run_actual_probe(self, probe, *, engine="rule", pricing=None):
+        files = self.actual_files(probe)
+        if pricing is not None:
+            files["pricing.json"] = json.dumps(pricing).encode()
+        data, digest = image.make_snapshot(files, PIN)
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            tool = root / "tools" / "hostile"
+            tool.mkdir(parents=True)
+            (tool / "manifest.json").write_text(json.dumps(dict(description="fixture", selftest=dict(args={}), parameters={})))
+            (tool / "tool.py").write_text("from pathlib import Path; Path('tool-sentinel').write_text('executed')")
+            (root / "shops.json").write_text("[]")
+            path = root / "image.json"
+            path.write_bytes(data)
+            env = dict(os.environ, AGENT_DIR=str(root), AGENT_TOOLS=str(root / "tools"),
+                       HARNESS="snapshot-fixture-no-backend")
+            if engine is None:
+                env.pop("BUYER_CHOOSE_ENGINE", None)
+            else:
+                env["BUYER_CHOOSE_ENGINE"] = engine
+            p = subprocess.run(shlex.split(image.snapshot_command(path, digest)) +
+                               ["--shops", str(root / "shops.json"), "--item", "fixture", "--budget", "100"],
+                               cwd=root, env=env, capture_output=True, text=True, timeout=15)
+            sentinels = [p.name for p in root.rglob("*sentinel")]
+            return p, sentinels
+
+    def test_snapshot_actual_main_rejects_nonrule_before_any_order_side_effect(self):
+        for engine in ("agent", "unknown", "{}"):
+            with self.subTest(engine=engine):
+                p, sentinels = self.run_actual_probe(None, engine=engine)
+                self.assertEqual(p.returncode, 78, p.stderr)
+                self.assertNotIn('"receipt"', p.stdout)
+                self.assertFalse(sentinels)
+        for pricing in ({"buyer_choose": {"engine": "agent"}}, {"buyer_choose": []}, {}):
+            p, sentinels = self.run_actual_probe(None, engine=None, pricing=pricing)
+            self.assertEqual(p.returncode, 78, p.stderr)
+            self.assertFalse(sentinels)
+
+    def test_snapshot_rule_without_prefetch_and_hurry_cannot_reach_first_ask(self):
+        setup = """
+from pathlib import Path
+shops=[dict(name=n,url='http://'+n,reviews=[]) for n in ('a','b','c')]
+memory={'trades':[]}
+AGENT_DIR=None
+def forbidden(*a,**k):
+    Path('ask-sentinel').write_text('called')
+    raise AssertionError('ask reached')
+ask=forbidden
+"""
+        for call in ("choose_racing(shops,memory,'fixture',100,None,rule_engine=True)",
+                     "choose(shops,memory,'fixture',100,hurry=lambda:True)",
+                     "AGENT_DIR=os.environ['AGENT_DIR']; choose(shops,memory,'fixture',100,hurry=lambda:True)",
+                     "choose_racing(shops,memory,'fixture',100,{'enough':lambda:True},rule_engine=False)",
+                     "import threading; t=threading.Thread(target=lambda:choose(shops,memory,'fixture',100,hurry=lambda:True),daemon=True); t.start(); t.join(); raise AssertionError('daemon returned')"):
+            p, sentinels = self.run_actual_probe(setup + "\n" + call)
+            self.assertFalse(sentinels, (call, sentinels, p.stderr))
+            self.assertEqual(p.returncode, 78, p.stderr)
+
+    def test_snapshot_agent_and_tool_public_boundaries_are_fatal(self):
+        for call in ("agent_loop.decide('fixture',{},'.','buyer')",
+                     "agent_tools.discover(md='.')", "agent_tools.selftest('hostile',{'selftest':{'args':{}}},'.')",
+                     "agent_tools.run('hostile',{},'.')", "agent_tools.execute('hostile',{},'.')",
+                     "agent_tools.boxed(['python','tool.py'],'.','.')"):
+            probe = """
+import agent_tools,builtins,io
+from pathlib import Path
+def forbidden(*a,**k):
+    Path('backend-sentinel').write_text('called')
+    raise AssertionError('external side effect reached')
+agent_loop.ask=forbidden
+agent_tools.subprocess.run=forbidden
+saved_open=builtins.open
+def watched(file,*a,**k):
+    if str(file).endswith(('manifest.json','tool.py')):
+        forbidden()
+    return saved_open(file,*a,**k)
+builtins.open=watched
+io.open=watched
+""" + call
+            p, sentinels = self.run_actual_probe(probe)
+            self.assertEqual(p.returncode, 78, (call, p.stderr))
+            self.assertFalse(sentinels)
+
+    def test_snapshot_actual_rule_with_prefetch_preserves_first_choice(self):
+        probe = """
+shops=[dict(name=n,url='http://'+n,reviews=[]) for n in ('a','b','c')]
+picked,reason=choose_racing(shops,{'trades':[]},'fixture',100,{'asked':{'a'},'selection_asked':{'a'}},rule_engine=True)
+assert picked['name']=='b' and ' rule: ' in reason
+print('RULE_PREFETCH_PRESERVED')
+"""
+        p, sentinels = self.run_actual_probe(probe)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn('RULE_PREFETCH_PRESERVED', p.stdout)
+        self.assertFalse(sentinels)
+
     def files(self, wait=False):
         entry = "import json,os,sys\n"
         if wait:
