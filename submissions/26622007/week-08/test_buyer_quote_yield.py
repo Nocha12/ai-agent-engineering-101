@@ -13,7 +13,14 @@ from unittest import mock
 import market_buyer as mb
 
 
-class NoStockITT(unittest.TestCase):
+class PhaseOne(unittest.TestCase):
+    def setUp(self):
+        p = mock.patch.object(mb.time, "time", return_value=1794020400)
+        p.start()
+        self.addCleanup(p.stop)
+
+
+class NoStockITT(PhaseOne):
     def test_no_stock_order_still_records_its_assigned_arm(self):
         with tempfile.TemporaryDirectory() as md:
             for name, data in [("shops.json", []), ("order.json", {"order": "o-0", "kind": "food", "acceptable": ["G1"]})]:
@@ -32,15 +39,16 @@ class NoStockITT(unittest.TestCase):
             self.assertEqual(r["state"], "NO_SHOP_IN_STOCK")
 
 
-class ExperimentArms(unittest.TestCase):
+class ExperimentArms(PhaseOne):
     def test_stable_half_split_and_missing_id_is_control(self):
         self.assertTrue(mb.quote_yield_arm("o-0", {}))
         self.assertFalse(mb.quote_yield_arm("o-2", {}))
         self.assertFalse(mb.quote_yield_arm(None, {}))
         self.assertFalse(mb.quote_yield_arm("o-0", {"BUYER_QUOTE_YIELD": "0"}))
+        self.assertFalse(mb.quote_yield_arm("o-0", {}, now=mb.QUOTE_YIELD_END))
 
 
-class AttemptRecording(unittest.TestCase):
+class AttemptRecording(PhaseOne):
     def test_network_failure_is_a_zero_quote_in_the_order_record(self):
         s = {"name": "failed", "url": "https://example.invalid", "reviews": [],
              "usable": [{"sku": "G1", "name": "food", "list_price": 100}]}
@@ -69,7 +77,7 @@ class AttemptRecording(unittest.TestCase):
             self.assertEqual(mb.recent_quote_yields(md, "c", now=now), {})
 
 
-class FoodQuoteYield(unittest.TestCase):
+class FoodQuoteYield(PhaseOne):
     def test_food_prefetch_values_valid_saved_share_not_review_count(self):
         now = time.time()
         shops = [{"name": "cheap", "reviews": [{}], "usable": []},
