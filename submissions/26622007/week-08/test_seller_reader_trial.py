@@ -145,9 +145,10 @@ class TrialTests(unittest.TestCase):
 
     def test_assignment_preserves_itt_even_without_a_reply(self):
         import sqlite3
+        from contextlib import closing
         self.config()
         a = self.trial.assign("never-replied", dict(DEAL, cost=42000), 100)
-        with sqlite3.connect(self.root / "seller_reader_trial.sqlite3") as db:
+        with closing(sqlite3.connect(self.root / "seller_reader_trial.sqlite3")) as db:
             kept = json.loads(db.execute("SELECT data FROM assignments WHERE task=?", ("never-replied",)).fetchone()[0])
         self.assertEqual(kept["enrolled_at"], 100)
         self.assertEqual(kept["unit"], "unit")
