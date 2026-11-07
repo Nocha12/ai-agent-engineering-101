@@ -26,7 +26,8 @@ class ExactAcceptTrial(OpeningCue):
 
     def quote(self,task,deal,now=None):
         if "exact_accept" in deal or deal.get("rounds",0):return
-        if any((deal.get(k) or {}).get("id") for k in ("reader_trial","concession_trial","opening_cue","late_speed","jev_transport","shelf_life")):
+        late=(deal.get("late_concession") or {}).get("id")
+        if (late and late!="adopted-v1") or any((deal.get(k) or {}).get("id") for k in ("reader_trial","concession_trial","opening_cue","late_speed","jev_transport","shelf_life")):
             deal["exact_accept"]={"id":None,"arm":"A"};return
         import time
         now=time.time() if now is None else now

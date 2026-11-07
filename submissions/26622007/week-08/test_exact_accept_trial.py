@@ -42,6 +42,14 @@ class ExactAcceptTest(unittest.TestCase):
             d["ask"]=95;d["warranty"]=6
             self.assertEqual(t.decide("I can offer 95.",d,90)["price"],95)
             self.assertNotIn("contaminated",d["exact_accept"])
+    def test_historical_late_excluded_but_adopted_baseline_remains_eligible(self):
+        with tempfile.TemporaryDirectory() as root:
+            t=ExactAcceptTrial(root);t.root.mkdir(parents=True);(t.root/"adopted").touch()
+            old=self.deal();old["late_concession"]={"id":"historical-late","arm":"B"};t.quote("old",old,100)
+            self.assertIsNone(t.decide("I can offer 95.",old,90))
+            base=self.deal();base["late_concession"]={"id":"adopted-v1","arm":"B"};t.quote("base",base,100)
+            self.assertEqual(t.decide("I can offer 95.",base,90)["price"],95)
+
     def test_prior_experiment_id_is_excluded(self):
         with tempfile.TemporaryDirectory() as root:
             t=ExactAcceptTrial(root);t.root.mkdir(parents=True);(t.root/"adopted").touch()
