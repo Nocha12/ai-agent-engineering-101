@@ -66,6 +66,7 @@ import seller_opening_cue
 import seller_late_speed
 import seller_jev_transport
 import shelf_life_reply
+import exact_accept_trial
 
 READER_TRIAL = seller_reader_trial.Trial()
 CONCESSION_TRIAL = seller_concession_trial.Trial()
@@ -76,6 +77,7 @@ OPENING_CUE = seller_opening_cue.OpeningCue()
 LATE_SPEED = seller_late_speed.LateSpeed()
 JEV_TRANSPORT = seller_jev_transport.JevTransport()
 SHELF_REPLY = shelf_life_reply.ShelfLifeTrial()
+EXACT_ACCEPT = exact_accept_trial.ExactAcceptTrial()
 import agent_memory
 import hard_limits
 import market_model
@@ -448,6 +450,7 @@ class Seller(AgentExecutor):
         await asyncio.to_thread(LATE_SPEED.quote, task.id, deal)
         await asyncio.to_thread(JEV_TRANSPORT.quote, task.id, deal)
         await asyncio.to_thread(SHELF_REPLY.quote, task.id, deal)
+        await asyncio.to_thread(EXACT_ACCEPT.quote, task.id, deal)
         ask_price = deal["ask"]
         quote_text = (f"{stock_line(u)}. Every deal comes with a signed receipt and the market's "
                       f"certificate of the unit.{' ' + note if note else ''} My price: {ask_price}.")
@@ -603,7 +606,8 @@ class Seller(AgentExecutor):
         deal["reader_trial_floor"] = floor_now
         jev = reader if fast_classify.JEV_ON or reader.arm == "B" else None   # lazy, one call a turn
         shelf_text = SHELF_REPLY.reply(text, deal)
-        fast = ({"buyer_offer": 0, "action": "counter", "price": deal["ask"], "message": "",
+        exact_decision = EXACT_ACCEPT.decide(text, deal, floor_now)
+        fast = exact_decision or ({"buyer_offer": 0, "action": "counter", "price": deal["ask"], "message": "",
                  "why": "exact shelf-life question answered from current unit"} if shelf_text is not None else
                 await asyncio.to_thread(fast_classify.seller_turn, text, deal, floor_now, jev))
         if not fast:   # NEGOTIATE_ENGINE=jevrule: Jev reads, a rule counters (negotiate.py); None when off
@@ -630,6 +634,7 @@ class Seller(AgentExecutor):
                 LATE_SPEED.trace(task.id, deal, reader, trial_started, {}, "counter", deal["ask"], 0)
                 JEV_TRANSPORT.trace(task.id, deal, reader, trial_started, {}, "counter", deal["ask"], 0)
                 SHELF_REPLY.trace(task.id, deal, reader, trial_started, {}, "counter", deal["ask"], 0)
+                EXACT_ACCEPT.trace(task.id, deal, reader, trial_started, {}, "counter", deal["ask"], 0)
                 # the talk stays open: a bare number next turn reaches the fallback above without the harness
                 await up.requires_input(say(fallback_reply(deal), deal["ask"]))
                 log(f"task {task.id[:8]} -> INPUT_REQUIRED (harness failed; asked for a bare number)")
@@ -642,6 +647,7 @@ class Seller(AgentExecutor):
                 LATE_SPEED.trace(task.id, deal, reader, trial_started, {}, "failed", None, 0)
                 JEV_TRANSPORT.trace(task.id, deal, reader, trial_started, {}, "failed", None, 0)
                 SHELF_REPLY.trace(task.id, deal, reader, trial_started, {}, "failed", None, 0)
+                EXACT_ACCEPT.trace(task.id, deal, reader, trial_started, {}, "failed", None, 0)
                 await up.failed(say("The shop cannot answer right now."))
                 self.free(task.id, deal)
                 del self.open[task.id]
@@ -659,6 +665,7 @@ class Seller(AgentExecutor):
             LATE_SPEED.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], 0)
             JEV_TRANSPORT.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], 0)
             SHELF_REPLY.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], 0)
+            EXACT_ACCEPT.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], 0)
             log(f"task {task.id[:8]} no offer in the message; asking again")
             await up.requires_input(say(shelf_text if shelf_text is not None else
                                         f"Please tell me the price you offer. My price: {deal['ask']}.", deal["ask"]))
@@ -681,6 +688,7 @@ class Seller(AgentExecutor):
             LATE_SPEED.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], offer)
             JEV_TRANSPORT.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], offer)
             SHELF_REPLY.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], offer)
+            EXACT_ACCEPT.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], offer)
             deal["told_ask"] = True
             deal["history"].append(("you asked", deal["ask"]))
             await up.requires_input(say(f"You offered more than our price. Our price is only {deal['ask']}; "
@@ -693,6 +701,7 @@ class Seller(AgentExecutor):
         LATE_SPEED.trace(task.id, deal, reader, trial_started, d, action, price, offer)
         JEV_TRANSPORT.trace(task.id, deal, reader, trial_started, d, action, price, offer)
         SHELF_REPLY.trace(task.id, deal, reader, trial_started, d, action, price, offer)
+        EXACT_ACCEPT.trace(task.id, deal, reader, trial_started, d, action, price, offer)
         if action == "accept":
             receipt = (self.stock_receipt(task.id, deal, int(offer)) if deal.get("unit") else
                        {"shop": self.name, "item": deal["name"], "price": int(offer), "task": task.id})
@@ -751,6 +760,7 @@ class Seller(AgentExecutor):
             LATE_SPEED.event(task_id, deal, result, price, observed_at)
             JEV_TRANSPORT.event(task_id, deal, result, price, observed_at)
             SHELF_REPLY.event(task_id, deal, result, price, observed_at)
+            EXACT_ACCEPT.event(task_id, deal, result, price, observed_at)
         except Exception:
             MEMORY_FAILURES.append(True)
             raise
