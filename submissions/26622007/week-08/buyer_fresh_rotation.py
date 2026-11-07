@@ -12,10 +12,10 @@ import uuid
 
 from buyer_stock_evidence import _io, _once, _hash, _bytes, _order_id, _number
 
-ENABLED = False
-START = 0
-END = 0
-STUDY = "fresh-uuid-slot-v1"
+ENABLED = True
+START = 1794075900  # 2026-11-08 03:25 KST
+END = 1794077700    # 2026-11-08 03:55 KST
+STUDY = "fresh-uuid-slot-20261108-0325"
 ROOT = "buyer_fresh_rotation"
 
 
