@@ -131,6 +131,20 @@ class FreshEntryInstall(unittest.TestCase):
                 self.assertEqual((root / "market_buyer.py").read_bytes(), release["old_entry"])
                 self.assertFalse(list(root.glob(".fresh-stage-*")))
 
+    def test_mutation_requires_explicit_exclusive_writer_contract(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            release = self.fixture(root)
+            before = {p.name: p.read_bytes() for p in root.iterdir()}
+            with self.assertRaises(ValueError):
+                install.apply(root, release)
+            self.assertEqual({p.name: p.read_bytes() for p in root.iterdir()}, before)
+            install.apply(root, release, exclusive_writer=True)
+            before = {p.name: p.read_bytes() for p in root.iterdir()}
+            with self.assertRaises(ValueError):
+                install.rollback(root, release)
+            self.assertEqual({p.name: p.read_bytes() for p in root.iterdir()}, before)
+
     def test_real_pinned_sources_import_before_after_and_after_rollback(self):
         repo = SOURCE_REPO  # archive runner supplies the original object store
         base = "38a80667c02bd6a18c4bf6527371c153708d67bc"
