@@ -60,6 +60,12 @@ class OwnerCLI(unittest.TestCase):
                         '--staging', self.stage, '--manifest-sha256',
                         self.prepared['manifest_sha256'], ok=ok)
 
+    def apply(self, confirm=None, ok=True):
+        return self.cli('apply', '--target', self.target, '--expected-head', self.head,
+                        '--staging', self.stage, '--manifest-sha256',
+                        self.prepared['manifest_sha256'], '--confirm',
+                        confirm or self.plan()['confirm'], ok=ok)
+
     def test_prepare_pins_four_blobs_outside_target(self):
         result = self.prepare()
         manifest = json.loads((self.stage / 'manifest.json').read_text())
@@ -90,6 +96,26 @@ class OwnerCLI(unittest.TestCase):
         (self.target / FILES[3]).write_bytes(b'# target\n')
         self.git(self.target, 'commit', '--allow-empty', '-qm', 'changed head')
         self.plan(ok=False)
+
+    def test_apply_requires_exact_confirmation_preserves_other_dirty_and_stays_off(self):
+        self.prepare()
+        others = []
+        for name in ('seller.py', 'restock.py', 'meta/evidence.json'):
+            p = self.target / PREFIX / name
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(b'fixture dirty bytes\x00\xff')
+            others.append(p)
+        self.apply(confirm='wrong', ok=False)
+        result = self.apply()
+        self.assertTrue(result['sourcedOFF'])
+        self.assertEqual(result['written'], FILES)
+        self.assertEqual((self.target / FILES[0]).read_bytes(), OFF)
+        for name in FILES[1:]:
+            self.assertEqual((self.target / name).read_bytes(),
+                             (self.source / name).read_bytes())
+        self.assertEqual((self.stage / 'backup' / FILES[3]).read_bytes(), b'# target\n')
+        for p in others:
+            self.assertEqual(p.read_bytes(), b'fixture dirty bytes\x00\xff')
 
 
 if __name__ == '__main__':

@@ -1,11 +1,16 @@
 """Local, pinned four-file quote deployment preparation. Never runs buyer code."""
 import argparse
 import ast
+from contextlib import contextmanager
+import fcntl
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
+import stat
+import uuid
 
 
 PREFIX = 'submissions/26622007/week-08/'
@@ -120,6 +125,112 @@ def plan(args):
                 confirm=f'apply:{target}:{args.expected_head}:{args.manifest_sha256}')
 
 
+@contextmanager
+def owner_lock(target):
+    """Serialize cooperating apply/off calls without creating a target file."""
+    fd = os.open(target, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        yield
+    finally:
+        os.close(fd)
+
+
+def atomic_write(path, data):
+    """Replace through nonsymlink directory descriptors on the destination FS."""
+    path = Path(path).absolute()
+    fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY)
+    temp = '.quote-owner-' + uuid.uuid4().hex
+    created = False
+    try:
+        for part in path.parts[1:-1]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        try:
+            old = os.stat(path.name, dir_fd=fd, follow_symlinks=False)
+        except FileNotFoundError:
+            old = None
+        if old and not stat.S_ISREG(old.st_mode):
+            raise ValueError('destination must be regular')
+        out = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                      stat.S_IMODE(old.st_mode) if old else 0o644, dir_fd=fd)
+        created = True
+        with os.fdopen(out, 'wb') as stream:
+            if old:
+                current = os.fstat(stream.fileno())
+                if (current.st_uid, current.st_gid) != (old.st_uid, old.st_gid):
+                    os.fchown(stream.fileno(), old.st_uid, old.st_gid)
+                os.fchmod(stream.fileno(), stat.S_IMODE(old.st_mode))
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp, path.name, src_dir_fd=fd, dst_dir_fd=fd)
+        created = False
+        os.fsync(fd)
+    finally:
+        if created:
+            os.unlink(temp, dir_fd=fd)
+        os.close(fd)
+
+
+def sourced_off(target):
+    try:
+        return safe_file(target, FILES[0]).read_bytes() == OFF
+    except (ValueError, OSError):
+        return False
+
+
+def execute_apply(args, *, write=atomic_write):
+    """Public library seam; write injection is for temporary fixture tests only.
+
+    No CLI failure injection, shell, SSH, host or policy activation option exists.
+    """
+    target = repository(args.target)
+    with owner_lock(target):
+        target, stage, blobs = validate(args)
+        expected = f'apply:{target}:{args.expected_head}:{args.manifest_sha256}'
+        if args.confirm != expected:
+            raise ValueError('exact plan confirmation required')
+        originals = {n: (safe_file(target, n).read_bytes()
+                         if safe_file(target, n).exists() else None) for n in FILES}
+        backup = stage / 'backup'
+        backup.mkdir(mode=0o700)
+        for name, data in originals.items():
+            if data is not None:
+                p = backup / name
+                p.parent.mkdir(parents=True, exist_ok=True)
+                atomic_write(p, data)
+        atomic_write(backup / 'manifest.json', (json.dumps({
+            'head': args.expected_head,
+            'files': {n: digest(b) if b is not None else None for n, b in originals.items()}
+        }, sort_keys=True) + '\n').encode())
+        written = []
+        try:
+            for name in FILES:
+                if git(target, 'rev-parse', 'HEAD').decode().strip() != args.expected_head:
+                    raise ValueError('target HEAD changed during apply')
+                p = safe_file(target, name)
+                actual = p.read_bytes() if p.exists() else None
+                if actual != originals[name]:
+                    raise ValueError('target changed during apply')
+                write(p, OFF if name == FILES[0] else blobs[name])
+                written.append(name)
+            return dict(status='applied', written=written, sourcedOFF=sourced_off(target))
+        except Exception as exc:
+            errors = []
+            try:
+                write(safe_file(target, FILES[0]), OFF)
+            except Exception as recovery:
+                errors.append('OFF: ' + str(recovery))
+            try:
+                write(safe_file(target, FILES[3]), originals[FILES[3]])
+            except Exception as recovery:
+                errors.append('entry: ' + str(recovery))
+            return dict(status='failed', error=str(exc), written=written,
+                        sourcedOFF=sourced_off(target), recovery_errors=errors)
+
+
 def prepare(args):
     source, target = repository(args.source), repository(args.target)
     commit, head = revision(args.commit), revision(args.expected_head)
@@ -154,17 +265,20 @@ def main():
     p = commands.add_parser('prepare')
     for name in ('source', 'commit', 'target', 'expected-head', 'staging'):
         p.add_argument('--' + name, required=True)
-    p = commands.add_parser('plan')
-    for name in ('target', 'expected-head', 'staging', 'manifest-sha256'):
-        p.add_argument('--' + name, required=True)
+    for command in ('plan', 'apply'):
+        p = commands.add_parser(command)
+        for name in ('target', 'expected-head', 'staging', 'manifest-sha256'):
+            p.add_argument('--' + name, required=True)
+        if command == 'apply':
+            p.add_argument('--confirm', required=True)
     args = parser.parse_args()
     try:
-        result = {'prepare': prepare, 'plan': plan}[args.command](args)
+        result = {'prepare': prepare, 'plan': plan, 'apply': execute_apply}[args.command](args)
     except (ValueError, SyntaxError, TypeError, KeyError, OSError, subprocess.SubprocessError) as exc:
         print(json.dumps(dict(status='rejected', error=str(exc))))
         return 2
     print(json.dumps(result))
-    return 0
+    return 2 if result['status'] == 'failed' else 0
 
 
 if __name__ == '__main__':
