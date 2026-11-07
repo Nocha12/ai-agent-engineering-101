@@ -61,11 +61,10 @@ class Drain:
         c = self.census(shop)
         c["flushed"] = False
         if c["quiet"]:
-            self.closed = True  # final latch: no new executor admission while flush yields
-        if c["drained"]:
+            self.closed = True  # final latch before flush; nonquiet transitions wait for next tick
             await asyncio.to_thread(flush)
             c = self.census(shop)
-            c["flushed"] = c["drained"]
+            c["flushed"] = c["quiet"] and self.closed
         tmp = self.root / f".seller_drain_status.{self.pid}.tmp"
         tmp.write_text(json.dumps(c))
         os.replace(tmp, self.root / "seller_drain_status.json")
