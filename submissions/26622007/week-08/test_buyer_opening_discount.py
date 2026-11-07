@@ -12,6 +12,11 @@ class DiscountPilot(unittest.TestCase):
         history=[("shop asked",10000),("you offered",8500)]
         self.assertEqual(probe.turn(9500,"",history,10000,(.9,),None,False,"B")["price"],9500)
         self.assertEqual(probe.turn(10000,"",[],10000,(.9,),None,False,"A")["price"],9000)
+    def test_one_won_ask_and_positive_cap_never_make_zero_offer(self):
+        self.assertEqual(probe.turn(1,"",[],1,(.9,),None,False,"B")["price"],1)
+        self.assertEqual(probe.turn(10000,"",[],1,(.9,),None,False,"B")["price"],1)
+        self.assertNotEqual(probe.turn(10000,"",[],0,(.9,),None,False,"B")["action"],"offer")
+
     def test_goods_unknown_and_other_steps_keep_original_behavior(self):
         self.assertEqual(probe.turn(10000,"",[],10000,(.9,),None,True,"B")["price"],9000)
         self.assertIsNone(probe.turn(None,"unclear",[],10000,(.9,),None,False,"B"))

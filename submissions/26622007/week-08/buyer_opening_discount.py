@@ -7,10 +7,10 @@ import os
 import time
 import oneshot
 
-START = 1794027000  # 11/07 13:50 KST, after previous pilot followup
-END = 1794030600    # 11/07 14:50 KST
+START = 1794028200  # 11/07 14:10 KST, actual new window after review fix
+END = 1794030000    # 11/07 14:40 KST, 30 minute bounded pilot
 JOURNAL = "opening_discount_assignments.json"
-STUDY = "food-opening-085-20261107-1350"
+STUDY = "food-opening-085-20261107-1410"
 EXCLUDED = frozenset(("11im", "choo-chu"))
 
 
@@ -54,5 +54,7 @@ def reserve(md, shop, order_id, sku, use_within, now=None, env=None):
 def turn(meta,text,history,limit,steps,quoted,goods,arm):
     d=oneshot.turn(meta,text,history,limit,steps,quoted,goods)
     if arm=="B" and not goods and tuple(steps)==(.9,) and not any(who=="you offered" for who,_ in history) and d and d["action"]=="offer":
-        return {**d,"price":min(d["price"],int(.85*d["shop_price"]),limit)}
+        if limit < 1:
+            return {**d,"action":"walk_away","price":0}
+        return {**d,"price":max(1,min(d["price"],int(.85*d["shop_price"]),limit))}
     return d
