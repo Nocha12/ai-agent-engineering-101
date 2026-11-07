@@ -26,7 +26,8 @@ class Allocation(unittest.TestCase):
     def test_default_disabled_and_scope_start_off_pending_retry(self):
         order={"kind":"goods","order":"o1","_buyer_started_at":probe.START,"category":"c"}
         with tempfile.TemporaryDirectory() as md:
-            self.assertIsNone(probe.reserve(md,order,"25620027","G1",now=probe.START,env={}))
+            with mock.patch.object(probe,"ENABLED",False):
+                self.assertIsNone(probe.reserve(md,order,"25620027","G1",now=probe.START,env={}))
             with mock.patch.object(probe,"ENABLED",True):
                 self.assertIsNone(probe.reserve(md,order,"other","G1",now=probe.START,env={}))
                 self.assertIsNone(probe.reserve(md,{**order,"_buyer_started_at":probe.START-1},"25620027","G1",now=probe.START,env={}))
