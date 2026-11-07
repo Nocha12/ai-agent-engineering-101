@@ -59,11 +59,13 @@ import fast_classify
 import negotiate
 import seller_reader_trial
 import seller_concession_trial
+import seller_late_concession
 import seller_opening_default
 import seller_drain
 
 READER_TRIAL = seller_reader_trial.Trial()
 CONCESSION_TRIAL = seller_concession_trial.Trial()
+LATE_CONCESSION = seller_late_concession.LateConcession()
 OPENING_DEFAULT = seller_opening_default.OpeningDefault()
 DRAIN = seller_drain.Drain()
 import agent_memory
@@ -308,7 +310,7 @@ def turn_floor(deal):
     ask. An ask already under the round's floor (a reserve counter, a schedule changed mid-talk) stands: 11/06 22:45 task
     390b9f8c countered at the reserve 2,467,210, then asked 2,486,269 when the buyer offered that ask."""
     f = shop_memory.concession_floor(deal.get("open", deal["ask"]), deal["reserve"], deal["rounds"], deal.get("kind"))
-    return max(deal["reserve"], min(f, deal["ask"]))
+    return LATE_CONCESSION.floor(deal, max(deal["reserve"], min(f, deal["ask"])))
 
 
 def price_guards(deal, action, price, offer, floor):
@@ -433,6 +435,7 @@ class Seller(AgentExecutor):
         deal["reader_trial_policy_sha"] = hashlib.sha256(json.dumps(pricing, sort_keys=True).encode()).hexdigest()
         deal["reader_trial"] = await asyncio.to_thread(READER_TRIAL.assign, task.id, deal)
         await asyncio.to_thread(OPENING_DEFAULT.quote, task.id, deal, CONCESSION_TRIAL)
+        await asyncio.to_thread(LATE_CONCESSION.quote, task.id, deal)
         ask_price = deal["ask"]
         await up.requires_input(say(f"{stock_line(u)}. Every deal comes with a signed receipt and the market's "
                                     f"certificate of the unit.{' ' + note if note else ''} My price: {ask_price}.", ask_price))
@@ -605,6 +608,7 @@ class Seller(AgentExecutor):
             elif fallback_reply(deal):
                 READER_TRIAL.trace(task.id, deal, reader, trial_started, {}, "counter", deal["ask"], 0)
                 CONCESSION_TRIAL.trace(task.id, deal, reader, trial_started, {}, "counter", deal["ask"], 0)
+                LATE_CONCESSION.trace(task.id, deal, reader, trial_started, {}, "counter", deal["ask"], 0)
                 # the talk stays open: a bare number next turn reaches the fallback above without the harness
                 await up.requires_input(say(fallback_reply(deal), deal["ask"]))
                 log(f"task {task.id[:8]} -> INPUT_REQUIRED (harness failed; asked for a bare number)")
@@ -612,6 +616,7 @@ class Seller(AgentExecutor):
             else:
                 READER_TRIAL.trace(task.id, deal, reader, trial_started, {}, "failed", None, 0)
                 CONCESSION_TRIAL.trace(task.id, deal, reader, trial_started, {}, "failed", None, 0)
+                LATE_CONCESSION.trace(task.id, deal, reader, trial_started, {}, "failed", None, 0)
                 await up.failed(say("The shop cannot answer right now."))
                 self.free(task.id, deal)
                 del self.open[task.id]
@@ -624,6 +629,7 @@ class Seller(AgentExecutor):
         if not offer:
             READER_TRIAL.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], 0)
             CONCESSION_TRIAL.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], 0)
+            LATE_CONCESSION.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], 0)
             log(f"task {task.id[:8]} no offer in the message; asking again")
             await up.requires_input(say(f"Please tell me the price you offer. My price: {deal['ask']}.", deal["ask"]))
             return
@@ -640,6 +646,7 @@ class Seller(AgentExecutor):
             log(f"FAIR offer {offer} > our ask {deal['ask']} -> tell the buyer our price")
             READER_TRIAL.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], offer)
             CONCESSION_TRIAL.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], offer)
+            LATE_CONCESSION.trace(task.id, deal, reader, trial_started, d, "counter", deal["ask"], offer)
             deal["told_ask"] = True
             deal["history"].append(("you asked", deal["ask"]))
             await up.requires_input(say(f"You offered more than our price. Our price is only {deal['ask']}; "
@@ -647,6 +654,7 @@ class Seller(AgentExecutor):
             return
         READER_TRIAL.trace(task.id, deal, reader, trial_started, d, action, price, offer)
         CONCESSION_TRIAL.trace(task.id, deal, reader, trial_started, d, action, price, offer)
+        LATE_CONCESSION.trace(task.id, deal, reader, trial_started, d, action, price, offer)
         if action == "accept":
             receipt = (self.stock_receipt(task.id, deal, int(offer)) if deal.get("unit") else
                        {"shop": self.name, "item": deal["name"], "price": int(offer), "task": task.id})
