@@ -176,3 +176,24 @@ class OfflineMeasurement(unittest.TestCase):
             cmd[-1] = str(journal)
             self.assertNotEqual(subprocess.run(cmd, capture_output=True).returncode, 0)
             self.assertEqual(before, [p.read_bytes() for p in paths])
+            # Paid records without settlement are unresolved; joining a settlement
+            # permits observed paid counting, while actual SKU changes remain visible.
+            write("payments", [{"order": "a", "ts": 2803, "paid": True},
+                               {"order": "b", "ts": 3200, "paid": True}])
+            write("settled", [{"order": "a", "time": 2804, "sku": "G11111111", "price": 100}])
+            cmd[-1] = str(root / "joined.json")
+            self.assertEqual(subprocess.run(cmd, capture_output=True).returncode, 0)
+            joined = json.loads((root / "joined.json").read_text())
+            self.assertEqual(joined["arms"]["A"]["paid_and_settled"], 1)
+            self.assertEqual(joined["arms"]["A"]["settled_sku_mismatch"], 1)
+            self.assertEqual(joined["arms"]["B"]["paid_observed"], 0)  # payment after asof
+            # Malformed/conflicting data is reported and fails the audit, never
+            # silently selected as evidence of treatment improvement.
+            with journal.open("a") as f:
+                f.write("broken\n")
+                f.write(json.dumps({**assignments[0], "arm": "B"}) + "\n")
+            cmd[-1] = str(root / "invalid.json")
+            self.assertEqual(subprocess.run(cmd, capture_output=True).returncode, 2)
+            invalid = json.loads((root / "invalid.json").read_text())
+            self.assertEqual(invalid["inputs"]["journal"]["malformed"], 1)
+            self.assertEqual(invalid["audit"]["assignment_conflicts"], 1)

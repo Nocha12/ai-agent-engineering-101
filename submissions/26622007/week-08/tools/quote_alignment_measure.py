@@ -98,7 +98,7 @@ def summarize(journal, orders, payments, settled, start, end, asof, study):
     for arm in ("A", "B"):
         ids = [oid for oid, a in assignments.items() if a.get("arm") == arm]
         d = collections.Counter(itt_orders=len(ids))
-        states, skus, shops, kinds, reasons = [collections.Counter() for _ in range(5)]
+        states, skus, shops, kinds, reasons, actual_skus = [collections.Counter() for _ in range(6)]
         seconds = []
         for oid in ids:
             a = assignments[oid]
@@ -111,6 +111,9 @@ def summarize(journal, orders, payments, settled, start, end, asof, study):
             d["paid_settlement_missing"] += bool(p and p.get("paid") is True and not s)
             d["settlement_without_paid"] += bool(s and not (p and p.get("paid") is True))
             d["paid_and_settled"] += bool(p and p.get("paid") is True and s)
+            if s:
+                actual_skus[str(s.get("sku"))] += 1
+                d["settled_sku_mismatch"] += bool(r and s.get("sku") and r.get("sku") and s["sku"] != r["sku"])
             qs = events[oid]
             eligible = [q for q in qs if q.get("reason") == "opportunity" and number(q.get("candidate")) and q["candidate"] > 0]
             d["quote_events"] += len(qs)
@@ -145,7 +148,7 @@ def summarize(journal, orders, payments, settled, start, end, asof, study):
         keys = ("missing_order missing_payment paid_observed payment_rejected paid_settlement_missing "
                 "settlement_without_paid paid_and_settled quote_events opportunity_quotes opportunity_orders "
                 "applied_quotes applied_orders selected_opportunity_orders changed_shop_orders selection_missing "
-                "warning_orders settlement_over_limit missing_turns harness_turns harness_orders code_turns").split()
+                "warning_orders settlement_over_limit settled_sku_mismatch missing_turns harness_turns harness_orders code_turns").split()
         result = {k: d[k] for k in ["itt_orders", *keys]}
         n = len(ids)
         result.update(paid_and_settled_per_itt=d["paid_and_settled"] / n if n else None,
@@ -154,7 +157,7 @@ def summarize(journal, orders, payments, settled, start, end, asof, study):
                       known_end_seconds_sum=sum(seconds), end_seconds_missing=n - len(seconds),
                       end_seconds_median=statistics.median(seconds) if seconds else None,
                       end_seconds_per_itt=sum(seconds) / n if n and len(seconds) == n else None,
-                      selected_sku=dict(skus), selected_shop=dict(shops), assigned_kind=dict(kinds),
+                      selected_sku=dict(skus), settled_sku=dict(actual_skus), selected_shop=dict(shops), assigned_kind=dict(kinds),
                       states=dict(states), quote_reasons=dict(reasons))
         arms[arm] = result
     return {"study": study, "window": [start, end], "asof": asof,
