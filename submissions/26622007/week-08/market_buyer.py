@@ -36,6 +36,7 @@ import hashlib
 import json
 import collections
 import contextlib
+import fcntl
 import os
 import random
 import sys
@@ -884,25 +885,52 @@ ONE_WON_PROBE_SHOPS = frozenset(("11im", "choo-chu"))
 
 
 def opening_probe_arm(md, shop, order_id, env=None, now=None, sku=None, use_within=None):
-    """Time-bounded two-shop probe balances A/B within each shop; retries keep their arm."""
+    """Reserve balanced assignments before negotiation, including pending orders; retries keep the reservation."""
     env = os.environ if env is None else env
     now = time.time() if now is None else now
-    if not ONE_WON_PROBE_START <= now < ONE_WON_PROBE_END or \
-            env.get("BUYER_ONE_WON_PROBE", "1") != "1" or shop not in ONE_WON_PROBE_SHOPS or not isinstance(order_id, str) or not order_id:
+    if env.get("BUYER_ONE_WON_PROBE", "1") != "1" or shop not in ONE_WON_PROBE_SHOPS or not isinstance(order_id, str) or not order_id:
         return None
-    prior = {r["order"]: r for r in recent_orders(md, now, 3)
-             if r.get("shop") == shop and r.get("one_won_probe") in ("A", "B") and r.get("order")}
-    if order_id in prior:
-        return prior[order_id]["one_won_probe"]
-    matched = [r for r in prior.values() if sku is not None and r.get("sku") == sku
-               and r.get("use_within_hours") == use_within]
-    counts = collections.Counter(r["one_won_probe"] for r in matched)
-    if counts["A"] != counts["B"]:
-        return "A" if counts["A"] < counts["B"] else "B"
-    counts = collections.Counter(r["one_won_probe"] for r in prior.values())
-    if counts["A"] != counts["B"]:
-        return "A" if counts["A"] < counts["B"] else "B"
-    return "A" if hashlib.sha256((shop + order_id).encode()).digest()[0] % 2 else "B"
+    path = os.path.join(md, "one_won_probe_assignments.json")
+    in_window = ONE_WON_PROBE_START <= now < ONE_WON_PROBE_END
+    if not in_window and not os.path.exists(path):
+        return None
+    try:
+        os.makedirs(md, exist_ok=True)
+        with open(path + ".lock", "a") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            try:
+                with open(path) as f:
+                    journal = json.load(f)
+            except FileNotFoundError:
+                journal = {"study": "one-won-20261107-1239", "orders": {}}
+            if not isinstance(journal, dict) or journal.get("study") != "one-won-20261107-1239" or \
+                    not isinstance(journal.get("orders"), dict) or \
+                    any(not isinstance(r, dict) or r.get("arm") not in ("A", "B") for r in journal["orders"].values()):
+                raise ValueError("invalid assignment journal")
+            prior = journal["orders"]
+            if order_id in prior:
+                return prior[order_id]["arm"]
+            if not in_window:
+                return None
+            same_shop = [r for r in prior.values() if r.get("shop") == shop]
+            matched = [r for r in same_shop if sku is not None and r.get("sku") == sku
+                       and r.get("use_within_hours") == use_within]
+            counts = collections.Counter(r["arm"] for r in matched)
+            if counts["A"] == counts["B"]:
+                counts = collections.Counter(r["arm"] for r in same_shop)
+            arm = ("A" if counts["A"] < counts["B"] else "B") if counts["A"] != counts["B"] else \
+                ("A" if hashlib.sha256((shop + order_id).encode()).digest()[0] % 2 else "B")
+            prior[order_id] = {"arm": arm, "shop": shop, "sku": sku, "use_within_hours": use_within, "at": now}
+            tmp = path + f".tmp.{os.getpid()}"
+            with open(tmp, "w") as f:
+                json.dump(journal, f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+            return arm
+    except (OSError, ValueError, TypeError) as e:
+        log(f"[opening probe] assignment unavailable ({type(e).__name__}); keeping baseline")
+        return None
 
 
 def opening_probe_turn(meta, text, history, limit, steps, quoted, goods, arm):

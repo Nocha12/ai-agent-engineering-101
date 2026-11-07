@@ -1,5 +1,6 @@
 """Limited deterministic 1-won opener probe, no live market/model calls."""
 import json
+import concurrent.futures
 import os
 import tempfile
 import time
@@ -17,27 +18,42 @@ class BalancedProbe(unittest.TestCase):
         self.assertIsNone(mb.opening_probe_arm("absent", "other", "o1", {"BUYER_ONE_WON_PROBE": "1"}, now=mb.ONE_WON_PROBE_START))
 
     def test_within_shop_imbalance_is_corrected_and_order_retry_keeps_arm(self):
-        now = time.time()
-        rows = [{"ts": now-10, "order": "o-old", "shop": "11im", "one_won_probe": "A"}]
+        now = mb.ONE_WON_PROBE_START+1
         with tempfile.TemporaryDirectory() as md:
-            os.mkdir(os.path.join(md, "measure"))
-            with open(os.path.join(md, "measure", "orders.jsonl"), "w") as f:
-                f.writelines(json.dumps(r)+"\n" for r in rows)
-            self.assertEqual(mb.opening_probe_arm(md, "11im", "o-next", {"BUYER_ONE_WON_PROBE":"1"}, now=mb.ONE_WON_PROBE_START+1), "B")
-            self.assertEqual(mb.opening_probe_arm(md, "11im", "o-old", {"BUYER_ONE_WON_PROBE":"1"}, now=mb.ONE_WON_PROBE_START+1), "A")
+            first = mb.opening_probe_arm(md,"11im","o-old",{},now=now)
+            second = mb.opening_probe_arm(md,"11im","o-next",{},now=now)
+            self.assertIn(first,("A","B"))
+            self.assertNotEqual(first,second)
+            self.assertEqual(mb.opening_probe_arm(md,"11im","o-old",{},now=mb.ONE_WON_PROBE_END+1),first)
 
 
     def test_same_sku_and_required_life_are_balanced_before_shop_total(self):
-        rows = [{"ts": mb.ONE_WON_PROBE_START, "order": "o1", "shop": "11im", "sku": "G1",
-                 "use_within_hours": 72, "one_won_probe": "A"},
-                {"ts": mb.ONE_WON_PROBE_START, "order": "o2", "shop": "11im", "sku": "G2",
-                 "use_within_hours": 72, "one_won_probe": "B"}]
+        now = mb.ONE_WON_PROBE_START+1
         with tempfile.TemporaryDirectory() as md:
-            os.mkdir(os.path.join(md,"measure"))
-            with open(os.path.join(md,"measure","orders.jsonl"),"w") as f:
-                f.writelines(json.dumps(r)+"\n" for r in rows)
-            self.assertEqual(mb.opening_probe_arm(md,"11im","new",{},now=mb.ONE_WON_PROBE_START+1,
-                                                  sku="G1",use_within=72),"B")
+            first=mb.opening_probe_arm(md,"11im","o1",{},now=now,sku="G1",use_within=72)
+            mb.opening_probe_arm(md,"11im","o2",{},now=now,sku="G2",use_within=72)
+            third=mb.opening_probe_arm(md,"11im","o3",{},now=now,sku="G1",use_within=72)
+            self.assertNotEqual(first,third)
+
+    def test_eight_concurrent_pending_assignments_are_reserved_and_balanced(self):
+        now=mb.ONE_WON_PROBE_START+1
+        with tempfile.TemporaryDirectory() as md:
+            with concurrent.futures.ThreadPoolExecutor(8) as ex:
+                arms=list(ex.map(lambda i:mb.opening_probe_arm(md,"11im",f"o-{i}",{},now=now),range(8)))
+            self.assertEqual(arms.count("A"),4)
+            self.assertEqual(arms.count("B"),4)
+            with open(os.path.join(md,"one_won_probe_assignments.json")) as f:
+                journal=json.load(f)
+            self.assertEqual(len(journal["orders"]),8)
+            for i,arm in enumerate(arms):
+                self.assertEqual(mb.opening_probe_arm(md,"11im",f"o-{i}",{},now=now),arm)
+
+    def test_corrupt_assignment_journal_fails_closed_without_resetting_it(self):
+        with tempfile.TemporaryDirectory() as md:
+            path=os.path.join(md,"one_won_probe_assignments.json")
+            with open(path,"w") as f:f.write("{")
+            self.assertIsNone(mb.opening_probe_arm(md,"11im","o1",{},now=mb.ONE_WON_PROBE_START+1))
+            with open(path) as f:self.assertEqual(f.read(),"{")
 
 
 class ProbeTalk(unittest.TestCase):
