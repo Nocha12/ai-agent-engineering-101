@@ -60,6 +60,10 @@ class OpeningCue(Trial):
     def arm(self, assignment):
         return "A" if assignment.get("contaminated") else assignment.get("arm", "A")
 
+    def event(self, task, deal, event, price=None, now=None, **fields):
+        clone = dict(deal, concession_trial=deal.get("opening_cue") or {})
+        super().event(task, clone, event, price, now, **fields)
+
     def message(self, task, deal, text, now=None):
         """Decorate a NEW stock quote; the caller keeps its original metadata.ask."""
         if deal.get("rounds", 0):
@@ -74,8 +78,7 @@ class OpeningCue(Trial):
         deal["opening_cue"] = a
         added = bool(a.get("id")) and self.arm(a) == "B"
         shown = text + " " + CUE if added else text
-        clone = dict(deal, concession_trial=a)
-        self.event(task, clone, "quote", deal["ask"], now, cue_added=added,
+        self.event(task, deal, "quote", deal["ask"], now, cue_added=added,
                    baseline_text_sha256=hashlib.sha256(text.encode()).hexdigest(),
                    shown_text_sha256=hashlib.sha256(shown.encode()).hexdigest())
         return shown
