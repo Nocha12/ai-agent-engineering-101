@@ -54,6 +54,7 @@ import harness
 import market_model
 import measure as records    # measure.py; measure() below is the memory timing
 import oneshot
+import buyer_opening_discount
 import rival_deny
 
 # Revenue rivals of my shop asked last (rival_deny): off from 11/07 00:30. With best_quote stopping at QUOTE_ENOUGH asks they
@@ -1402,6 +1403,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "n_candidates": len(shops),    # lists cut so a line stays one small append (buyer runs can overlap)
         "food_quote_yield": order.get("_food_quote_yield", order.get("kind") == "food" and quote_yield_arm(order.get("order"))),
         "one_won_probe": probe_arm,
+        "opening_discount_probe": order.get("_opening_discount_probe"),
         "opening_price": next((p for who, p in out.get("history") or [] if who == "you offered"), None),
         "quote_attempts_complete": len(qs) == sum(bool(s.get("_quote_attempted") or s["name"] in quotes) for s in shops),
         "quotes": qs, "first_choice": first_choice, "how": choose_path(first_reason), "shop": best, "reason": (reason or "")[:300],
@@ -1593,6 +1595,13 @@ def main():
                 oneshot.turn(None, q.get("text"), [], limit, steps, q.get("ask"), False) is not None:
             probe_arm = opening_probe_arm(md, shop["name"], order.get("order"), sku=key,
                                           use_within=order.get("use_within_hours"))
+        discount_arm = None
+        if steps == (.9,) and resume and probe_arm is None and not order.get("_food_quote_yield") and \
+                order.get("kind") == "food" and q.get("ask_src") == "text" and \
+                oneshot.turn(None, q.get("text"), [], limit, steps, q.get("ask"), False) is not None:
+            discount_arm = buyer_opening_discount.reserve(md, shop["name"], order.get("order"), key,
+                                                          order.get("use_within_hours"))
+        order["_opening_discount_probe"] = discount_arm
         if steps:
             log(f"[offer] oneshot: {', '.join(f'{s:.2f}' for s in steps)} of the first ask, then the counter, priced by code")
         talk_mode = f"oneshot {list(steps)}" if steps else "harness"
@@ -1600,9 +1609,9 @@ def main():
                         stop_if=(lambda text, turn: (quote_refused(text, order) if turn == 1 else None)
                                  or goods_text_refused(text, order)) if r3 else None,
                         reply_to=(lambda text: shop_question_reply(text, order)) if r3 else None,
-                        ladder=(lambda meta, text, history: opening_probe_turn(meta, text, history, limit, steps,
-                                                                          q.get("ask") if resume else None,
-                                                                          order.get("kind") == "goods", probe_arm))
+                        ladder=(lambda meta, text, history: (buyer_opening_discount.turn if discount_arm else opening_probe_turn)(
+                            meta, text, history, limit, steps, q.get("ask") if resume else None,
+                            order.get("kind") == "goods", discount_arm or probe_arm))
                         if steps else None,
                         take_at=min(limit, int(offer["list_price"] * FOOD_TAKE_SHARE))
                         if r3 and FOOD_TAKE_ASK and order.get("kind") == "food" else None)
