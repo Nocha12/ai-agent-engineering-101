@@ -1066,13 +1066,15 @@ def start_quotes(shops, order, budget, chance_of, got, ctl):
     fresh_ctx = order.get("_fresh_rotation")
     if (fresh_ctx and order.get("_stock_phase") == "prefetch"
             and not order.get("_fresh_dispatched") and order.get("_fresh_inputs")):
-        baseline, fits, rival, k, quotable = order["_fresh_inputs"]
+        baseline, fits, rival, k, _ = order["_fresh_inputs"]
+        # Selection sees the canonical baseline, never the actual dispatch set.
+        # Keep quotable in baseline preference order for subsequent batches.
+        order["_fresh_selection_asked"] = {s["name"] for s in baseline[:max(0, k - 1)]}
         p = buyer_fresh_rotation.plan(baseline, fits, rival, k=k, order_id=order.get("order"))
         names = buyer_fresh_rotation.decide(fresh_ctx, p)
         names = names if names is not None else [s["name"] for s in baseline]
         by_name = {s["name"]: s for s in baseline}
-        quotable[:] = [by_name[n] for n in names]
-        shops[:] = quotable[:max(0, k - 1)]
+        shops[:] = [by_name[n] for n in names[:max(0, k - 1)]]
         order["_fresh_dispatched"] = True
         order["_fresh_plan"] = p
     threads = {}
@@ -1156,7 +1158,7 @@ def choose_racing(pick, memory, item, budget, pre):
     best_quote picks by price). 11/07 02:00: fitting orders spent a median 7.5 s choosing though the quote, not the agent,
     picked the shop in 74% of orders; the run's exit ends the abandoned thread (daemon)."""
     if pre is not None and choose_by_rule():
-        return rule_choose(pick, memory, item, pre.get("asked") or (), budget=budget)
+        return rule_choose(pick, memory, item, pre.get("selection_asked", pre.get("asked")) or (), budget=budget)
     if not (pre and pre.get("enough")):
         return choose(pick, memory, item, budget)
     if hurried(pre):          # already clear: no agent call at all (its first step is never cut short)
@@ -1710,6 +1712,8 @@ def main():
             pre = {"got": {}, "ctl": quote_ctl(), "asked": {s["name"] for s in early}}
             pre["threads"] = start_quotes(early, order, args.budget, chance_of, pre["got"], pre["ctl"])
             pre["asked"] = set(pre["threads"])  # final validated batch, including a baseline fallback
+            if "_fresh_selection_asked" in order:
+                pre["selection_asked"] = order["_fresh_selection_asked"]
             pre["enough"] = lambda: quotes_enough(early, pre["got"], args.budget, buyer_cfg())
             log(f"[quote] asking {', '.join(s['name'] for s in early)} while choosing")
     if gave_up:       # no talk follows, so the harness is not asked to choose either (it took a median 13.4 s)
