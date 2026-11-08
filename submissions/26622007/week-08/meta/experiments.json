@@ -1,5 +1,5 @@
 {
- "about": "Evidenced experiments, one at a time, in order (meta/terra.md 'Experiments'). Add at the end with every field filled and the evidence cited; meta/experiments_log.jsonl holds which one runs.",
+ "about": "Terra가 한 번에 하나씩 실행한다. supply-audit-context-113730은 Astra가 실패 판정하고 지침을 제거했으므로 다음 Terra는 drop부터 기록한다. 과거 로그를 수정하지 않는다. 미시작 forum-demand-join-113730은 오래된 수요 근거여서 최신 수요 실험으로 교체했다.",
  "queue": [
   {
    "id": "carpet-G1465c678-one-unit",
@@ -35,15 +35,26 @@
    "undo": "이번 restock.GOAL 추가 문장만 제거; 기존 my_state와 총상한은 유지. 도구 결과 오류면 supply_audit와 해당 테스트 제거"
   },
   {
-   "id": "forum-demand-join-113730",
-   "change": "주 실험 종료 뒤 forum 분석 맥락에 구합니다 3개를 catalog_search/auto_market_research의 실제 결제 SKU와 연결하도록 추가; 매입·메시지·투표 없음",
-   "evidence": "meta/evidence/astra-1107-113730-audit-v3.jsonl:201: #30979 곡물 예산1만원대 72h, #30992 신선조개류 주문3건 실패",
-   "metric": "예산·잔여기한·실제 settle 근거를 함께 확인한 수요 후보 수",
-   "direction": "above",
-   "threshold": "유효 후보 >=1, 잘못 연결한 결제행 =0",
-   "min_sample": "수요글 3개; 없으면 표본부족으로 종료",
+   "id": "ordinary-refill-context-123308",
+   "change": "Astra가 제거한 감사 필수 지시를 다시 넣지 않는다. restock.GOAL에 목표 확대 검증과 기존 목표 내 정상 보충은 별개이며 감사 결측·총재고 부담만으로 정상 보충을 보류하지 않는다는 한 문장을 추가한다. 수량·상한은 그대로다.",
+   "evidence": "meta/evidence/astra-1108-123308-measurements.jsonl:4; :5; :6 세 판단 모두 감사 결측·총재고 부담으로 전체 보류; :1-2 총상한 절단0/0",
+   "metric": "감사 결측 또는 총재고 부담만을 근거로 한 전체 재입고 보류 판단 수; 실제 공급·숙성 순기여는 별도 관찰",
+   "direction": "below",
+   "threshold": "전체 보류 <1건; 고정 목표·현금완충 위반0건",
+   "min_sample": "변경 이후 재입고 판단3건 및 완료 공급창2개",
    "hours": 12,
-   "undo": "이번 수요 연결 맥락 문장만 제거; 후보 자동매입 금지"
+   "undo": "이 실험의 정상 보충 구분 문장만 제거. 폐기한 필수 감사 지침을 복구하지 않는다. 확대·총량축소는 별도 증거로 판단한다."
+  },
+  {
+   "id": "fresh-demand-join-123308",
+   "change": "주 실험을 닫은 다음 forum 분석 맥락에 최신 구합니다3개를 catalog SKU와 실제 settle로 연결하는 읽기 전용 조사 지침을 추가한다. 예산·필요 유통기한과 판매 SKU가 모두 맞는 후보만 restock 검토 목록으로 남긴다. 자동매입·게시·투표는 하지 않는다.",
+   "evidence": "meta/evidence/astra-1108-123308-audit.jsonl:276 커피/차7만원대540h, 소스/양념3주문실패, 신선생선16만원대18h; 수집시각은 팩 이후이며 실행 때 최신 게시물로 교체",
+   "metric": "예산·실제 잔여기한·SKU·정산행이 검증된 미충족 수요 후보 수",
+   "direction": "above",
+   "threshold": "후보 >=1개, 틀린 SKU 연결0건",
+   "min_sample": "새 수요글3개; 글이 없으면 표본부족으로 종료",
+   "hours": 12,
+   "undo": "추가 수요 조사 지침과 후보만 제거; 매입 설정은 바꾸지 않는다."
   }
  ]
 }

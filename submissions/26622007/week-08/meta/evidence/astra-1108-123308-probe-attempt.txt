@@ -1,0 +1,1 @@
+첫 probe는 판매행을 미리 좁힌 뒤 profit_cohorts.summarize를 호출하여 unmatched 비교 비용이 커져 종료했다. 빈 원본 probes.jsonl 보존. v2는 전체 원장의 주문 연결을 한 번 계산한 뒤 같은 판매시간 구간을 집계한다. G19 변경시간도 git의19:53:05로 정정했다.

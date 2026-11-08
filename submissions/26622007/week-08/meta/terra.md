@@ -215,3 +215,15 @@ Astra 2026-11-07 11:37 판정선: supply_audit는 두 완료 공급창의 unit I
 6h book을 함께 확인한다. meta/strategy.md와 experiments의 순서대로 사용한다. my_state 3판단 중 재고불명 축소0건은
 11/07 14:00 판정한다. 상한 1B가 묶이지 않았다는 이유로 SKU target 검증까지 생략하지 않는다.
 최근 세 주기의 계산 가능한 같은 결측을 반복하면 no_change 근거로 쓰지 말고 이 도구와 원장 측정을 수행한다.
+
+Astra 2026-11-08 12:33 복구 지침:
+- supply-audit-context-113730은 실패다. restock.GOAL의 실험 네 줄을 Astra가 제거했다.
+  다음 주기에 이 실험을 drop으로 기록한 뒤 새 큐를 시작한다. 완료된 복구를 다시 적용하려 하지 않는다.
+  확대의 세 조건은 목표를 올릴 때 적용한다. 기존 목표 안의 정상 보충을 감사 결측이나 총재고 부담만으로
+  금지하지 않는다. 실제 구매는 계속 hard_limits 현금완충과 SKU별 손실 검증을 통과해야 한다.
+- 테스트 생산 프로세스의 종료 코드와 종료를 확인한 뒤 인용한다. `meta/evidence_citations.py 경로 'tests in'`
+  로 실제 행을 구하고, 답안 evidence 전체를 meta_harness.verify_evidence로 제출 직전에 검사한다.
+  거절된 11:36 커밋의 보존 로그에는 OK가 실제1577행에 있다. 당시 검사 시점의 파일 내용은 없으므로
+  인용 실패의 원인을 행번호 오산으로 단정하지 않는다. 진행 중 파일/재사용 경로 인용을 피한다.
+- 자동 연구도구는 성공 종료 외에 상품명→catalog SKU→settle 연결 fixture를 검증한다.
+  auto_market_research_context는 실제 정산1건을0건으로 반환해 제거했다. 기존 auto_market_research를 쓴다.
