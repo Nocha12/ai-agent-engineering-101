@@ -106,6 +106,9 @@ class BuyerBundleTrial(unittest.TestCase):
             ledger.write_text(''.join(json.dumps(r)+'\n' for r in rows))
             (Path(directory)/'payments.jsonl').write_text(''.join(json.dumps(dict(
                 order=t['order'], shop=t['shop'], item='G1', price=70, paid=t['paid']))+'\n' for t in trades))
+            (Path(directory)/'measure').mkdir()
+            (Path(directory)/'measure/orders.jsonl').write_text(''.join(json.dumps(dict(
+                order=t['order'], category='goods', shop=t['shop'], sku='G1'))+'\n' for t in trades))
             sent = []
             with patch.object(mb, 'recent_fits', return_value=collections.Counter(weak=5, good=4)), \
                     patch.object(mb, 'SETTLED', str(ledger)), patch.object(mb, 'quote', side_effect=lambda s,*a: sent.append(s['name'])):
@@ -143,23 +146,24 @@ class BuyerBundleTrial(unittest.TestCase):
     def test_scores_require_matching_official_payment_and_settlement(self):
         import buyer_bundle_trial as trial
         stamp = time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime(10000))
-        trades, settled, payments = [], [], []
+        trades, settled, payments, orders = [], [], [], []
         for shop, paid in [('good', True), ('unpaid', False), ('unknown', None)]:
             for i in range(3):
                 oid = shop + str(i)
-                trades.append(dict(order=oid, shop=shop, item='G1', category='goods',
+                trades.append(dict(order=oid, shop=shop, item='G1', category='display-label',
                                    time=stamp, paid=paid, price=70, list_price=100))
+                orders.append(dict(order=oid, category='goods', shop=shop, sku='G1'))
                 settled.append(dict(order=oid, shop='fixture:' + shop, sku='G1', time=10000,
                                     price=70, warranty_hours=6, claim_honest=True))
                 payments.append(dict(order=oid, shop='fixture:' + shop, item='G1', price=70, paid=paid))
-        scores, audit = trial.payment_scores(trades, settled, 'goods', now=40000, payments=payments)
+        scores, audit = trial.payment_scores(trades, settled, 'goods', now=40000, payments=payments, orders=orders)
         # Three successes: pay posterior 4/5; quality (3*.30 + .50)/5 = .28.
         self.assertAlmostEqual(scores[('good', 'G1')], .512)
         self.assertLess(scores[('unpaid', 'G1')], scores[('good', 'G1')])
         self.assertNotIn(('unknown', 'G1'), scores)
         self.assertEqual(audit['unknown'], 3)
         # A paid receipt without one matching official settlement is unresolved.
-        scores, audit = trial.payment_scores(trades, [], 'goods', now=40000, payments=payments)
+        scores, audit = trial.payment_scores(trades, [], 'goods', now=40000, payments=payments, orders=orders)
         self.assertNotIn(('good', 'G1'), scores)
         self.assertEqual(audit['unknown'], 6)
 

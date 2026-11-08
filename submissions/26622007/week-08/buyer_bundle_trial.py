@@ -151,7 +151,7 @@ def settlements(path):
         return []  # unknown ledger keeps every shop at the common prior
 
 
-def payment_scores(trades, settled, category, *, now, payments=()):
+def payment_scores(trades, settled, category, *, now, payments=(), orders=()):
     """Recent known outcomes, with unresolved payments explicitly excluded.
 
     Payment fields come from sync_payments' official kit log. Success additionally
@@ -167,6 +167,9 @@ def payment_scores(trades, settled, category, *, now, payments=()):
     paid_index = collections.defaultdict(list)
     for row in payments:
         paid_index[row.get('order')].append(row)
+    order_index = collections.defaultdict(list)
+    for row in orders:
+        order_index[row.get('order')].append(row)
     groups = collections.defaultdict(lambda: [0, 0, []])
     audit = dict(attempts=0, resolved=0, unknown=0, paid_settled=0, mature_quality=0)
     for trade in trades:
@@ -174,10 +177,16 @@ def payment_scores(trades, settled, category, *, now, payments=()):
             at = time.mktime(time.strptime(trade['time'], '%Y-%m-%dT%H:%M:%S'))
         except (KeyError, ValueError, TypeError, OverflowError):
             continue
-        if trade.get('category') != category or not 0 <= now - at <= 86400:
+        if not 0 <= now - at <= 86400:
             continue
         shop, sku, oid = trade.get('shop'), trade.get('item'), trade.get('order')
         if not all(isinstance(x, str) and x for x in (shop, sku, oid)):
+            continue
+        # Memory.category is the display request; measure.category is the
+        # canonical category from the official order. Never compare the two.
+        requested = order_index[oid]
+        if (len(requested) != 1 or requested[0].get('category') != category or
+                requested[0].get('shop') != shop or requested[0].get('sku') != sku):
             continue
         audit['attempts'] += 1
         pay = paid_index[oid]
