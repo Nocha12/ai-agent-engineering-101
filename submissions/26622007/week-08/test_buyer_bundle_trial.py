@@ -1,10 +1,25 @@
 """Instruction 68: extra goods counter plus settled-payment scheduling, default OFF."""
 import unittest
+import tempfile
+from unittest.mock import patch
 
 import oneshot
 
 
 class BuyerBundleTrial(unittest.TestCase):
+    def test_assignment_survives_retry_and_refuses_agent_or_expired_context(self):
+        import buyer_bundle_trial as trial
+        order = {'order': 'o-0123456789ab', 'kind': 'goods', '_buyer_started_at': 1001}
+        with tempfile.TemporaryDirectory() as directory, patch.multiple(
+                trial, ENABLED=True, START=1000, END=2800, STUDY='bundle-fixture'):
+            self.assertIsNone(trial.reserve(directory, order, rule_engine=False, now=1002))
+            first = trial.reserve(directory, order, rule_engine=True, now=1002)
+            retry = trial.reserve(directory, order, rule_engine=True, now=1003)
+            self.assertEqual(first, retry)
+            self.assertTrue(trial.valid(first, rule_engine=True, now=1003))
+            self.assertFalse(trial.valid(first, rule_engine=False, now=1003))
+            self.assertFalse(trial.valid(first, rule_engine=True, now=2800))
+
     def test_goods_extra_counter_is_bounded_by_first_ask_and_original_limit(self):
         import buyer_bundle_trial as trial
         history = [('shop asked', 10000), ('you offered', 9000)]
