@@ -172,6 +172,14 @@ class EndToEnd(unittest.TestCase):
             mock.patch.object(seller, "ask", self.shop_rule),
             mock.patch.object(buyer, "ask", self.buyer_rule),
         ]
+        # Synthetic stock must never enroll in an ambient/live trial namespace.
+        fixture_root = os.path.join(self.tmp.name, "trial-state")
+        for name in ("READER_TRIAL", "CONCESSION_TRIAL", "LATE_CONCESSION",
+                     "OPENING_DEFAULT", "DRAIN", "OPENING_CUE", "LATE_SPEED",
+                     "JEV_TRANSPORT", "SHELF_REPLY", "EXACT_ACCEPT", "EXACT_COUNTER",
+                     "GRADE_PREFERENCE", "FOOD_OPENING", "AT_FLOOR_EXACT", "DEEP_LOWBALL"):
+            patches.append(mock.patch.object(seller, name,
+                                            type(getattr(seller, name))(root=fixture_root)))
         for p in patches:
             p.start()
             self.addCleanup(p.stop)
