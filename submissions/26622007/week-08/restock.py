@@ -615,8 +615,6 @@ first; the code then fills the room the limits leave with the formula's lines, b
 the ordered category and a shop's visits follow how much it stocks. c1 is how your own earlier
 stock decisions turned out: what sold, what is left, what is gone unsold. Learn from it: a judgment that failed should not repeat.
 c2 is the shop's own memory: long-term notes, lessons from earlier mistakes that match this state, and recent days.
-Judge each proposed SKU on its own stock, recent paid sales and spoilage risk: other SKUs' unsold stock alone is not
-evidence against refilling a proven sold-out SKU. Check the SKU's actual unit count before calling it stocked.
 The code keeps every line inside the shop's current limits (pricing.json), which start cautious and widen as results earn it."""
 
 
