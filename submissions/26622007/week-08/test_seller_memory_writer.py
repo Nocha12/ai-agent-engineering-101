@@ -39,9 +39,13 @@ class MemoryWriter(unittest.TestCase):
 
         def boom(entry):
             raise ValueError("bad json")
-        with mock.patch.object(shop_memory, "record", boom), mock.patch.object(seller, "log", logged.append):
+        with mock.patch.object(seller, "MEMORY_FAILURES", []) as failures, \
+                mock.patch.object(shop_memory, "record", boom), mock.patch.object(seller, "log", logged.append):
             shop.remember("t3", {"id": "G1", "name": "x", "reserve": 1, "history": []}, "canceled")
             seller.flush_memory()
+            self.assertEqual(failures, [True])
+            with self.assertRaisesRegex(RuntimeError, 'drain is not clean'):
+                seller.flush_memory(strict=True)
         self.assertTrue(any("memory write failed: ValueError" in x for x in logged))
 
 

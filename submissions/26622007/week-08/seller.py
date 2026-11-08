@@ -20,6 +20,10 @@ the reserve is that unit's cost, marked down as it nears its date or the end of 
 the opening price is a share of the list price, marked down with it. Each unit is promised to one
 talk at a time. The receipt names the SKU and carries the unit, the honest grade and any warranty (pricing.json).
 """
+import sys
+import sol_source_load
+sol_source_load.install(sys._getframe().f_code, __name__)
+
 import argparse
 import asyncio
 import base64
@@ -418,7 +422,7 @@ class Seller(AgentExecutor):
         log(f"UNPAID {info['deal']['id']} unit {info['deal']['unit']} at {info['price']}: {why}; the unit is on sale again")
 
     async def open_from_stock(self, task, text, up, say):
-        if task.id in self.margin_blocked:
+        if task.id in self.margin_blocked or (self.open.get(task.id) or {}).get('sol_margin'):
             await up.reject(say("Please start a new task; the previous quote was not confirmed."))
             return
         row = QUOTE_HOLD.begin(task.id, text, self.stock)
@@ -444,13 +448,17 @@ class Seller(AgentExecutor):
         deal = self.open.get(task_id)
         if not deal or not deal.get('sol_margin') or deal.get('sol_margin_publication') == 'published':
             return
-        self.margin_blocked.add(task_id)
-        if deal.get('sol_margin_publication') == 'sending':
+        if deal.get('sol_margin_publication') in ('sending', 'unknown'):
             deal['sol_margin_publication'] = 'unknown'
-            log('SOL_MARGIN publication unknown; prepared quote quarantined')
+            MARGIN_STUDY.observe_event(task_id, deal['sol_margin'], 'publication_unknown',
+                                      consumed_at=deal.get('sol_margin_consumed_at'), economic_status='unknown')
+            log('SOL_MARGIN publication unknown; existing terms remain negotiable')
             return
+        self.margin_blocked.add(task_id)
         self.open.pop(task_id, None)
         self.free(task_id, deal)
+        MARGIN_STUDY.observe_event(task_id, deal['sol_margin'], 'unpublished_abort',
+                                  actual_treatment=False, reason='admission_or_prepublication_failure')
         log('SOL_MARGIN unpublished quote aborted; old assignment retained')
 
     async def _open_from_stock(self, task, text, up, say, observation=None):
@@ -492,6 +500,13 @@ class Seller(AgentExecutor):
             GRADE_PREFERENCE.emit(task.id, grade_assignment, "rejected", reason="warranty")
             await up.reject(say("Sorry, we cannot sell this item with a fair warranty right now."))
             log(f"task {task.id[:8]} -> REJECTED (break chance {q['b']:.0%} above the warranty limit; no sale without one)")
+            return
+        # quote() yields after pick: another talk may have claimed this unit.
+        # Recheck and hold without an await between them on the seller event loop.
+        if not self.stock.available(u["unit"], task.id):
+            await asyncio.to_thread(MARGIN_STUDY.event, task.id, margin_assignment,
+                                    'selection_lost', reason='unit_unavailable')
+            await up.reject(say("That unit is no longer available; please start a new request."))
             return
         hold_token = self.stock.hold(u["unit"], task.id)
         if observation is not None:
@@ -546,15 +561,18 @@ class Seller(AgentExecutor):
         quote_text = (f"{stock_line(u)}. Every deal comes with a signed receipt and the market's "
                       f"certificate of the unit.{' ' + note if note else ''} My price: {ask_price}.")
         quote_text = await asyncio.to_thread(OPENING_CUE.message, task.id, deal, quote_text)
-        await asyncio.to_thread(MARGIN_STUDY.ready, task.id, margin_assignment, deal, keep,
+        admission = await asyncio.to_thread(MARGIN_STUDY.ready, task.id, margin_assignment, deal, keep,
                                 margin_peers, pricing_loader=lambda: {
                                     **shop_memory.load_pricing(), "warranty": self.warranty_cfg()})
-        if margin_assignment is not None:
-            deal['sol_margin_publication'] = 'sending'
-        await up.requires_input(say(quote_text, ask_price))
-        if margin_assignment is not None:
-            deal['sol_margin_publication'] = 'published'
-        await asyncio.to_thread(MARGIN_STUDY.observe_event, task.id, margin_assignment, "quoted", price=ask_price)
+        with admission or contextlib.nullcontext():
+            if margin_assignment is not None:
+                deal['sol_margin_consumed_at'] = admission.consume()
+                deal['sol_margin_publication'] = 'sending'
+            await up.requires_input(say(quote_text, ask_price))
+            if margin_assignment is not None:
+                deal['sol_margin_publication'] = 'published'
+        await asyncio.to_thread(MARGIN_STUDY.observe_event, task.id, margin_assignment, "quoted", price=ask_price,
+                                consumed_at=deal.get('sol_margin_consumed_at'))
         if observation is not None:
             observation['quoted'] = True
         log(f"task {task.id[:8]} -> INPUT_REQUIRED {u['sku']} ask {ask_price}")
@@ -995,7 +1013,9 @@ def build(url, catalog, name):
 
     @contextlib.asynccontextmanager
     async def lifespan(app):
-        log(f"SOL_MARGIN_SOURCE {sol_seller_margin.SOURCE_BINDING} pid {os.getpid()} cwd {os.getcwd()}")
+        proof = sol_source_load.proof()
+        log('SOL_MARGIN_LOAD '+json.dumps(dict(disk_snapshot_sha256=sol_seller_margin.DISK_SNAPSHOT_SHA256,
+            load_valid=proof['valid'], **proof['claim'], pid=os.getpid()), sort_keys=True))
         drain = asyncio.create_task(DRAIN.loop(shop, functools.partial(flush_memory, strict=True), log))
         try:
             yield
