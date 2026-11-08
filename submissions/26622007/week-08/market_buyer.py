@@ -65,6 +65,7 @@ import buyer_first95_trial
 import buyer_cap95_trial
 import buyer_b3b1
 import buyer_accept_band
+import buyer_quote_deadline
 import buyer_rank_pg
 import buyer_shop_profile
 import buyer_short_warranty
@@ -1306,6 +1307,11 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
     first = max(k, 1 + len(early))
     # a slow choice: the quotes already asked are read (until QUOTE_UNTIL), no new shop is asked (377c7da quoted none past 60 s)
     late = bool(pre) and time.time() - STARTED > QUOTE_LATE     # without pre, main() calls this only before 60 s
+    if order.get("_quote_deadline") is not None and buyer_quote_deadline.passed(order, time.time()):
+        if pre:     # past the goods quote deadline already: the prefetched asks are read, no new shop is asked
+            late = True
+        else:       # no prefetch to read: the old wait (Codex review 11/08 21:5x)
+            order["_quote_deadline"] = dict(order["_quote_deadline"], at=None, skipped="past at the start")
     if late:
         rest, rounds = [s for s in rest if s["name"] in asked], 1
 
@@ -1334,7 +1340,7 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
         extra_deadline = time.time() + buyer_goods_quote_probe.EXTRA_WAIT if extra and r else None
         n = first if not r else k
         batch, rest = rest[:n], rest[n:]
-        if not batch or (r and time.time() - STARTED > QUOTE_UNTIL):
+        if not batch or (r and (time.time() - STARTED > QUOTE_UNTIL or buyer_quote_deadline.passed(order, time.time()))):
             break
         if r:
             log(f"[quote] none of {len(pool)} shops asked within my limit; asking {len(batch)} more")
@@ -1350,6 +1356,7 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
         end = time.time() + wait if not (r or late) else min(time.time() + wait, STARTED + QUOTE_UNTIL)
         if extra_deadline is not None:
             end = min(end, extra_deadline)
+        end = buyer_quote_deadline.clip(order, end)     # goods: the order's quote deadline, when on
         more = r + 1 < rounds and bool(rest) and not late
         if not more:      # no batch after this one: the slow shops of the earlier batches are waited for too
             threads = [asked[s["name"]] for s in pool]
@@ -1364,6 +1371,9 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
                     and sum(not asked[s["name"]].is_alive() for s in batch) >= QUOTE_NEXT_SHARE * len(batch):
                 break
             time.sleep(0.05)
+        qd = order.get("_quote_deadline")
+        if qd is not None and buyer_quote_deadline.passed(order, time.time()) and any(th.is_alive() for th in threads):
+            qd["cut"], qd["left"] = True, sum(th.is_alive() for th in threads)
         # stop once an ask closes within my limit, not at the first number: 3판 GPT Pro §4.1, a batch whose asks were all
         # over the limit ended the search while the next batch was never asked
         if any(surplus(s) is not None and fits(s) for s in pool):
@@ -1837,6 +1847,13 @@ def main():
     rk = buyer_rank_pg.state(md, order) if r3 else None
     if rk is not None:
         order["_rank_pg"] = rk
+    try:
+        qd = buyer_quote_deadline.state(md, order, STARTED) if r3 else None
+    except Exception as e:  # noqa: BLE001 - the switch never ends the run: off
+        log(f"[quote-deadline] switch read failed: {type(e).__name__}: {e}")
+        qd = None
+    if qd is not None:
+        order["_quote_deadline"] = qd
     left, brief = skip_short_warranty(shops, memory, catalog, order) if r3 else (list(shops), [])
     if brief:
         log(f"[choose] skip for goods {brief}: their recent receipts to me had too short a warranty to pay for")
@@ -2128,6 +2145,8 @@ def main():
                                             if order.get("_sw") is not None else {}),
                                          **({"rank_pg": {k: v for k, v in order["_rank_pg"].items() if k != "stats"}}
                                             if order.get("_rank_pg") is not None else {}),
+                                         **({"quote_deadline": order["_quote_deadline"]}
+                                            if order.get("_quote_deadline") is not None else {}),
                                          **({"shop_profile": {"base": band_base, "pct": band_pct}}
                                             if band_pct != band_base else {}),
                                          **({"accept_band": {"pct": band_pct, "ceiling": top,
