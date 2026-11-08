@@ -3,7 +3,7 @@ review/W-20261108-1655-AX가게별바이어/shop-profiles.md).
 
 Goods deals were lost mostly at two shops that never come down off their ask (25620027, mjforge: median lowest ask /
 first ask 1.00) and whose failed talks ended 7-11% over my limit. Replayed on 11/07 17h - 11/08 17h with profiles from
-the 24 h before, a percent per such shop took 2,067 deals against plan A's 1,946 (mean saved .354 against .358).
+the 24 h before, a percent per such shop took 2,063 deals against plan A's 1,946 (mean saved .354 against .358).
 
 A shop gets its own percent when, over the last 24 h of measure/orders.jsonl, it had MIN_TALKS talks or more, its median
 lowest ask / first ask is HOLDS or more, at least NEAR_SHARE of its failed talks ended within MAX_PERCENT of my limit, and
@@ -71,12 +71,16 @@ def profile_from_rows(rows, paid, now):
             continue
         done = [r.get('state') == 'TASK_STATE_COMPLETED' and r.get('price') is not None for r in rs]
         deal = [r for r, d in zip(rs, done) if d]
-        fails = [min(r['asks']) / r['limit'] for r, d in zip(rs, done) if not d]
-        pays = [paid[r['order']] for r in deal if r.get('passed_to_kit') is True and r.get('order') in paid]
+        # misses on price only (a talk that ended under my limit failed on something else), and the deals a band took
+        # over my limit, so a shop raised once does not drop out when its near misses turn into deals
+        over = [min(r['asks']) / r['limit'] for r, d in zip(rs, done) if not d and min(r['asks']) > r['limit']]
+        over += [r['price'] / r['limit'] for r in deal if _num(r['price']) and r['price'] > r['limit']]
+        pays = [paid[r['order']] for r in deal
+                if r.get('passed_to_kit') is True and isinstance(r.get('order'), str) and r['order'] in paid]
         if len(pays) >= PAID_MIN and sum(pays) / len(pays) < PAID_SHARE:
             continue
-        near = sorted(x for x in fails if x <= MAX_PERCENT / 100)
-        if not fails or len(near) < NEAR_SHARE * len(fails):
+        near = sorted(x for x in over if x <= MAX_PERCENT / 100)
+        if not over or len(near) < NEAR_SHARE * len(over):
             continue
         pct = int(near[max(0, int(len(near) * QUANTILE) - 1)] * 100 + 1e-9)
         pct = min(MAX_PERCENT, pct)
@@ -130,8 +134,9 @@ def profiles(md, now=None):
     computes it at a time; the others go on with the cached one (or none)."""
     now = time.time() if now is None else now
     path = os.path.join(md, CACHE)
+    fresh = lambda at: at is not None and 0 <= now - at < REFRESH
     at, shops = _read_cache(path)
-    if at is not None and 0 <= now - at < REFRESH:
+    if fresh(at):
         return shops
     try:
         with open(path + '.lock', 'a') as lock:
@@ -139,21 +144,33 @@ def profiles(md, now=None):
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except OSError:
                 return shops
-            shops = compute(md, now)
+            at, shops = _read_cache(path)      # another run may have just computed it
+            if fresh(at):
+                return shops
+            try:
+                shops = compute(md, now)
+            except Exception:   # noqa: BLE001 - a broken log is no profile until the next REFRESH, not a parse every order
+                shops = {}
             tmp = f'{path}.{os.getpid()}.tmp'
-            with open(tmp, 'w', encoding='utf-8') as f:
-                json.dump({'at': now, 'shops': shops}, f, sort_keys=True)
-            os.replace(tmp, path)
+            try:
+                with open(tmp, 'w', encoding='utf-8') as f:
+                    json.dump({'at': now, 'shops': shops}, f, sort_keys=True)
+                os.replace(tmp, path)
+            finally:
+                if os.path.exists(tmp):
+                    os.unlink(tmp)
     except OSError:
         pass
     return shops
 
 
-def percent(md, shop, base, list_price, chance, limit, env=None, now=None):
+def percent(md, shop, base, list_price, chance, limit, env=None, now=None, cap=None):
     """The share (%) of my limit I take a counter up to with this shop: base (plan A's, or None) when the switch is off,
     the shop has no profile, or the profile would not raise it; else the shop's percent, cut so that a deal keeps
-    SAVED_FLOOR of list in expectation. Never under base. buyer_accept_band.ceiling keeps it under the budget."""
-    if not enabled(md, env):
+    SAVED_FLOOR of list in expectation and the deal stays within cap (market_buyer.value_limit: budget, max_price_share,
+    max_spend_per_deal). Never under base; plan A off (base None) is off here too. buyer_accept_band.ceiling keeps it
+    under the budget."""
+    if base is None or not enabled(md, env):
         return base
     try:
         pct = profiles(md, now).get(shop)
@@ -164,4 +181,6 @@ def percent(md, shop, base, list_price, chance, limit, env=None, now=None):
     b = min(max(chance or 0, 0.0), 0.99)
     floor_cap = list_price * (1 - SAVED_FLOOR / (1 - b))
     pct = min(pct, int(floor_cap * 100 // limit))
-    return pct if pct > (base or 100) else base
+    if _num(cap):
+        pct = min(pct, int(cap * 100 // limit))
+    return pct if pct > base else base

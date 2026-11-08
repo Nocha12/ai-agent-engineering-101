@@ -62,6 +62,42 @@ class ProfileTest(unittest.TestCase):
         self.assertEqual(sp.profile_from_rows(rows, {k: True for k in paid}, now=NOW), {'P': 108})
 
 
+class ReviewFixTest(unittest.TestCase):
+    def test_talks_that_ended_under_my_limit_are_not_near_misses(self):
+        rows = holder('N', [0.9] * 20 + [1.08] * 2 + [1.3] * 8)   # 2 of the 10 price misses near: no profile
+        self.assertEqual(sp.profile_from_rows(rows, {}, now=NOW), {})
+        self.assertEqual(sp.profile_from_rows(holder('N', [0.9] * 20 + [1.08] * 5), {}, now=NOW), {'N': 108})
+
+    def test_deals_the_band_took_keep_the_shop_profiled(self):
+        rows = [talk('B', [1080, 1080], deal=1080, order=f'b{i}') for i in range(20)]
+        rows += [talk('B', [1300, 1300], order=f'bf{i}') for i in range(10)]
+        self.assertEqual(sp.profile_from_rows(rows, {}, now=NOW), {'B': 108})
+
+    def test_an_order_id_that_is_not_a_string_is_skipped(self):
+        rows = holder('H', [1.08] * 20)
+        rows[-1]['order'] = ['x']
+        self.assertEqual(sp.profile_from_rows(rows, {'a': True}, now=NOW), {'H': 108})
+
+    def test_never_over_the_value_limit(self):
+        with tempfile.TemporaryDirectory() as md:
+            market_dir(md, holder('H', [1.08] * 20))
+            self.assertEqual(sp.percent(md, 'H', 105, 1000, 0, 680, env={}, now=NOW, cap=714), 105)
+            self.assertEqual(sp.percent(md, 'H', 105, 1000, 0, 680, env={}, now=NOW, cap=727), 106)
+
+    def test_a_compute_that_fails_is_cached_as_no_profile(self):
+        with tempfile.TemporaryDirectory() as md:
+            market_dir(md, holder('H', [1.08] * 20))
+            real = sp.compute
+            sp.compute = lambda md, now: (_ for _ in ()).throw(RuntimeError('broken'))
+            try:
+                self.assertEqual(sp.profiles(md, now=NOW), {})
+            finally:
+                sp.compute = real
+            self.assertEqual(sp.profiles(md, now=NOW + 60), {})        # cached: not computed again within REFRESH
+            self.assertEqual(sp.profiles(md, now=NOW + sp.REFRESH + 1), {'H': 108})
+            self.assertEqual([f for f in os.listdir(md) if f.endswith('.tmp')], [])
+
+
 def market_dir(md, rows, payments=()):
     os.makedirs(os.path.join(md, 'measure'), exist_ok=True)
     with open(os.path.join(md, 'measure', 'orders.jsonl'), 'w') as f:
@@ -78,7 +114,7 @@ class PercentTest(unittest.TestCase):
             self.assertEqual(sp.percent(md, 'H', 105, list_price=1000, chance=0, limit=680, env={}, now=NOW), 108)
             self.assertEqual(sp.percent(md, 'other', 105, list_price=1000, chance=0, limit=680, env={}, now=NOW), 105)
             self.assertIsNone(sp.percent(md, 'other', None, list_price=1000, chance=0, limit=680, env={}, now=NOW))
-            self.assertEqual(sp.percent(md, 'H', None, list_price=1000, chance=0, limit=680, env={}, now=NOW), 108)
+            self.assertIsNone(sp.percent(md, 'H', None, list_price=1000, chance=0, limit=680, env={}, now=NOW))  # plan A off
             self.assertEqual(sp.percent(md, 'H', 105, 1000, 0, 680, env={'BUYER_SHOP_PROFILE': 'off'}, now=NOW), 105)
 
     def test_a_deal_keeps_a_quarter_of_the_list_price_in_expectation(self):
@@ -115,6 +151,13 @@ class MarketBuyerTest(unittest.TestCase):
             write(md, sp.SWITCH, {'enabled': True})
             self.assertEqual(mb.accept_percent(md, 'H', offer, 0, 680, now=NOW), (105, 108))
             self.assertEqual(mb.accept_percent(md, 'X', offer, 0, 680, now=NOW), (105, 105))
+
+    def test_a_receipt_for_another_sku_keeps_plan_a(self):
+        import market_buyer as mb
+        offer = {'sku': 'G1', 'list_price': 1000}
+        self.assertEqual(mb.receipt_band({'item': 'G1'}, offer, 105, 108), 108)
+        self.assertEqual(mb.receipt_band({'item': 'G2'}, offer, 105, 108), 105)
+        self.assertEqual(mb.receipt_band({}, offer, 105, 108), 108)
 
 
 if __name__ == '__main__':
