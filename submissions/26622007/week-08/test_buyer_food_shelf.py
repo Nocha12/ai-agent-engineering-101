@@ -93,6 +93,14 @@ class HistoryTest(unittest.TestCase):
             write(md, orders=ORDERS + [later], pays=PAYS + [{"order": "o-later", "paid": True, "reason": None}])
             self.assertIsNone(fs.last_left(md, now=NOW)[("yeonsong2", "G3434758a")])
 
+    def test_expired_unit_refusal_counts(self):
+        # the kit writes f"{hours:.2f} h" (market_kit.py:526), so an expired unit reads "-3.20 h"
+        with tempfile.TemporaryDirectory() as md:
+            later = dict(ORDERS[0], ts=1794178700.0, order="o-expired")
+            write(md, orders=ORDERS + [later], pays=PAYS + [
+                {"order": "o-expired", "paid": False, "reason": "not paying: -3.20 h of shelf life left, the policy asks for 9"}])
+            self.assertAlmostEqual(fs.last_left(md, now=NOW)[("yeonsong2", "G3434758a")], -3.20 - 216.1 / 3600, places=3)
+
     def test_other_refusals_goods_old_and_unpaid_kit_lines_ignored(self):
         with tempfile.TemporaryDirectory() as md:
             orders = [dict(ORDERS[2], order="o-grade", ts=1794178800.0),

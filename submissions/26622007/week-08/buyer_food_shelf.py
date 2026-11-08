@@ -28,7 +28,7 @@ import time
 SWITCH = "buyer_food_shelf.json"
 HOURS = 6
 TAIL_BYTES = 12_000_000     # ~11 h of orders.jsonl (11/08), past the 6 h window; payments.jsonl is smaller per order
-REFUSED = re.compile(r"not paying: ([0-9]+(?:\.[0-9]+)?) h of shelf life left, the policy asks for ([0-9]+(?:\.[0-9]+)?)")
+REFUSED = re.compile(r"not paying: (-?[0-9]+(?:\.[0-9]+)?) h of shelf life left, the policy asks for ([0-9]+(?:\.[0-9]+)?)")
 
 
 def config(md, env=None):
