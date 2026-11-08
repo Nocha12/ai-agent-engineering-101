@@ -1,1 +1,70 @@
-{"changed":false,"hypothesis":"현재 증거만으로 재고 설정이나 구매 정책을 바꾼 효과가 현행 정책보다 클지 확인하지 못했다.","change_summary":"파일을 변경하지 않았다. 두 공급창의 SKU별 가드 구속, 판매 및 동일 단위 잔류를 아직 검증하지 못했으므로 이번 주기 판정은 미완료다.","target_metric":"Players 점수와 구매자 Saved","expected":"재고 확대의 세 조건을 검증한 뒤 추가 판매와 순기여가 확인되는 SKU에 한해 변경 효과를 추정한다.","evidence":[{"ref":"meta/evidence/terra-1109-025254.json:153","excerpt":"   \"players\": 1.654,","meaning":"현재 Players 점수다."},{"ref":"meta/evidence/terra-1109-025254.json:232","excerpt":"     \"me\": 0.009,","meaning":"최근 6.1시간의 우리 Players 성장분이다."},{"ref":"meta/evidence/terra-1109-025254.json:234","excerpt":"     \"above\": 0.017,","meaning":"같은 기간 바로 위 경쟁자의 성장분이 더 커 격차가 벌어졌다."},{"ref":"meta/evidence/terra-1109-025254.json:4","excerpt":"  \"surge: 1 unit(s) in stock bought in the last 6 h above 0.9 x list (worst 0.932; [('Gef4d3036', 1)])\"","meaning":"서지 경고는 Gef4d3036 한 단위에 관한 것이다."},{"ref":"meta/evidence/terra-1109-013953-tests.txt:1647","excerpt":"Ran 1173 tests in 118.394s","meaning":"직전 도구 제거 후 전체 테스트가 완료됐다."},{"ref":"meta/evidence/terra-1109-013953-tests.txt:1649","excerpt":"OK","meaning":"직전 도구 제거 후 전체 테스트가 통과했다."}],"evidence_gap":{"missing":"두 완료 공급창의 SKU별 target 구속, 결제 판매와 동일 추가 단위 잔류를 조사하지 못했다. 서지 경고 단위의 최종 판매·폐기 결과도 확인하지 못했다.","measurement":"미수행: supply_audit와 결제 원장을 공급창 및 단위 ID로 연결하고 해당 경고 단위를 추적해야 한다.","judge_line":{"metric":"확인 대상 SKU의 두 공급창 target 구속, 판매와 동일 추가 단위 잔류 및 숙성 순기여","direction":"none","threshold":"두 창에서 target 구속, 이전 창 매입분 과반 판매, 동일 추가 단위 잔류 0, 숙성 건당 순기여 양수 및 6시간 book 비하락","min_sample":"완료 공급창 2개와 해당 SKU의 원가·보증이 확인된 숙성 판매","expires":"다음 Terra 주기","undo":"조건 미충족 시 해당 SKU target을 확대하지 않는다."}},"previous_verdict":"keep","previous_reason":"직전 검색 도구 제거 후 전체 테스트 1,173건이 통과했다. 실제 포럼 수요 연결의 정확도는 진행 중 실험에서 별도 판정해야 한다.","grade_summary":"Players는 1.652→1.654, 62명 중 5위다. Shop ALL 0.843, Buyer ALL 0.811이며 보드 산식 오차는 각각 0이다. Book은 274,795,092→280,426,844원이고 구매 결제 95건, 상점 정산 303건, 품절 7건, 구매 결제 거절 1건, checkout 거절 25건이다. 현재 로그 표본의 원가 미만 제안·보증 거절·포럼 게시 및 투표 거절은 각각 0건이다. 24시간 초과 재고는 38개·21,669,005원이며 누락 도구는 없다. 보관 손실 누계는 2,893,661원이고 환불 추정 누계는 과거 연결 오류 때문에 SKU 축소 근거로 쓰지 않는다. alert surge: Gef4d3036 한 단위가 정가의 0.932배 원가로 매입됐다. 그 단위의 판매 또는 폐기 결과를 아직 확인하지 못했다.","weakest":["상점 book","구매자 Saved"],"strategy_check":{"current":"인증과 정직한 등급, 상품 보증을 내세운 폭넓은 식품·생활용품 및 검증 고가 가구·침구 판매와 Saved 중심 구매","gap_cause":"unclear","keep_or_shift":"keep","reason":"최근 6.1시간 Players 성장분은 우리 +0.009, 바로 위 +0.017, 선두 +0.006으로 바로 위와의 격차가 벌어졌다. Saved는 다음 상대 0.3056까지 0.0032가 필요하며 통과 시 약 +0.00909다. Book은 다음 상대 378,064,300원까지 97,637,495원이 필요하다. 경쟁자별 판매와 공급창 단위 흐름을 충분히 대조하지 못해 전략 전환이나 SKU 확대의 근거는 아직 확정하지 못했다."},"action_kind":"none","experiment":{"id":"forum-demand-join-113730","step":"continue","result":"판정 시각인 11월 9일 07:46 전이다. 수요글 3개에서 유효 후보 1개 이상과 잘못 연결한 결제행 0개를 판정해야 한다."}}
+{
+  "changed": false,
+  "hypothesis": "현재 확인된 공급창 자료만으로 SKU 목표를 늘리면 현행 정책보다 Players가 더 오를지 판단할 수 없다.",
+  "change_summary": "운영 설정과 코드는 바꾸지 않았다. 직전 주기에 빠졌던 두 공급창의 단위별 판매를 조회해 meta/evidence/terra-1109-040408-supply.txt에 저장했다. G8ec51935는 첫 창 매입 3개가 다음 창 종료까지 모두 팔렸지만, 두 창에서 목표 수량이 가드를 구속했다는 근거와 완전한 숙성 순기여가 없어 목표를 늘리지 않았다.",
+  "target_metric": "Players 점수와 상점 book",
+  "expected": "근거 없는 재고 확대의 효과를 0으로 두고, 구속 조건과 숙성 순기여가 확인되는 SKU만 다음 확대 대상으로 판단한다.",
+  "evidence": [
+    {
+      "ref": "meta/evidence/terra-1109-040408-supply.txt:2",
+      "excerpt": "\"bought_first_window\": 3, \"sold_by_second_close\": 3, \"sold_fraction\": 1.0",
+      "meaning": "G8ec51935의 첫 공급창 매입분 3개는 다음 창 종료까지 모두 판매됐다."
+    },
+    {
+      "ref": "meta/evidence/terra-1109-040408-supply.txt:1",
+      "excerpt": "\"bought_first_window\": 0, \"sold_by_second_close\": 0, \"sold_fraction\": null",
+      "meaning": "G24f5f979는 해당 창의 신규 매입 표본이 없어 판매율을 판정할 수 없다."
+    },
+    {
+      "ref": ".market/measure/units_in.jsonl:15562",
+      "excerpt": "\"unit\": \"u-d9db11f14a2a\", \"sku\": \"Gef4d3036\"",
+      "meaning": "서지 경보에 해당하는 단위의 매입 기록이다. 원가 26,924원은 정가 28,900원의 약 0.932배다."
+    },
+    {
+      "ref": "meta/evidence/terra-1109-040408.json:153",
+      "excerpt": "\"players\": 1.656,",
+      "meaning": "이번 팩의 Players 점수다."
+    },
+    {
+      "ref": "meta/evidence/terra-1109-040408.json:232",
+      "excerpt": "\"me\": 0.011,",
+      "meaning": "최근 6.1시간 우리 Players 성장분이다."
+    },
+    {
+      "ref": "meta/evidence/terra-1109-040408.json:234",
+      "excerpt": "\"above\": -0.021,",
+      "meaning": "같은 기간 바로 위 경쟁자의 Players 성장분이다."
+    }
+  ],
+  "evidence_gap": {
+    "missing": "서지 단위 u-d9db11f14a2a의 최종 판매 또는 폐기 결과와 G8ec51935의 완전한 숙성 순기여 및 두 창의 목표 구속 근거가 부족하다.",
+    "measurement": "이번 주기에 공급창 단위 ID와 입고·출고 및 결제 원장을 조회했다. 서지 단위는 출고 기록을 찾지 못했으므로 다음 주기에 같은 ID의 결제 또는 폐기를 다시 확인한다.",
+    "judge_line": {
+      "metric": "서지 단위의 최종 순기여",
+      "direction": "above",
+      "threshold": "결제대금에서 26,924원 원가와 연결 환불을 뺀 값이 0원 초과",
+      "min_sample": "해당 단위 1개의 최종 판매 또는 폐기",
+      "expires": "2026-11-10 00:00 KST",
+      "undo": "결과가 손실이어도 한 단위만으로 SKU를 축소하지 않고, SKU 전체의 숙성 판매 10건 이상 순기여 또는 동일 추가 단위의 두 창 잔류를 확인한다."
+    }
+  },
+  "previous_verdict": "fix",
+  "previous_reason": "직전 무변경 판정은 공급창 측정을 수행하지 않아 no_change_unsupported로 거절됐다. 이번에는 공급창별 단위 ID를 조회했으나 확대에 필요한 나머지 조건은 확인하지 못했다.",
+  "grade_summary": "Players는 1.654→1.656으로 62명 중 5위다. Shop ALL 0.845, Buyer ALL 0.811이며 보드 산식 오차는 각각 0이다. 신규 패치는 없다. 직전 팩 대비 상점 정산 301건, 구매 결제 82건, 품절 18건, 구매 결제 거절 2건, checkout 거절 13건이다. 현재 로그 표본의 원가 미만 제안·보증 거절·포럼 게시 및 투표 거절은 각각 0건이다. Book은 280,426,844→278,056,831원이고 24시간 초과 재고는 38개·23,341,718원이다. 누락된 도구는 없다. 보관 손실 누계는 2,939,449원이며 과거 환불 추정 누계는 연결 오류가 있어 SKU 축소에 쓰지 않는다. alert surge: Gef4d3036의 원가 26,924원짜리 단위 한 개를 추적했으며 출고 기록이 아직 없다. 해당 단위의 최종 결제 또는 폐기 기록으로 결과를 확인한다.",
+  "weakest": [
+    "상점 book",
+    "구매자 Saved"
+  ],
+  "strategy_check": {
+    "current": "인증과 정직한 등급, 상품 보증을 내세운 폭넓은 식품·생활용품 및 검증 고가 가구·침구 판매와 Saved 중심 구매",
+    "gap_cause": "unclear",
+    "keep_or_shift": "keep",
+    "reason": "최근 6.1시간 Players 성장분은 우리 +0.011, 바로 위 -0.021, 선두 +0.009이며 선두 격차는 0.050이다. 선두는 23,745거래·35,173방문·매출 7,131,936,517원이고 우리는 19,266거래·31,449방문·매출 3,675,909,553원이다. 양쪽 모두 인증과 정직한 등급을 카드에 내세우며 선두의 거래·매출 규모가 크다. 다른 상품 구성이나 협상 방식이 현행보다 추가 ΔPlayers를 낸다는 인과 근거는 아직 부족하다. Saved 다음 상대는 0.306으로 0.0029를 더하면 약 +0.00909이고, book 다음 상대 377,983,423원까지는 99,939,531원이 필요하다. G8ec51935는 두 창 중 첫 창 매입 3개가 모두 팔렸지만 목표 구속과 완전한 숙성 순기여를 확인하지 못했다."
+  },
+  "action_kind": "none",
+  "experiment": {
+    "id": "forum-demand-join-113730",
+    "step": "continue",
+    "result": "판정 시각 2026-11-09 07:46 KST 전이다. 수요글 3개에서 유효 후보 1개 이상과 잘못 연결한 결제행 0개를 판정한다."
+  }
+}
