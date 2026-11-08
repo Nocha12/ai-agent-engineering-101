@@ -133,6 +133,30 @@ class WarrantyTrialTest(unittest.TestCase):
         self.shop.warranty_terms(deal, "9000", task_id="task-fixture")
         self.assertEqual(self.rows()[-1]["arm"], "control")
 
+    def test_negative_followup_restores_initial_control_hours_and_stays_control(self):
+        self.pricing.write_text(json.dumps({"warranty_hours": 0}))
+        for request in ("I cannot accept this without a warranty", "보증 없이 거래할 수 없습니다"):
+            with self.subTest(request=request):
+                deal = self.deal()
+                self.assertIn("without a warranty", self.quote(deal))
+                note = self.quote(deal, request)
+                self.assertIn("72 h warranty", note or "")
+                self.assertEqual(deal["warranty"], 72)
+                self.assertEqual(self.shop.stock_receipt("task-fixture", deal, 9000)["warranty_hours"], 72)
+                self.quote(deal, "9000")
+                self.assertEqual(self.rows()[-1]["arm"], "control")
+
+    def test_negative_numeric_followup_accepts_with_restored_receipt(self):
+        from google.protobuf.json_format import MessageToDict
+        self.pricing.write_text(json.dumps({"warranty_hours": 0}))
+        deal, _ = self.opening("G00000001")
+        up = self.followup(f"{deal['ask']}. I cannot accept this without a warranty")
+        up.complete.assert_awaited_once()
+        receipt = MessageToDict(up.add_artifact.call_args.kwargs["parts"][0].data)
+        self.assertEqual(receipt["warranty_hours"], 72)
+        self.assertIn("72 h warranty", up.complete.call_args.args[0]["parts"][0].text)
+        self.assertEqual(self.rows()[-1]["arm"], "control")
+
     def test_off_missing_invalid_and_outside_window_keep_baseline(self):
         configurations = [None, "{", "[]", {**self.cfg, "enabled": False},
                           {**self.cfg, "start_at": 151}, {**self.cfg, "stop_at": 150}]
@@ -261,6 +285,23 @@ class WarrantyTrialTest(unittest.TestCase):
         self.assertEqual([row["task"] for row in self.rows()], ["first-task", "second-task"])
         self.assertTrue(all(row["arm"] == "treatment" for row in self.rows()))
 
+    def test_invalid_newline_terminated_tail_forbids_treatment_without_appending(self):
+        path = self.market / "measure" / "seller_warranty_trial.jsonl"
+        for tail in (b"not-json\n", b'{"partial":\n', b"\n", b"\xff\n", b"x" * 5000 + b"\n"):
+            for followup in (False, True):
+                with self.subTest(tail=tail[:16], followup=followup):
+                    path.unlink(missing_ok=True)
+                    deal = self.deal()
+                    if followup:
+                        self.quote(deal)
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    with path.open("ab") as stream:
+                        stream.write(tail)
+                    before = path.read_bytes()
+                    self.assertIn("72 h warranty", self.quote(deal))
+                    self.assertEqual(path.read_bytes(), before)
+                    self.assertEqual(self.shop.stock_receipt("task-fixture", deal, 9000)["warranty_hours"], 72)
+
     def test_dynamic_toggle_applies_to_new_talks(self):
         self.write_config(enabled=False)
         first = self.deal()
@@ -289,10 +330,12 @@ class WarrantyTrialTest(unittest.TestCase):
     def followup(self, text, task="00000000-0000-0000-0000-000000000043"):
         from a2a.types import Message
         up = SimpleNamespace(new_agent_message=lambda **kwargs: kwargs,
-                             requires_input=mock.AsyncMock(), reject=mock.AsyncMock(), failed=mock.AsyncMock())
+                             requires_input=mock.AsyncMock(), reject=mock.AsyncMock(), failed=mock.AsyncMock(),
+                             add_artifact=mock.AsyncMock(), complete=mock.AsyncMock())
         context = SimpleNamespace(current_task=SimpleNamespace(id=task, context_id="fixture-context"),
                                   message=Message(role="ROLE_USER", parts=[seller.new_text_part(text)], message_id="fixture-message"))
-        with mock.patch.object(seller, "TaskUpdater", return_value=up):
+        with mock.patch.object(seller, "TaskUpdater", return_value=up), \
+                mock.patch.object(seller, "load_shop_key", return_value=None):
             asyncio.run(self.shop._execute(context, None))
         self.assertFalse(up.reject.called)
         self.assertFalse(up.failed.called)
@@ -321,6 +364,73 @@ class WarrantyTrialTest(unittest.TestCase):
             self.assertEqual(self.shop.stock_receipt("task-fixture", deal, deal["ask"])["warranty_hours"], 72)
         self.assertEqual([name for name, _ in calls], ["config", "journal", "config", "journal"])
         self.assertTrue(all(thread != main_thread for _, thread in calls), calls)
+
+    def test_concurrent_followups_publish_control_after_delayed_treatment(self):
+        from a2a.types import Message
+        task_id = "00000000-0000-0000-0000-000000000043"
+        deal, _ = self.opening("G00000001")
+        entered, release, control_published = threading.Event(), threading.Event(), asyncio.Event()
+        dumps = json.dumps
+        messages = []
+
+        def delayed_encode(value, *args, **kwargs):
+            if isinstance(value, dict) and value.get("task") == task_id and value.get("arm") == "treatment":
+                entered.set()
+                if not release.wait(2):
+                    raise TimeoutError("test did not release treatment serialization")
+            return dumps(value, *args, **kwargs)
+
+        class Updates:
+            def __init__(self, **kwargs):
+                pass
+
+            def new_agent_message(self, parts, **kwargs):
+                return parts[0].text
+
+            async def requires_input(self, message):
+                messages.append((message, deal["warranty_trial"]["arm"],
+                                 self_shop.stock_receipt(task_id, deal, deal["ask"]).get("warranty_hours", 0)))
+                if "72 h warranty" in message:
+                    control_published.set()
+
+        self_shop = self.shop
+
+        def context(text):
+            return SimpleNamespace(current_task=SimpleNamespace(id=task_id, context_id="fixture-context"),
+                                   message=Message(role="ROLE_USER", parts=[seller.new_text_part(text)],
+                                                   message_id="fixture-message"))
+
+        async def run():
+            first = asyncio.create_task(self.shop._execute(context("Please tell me more"), None))
+            second = None
+            try:
+                self.assertTrue(await asyncio.to_thread(entered.wait, 1))
+                second = asyncio.create_task(self.shop._execute(context("I cannot accept this without a warranty"), None))
+                # Let the control turn finish if unprotected. A serialized turn
+                # waits behind the first; the timeout then releases its worker.
+                try:
+                    await asyncio.wait_for(control_published.wait(), 0.1)
+                except asyncio.TimeoutError:
+                    pass
+            finally:
+                release.set()
+                await first
+                if second is not None:
+                    await second
+
+        with mock.patch.object(json, "dumps", delayed_encode), mock.patch.object(seller, "TaskUpdater", Updates):
+            asyncio.run(run())
+        self.assertEqual(deal["warranty_trial"]["arm"], "control")
+        self.assertEqual(messages[-1][1:], ("control", 72))
+        self.assertIn("72 h warranty", messages[-1][0])
+        seen_control = False
+        for message, arm, hours in messages:
+            if arm == "control":
+                seen_control = True
+            if seen_control:
+                self.assertNotIn("without a warranty", message)
+                self.assertEqual((arm, hours), ("control", 72))
+        self.assertEqual([row["arm"] for row in self.rows()], ["treatment", "treatment", "control"])
 
     def test_slow_warranty_io_keeps_unit_held_and_journal_precedes_public_quote(self):
         entered, release = threading.Event(), threading.Event()
@@ -430,6 +540,45 @@ class WarrantyTrialTest(unittest.TestCase):
                 self.assertIn("72 h warranty", self.quote(deal))
                 self.assertNotIn("warranty_trial", deal)
         self.assertFalse(self.market.exists())
+
+    def test_unencodable_config_strings_keep_opening_and_receipt_control(self):
+        for field in ("salt", "study", "epoch"):
+            with self.subTest(field=field):
+                valid = self.cfg[field]
+                self.write_config(**{field: "\ud800"})
+                try:
+                    deal, text = self.opening("G00000001", measured=False)
+                    self.assertIn("72 h warranty", text)
+                    self.assertEqual(deal["warranty"], 72)
+                    self.assertEqual(self.shop.stock_receipt("task-fixture", deal, deal["ask"])["warranty_hours"], 72)
+                    self.assertNotIn("warranty_trial", deal)
+                    self.assertFalse(self.market.exists())
+                finally:
+                    self.stock.release(self.unit["unit"])
+                    self.shop.open.clear()
+                    self.write_config(**{field: valid})
+
+    def test_unexpected_assignment_detection_and_journal_errors_restore_control(self):
+        failures = (("_assignment", seller.seller_warranty_trial.Trial),
+                    ("requested", seller.seller_warranty_trial),
+                    ("sha256", seller.seller_warranty_trial.hashlib),
+                    ("dumps", json))
+        for name, target in failures:
+            for followup in (False, True):
+                if followup and name in ("_assignment", "sha256"):
+                    continue  # Existing assignments do not hash again.
+                with self.subTest(boundary=name, followup=followup):
+                    deal = self.deal()
+                    if followup:
+                        self.quote(deal)
+                    with mock.patch.object(target, name, side_effect=RuntimeError("injected trial failure")):
+                        note = self.quote(deal, "Please quote G00000001" if name in ("_assignment", "sha256")
+                                          else "I cannot accept this without a warranty")
+                    self.assertIn("72 h warranty", note or "")
+                    self.assertEqual(deal["warranty"], 72)
+                    self.assertEqual(self.shop.stock_receipt("task-fixture", deal, 9000)["warranty_hours"], 72)
+                    self.quote(deal, "9000")
+                    self.assertEqual(deal["warranty_trial"]["arm"], "control")
 
     def opening(self, text, task="00000000-0000-0000-0000-000000000043", *, measured=True):
         messages = []

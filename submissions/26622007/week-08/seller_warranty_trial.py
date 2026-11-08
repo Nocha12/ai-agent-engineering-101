@@ -53,6 +53,10 @@ def _config(now):
                  and all(isinstance(g, str) and g in ("A", "B", "C") for g in cfg["grades"]))
         if not valid:
             return {}, "invalid_config"
+        # JSON permits escaped lone surrogates; hash/journal UTF-8 does not.
+        for field in ("study", "salt", "epoch"):
+            if isinstance(cfg[field], str):
+                cfg[field].encode("utf-8")
         if not cfg["enabled"]:
             return cfg, "disabled"
         if not cfg["start_at"] <= now < cfg["stop_at"]:
@@ -98,6 +102,22 @@ class Trial:
         return row
 
     def quote(self, task, deal, unit, *, text, log, now=None):
+        # Assignment, detection and serialization must be as fail-closed as I/O.
+        # Never let an experimental failure prevent the normal goods quote.
+        try:
+            return self._quote(task, deal, unit, text=text, log=log, now=now)
+        except Exception:
+            previous = deal.get("warranty_trial") or {}
+            deal["warranty_trial"] = {**previous, "task": task, "unit": deal.get("unit"),
+                                      "arm": "control", "offered_hours": 72,
+                                      "reason": "trial_failed"}
+            try:
+                log("WARRANTY_TRIAL failed; control warranty applies")
+            except Exception:
+                pass
+            return False
+
+    def _quote(self, task, deal, unit, *, text, log, now=None):
         """Journal before returning permission to omit the receipt's warranty.
 
         Tasks are repeated observations, not independent samples. Randomization
@@ -129,6 +149,20 @@ class Trial:
                         stream.seek(-1, os.SEEK_END)
                         if stream.read(1) != b"\n":
                             raise OSError("incomplete measurement tail")
+                        # Validate just the last record, including tails which
+                        # have a newline but contain corrupt JSON or UTF-8.
+                        offset = stream.tell() - 1
+                        parts = []
+                        while offset:
+                            size = min(offset, 4096)
+                            offset -= size
+                            stream.seek(offset)
+                            chunk = stream.read(size)
+                            parts.append(chunk.rsplit(b"\n", 1)[-1])
+                            if b"\n" in chunk:
+                                break
+                        json.loads(b"".join(reversed(parts)))
+                        stream.seek(0, os.SEEK_END)
                     if stream.write(data) != len(data):
                         raise OSError("short measurement write")
         except (OSError, ValueError, TypeError):

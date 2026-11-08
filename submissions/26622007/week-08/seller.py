@@ -35,6 +35,7 @@ import random
 import re
 import sys
 import time
+import weakref
 
 import uvicorn
 from starlette.applications import Starlette
@@ -400,6 +401,7 @@ class Seller(AgentExecutor):
         self.stock.on_paid, self.stock.on_unpaid = self.paid, self.unpaid
         self.acp = acp
         self.open = {}  # task id -> {"id", "name", "reserve", "ask", "rounds", "history"}, plus "unit" from Round 3
+        self._task_locks = weakref.WeakValueDictionary()
 
     def free(self, task_id, deal):
         """Let a talk's unit go, unless another talk holds it by now (this one's hold ran out)."""
@@ -536,16 +538,28 @@ class Seller(AgentExecutor):
         already set, not wanted)."""
         full_text = text if trial_text is None else trial_text
         text = (text or "")[:MAX_TEXT]
+        previous = deal.get("warranty_trial") or {}
+
+        def control_hours(cfg):
+            asked = [float(h) for h in WARRANTY_HOURS.findall(text or "")]
+            hours = max(hard_limits.SELLER_GOODS_WARRANTY_HOURS, min(max(asked), cfg["max_hours"]) if asked else 0)
+            return int(hours) if float(hours).is_integer() else hours
+
         if task_id is not None and WARRANTY_TRIAL.quote(
                 task_id, deal, unit, text=full_text, log=log):
+            row = deal["warranty_trial"]
+            if "control_hours" not in row:
+                row["control_hours"] = control_hours(self.warranty_cfg())
             return f"This grade {deal['warranty_trial']['grade']} unit is sold as is, without a warranty."
+        # A treatment talk must recover the terms its first quote would have
+        # offered, even when a request contains "without a warranty" / 보증 없이.
+        restoring = (previous.get("assigned_arm") == "treatment"
+                     or (deal.get("warranty_trial") or {}).get("reason") in ("trial_failed", "measurement_failed"))
         if deal.get("kind") != "goods" or "warranty" in deal \
-                or re.search(r"\b(no|without) (a )?(warranty|guarantee)|보증\s*(없이|필요\s*없)", text or "", re.I):
+                or (not restoring and re.search(r"\b(no|without) (a )?(warranty|guarantee)|보증\s*(없이|필요\s*없)", text or "", re.I)):
             return None
         cfg = self.warranty_cfg()
-        asked = [float(h) for h in WARRANTY_HOURS.findall(text or "")]
-        hours = max(hard_limits.SELLER_GOODS_WARRANTY_HOURS, min(max(asked), cfg["max_hours"]) if asked else 0)
-        hours = int(hours) if float(hours).is_integer() else hours
+        hours = previous["control_hours"] if restoring and "control_hours" in previous else control_hours(cfg)
         deal["warranty"] = hours
         log(f"WARRANTY {hours} h for {deal['id']}: break chance {deal.get('break', cfg['prior_break']):.1%} is in the reserve {deal['reserve']}")
         return f"This unit comes with a {hours} h warranty: if it breaks within {hours} h, you get the full price back."
@@ -605,10 +619,19 @@ class Seller(AgentExecutor):
             await self._execute(context, event_queue)
 
     async def _execute(self, context: RequestContext, event_queue: EventQueue) -> None:
+        # The SDK can execute multiple messages for one active task concurrently.
+        # Keep terms, deal mutations and their published response in turn order;
+        # file I/O still runs in workers and other tasks remain independent.
         task = context.current_task
         if task is None:
             task = new_task_from_user_message(context.message)
-            await event_queue.enqueue_event(task)
+        lock = self._task_locks.setdefault(task.id, asyncio.Lock())
+        async with lock:
+            if context.current_task is None:
+                await event_queue.enqueue_event(task)
+            await self._execute_turn(context, event_queue, task)
+
+    async def _execute_turn(self, context: RequestContext, event_queue: EventQueue, task) -> None:
         up = TaskUpdater(event_queue=event_queue, task_id=task.id, context_id=task.context_id)
         say = lambda text, ask=None: up.new_agent_message(parts=[new_text_part(text)],
                                                           metadata={"ask": ask} if ask is not None else None)
