@@ -117,6 +117,13 @@ class HistoryTest(unittest.TestCase):
             finally:
                 fs.TAIL_BYTES = old
 
+    def test_odd_line_keeps_the_arm_with_an_error(self):
+        with tempfile.TemporaryDirectory() as md:
+            write(md, orders=ORDERS + [dict(ORDERS[0], order=["o-list"])], switch=ON)
+            for a in "AB":
+                st = fs.state(md, order_in(a), now=NOW)
+                self.assertEqual((st["arm"], st["left"], st["error"]), (a, {}, "TypeError"))
+
     def test_missing_files(self):
         with tempfile.TemporaryDirectory() as md:
             write(md, switch=ON)
@@ -138,8 +145,18 @@ class PickTest(unittest.TestCase):
             kept = fs.keep(st, self.scored(), self.NEED)
             self.assertEqual([x[2]["name"] for x in kept], ["olstjr", "11im"])
             self.assertEqual(fs.measurement(st, "11im"),
-                             {"study": "food-shelf-test", "arm": "B", "dropped": ["yeonsong2"], "applied": True,
-                              "picked": "11im"})
+                             {"study": "food-shelf-test", "arm": "B", "reached": True, "n_scored": 3,
+                              "would_drop": ["yeonsong2"], "dropped": ["yeonsong2"], "applied": True, "picked": "11im"})
+
+    def test_b_keeps_all_when_no_other_quote_fits(self):
+        # an ask over my limit may end with no talk: no better than the unpaid try (independent review I1)
+        with tempfile.TemporaryDirectory() as md:
+            write(md, switch=ON)
+            st = fs.state(md, order_in("B"), now=NOW)
+            fits = lambda s: s["name"] == "yeonsong2"
+            self.assertEqual(fs.keep(st, self.scored(), self.NEED, fits), self.scored())
+            m = fs.measurement(st)
+            self.assertEqual((m["reached"], m["would_drop"], m["applied"]), (True, [], False))
 
     def test_b_keeps_all_when_every_quote_short(self):
         with tempfile.TemporaryDirectory() as md:
@@ -159,8 +176,10 @@ class PickTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as md:
             write(md, switch=ON)
             st = fs.state(md, order_in("A"), now=NOW)
-            self.assertEqual(st["left"], {})        # arm A never reads the history
-            self.assertEqual(fs.keep(st, self.scored(), self.NEED), self.scored())
+            scored = self.scored()
+            self.assertIs(fs.keep(st, scored, self.NEED), scored)       # arm A: the same list, the same pick
+            m = fs.measurement(st)
+            self.assertEqual((m["arm"], m["would_drop"], m["dropped"], m["applied"]), ("A", ["yeonsong2"], [], False))
             write(md)
             os.remove(os.path.join(md, fs.SWITCH))
             self.assertIsNone(fs.state(md, order_in("B"), now=NOW))
@@ -208,6 +227,12 @@ class BestQuoteFoodShelf(unittest.TestCase):
         self.assertEqual(self.run_quotes(None)[0], "a")
         self.assertEqual(self.run_quotes({"study": "t", "arm": "B", "left": {("a", "G3434758a"): 600.0}})[0], "a")
         self.assertEqual(self.run_quotes({"study": "t", "arm": "B", "left": {("a", "G3434758a"): None}})[0], "a")
+
+    def test_arm_b_keeps_the_short_shop_when_the_other_ask_is_over_my_limit(self):
+        st = {"study": "t", "arm": "B", "left": {("a", "G3434758a"): 238.4}}
+        name, order = self.run_quotes(st, asks=(6000, 9900))
+        self.assertEqual(name, "a")
+        self.assertFalse(fs.measurement(order["_food_shelf"])["applied"])
 
     def test_a_bad_state_never_stops_the_order(self):
         name, order = self.run_quotes({"study": "t", "arm": "B", "left": None})

@@ -9,8 +9,11 @@ paid, then 499 h, 499 h, 238 h, 241 h left against 540.1 asked, four unpaid in a
 
 The last payment line of a shop x SKU within HOURS says what that shop is handing out now: refused for shelf life with
 L h left, the unit it sends next is taken to last L less the hours since; paid, nothing is known against it. In arm B a
-quote whose shop x SKU is expected short of this order's need leaves the pick when another quote can be picked; when
-every quote is short, nothing changes (an unpaid try is no worse than no try). Arm A and the switch off pick as before.
+quote whose shop x SKU is expected short of this order's need leaves the pick when another quote within my limit stays
+(an ask over it may end with no talk at all, which is no better than an unpaid try); else nothing changes. Both arms
+read the history and note would_drop, so the 9 h reading can compare the orders the change could touch; only B acts.
+Arm A and the switch off pick as before. A shop B leaves out gets no new payment line from B, so its evidence renews
+from arm A's deals or ages out of the HOURS window.
 
 Switch: .market/buyer_food_shelf.json {"enabled": true, "study": "<id>", "salt": "<salt>"}; missing, unreadable or
 anything else is off, and off is the current pick exactly. BUYER_FOOD_SHELF=0 in the environment is off too. Read at
@@ -98,8 +101,8 @@ def last_left(md, now=None, hours=HOURS):
 
 
 def state(md, order, env=None, now=None):
-    """{"study", "arm", "left"} for a food order with a use_within_hours and the switch on, else None. "left" is filled
-    only in arm B (arm A never reads the history, so its pick cannot move)."""
+    """{"study", "arm", "left"} for a food order with a use_within_hours and the switch on, else None. Both arms read the
+    history (A only notes what B would do); a history that cannot be read is {} with "error", the arm kept."""
     if (order or {}).get("kind") != "food" or not isinstance(order.get("use_within_hours"), (int, float)):
         return None
     cfg = config(md, env)
@@ -107,32 +110,34 @@ def state(md, order, env=None, now=None):
     if a is None:
         return None
     st = {"study": cfg["study"], "arm": a, "left": {}}
-    if a == "B":
-        try:
-            st["left"] = last_left(md, now)
-        except OSError:
-            st["left"] = {}
+    try:
+        st["left"] = last_left(md, now)
+    except Exception as e:  # noqa: BLE001 - an odd line must not take one arm out of the study
+        st["error"] = type(e).__name__
     return st
 
 
 def short(st, shop, sku, need):
-    """The hours a quote's next unit is expected to last when that is under need (arm B only), else None."""
-    if not st or st.get("arm") != "B":
+    """The hours a quote's next unit is expected to last when that is under need, else None."""
+    if not st:
         return None
     left = (st.get("left") or {}).get((shop, sku))
     return left if left is not None and left < need else None
 
 
-def keep(st, scored, need):
+def keep(st, scored, need, fits=lambda s: True):
     """The scored quotes [(surplus, i, shop), ...] the pick chooses from: in arm B those not expected short of need, when
-    at least one is; else all of them. Notes the shops left out on st["dropped"]."""
-    if not st or st.get("arm") != "B" or not scored:
+    one of them fits (its ask within my limit); else all of them. Notes st["would_drop"] in both arms, st["dropped"] in B."""
+    if not st:
         return scored
+    st.update(reached=True, n_scored=len(scored), would_drop=[], dropped=[])
     out = [x for x in scored if short(st, x[2]["name"], (x[2].get("_offer") or {}).get("sku"), need) is None]
-    if not out or len(out) == len(scored):
-        st["dropped"] = []
+    if len(out) == len(scored) or not any(fits(x[2]) for x in out):
         return scored
-    st["dropped"] = sorted({x[2]["name"] for x in scored} - {x[2]["name"] for x in out})
+    st["would_drop"] = sorted({x[2]["name"] for x in scored} - {x[2]["name"] for x in out})
+    if st.get("arm") != "B":
+        return scored
+    st["dropped"] = list(st["would_drop"])
     return out
 
 
@@ -140,5 +145,6 @@ def measurement(st, picked=None):
     """What orders.jsonl keeps for the 9 h ITT reading; None when the order is outside the study."""
     if not st:
         return None
-    return {"study": st["study"], "arm": st["arm"], "dropped": list(st.get("dropped") or []),
+    return {"study": st["study"], "arm": st["arm"], "reached": bool(st.get("reached")), "n_scored": st.get("n_scored"),
+            "would_drop": list(st.get("would_drop") or []), "dropped": list(st.get("dropped") or []),
             "applied": bool(st.get("dropped")), "picked": picked, **({"error": st["error"]} if st.get("error") else {})}

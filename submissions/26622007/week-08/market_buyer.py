@@ -1399,9 +1399,9 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
     scored = [(surplus(s), i, s) for i, s in enumerate(pool) if surplus(s) is not None]
     if order.get("_food_shelf") is not None:
         # buyer_food_shelf arm B: a food quote whose shop x SKU the kit last refused to pay for, for too little shelf life
-        # left, leaves the pick when another quote can be picked (arm A and off: every quote, as before)
+        # left, leaves the pick when another quote within my limit stays (arm A notes it only; off: every quote, as before)
         try:
-            scored = buyer_food_shelf.keep(order["_food_shelf"], scored, order["use_within_hours"] + SHELF_MARGIN)
+            scored = buyer_food_shelf.keep(order["_food_shelf"], scored, order["use_within_hours"] + SHELF_MARGIN, fits)
         except Exception as e:  # noqa: BLE001 - the study never stops an order: every quote
             order["_food_shelf"]["error"] = type(e).__name__
     # an ask read from the text ranks after a metadata ask of the same fit and share (a misread or made-up text ask
@@ -1795,7 +1795,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "b1": order.get("_b1"),
         "rank_selection": order.get("_rank_selection"),
         "food_sku_trial": order.get("_food_sku_trial"),
-        "food_shelf": buyer_food_shelf.measurement(order.get("_food_shelf")),
+        "food_shelf": buyer_food_shelf.measurement(order.get("_food_shelf"), best),
         "turns": dict(out.get("turns") or {}),
         "goods_extra_quote_started": order.get("_goods_extra_quote_started"),
         "goods_extra_quote_added": order.get("_goods_extra_quote_added", 0),
