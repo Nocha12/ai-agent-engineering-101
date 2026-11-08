@@ -36,6 +36,14 @@ class CeilingTest(unittest.TestCase):
         self.assertEqual(band.ceiling(10000, 20000, None), 10000)
         self.assertEqual(band.ceiling(0, 20000, 105), 0)                 # limit 0: no talk, as before
 
+    def test_the_ceiling_never_passes_value_limit(self):
+        # max_price_share under 0.7: the limit is value_limit, 105% of it would pass it (안A 담당 11/08 18:12)
+        self.assertEqual(band.ceiling(10000, 20000, 105, cap=10000), 10000)
+        self.assertEqual(band.ceiling(10000, 20000, 105, cap=10200), 10200)
+        self.assertEqual(band.ceiling(10000, 20000, 105, cap=11000), 10500)
+        self.assertEqual(band.ceiling(10000, 10100, 105, cap=10300), 10100)  # the budget still holds
+        self.assertEqual(band.ceiling(10000, 20000, 105, cap=None), 10500)   # no cap: as before
+
 
 def walk_after_my_limit(ask):
     """oneshot after my 0.9 offer and my one raise to the limit 10000: the shop's next counter."""
@@ -134,6 +142,13 @@ class ReceiptTest(unittest.TestCase):
 
     def test_off_is_the_limit(self):
         self.assertIn("over my limit", mb.over_limit({"item": "G4c4977ca", "price": 10001.0}, self.offer, 10000, {}, 20000))
+
+    def test_the_band_never_pays_over_value_limit(self):
+        # max_price_share 0.56: value_limit 18120 x 0.56 = 10147, the band's 10500 would pass it
+        with mock.patch.object(mb, "buyer_cfg", return_value={"max_price_share": 0.56}):
+            self.assertIsNone(mb.over_limit({"item": "G4c4977ca", "price": 10147.0}, self.offer, 10000, {}, 20000, band=105))
+            self.assertIn("over my limit", mb.over_limit({"item": "G4c4977ca", "price": 10148.0}, self.offer, 10000, {},
+                                                          20000, band=105))
 
 
 class RealLadderTest(unittest.TestCase):

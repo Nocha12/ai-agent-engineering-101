@@ -34,13 +34,16 @@ def percent(md, env=None):
     return PERCENT if isinstance(d, dict) and d.get("enabled") is True else None
 
 
-def ceiling(limit, budget, pct):
-    """The most I take: pct% of the limit, rounded down, never over the order's budget nor under the limit."""
+def ceiling(limit, budget, pct, cap=None):
+    """The most I take: pct% of the limit, rounded down, never over the order's budget nor cap (market_buyer.value_limit:
+    with max_price_share under 0.7 the limit is value_limit and 105% of it would pass it, 11/08 18:12) nor under the
+    limit."""
     if pct is None or not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
         return limit
     top = limit * pct // 100
-    if isinstance(budget, (int, float)) and not isinstance(budget, bool):
-        top = min(top, int(budget))
+    for most in (budget, cap):
+        if isinstance(most, (int, float)) and not isinstance(most, bool):
+            top = min(top, int(most))
     return max(limit, top)
 
 

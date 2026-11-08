@@ -202,6 +202,7 @@ class MainTest(unittest.TestCase):
     """market_buyer.main end to end with a 0 h goods receipt: off withholds it as before, on pays it at p_max(0)."""
     CATALOG = {"G1": {"kind": "goods", "category": "가전>컵", "list_price": 10000}}
     ORDER = {"order": "o-1", "item": "컵", "budget": 16000, "acceptable": ["G1"], "kind": "goods", "category": "가전>컵"}
+    CFG = {}
 
     def run_main(self, switch, price, warranty, setup=None):
         printed, calls = [], []
@@ -233,12 +234,13 @@ class MainTest(unittest.TestCase):
                     mock.patch.object(market_buyer, "SETTLED", os.path.join(d, "settled.jsonl")), \
                     mock.patch.object(market_buyer, "market_round", lambda: 3), \
                     mock.patch.object(market_buyer, "serves_acp", lambda u: True), \
-                    mock.patch.object(market_buyer, "buyer_cfg", lambda: {}), \
+                    mock.patch.object(market_buyer, "buyer_cfg", lambda: dict(self.CFG)), \
                     mock.patch.object(market_buyer, "choose", lambda s, m, i, b: (s[0], "t")), \
                     mock.patch.object(market_buyer, "negotiate", neg), \
                     mock.patch.dict(os.environ, {"BUYER_SHORT_WARRANTY": "", "BUYER_ACCEPT_BAND": ""}), \
                     mock.patch("builtins.print", lambda *a, **k: printed.append(a[0])), \
-                    mock.patch.object(sys, "argv", ["x", "--shops", sp, "--item", "컵", "--budget", "16000", "--order", op]):
+                    mock.patch.object(sys, "argv", ["x", "--shops", sp, "--item", "컵", "--budget", str(self.ORDER["budget"]),
+                                                          "--order", op]):
                 market_buyer.main()
             with open(os.path.join(d, "measure", "orders.jsonl"), encoding="utf-8") as f:
                 orders = [json.loads(x) for x in f]
@@ -312,6 +314,22 @@ class MainTest(unittest.TestCase):
         self.assertEqual(on[2]["short_warranty"]["h_est"], 0)
         off = self.run_main(None, 6000, 0, setup)                    # off: the only shop is skipped-but-kept as before
         self.assertEqual(off[1][0][0][2], 7000)
+
+    def test_on_p_max_never_passes_value_limit_nor_the_budget(self):
+        # p_max(0) is about 6,264 of 10,000: max_price_share 0.5 and a budget of 4,000 each hold it lower (11/08 18:12)
+        mem = {"trades": [{"shop": "s", "item": "G1", "result": "no_warranty",
+                           "time": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(time.time() - 60))}]}
+
+        def setup(d):
+            with open(os.path.join(d, "m.json"), "w") as f:
+                json.dump(mem, f)
+        self.CFG = {"max_price_share": 0.5}
+        on = self.run_main({"enabled": True}, 5000, 0, setup)
+        self.assertEqual(on[1][0][0][2], 5000)
+        self.CFG = {}
+        self.ORDER = dict(self.ORDER, budget=4000)
+        on = self.run_main({"enabled": True}, 4000, 0, setup)
+        self.assertEqual(on[1][0][0][2], 4000)
 
 
 if __name__ == "__main__":

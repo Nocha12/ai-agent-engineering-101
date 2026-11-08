@@ -1538,11 +1538,14 @@ def over_limit(rec, offer, limit, catalog, budget, band=None):
     if not isinstance(price, (int, float)) or isinstance(price, bool) or not isinstance(limit, (int, float)):
         return None
     sku = rec.get("item")
+    # band on: never over value_limit, the asked SKU's or the shipped one's (11/08 18:12)
+    cap = value_limit(offer, budget, 0, buyer_cfg()) if band is not None and (offer or {}).get("list_price") else None
     if sku and sku != (offer or {}).get("sku"):
         lp = ((catalog or {}).get(sku) or {}).get("list_price")
         if isinstance(lp, (int, float)):   # its list price unknown: the asked SKU's limit holds, not the budget
-            limit = min(value_limit({"list_price": lp}, budget, 0, buyer_cfg()), saved_cap({"list_price": lp}, 0))
-    limit = buyer_accept_band.ceiling(limit, budget, band)
+            cap = value_limit({"list_price": lp}, budget, 0, buyer_cfg())
+            limit = min(cap, saved_cap({"list_price": lp}, 0))
+    limit = buyer_accept_band.ceiling(limit, budget, band, cap)
     return f"receipt price {price:g} is over my limit {limit:g} for {sku}" if round(price) > limit else None
 
 
@@ -1842,7 +1845,8 @@ def main():
         band_base, band_pct = None, None
         order["_sw_h_est"] = sw_h
         log(f"[short-warranty] {shop['name']} expected {sw_h:g} h: limit {limit}")
-    top = buyer_accept_band.ceiling(limit, args.budget, band_pct) if r3 else limit
+    top = buyer_accept_band.ceiling(limit, args.budget, band_pct, value_limit(offer, args.budget, chance, buyer_cfg())) \
+        if r3 else limit
     mine = my_history(memory, shop["name"])
     pattern = shop_pattern(ledger_rows(md), shop["url"], catalog) if r3 else None
     deals, low = item_stats(mine, key)
