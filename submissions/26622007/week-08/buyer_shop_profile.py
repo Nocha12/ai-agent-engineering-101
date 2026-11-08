@@ -1,3 +1,19 @@
+"""Per-shop accept band on top of plan A (owner 11/08, telegram 7924 "로그 기반으로 가게별 특수 전략을 짜보자";
+review/W-20261108-1655-AX가게별바이어/shop-profiles.md).
+
+Goods deals were lost mostly at two shops that never come down off their ask (25620027, mjforge: median lowest ask /
+first ask 1.00) and whose failed talks ended 7-11% over my limit. Replayed on 11/07 17h - 11/08 17h with profiles from
+the 24 h before, a percent per such shop took 2,067 deals against plan A's 1,946 (mean saved .354 against .358).
+
+A shop gets its own percent when, over the last 24 h of measure/orders.jsonl, it had MIN_TALKS talks or more, its median
+lowest ask / first ask is HOLDS or more, at least NEAR_SHARE of its failed talks ended within MAX_PERCENT of my limit, and
+the kit paid PAID_SHARE or more of its deals (when PAID_MIN are known): the QUANTILE of those near misses, cut to
+MAX_PERCENT, and per order to what keeps SAVED_FLOOR of list in expectation. Never under plan A's percent; every other
+shop, a new one, or too few talks keeps plan A. Computed again from the log every REFRESH seconds (one run at a time).
+
+Switch: .market/buyer_shop_profile.json {"enabled": true}; missing, unreadable or anything else is off, and off is plan
+A exactly. BUYER_SHOP_PROFILE=0 in the environment is off too. Read at every order, so no restart either way.
+"""
 import fcntl
 import json
 import os
