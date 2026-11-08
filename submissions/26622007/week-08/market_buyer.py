@@ -1689,6 +1689,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "sku": (offer or {}).get("sku"), "list_price": (offer or {}).get("list_price"), "limit": limit,
         "break_chance": round(chance, 4) if isinstance(chance, (int, float)) else None,
         "shelf_hours": (catalog.get((offer or {}).get("sku")) or {}).get("shelf_hours"),
+        # counters is how many asks the shop made (its counter-offers), not mine; mine are our_offers
         "our_offers": [p for who, p in out.get("history") or [] if who == "you offered"],
         "state": out.get("state"), "asks": asks, "counters": len(asks), "holds": out.get("holds", 0), "agreed": out.get("agreed"),
         "took": bool(out.get("took")),
