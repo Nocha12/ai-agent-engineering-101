@@ -884,10 +884,6 @@ class ExperimentQueueTest(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.tmp.name, mh.EXPERIMENT_LOG)))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class StaleCodeTest(unittest.TestCase):
     # 11/09: 2327f1c fixed verify_evidence at 23:44, but the loop started 11/08 14:08 kept the old function and
     # terra-1109-002601 and astra-1109-011816 were reverted for quoting a whole "OK" line (GPT Pro 11/09 01:39 §6.3)
@@ -919,6 +915,25 @@ class StaleCodeTest(unittest.TestCase):
             with open(mh.TRIED, "w") as f:
                 f.write("{not json")
             self.assertEqual(mh.load_tried(), {})
+            with open(mh.TRIED, "w") as f:        # independent review: Infinity, the future or a huge number never stalls
+                f.write('{"terra": Infinity, "astra": 1e400, "x": %d, "y": 99999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999}' % (time.time() + 3600))
+            self.assertEqual(mh.load_tried(), {})
+
+    def test_new_code_that_does_not_compile_keeps_the_old_loop(self):
+        with tempfile.TemporaryDirectory() as d:
+            a = os.path.join(d, "a.py")
+            with open(a, "w") as f:
+                f.write("x = 1\n")
+            stamp = mh.code_stamp([a])
+            with open(a, "w") as f:
+                f.write("def (:\n")
+            with mock.patch.object(mh, "log") as log:
+                mh.restart_if_stale(stamp)                         # no SystemExit
+            self.assertIn("does not compile", log.call_args[0][0])
+            with open(a, "w") as f:
+                f.write("x = 2\n")
+            with mock.patch.object(mh, "log"), self.assertRaises(SystemExit):
+                mh.restart_if_stale(stamp)
 
     def test_the_loop_exits_between_cycles_when_its_code_changed(self):
         # the loop leaves (run_meta.sh starts it again in 60 s) only after the cycles of a pass, never inside one
@@ -936,3 +951,7 @@ class StaleCodeTest(unittest.TestCase):
             self.assertEqual(e.exception.code, 0)
             self.assertEqual(calls, ["terra", "astra"])
             self.assertEqual(set(mh.load_tried()), {"terra", "astra"})
+
+
+if __name__ == "__main__":
+    unittest.main()

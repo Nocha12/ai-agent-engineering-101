@@ -20,6 +20,7 @@ import datetime
 import hashlib
 import importlib
 import json
+import math
 import os
 import re
 import shutil
@@ -856,8 +857,16 @@ def load_tried():
     try:
         with open(TRIED, encoding="utf-8") as f:
             t = json.load(f)
-        return {k: float(v) for k, v in t.items() if isinstance(v, (int, float))} if isinstance(t, dict) else {}
-    except (OSError, ValueError, AttributeError):
+        if not isinstance(t, dict):
+            return {}
+        out = {}
+        for k, v in t.items():          # never a time that stalls a kind: not a number, not finite, in the future
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                v = float(v)
+                if math.isfinite(v) and v <= time.time() + 60:
+                    out[k] = v
+        return out
+    except (OSError, ValueError, AttributeError, OverflowError):
         return {}
 
 
@@ -872,12 +881,28 @@ def save_tried(tried):
         log(f"could not keep the cycle times: {e}")
 
 
+_BROKEN = set()
+
+
 def restart_if_stale(stamp):
     """Leave between cycles when the code changed: run_meta.sh starts the loop again in 60 s with the new code."""
     old = stale_code(stamp)
-    if old:
-        log(f"code changed since the loop started ({', '.join(old)}): restarting to load it")
-        sys.exit(0)
+    if not old:
+        return
+    for p in stamp:                     # a half-written or broken file: keep the running code rather than crash every 60 s
+        if not os.path.exists(p):
+            continue                    # a removed module: the new code no longer imports it, or its import says so
+        try:
+            with open(p, "rb") as f:
+                compile(f.read(), p, "exec")
+        except (SyntaxError, ValueError, OSError) as e:
+            why = f"code changed ({', '.join(old)}) but {os.path.basename(p)} does not compile, staying on the old code: {e}"
+            if why not in _BROKEN:      # once per broken state, not every minute
+                _BROKEN.add(why)
+                log(why)
+            return
+    log(f"code changed since the loop started ({', '.join(old)}): restarting to load it")
+    sys.exit(0)
 
 
 def run():
