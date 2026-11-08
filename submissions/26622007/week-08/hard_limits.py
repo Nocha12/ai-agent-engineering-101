@@ -144,6 +144,10 @@ MARKDOWN_REASONS = ("food_expiry", "stale_goods", "round_end")
 # and my shop sells goods with one by default (its reserve carries the break chance). Fixed: not a setting.
 # The shop's is the market's longest, 72 h (/rules): a unit breaks only within 6 h of the sale, so 72 h costs what 6 h
 # does, and inextro and 25620027 (revenue 1st and 3rd, 11/06) quote 72 h to buyers comparing shops.
+# 대표님 7955 승인 (2026-11-08 17:55, "일단 너가 찾은 수식으로 해"): 기대값 상한 내 예외. With the switch
+# .market/buyer_short_warranty.json on, a goods receipt with a shorter warranty is paid only at a price/list at or under
+# p_max(h) = (1 - b - S) / ((1 - b) + b * (6 - h) / 6), under an hourly exposure cap (buyer_short_warranty.py). With the
+# switch off this 6 h holds exactly as before. The other lines here (bankruptcy, cash buffer, budget) are unchanged.
 BUYER_GOODS_WARRANTY_HOURS = 6
 SELLER_GOODS_WARRANTY_HOURS = 72
 # The buyer spends the market's money, not the shop's: each order brings its own budget (agent.md: no buyer wallet), and

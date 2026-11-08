@@ -66,6 +66,7 @@ import buyer_cap95_trial
 import buyer_b3b1
 import buyer_accept_band
 import buyer_shop_profile
+import buyer_short_warranty
 import rival_deny
 
 # Revenue rivals of my shop asked last (rival_deny): off from 11/07 00:30. With best_quote stopping at QUOTE_ENOUGH asks they
@@ -360,6 +361,9 @@ def skip_short_warranty(shops, memory, catalog, order, now=None):
     if (order or {}).get("kind") != "goods":
         return list(shops), []
     brief = sorted(short_warranty_shops(memory, catalog, now) & {s["name"] for s in shops})
+    if order.get("_sw") is not None:      # buyer_short_warranty on: kept, priced as a 0 h warranty (hours_for)
+        order["_sw"]["hist"].update({name: 0 for name in brief})
+        return list(shops), []
     left = [s for s in shops if s["name"] not in brief]
     return (left, brief) if left else (list(shops), [])
 
@@ -624,8 +628,13 @@ def warranty_refused(text, order):
     11/06 GPT Pro 21:20 B1: "Warranty: 0 hours", "warranty 0 h" and "three-hour full-refund warranty" were missed, and 16
     orders went on with such a quote (0 paid, 769 s spent). The largest stated warranty counts, so a quote that names 6 h
     or more anywhere is kept; "no warranty" counts only when no such hours are named (independent review)."""
-    if order.get("kind") != "goods":
+    if order.get("kind") != "goods" or order.get("_sw") is not None:   # buyer_short_warranty on: priced, not refused
         return None
+    return warranty_said(text)
+
+
+def warranty_said(text):
+    """Why the shop's text rules out a 6 h goods warranty (None when it does not): see warranty_refused."""
     t = (text or "")[:4000]
     num = r"(?<![\w.-])(\d+(?:\.\d+)?|" + "|".join(WORD_HOURS) + r")"     # "twenty-four" is not read as "four"
     unit = r"\s*-?\s*(?:h|hrs?|hours?|시간)\b"
@@ -640,6 +649,20 @@ def warranty_refused(text, order):
     if hours:
         return f"the shop offers only a {max(hours):g} h warranty"
     return None
+
+
+def warranty_hours_said(text):
+    """The warranty hours a goods text rules me down to (0 for none), or None when it leaves 6 h open: buyer_short_warranty
+    prices such a quote at p_max(h) instead of refusing it. The least of what warranty_said and ask_read read."""
+    hs = []
+    why = warranty_said(text)
+    if why:
+        m = re.search(r"only a ([0-9.]+) h warranty", why)
+        hs.append(float(m.group(1)) if m else 0.0)
+    h = ask_read.short_warranty_hours(text)
+    if h is not None:
+        hs.append(h)
+    return min(hs) if hs else None
 
 
 def shelf_refused(text, order):
@@ -675,7 +698,7 @@ def goods_text_refused(text, order):
     """Why a goods talk ends on this turn by code, with no harness call: the shop's text, on any turn, says the unit comes
     without a warranty, with a 0 h one, or only with one shorter than the 6 h I buy goods with (ask_read.no_warranty).
     Goods without that warranty are never bought, so walking away here is the whole decision (11/07 09:15)."""
-    if order.get("kind") != "goods" or not ask_read.no_warranty(text):
+    if order.get("kind") != "goods" or order.get("_sw") is not None or not ask_read.no_warranty(text):
         return None
     return f"the shop's text offers this goods unit without a {hard_limits.BUYER_GOODS_WARRANTY_HOURS} h warranty"
 
@@ -692,6 +715,24 @@ def warranty_short(rec, order):
     w = rec.get("warranty_hours") if isinstance(rec.get("warranty_hours"), (int, float)) else 0
     need = hard_limits.BUYER_GOODS_WARRANTY_HOURS
     return None if w >= need else f"warranty {w} h, I buy goods only with {need} h"
+
+
+def short_warranty_receipt(rec, order, md, catalog, key, chance, short):
+    """buyer_short_warranty on: None when this short-warranty receipt is within p_max(h) of its SKU and the hour's
+    exposure (order["_sw_buy"] then says so), else short with the reason added. Fails closed."""
+    try:
+        sku = rec.get("item") or key
+        lp = (catalog.get(sku) or {}).get("list_price")
+        b = chance if sku == key else market_model.break_chance(ledger_breaks(md, catalog), sku)
+        ok, note, why = buyer_short_warranty.receipt_check(order["_sw"], md, rec, lp, b)
+    except Exception as e:  # noqa: BLE001 - a check that fails pays nothing
+        return f"{short}; short-warranty check failed: {type(e).__name__}"
+    if note:
+        order["_sw_buy"] = note
+    if ok:
+        log(f"[short-warranty] receipt {note['h']:g} h at {note['p']:.1%} of list, p_max {note['p_max']:.1%}: paid")
+        return None
+    return f"{short}; {why}"
 
 
 TEXT_ASK_MIN_SHARE = 0.05   # a text ask under 5% of list is taken for a misread (a cut "list price 28900"), not a price
@@ -776,6 +817,8 @@ def quote(shop, label, key, order, out, ctl=None):
         q = {"ask": ask, "ask_src": src if ask is not None or src == "text_rejected" else None,
              "text_ask_raw": raw, "text": text[:300], "url": iface["url"], "task": t,
              "refused": quote_refused(text, order)}
+        if order.get("_sw") is not None and order.get("kind") == "goods":
+            q["warranty_h"] = warranty_hours_said(text)
         lock = (ctl or {}).get("lock")
         # Journal IO must never own the decision/termination lock.
         aligned = buyer_quote_alignment.read_quote(
@@ -1167,7 +1210,14 @@ def choose_racing(pick, memory, item, budget, pre):
     return box["r"]
 
 
-def quotes_enough(shops, got, budget, cfg):
+def short_cap(o, b, order, name, q):
+    """buyer_short_warranty's cap for a shop expected to give a short warranty on this order, else None."""
+    sw = (order or {}).get("_sw")
+    h = buyer_short_warranty.hours_for(sw, name, q)
+    return None if h is None else buyer_short_warranty.cap(o["list_price"], h, b, sw["S"])
+
+
+def quotes_enough(shops, got, budget, cfg, order=None):
     """QUOTE_ENOUGH asks in got from shops (start_quotes set their _offer), one within my limit: what ends the wait."""
     asks, fit = 0, False
     for s in shops:
@@ -1176,7 +1226,8 @@ def quotes_enough(shops, got, budget, cfg):
             continue
         asks += 1
         b = s.get("_b") or 0
-        fit = fit or q["ask"] <= min(value_limit(o, budget, b, cfg), saved_cap(o, b))
+        sc = short_cap(o, s.get("_b"), order, s["name"], q)
+        fit = fit or q["ask"] <= min(value_limit(o, budget, b, cfg), saved_cap(o, b), *([sc] if sc is not None else []))
     return asks >= QUOTE_ENOUGH and fit
 
 
@@ -1208,6 +1259,11 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
         if not isinstance(q.get("ask"), (int, float)) or q.get("refused"):
             return None
         o = s["_offer"]
+        h = buyer_short_warranty.hours_for(order.get("_sw"), s["name"], q)
+        if h is not None:       # a short warranty: a break after it costs the price (buyer_short_warranty.expected)
+            b = chance_of(o["sku"])
+            return buyer_short_warranty.expected(q["ask"] / o["list_price"], h,
+                                                 b if b is not None else buyer_short_warranty.FALLBACK_BREAK)
         # goods I buy carry a 6 h warranty, so a break refunds the ask: (1 - b)(list - ask), not list(1 - b) - ask.
         # Patch 3.4 scores the share of list kept, not the money, so the shops are ranked by (1 - b)(list - ask) / list
         return (1 - (chance_of(o["sku"]) or 0)) * (o["list_price"] - q["ask"]) / o["list_price"]
@@ -1216,7 +1272,8 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
         """The opening ask is within what I would pay that shop: it can close now, so it goes before any ask above it."""
         o = s["_offer"]
         b = chance_of(o["sku"]) or 0
-        return got[s["name"]]["ask"] <= min(value_limit(o, budget, b, cfg), saved_cap(o, b))
+        sc = short_cap(o, chance_of(o["sku"]), order, s["name"], got[s["name"]])
+        return got[s["name"]]["ask"] <= min(value_limit(o, budget, b, cfg), saved_cap(o, b), *([sc] if sc is not None else []))
     extra = order.get("kind") == "goods" and order.get("_goods_extra_quote_probe") == "B" and rounds == 1 and not late
     for r in range(rounds + int(extra)):
         extra_deadline = time.time() + buyer_goods_quote_probe.EXTRA_WAIT if extra and r else None
@@ -1668,6 +1725,14 @@ def main():
     log(f"order: {args.item}, budget {args.budget}; {len(shops)} shops; {len(memory['trades'])} trades in memory")
 
     rnd = market_round()
+    try:
+        sw = buyer_short_warranty.state(md, order) if r3 else None
+    except Exception as e:  # noqa: BLE001 - the switch never ends the run: off
+        log(f"[short-warranty] switch read failed: {type(e).__name__}: {e}")
+        sw = None
+    if sw is not None:
+        order["_sw"] = sw
+        log(f"[short-warranty] on: S {order['_sw']['S']:.4f}, goods with a short warranty priced at p_max(h)")
     left, brief = skip_short_warranty(shops, memory, catalog, order) if r3 else (list(shops), [])
     if brief:
         log(f"[choose] skip for goods {brief}: their recent receipts to me had too short a warranty to pay for")
@@ -1703,7 +1768,7 @@ def main():
             pre = {"got": {}, "ctl": quote_ctl(), "asked": {s["name"] for s in early}}
             pre["threads"] = start_quotes(early, order, args.budget, chance_of, pre["got"], pre["ctl"])
             pre["asked"] = set(pre["threads"])  # final validated batch, including a baseline fallback
-            pre["enough"] = lambda: quotes_enough(early, pre["got"], args.budget, buyer_cfg())
+            pre["enough"] = lambda: quotes_enough(early, pre["got"], args.budget, buyer_cfg(), order)
             log(f"[quote] asking {', '.join(s['name'] for s in early)} while choosing")
     if gave_up:       # no talk follows, so the harness is not asked to choose either (it took a median 13.4 s)
         shop = max(quotable or left, key=lambda s: len(s.get("reviews") or []))
@@ -1756,6 +1821,12 @@ def main():
     limit = min(value_limit(offer, args.budget, chance, buyer_cfg()), saved_cap(offer, chance)) if r3 else args.budget
     # plan A: a counter up to 105% of the limit is taken; more with a shop that holds its ask (buyer_shop_profile)
     band_base, band_pct = accept_percent(md, shop["name"], offer, chance, limit, args.budget) if r3 else (None, None)
+    sw_h = buyer_short_warranty.hours_for(order.get("_sw"), shop["name"], quotes.get(shop["name"])) if r3 else None
+    if sw_h is not None:      # a short warranty expected: p_max(h) is the ceiling, no accept band (owner 7955)
+        limit = min(limit, buyer_short_warranty.cap(offer["list_price"], sw_h, chance, order["_sw"]["S"]))
+        band_base, band_pct = None, None
+        order["_sw_h_est"] = sw_h
+        log(f"[short-warranty] {shop['name']} expected {sw_h:g} h: limit {limit}")
     top = buyer_accept_band.ceiling(limit, args.budget, band_pct) if r3 else limit
     mine = my_history(memory, shop["name"])
     pattern = shop_pattern(ledger_rows(md), shop["url"], catalog) if r3 else None
@@ -1895,6 +1966,8 @@ def main():
         problems = ["completed without a receipt"]
         out["state"] = "COMPLETED_NO_RECEIPT"
     short = warranty_short(rec, order) if r3 and rec is not None else None    # not cheating: just not a deal I pay for
+    if short and order.get("_sw") is not None and not problems:
+        short = short_warranty_receipt(rec, order, md, catalog, key, chance, short)
     if short:
         warnings.append(short)
     over = over_limit(rec, offer, limit, catalog, args.budget,
@@ -1930,6 +2003,8 @@ def main():
             result["receipt"] = None            # the kit pays any receipt that verifies: this one does not go through
         if accept_policy(order):
             result["accept"] = accept_policy(order)
+            if result["receipt"] is not None and (order.get("_sw_buy") or {}).get("ok"):
+                result["accept"]["warranty_hours"] = order["_sw_buy"]["h"]     # the kit checks the checkout against it
         if order.get("kind") == "goods" and asks:
             buyer_stock_evidence.observe(md, shop, key, ask=asks[-1], snapshot_at=order.get("_stock_snapshot_at"))
         order["_stock_terminal_written"] = buyer_stock_evidence.terminal(
@@ -1941,6 +2016,10 @@ def main():
                                          "gave_up": gave_up, "rival_shop": shop["name"] in rival,
                                          "talk_mode": talk_mode, "turns": (out or {}).get("turns"),
                                          "quote_alignment_applied": list(order.get("_quote_alignment_applied", [])),
+                                         **({"short_warranty_buy": order["_sw_buy"]} if order.get("_sw_buy") else {}),
+                                         **({"short_warranty": {"S": order["_sw"]["S"], "h_est": order.get("_sw_h_est"),
+                                                                "shops": order["_sw"]["hist"]}}
+                                            if order.get("_sw") is not None else {}),
                                          **({"shop_profile": {"base": band_base, "pct": band_pct}}
                                             if band_pct != band_base else {}),
                                          **({"accept_band": {"pct": band_pct, "ceiling": top,
