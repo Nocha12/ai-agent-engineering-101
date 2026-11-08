@@ -341,7 +341,106 @@ class WarrantyTrialTest(unittest.TestCase):
         self.assertFalse(up.failed.called)
         return up
 
-    def test_async_quote_and_followup_file_io_run_outside_event_loop(self):
+    def test_cancel_during_warranty_append_keeps_next_accept_terms_consistent(self):
+        from a2a.types import Message
+        from google.protobuf.json_format import MessageToDict
+
+        task_id = "00000000-0000-0000-0000-000000000043"
+        self.pricing.write_text(json.dumps({"warranty_hours": 0}))
+        deal, _ = self.opening("G00000001")
+        entered, release, next_done = threading.Event(), threading.Event(), threading.Event()
+        path_open = Path.open
+        failures = []
+        updates = []
+
+        class DelayedAppend:
+            def __init__(self, stream):
+                self.stream = stream
+
+            def __enter__(self):
+                self.stream.__enter__()
+                return self
+
+            def __exit__(self, *args):
+                return self.stream.__exit__(*args)
+
+            def __getattr__(self, name):
+                return getattr(self.stream, name)
+
+            def write(self, data):
+                if not entered.is_set():
+                    entered.set()
+                    if not release.wait(2):
+                        raise TimeoutError("test did not release warranty append")
+                return self.stream.write(data)
+
+        def delayed_open(path, *args, **kwargs):
+            stream = path_open(path, *args, **kwargs)
+            if path.name == "seller_warranty_trial.jsonl" and args and args[0] == "a+b":
+                return DelayedAppend(stream)
+            return stream
+
+        def updater(**kwargs):
+            async def publish(message):
+                # Model the transport yielding while publishing the response.
+                await asyncio.sleep(0)
+
+            up = SimpleNamespace(new_agent_message=lambda **kw: kw,
+                                 requires_input=mock.AsyncMock(side_effect=publish), reject=mock.AsyncMock(), failed=mock.AsyncMock(),
+                                 add_artifact=mock.AsyncMock(), complete=mock.AsyncMock())
+            updates.append(up)
+            return up
+
+        def context(text):
+            return SimpleNamespace(current_task=SimpleNamespace(id=task_id, context_id="fixture-context"),
+                                   message=Message(role="ROLE_USER", parts=[seller.new_text_part(text)],
+                                                   message_id="fixture-message"))
+
+        async def run():
+            loop = asyncio.get_running_loop()
+            first = asyncio.create_task(self.shop.execute(context("I cannot accept this without a warranty"), None))
+
+            def cancel_during_append():
+                try:
+                    if not entered.wait(2):
+                        failures.append("warranty append was not reached")
+                        return
+                    loop.call_soon_threadsafe(first.cancel)
+                    # The synchronous path cannot process cancellation until the
+                    # append completes; the worker path can publish the next turn.
+                    next_done.wait(0.2)
+                finally:
+                    release.set()
+
+            canceller = threading.Thread(target=cancel_during_append)
+            canceller.start()
+            try:
+                with self.assertRaises(asyncio.CancelledError):
+                    await first
+                await self.shop.execute(context(str(deal["ask"])), None)
+            finally:
+                next_done.set()
+                release.set()
+                await asyncio.to_thread(canceller.join, 2)
+                self.assertFalse(canceller.is_alive())
+
+        with mock.patch.object(Path, "open", delayed_open), \
+                mock.patch.object(seller, "TaskUpdater", side_effect=updater), \
+                mock.patch.object(seller, "load_shop_key", return_value=None):
+            asyncio.run(run())
+        self.assertEqual(failures, [])
+        self.assertEqual(len(updates), 2)
+        up = updates[-1]
+        up.complete.assert_awaited_once()
+        self.assertFalse(up.reject.called)
+        self.assertFalse(up.failed.called)
+        receipt = MessageToDict(up.add_artifact.call_args.kwargs["parts"][0].data)
+        self.assertEqual(receipt.get("warranty_hours"), 72)
+        self.assertNotIn("without a warranty", up.complete.call_args.args[0]["parts"][0].text)
+        self.assertEqual((deal["warranty_trial"]["arm"], deal["warranty"]), ("control", 72))
+        self.assertEqual([row["arm"] for row in self.rows()], ["treatment", "control", "control"])
+
+    def test_quote_and_followup_warranty_io_finish_on_event_loop(self):
         main_thread = threading.get_ident()
         read_text, path_open = Path.read_text, Path.open
         calls = []
@@ -363,13 +462,13 @@ class WarrantyTrialTest(unittest.TestCase):
             self.assertEqual(self.rows()[-1]["arm"], "control")
             self.assertEqual(self.shop.stock_receipt("task-fixture", deal, deal["ask"])["warranty_hours"], 72)
         self.assertEqual([name for name, _ in calls], ["config", "journal", "config", "journal"])
-        self.assertTrue(all(thread != main_thread for _, thread in calls), calls)
+        self.assertTrue(all(thread == main_thread for _, thread in calls), calls)
 
     def test_concurrent_followups_publish_control_after_delayed_treatment(self):
         from a2a.types import Message
         task_id = "00000000-0000-0000-0000-000000000043"
         deal, _ = self.opening("G00000001")
-        entered, release, control_published = threading.Event(), threading.Event(), asyncio.Event()
+        entered, release = threading.Event(), threading.Event()
         dumps = json.dumps
         messages = []
 
@@ -390,8 +489,6 @@ class WarrantyTrialTest(unittest.TestCase):
             async def requires_input(self, message):
                 messages.append((message, deal["warranty_trial"]["arm"],
                                  self_shop.stock_receipt(task_id, deal, deal["ask"]).get("warranty_hours", 0)))
-                if "72 h warranty" in message:
-                    control_published.set()
 
         self_shop = self.shop
 
@@ -401,22 +498,31 @@ class WarrantyTrialTest(unittest.TestCase):
                                                    message_id="fixture-message"))
 
         async def run():
+            loop = asyncio.get_running_loop()
             first = asyncio.create_task(self.shop._execute(context("Please tell me more"), None))
-            second = None
-            try:
-                self.assertTrue(await asyncio.to_thread(entered.wait, 1))
-                second = asyncio.create_task(self.shop._execute(context("I cannot accept this without a warranty"), None))
-                # Let the control turn finish if unprotected. A serialized turn
-                # waits behind the first; the timeout then releases its worker.
+            second, failures = [], []
+
+            def queue_control():
                 try:
-                    await asyncio.wait_for(control_published.wait(), 0.1)
-                except asyncio.TimeoutError:
-                    pass
+                    if not entered.wait(2):
+                        failures.append("treatment serialization was not reached")
+                        return
+                    second.append(asyncio.run_coroutine_threadsafe(
+                        self.shop._execute(context("I cannot accept this without a warranty"), None), loop))
+                finally:
+                    release.set()
+
+            competing = threading.Thread(target=queue_control)
+            competing.start()
+            try:
+                await first
             finally:
                 release.set()
-                await first
-                if second is not None:
-                    await second
+                await asyncio.to_thread(competing.join, 2)
+                self.assertFalse(competing.is_alive())
+            self.assertEqual(failures, [])
+            self.assertEqual(len(second), 1)
+            await asyncio.wrap_future(second[0])
 
         with mock.patch.object(json, "dumps", delayed_encode), mock.patch.object(seller, "TaskUpdater", Updates):
             asyncio.run(run())
@@ -458,20 +564,38 @@ class WarrantyTrialTest(unittest.TestCase):
                 messages.append((self.task, "reject"))
 
         async def run():
+            loop = asyncio.get_running_loop()
             first = asyncio.create_task(self.shop.open_from_stock(SimpleNamespace(id=first_id), "G00000001",
                                         Updates(first_id), lambda text, ask=None: text))
+            second, failures = [], []
+
+            def queue_competing_quote():
+                try:
+                    if not entered.wait(2):
+                        raise AssertionError("warranty config read was not reached")
+                    self.assertEqual(self.stock.holder(self.unit["unit"]), first_id)
+                    self.assertEqual(messages, [])
+                    self.assertFalse((self.market / "measure" / "seller_warranty_trial.jsonl").exists())
+                    second.append(asyncio.run_coroutine_threadsafe(
+                        self.shop.open_from_stock(SimpleNamespace(id=second_id), "G00000001",
+                                                  Updates(second_id), lambda text, ask=None: text), loop))
+                except Exception as error:
+                    failures.append(str(error))
+                finally:
+                    release.set()
+
+            competing = threading.Thread(target=queue_competing_quote)
+            competing.start()
             try:
-                self.assertTrue(await asyncio.to_thread(entered.wait, 1))
-                self.assertEqual(self.stock.holder(self.unit["unit"]), first_id)
-                self.assertEqual(messages, [])
-                self.assertFalse((self.market / "measure" / "seller_warranty_trial.jsonl").exists())
-                await self.shop.open_from_stock(SimpleNamespace(id=second_id), "G00000001",
-                                               Updates(second_id), lambda text, ask=None: text)
-                self.assertEqual(messages, [(second_id, "reject")])
+                await first
             finally:
                 release.set()
-                await first
-            self.assertEqual(messages, [(second_id, "reject"), (first_id, "quote")])
+                await asyncio.to_thread(competing.join, 2)
+                self.assertFalse(competing.is_alive())
+            self.assertEqual(failures, [])
+            self.assertEqual(len(second), 1)
+            await asyncio.wrap_future(second[0])
+            self.assertCountEqual(messages, [(second_id, "reject"), (first_id, "quote")])
             self.assertNotIn(second_id, self.shop.open)
             self.assertEqual(self.rows()[-1]["arm"], "treatment")
 

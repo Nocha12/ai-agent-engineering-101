@@ -491,9 +491,9 @@ class Seller(AgentExecutor):
             # accepts as well as the SKU. Such a buyer (q00) rated every receipt naming a SKU 1 star, "SCAM ... Never buy
             # here" (62 of 62 in the Round 3 ledger), and that review then stands among the 10 every buyer is shown.
             deal["receipt_item"] = (u.get("category") or "").split(">")[-1].strip() or u["sku"]
-        # The unit is already held; finish journaling before publishing its terms.
-        note = await asyncio.to_thread(self.warranty_terms, deal, text,
-                                       task_id=task.id, unit=u, trial_text=warranty_text)
+        # Keep the small journal append and deal mutation in one synchronous
+        # step: cancellation must not leave a worker changing published terms.
+        note = self.warranty_terms(deal, text, task_id=task.id, unit=u, trial_text=warranty_text)
         deal["reader_trial_grade"] = u.get("grade")
         deal["reader_trial_policy_sha"] = hashlib.sha256(json.dumps(pricing, sort_keys=True).encode()).hexdigest()
         deal["reader_trial"] = await asyncio.to_thread(READER_TRIAL.assign, task.id, deal)
@@ -621,7 +621,8 @@ class Seller(AgentExecutor):
     async def _execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         # The SDK can execute multiple messages for one active task concurrently.
         # Keep terms, deal mutations and their published response in turn order;
-        # file I/O still runs in workers and other tasks remain independent.
+        # Warranty journaling and deal updates finish synchronously before any
+        # cancellation can release this lock; other slow I/O still uses workers.
         task = context.current_task
         if task is None:
             task = new_task_from_user_message(context.message)
@@ -699,7 +700,7 @@ class Seller(AgentExecutor):
                 del self.open[task.id]
                 return
             self.stock.hold(deal["unit"], task.id)      # each message renews the promise
-        note = await asyncio.to_thread(self.warranty_terms, deal, text, task_id=task.id, trial_text=full_text)
+        note = self.warranty_terms(deal, text, task_id=task.id, trial_text=full_text)
         if note:
             plain = say
             say = lambda text, ask=None: plain(f"{note} {text}", ask)
