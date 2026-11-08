@@ -1411,6 +1411,39 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
         # 11 changed picks ended with no talk; review/W-20261108-1915-AX전부적용/rank-cause.md)
         rk["plain"] = rk["picked"] = best["name"]
         rk["no_fit"] = True
+        if rk.get("nofit") is True and order.get("kind") == "goods":
+            # "nofit" on (goods: the replay, review/W-20261108-2241-AXPro주기/nofit_walk): of the asks within the talk band, the shop likeliest to come down to my limit (P_nofit) x the
+            # share kept at the limit; none in the band, or one it cannot score, keeps the order above (buyer_rank_pg)
+            try:
+                def cap(s):
+                    o, b = s["_offer"], chance_of(s["_offer"]["sku"])
+                    sc = short_cap(o, b, order, s["name"], got[s["name"]], s)
+                    return min(value_limit(o, budget, b or 0, cfg), saved_cap(o, b or 0), *([sc] if sc is not None else []))
+
+                def keep_at(s, c):
+                    o, b = s["_offer"], chance_of(s["_offer"]["sku"])
+                    h = buyer_short_warranty.hours_for(order.get("_sw"), s["name"], got.get(s["name"]))
+                    p = c / o["list_price"]
+                    if h is not None:
+                        return buyer_short_warranty.expected(p, h, b if b is not None else buyer_short_warranty.FALLBACK_BREAK)
+                    return (1 - (b or 0)) * (1 - p)
+                band = []
+                for s in tier:
+                    c = cap(s)
+                    if c > 0 and got[s["name"]]["ask"] <= c * (1 + TALK_OVER_SHARE):
+                        P = buyer_rank_pg.nofit_p(rk, s["name"], order.get("kind"))
+                        g = keep_at(s, c) - rival_deny.penalty(s["name"], rival)
+                        if P is not None and g > 0:
+                            band.append((P * g, s))
+                if band:
+                    rk["nofit_scores"] = {s["name"]: round(v, 6) for v, s in band}
+                    top = max(v for v, _ in band)
+                    ties = {s["name"] for v, s in band if v == top}
+                    best = max((x for x in scored if x[2]["name"] in ties),
+                               key=lambda x: (x[0] - rival_deny.penalty(x[2]["name"], rival), meta(x[2]), -x[1]))[2]
+                    rk["picked"] = best["name"]
+            except Exception as e:  # noqa: BLE001 - a bad cache never stops an order: the order above
+                rk["error"] = f"{type(e).__name__}"
     elif rk is not None and scored:
         # 대표님 7959-7977: P(deal | shop, kind) x (1 - b)(1 - E[final] / list) / T replaces the ask's share (fits first,
         # as before: the limits and guards stay where they are; buyer_rank_pg). A quote it cannot score keeps the old order.
