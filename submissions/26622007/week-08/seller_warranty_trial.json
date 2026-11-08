@@ -1,0 +1,11 @@
+{
+  "study": "grade-warranty-v1",
+  "version": 1,
+  "epoch": "pending",
+  "salt": "grade-warranty-v1-pending",
+  "enabled": false,
+  "share": 0.5,
+  "start_at": null,
+  "stop_at": null,
+  "grades": ["C"]
+}

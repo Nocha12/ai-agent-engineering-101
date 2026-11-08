@@ -73,6 +73,7 @@ import shelf_life_reply
 import exact_accept_trial
 import exact_counter_trial
 import seller_grade_preference
+import seller_warranty_trial
 import food_opening_trial
 import deep_lowball_trial
 import at_floor_exact_trial
@@ -90,6 +91,7 @@ SHELF_REPLY = shelf_life_reply.ShelfLifeTrial()
 EXACT_ACCEPT = exact_accept_trial.ExactAcceptTrial()
 EXACT_COUNTER = exact_counter_trial.ExactCounterTrial()
 GRADE_PREFERENCE = seller_grade_preference.GradePreferenceTrial()
+WARRANTY_TRIAL = seller_warranty_trial.Trial()
 FOOD_OPENING = food_opening_trial.FoodOpeningTrial()
 AT_FLOOR_EXACT = at_floor_exact_trial.AtFloorExactTrial()
 DEEP_LOWBALL = deep_lowball_trial.DeepLowballTrial()
@@ -444,7 +446,7 @@ class Seller(AgentExecutor):
         observation = {} if row is not None else None
         outcome = 'no_quote'
         try:
-            await self._open_from_stock(task, text[:MAX_TEXT], up, say, observation)
+            await self._open_from_stock(task, text[:MAX_TEXT], up, say, observation, warranty_text=text)
             if observation is not None and observation.get('quoted'):
                 outcome = 'quote'
         except asyncio.CancelledError:
@@ -496,7 +498,7 @@ class Seller(AgentExecutor):
         if cancelled:
             raise asyncio.CancelledError()
 
-    async def _open_from_stock(self, task, text, up, say, observation=None):
+    async def _open_from_stock(self, task, text, up, say, observation=None, *, warranty_text=None):
         """Round 3, the first message: which unit, and the opening price. No harness call: nothing here needs one.
         Only a unit that fits the buyer's needs is offered (shop_stock.unfit); the price is profit_price's: the reserve is
         the floor F, the first ask P0. Goods that break too often for the warranty are not sold."""
@@ -567,7 +569,10 @@ class Seller(AgentExecutor):
             # accepts as well as the SKU. Such a buyer (q00) rated every receipt naming a SKU 1 star, "SCAM ... Never buy
             # here" (62 of 62 in the Round 3 ledger), and that review then stands among the 10 every buyer is shown.
             deal["receipt_item"] = (u.get("category") or "").split(">")[-1].strip() or u["sku"]
-        note = self.warranty_terms(deal, text)
+        # Complete journaling and terms before publication or cancellation;
+        # filesystem latency must not block other tasks on the event loop.
+        note = await seller_warranty_trial.finish_before_cancel(
+            self.warranty_terms, deal, text, task_id=task.id, unit=u, trial_text=warranty_text)
         deal["reader_trial_grade"] = u.get("grade")
         deal["reader_trial_policy_sha"] = hashlib.sha256(json.dumps(pricing, sort_keys=True).encode()).hexdigest()
         deal["reader_trial"] = await asyncio.to_thread(READER_TRIAL.assign, task.id, deal)
@@ -616,18 +621,35 @@ class Seller(AgentExecutor):
     def warranty_cfg():
         return hard_limits.clamp_cfg("warranty", {**WARRANTY, **(shop_memory.load_pricing().get("warranty") or {})})
 
-    def warranty_terms(self, deal, text):
+    def warranty_terms(self, deal, text, *, task_id=None, unit=None, trial_text=None):
         """Goods: a warranty of hard_limits.SELLER_GOODS_WARRANTY_HOURS (buyers' kits refuse to pay without one, the kit's
         example asks for 6 h), or longer if asked. The break chance is already in the reserve (profit_price floor), and
         goods that break too often were refused at the first message. Returns the sentence for the buyer, or None (food,
         already set, not wanted)."""
+        full_text = text if trial_text is None else trial_text
+        text = (text or "")[:MAX_TEXT]
+        previous = deal.get("warranty_trial") or {}
+
+        def control_hours(cfg):
+            asked = [float(h) for h in WARRANTY_HOURS.findall(text or "")]
+            hours = max(hard_limits.SELLER_GOODS_WARRANTY_HOURS, min(max(asked), cfg["max_hours"]) if asked else 0)
+            return int(hours) if float(hours).is_integer() else hours
+
+        if task_id is not None and WARRANTY_TRIAL.quote(
+                task_id, deal, unit, text=full_text, log=log):
+            row = deal["warranty_trial"]
+            if "control_hours" not in row:
+                row["control_hours"] = control_hours(self.warranty_cfg())
+            return f"This grade {deal['warranty_trial']['grade']} unit is sold as is, without a warranty."
+        # A treatment talk must recover the terms its first quote would have
+        # offered, even when a request contains "without a warranty" / 보증 없이.
+        restoring = (previous.get("assigned_arm") == "treatment"
+                     or (deal.get("warranty_trial") or {}).get("reason") in ("trial_failed", "measurement_failed"))
         if deal.get("kind") != "goods" or "warranty" in deal \
-                or re.search(r"\b(no|without) (a )?(warranty|guarantee)|보증\s*(없이|필요\s*없)", text or "", re.I):
+                or (not restoring and re.search(r"\b(no|without) (a )?(warranty|guarantee)|보증\s*(없이|필요\s*없)", text or "", re.I)):
             return None
         cfg = self.warranty_cfg()
-        asked = [float(h) for h in WARRANTY_HOURS.findall(text or "")]
-        hours = max(hard_limits.SELLER_GOODS_WARRANTY_HOURS, min(max(asked), cfg["max_hours"]) if asked else 0)
-        hours = int(hours) if float(hours).is_integer() else hours
+        hours = previous["control_hours"] if restoring and "control_hours" in previous else control_hours(cfg)
         deal["warranty"] = hours
         log(f"WARRANTY {hours} h for {deal['id']}: break chance {deal.get('break', cfg['prior_break']):.1%} is in the reserve {deal['reserve']}")
         return f"This unit comes with a {hours} h warranty: if it breaks within {hours} h, you get the full price back."
@@ -640,7 +662,9 @@ class Seller(AgentExecutor):
         grade = self.stock.grade(deal["unit"])
         if grade in ("A", "B", "C"):
             receipt["claim"] = grade
-        hours = deal["warranty"] if "warranty" in deal else shop_memory.load_pricing().get("warranty_hours", 0)
+        hours = (deal["warranty"] if "warranty" in deal else
+                 0 if (deal.get("warranty_trial") or {}).get("arm") == "treatment" else
+                 shop_memory.load_pricing().get("warranty_hours", 0))
         if deal.get("kind") == "goods" and hours:
             receipt["warranty_hours"] = hours
         return receipt
@@ -685,18 +709,24 @@ class Seller(AgentExecutor):
             await self._execute(context, event_queue)
 
     async def _execute(self, context: RequestContext, event_queue: EventQueue) -> None:
+        # The SDK can execute multiple messages for one active task concurrently.
+        # Keep terms, deal mutations and their published response in turn order;
+        # The warranty worker is drained before cancellation releases this lock.
         task = context.current_task
         if task is None:
             task = new_task_from_user_message(context.message)
-            await event_queue.enqueue_event(task)
+        # One gate per task for execute and cancel (see _task_turn).
         async with self._task_turn(task.id):
+            if context.current_task is None:
+                await event_queue.enqueue_event(task)
             await self._execute_turn(task, context, event_queue)
 
     async def _execute_turn(self, task, context, event_queue):
         up = TaskUpdater(event_queue=event_queue, task_id=task.id, context_id=task.context_id)
         say = lambda text, ask=None: up.new_agent_message(parts=[new_text_part(text)],
                                                           metadata={"ask": ask} if ask is not None else None)
-        text = (get_message_text(context.message) or "")[:MAX_TEXT]
+        full_text = get_message_text(context.message) or ""
+        text = full_text[:MAX_TEXT]
         QUOTE_HOLD.touch(task.id)
         deal = self.open.get(task.id)
         if task.id in self.margin_blocked:
@@ -762,7 +792,8 @@ class Seller(AgentExecutor):
                 del self.open[task.id]
                 return
             self.stock.hold(deal["unit"], task.id)      # each message renews the promise
-        note = self.warranty_terms(deal, text)
+        note = await seller_warranty_trial.finish_before_cancel(
+            self.warranty_terms, deal, text, task_id=task.id, trial_text=full_text)
         if note:
             plain = say
             say = lambda text, ask=None: plain(f"{note} {text}", ask)
@@ -954,8 +985,11 @@ class Seller(AgentExecutor):
 
     def _remember_now(self, task_id, deal, result, price=None, observed_at=None):
         # Experimental telemetry is independent of the common memory/cleanup path.
+        # warranty_cell: the factorial cell's actual terms at this outcome (a
+        # follow-up warranty request restores a treatment talk to control).
         MARGIN_STUDY.observe_event(task_id, deal.get('sol_margin'), 'local_' + result,
-                                  observed_at, price=price, unit=deal.get('unit'))
+                                  observed_at, price=price, unit=deal.get('unit'),
+                                  warranty_cell=sol_seller_margin.warranty_cell(deal))
         try:
             CONCESSION_TRIAL.event(task_id, deal, result, price, observed_at)
             LATE_CONCESSION.event(task_id, deal, result, price, observed_at)

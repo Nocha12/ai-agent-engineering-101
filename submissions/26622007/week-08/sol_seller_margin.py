@@ -35,7 +35,28 @@ SOURCE_FILES = ('sol_source_load.py', 'sol_seller_margin.py', 'seller.py', 'prof
                 'at_floor_exact_trial.py', 'exact_counter_trial.py', 'exact_accept_trial.py',
                 'seller_opening_cue.py', 'seller_late_speed.py', 'seller_jev_transport.py',
                 'shelf_life_reply.py', 'seller_grade_preference.py', 'food_opening_trial.py',
-                'deep_lowball_trial.py', 'quote_hold.py', 'negotiate.py', 'fast_classify.py')
+                'deep_lowball_trial.py', 'quote_hold.py', 'negotiate.py', 'fast_classify.py',
+                'seller_warranty_trial.py')
+# Factorial peer: the grade warranty study (unit hash, own salt/namespace) may
+# run in the same epoch. Its source is attested above; its controller is not in
+# the baseline, so its ON/OFF never pauses this study. Each quote records the
+# warranty cell instead (warranty_cell), so the 2x2 cell is attributable.
+WARRANTY_CELL_KEYS = ('study', 'version', 'epoch', 'eligible', 'assigned_arm', 'arm', 'reason', 'offered_hours')
+
+
+def warranty_cell(deal):
+    """JSON-safe warranty factor of one talk; never raises, arm None when OFF."""
+    try:
+        row = deal.get('warranty_trial')
+        row = row if isinstance(row, dict) else {}
+        def plain(v):
+            return v is None or type(v) in (str, bool) or number(v)
+        cell = {k: row.get(k) for k in WARRANTY_CELL_KEYS if plain(row.get(k))}
+        hours = deal.get('warranty')
+        cell['promised_hours'] = hours if number(hours) else None
+        return cell
+    except Exception:
+        return dict(arm=None, promised_hours=None, reason='cell_unavailable')
 
 
 def digest(value):
@@ -357,7 +378,7 @@ class MarginStudy:
         actual = bool(assignment['prepared_treatment'] and deal['ask'] != baseline)
         self.event(task, assignment, 'quote_ready', now, selected_unit=deal.get('unit'),
                    baseline_final=baseline, final_price=deal['ask'], reserve=deal['reserve'],
-                   warranty=deal.get('warranty'), actual_treatment=actual,
+                   warranty=deal.get('warranty'), warranty_cell=warranty_cell(deal), actual_treatment=actual,
                    untreated_reason=None if actual else (
                        'downstream_clipped' if assignment['prepared_treatment'] else assignment['reason']))
         # Durable preparation to attempt admission, never evidence of consumption

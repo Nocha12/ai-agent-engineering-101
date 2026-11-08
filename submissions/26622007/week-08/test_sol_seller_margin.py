@@ -923,6 +923,14 @@ class SellerExposureTest(unittest.TestCase):
                 updates = [Updater() for _ in tasks]
                 pending = [shop.open_from_stock(t, u['sku'], out, lambda text, price=None: (text, price))
                            for t, out in zip(tasks, updates)]
+                # These coroutines are stepped without a loop, so the warranty
+                # worker's cancellation drain (create_task, covered on real loops
+                # in test_seller_warranty_trial) runs as the same stepped to_thread.
+                async def warranty_inline(fn, *args, **kwargs):
+                    return await asyncio.to_thread(fn, *args, **kwargs)
+                if hasattr(seller, 'seller_warranty_trial'):  # absent in the be49 historical fixture
+                    stack.enter_context(mock.patch.object(seller.seller_warranty_trial, 'finish_before_cancel',
+                                                          warranty_inline))
                 with mock.patch.object(asyncio, 'to_thread', step):
                     try:
                         for c in pending:
