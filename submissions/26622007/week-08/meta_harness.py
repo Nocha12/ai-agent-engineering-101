@@ -889,9 +889,7 @@ def restart_if_stale(stamp):
     old = stale_code(stamp)
     if not old:
         return
-    for p in stamp:                     # a half-written or broken file: keep the running code rather than crash every 60 s
-        if not os.path.exists(p):
-            continue                    # a removed module: the new code no longer imports it, or its import says so
+    for p in stamp:                     # missing, half-written or broken: keep the running code rather than crash every 60 s
         try:
             with open(p, "rb") as f:
                 compile(f.read(), p, "exec")
@@ -920,6 +918,7 @@ def run():
         for kind in ("terra", "astra"):
             if wait(kind) > 0:
                 continue
+            restart_if_stale(stamp)  # a preceding cycle may have changed our loaded dependencies
             tried[kind] = time.time()
             save_tried(tried)
             try:

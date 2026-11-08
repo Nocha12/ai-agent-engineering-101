@@ -935,22 +935,50 @@ class StaleCodeTest(unittest.TestCase):
             with mock.patch.object(mh, "log"), self.assertRaises(SystemExit):
                 mh.restart_if_stale(stamp)
 
+    def test_missing_loaded_source_keeps_the_loop_and_logs_once_until_repaired(self):
+        with tempfile.TemporaryDirectory() as d:
+            source = os.path.join(d, "required.py")
+            with open(source, "w") as f:
+                f.write("x = 1\n")
+            stamp = mh.code_stamp([source])
+            os.remove(source)
+            with mock.patch.object(mh, "log") as log:
+                mh.restart_if_stale(stamp)  # No SystemExit, even if the file remains missing.
+                mh.restart_if_stale(stamp)
+                self.assertEqual(log.call_count, 1)
+                self.assertIn("staying on the old code", log.call_args[0][0])
+            with open(source, "w") as f:
+                f.write("x = 2\n")
+            with mock.patch.object(mh, "log"), self.assertRaises(SystemExit) as e:
+                mh.restart_if_stale(stamp)
+            self.assertEqual(e.exception.code, 0)
+
     def test_the_loop_exits_between_cycles_when_its_code_changed(self):
-        # the loop leaves (run_meta.sh starts it again in 60 s) only after the cycles of a pass, never inside one
+        # Terra changes real source: Astra must not start with the old imports.
         calls = []
-        with tempfile.TemporaryDirectory() as d, \
+        with tempfile.TemporaryDirectory() as d:
+            source = os.path.join(d, "dependency.py")
+            with open(source, "w") as f:
+                f.write("x = 1\n")
+
+            def cycle(kind):
+                calls.append(kind)
+                with open(source, "w") as f:
+                    f.write("x = 2\n")
+
+            with \
                 mock.patch.object(mh, "TRIED", os.path.join(d, "tried.json")), \
+                mock.patch.object(mh, "loaded_sources", return_value=[source]), \
                 mock.patch.object(mh, "market_round", return_value=3), \
                 mock.patch.object(mh, "due", return_value=0), \
-                mock.patch.object(mh, "cycle", side_effect=lambda k: calls.append(k)), \
+                mock.patch.object(mh, "cycle", side_effect=cycle), \
                 mock.patch.object(mh, "push"), mock.patch.object(mh, "log"), \
-                mock.patch.object(mh, "stale_code", return_value=["meta_harness.py"]), \
                 mock.patch.object(mh.signal, "signal"):
-            with self.assertRaises(SystemExit) as e:
-                mh.run()
-            self.assertEqual(e.exception.code, 0)
-            self.assertEqual(calls, ["terra", "astra"])
-            self.assertEqual(set(mh.load_tried()), {"terra", "astra"})
+                with self.assertRaises(SystemExit) as e:
+                    mh.run()
+                self.assertEqual(e.exception.code, 0)
+                self.assertEqual(calls, ["terra"])
+                self.assertEqual(set(mh.load_tried()), {"terra"})
 
 
 if __name__ == "__main__":

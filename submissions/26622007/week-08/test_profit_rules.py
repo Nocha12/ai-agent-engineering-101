@@ -343,8 +343,8 @@ class PriceTest(unittest.TestCase):
         # a person 11/06 22:22: floors at break-even (cost + 6 h storage + the expected warranty refund), no profit margin:
         # the least b is grade A's measured 3% plus half a point, and no minimum profit
         self.assertEqual((c["goods_break"], c["min_profit"], c["min_profit_share"]), (0.035, 1, 0.0))
-        # 11/09 01:39 (GPT Pro mw82gkom §2.4): 30만+ goods 1.0 x median, price.high_price_trial holds half at 0.97 x
-        self.assertEqual((c["median_up"], c["high_median_up"]["factor"]), (1.0, 1.0))
+        # Latest instruction: keep 30만+ goods at 0.97 x median with the price trial OFF.
+        self.assertEqual((c["median_up"], c["high_median_up"]["factor"]), (1.0, 0.97))
         self.assertIs(profit_price.cfg_of(p)["paid_over_median"], False)
         self.assertEqual(profit_price.cfg_of(p)["grade_break"], {"A": 0.03, "B": 0.122, "C": 0.344})
         self.assertEqual(p["warranty"]["max_break"], 0.5)         # C units (34% of them break) are priced, not refused

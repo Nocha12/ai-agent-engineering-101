@@ -70,26 +70,24 @@ class TrialTest(unittest.TestCase):
             self.assertEqual(pp.quote(unit(*on), 800000, None, (), pricing(bad))["open"], base, bad)
 
     def test_shipped_trial(self):
-        # 11/09 01:39 GPT Pro (mw82gkom §2.4): our sold-out batches kept 2.9% of sales against yms979's 11.4%, so half
-        # the 30만+ goods SKU x grades open at 1.0 x median and the other half stay at 0.97 x (the trial arm holds it)
+        # Latest instruction: keep the new price trial OFF and the baseline at 0.97.
         with open("pricing.json", encoding="utf-8") as f:
             p = json.load(f)["price"]
         t = p["high_price_trial"]
-        self.assertEqual((p["high_median_up"]["factor"], t["factor"], t["share"]), (1.0, 0.97, 0.5))
+        self.assertEqual((p["high_median_up"]["factor"], t["factor"], t["share"]), (0.97, 0.97, 0))
         self.assertEqual(t["salt"], "20261109-book-margin")
 
-    def test_shipped_split_opens_at_one_or_097_of_the_median_never_under_the_floor(self):
+    def test_shipped_trial_is_off_and_opens_at_097_never_under_the_floor(self):
         with open("pricing.json", encoding="utf-8") as f:
             shipped = {"price": json.load(f)["price"]}
         t = shipped["price"]["high_price_trial"]
         keys = [(f"G{i:04d}", g) for i in range(60) for g in "ABC"]
         arms = {k: pp.trial_arm(k[0], k[1], t) for k in keys}
-        self.assertTrue(60 <= sum(arms.values()) <= 120)
-        hold = next(k for k, v in arms.items() if v)
-        up = next(k for k, v in arms.items() if not v)
+        self.assertFalse(any(arms.values()))
+        hold, up = keys[0], keys[-1]
         cfg = {"price": {**shipped["price"], "ask_caps": {}, "scarce_asks": {}}}
-        self.assertEqual(pp.quote(unit(*up, cost=500000), 800001, None, (), cfg)["open"], 800001)       # 1.0 x
-        self.assertEqual(pp.quote(unit(*hold, cost=500000), 800001, None, (), cfg)["open"], 776001)     # ceil 0.97 x
+        for key in keys:
+            self.assertEqual(pp.quote(unit(*key, cost=500000), 800001, None, (), cfg)["open"], 776001)
         dear = pp.quote(unit(*hold, cost=760000), 800000, None, (), cfg)
         self.assertEqual(dear["open"], dear["floor"])               # the floor still wins over 0.97 x
         self.assertGreaterEqual(dear["floor"], 776000)
@@ -97,10 +95,9 @@ class TrialTest(unittest.TestCase):
         self.assertEqual(pp.quote(cheap, 180000, None, (), cfg)["open"], 180000)
         capped = {"price": {**cfg["price"], "ask_caps": {hold[0]: {hold[1]: 700000}}}}
         self.assertEqual(pp.quote(unit(*hold, cost=500000), 800001, None, (), capped)["open"], 700000)   # caps after
-        # independent review 3b040aa: with no SKU median both halves open at 1.0 x the kind's share of list (no control;
-        # 0 of 1,522 30만+ quotes 11/08 00:23-11/09 02:27 had no median), so those units stay out of the comparison
-        for k in (hold, up):
-            self.assertEqual(pp.quote(unit(*k, cost=500000), None, None, (), cfg)["open"], round(0.755 * 1000000))
+        # Without a median the OFF baseline applies to kind ratio; grade C's higher floor still wins.
+        self.assertEqual(pp.quote(unit(*hold, cost=500000), None, None, (), cfg)["open"], 732350)
+        self.assertEqual(pp.quote(unit(*up, cost=500000), None, None, (), cfg)["open"], 764103)
 
 
 if __name__ == "__main__":
