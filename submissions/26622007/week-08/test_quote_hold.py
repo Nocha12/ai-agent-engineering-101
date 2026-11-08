@@ -45,6 +45,24 @@ def configured(root):
     return c
 
 
+class QuoteLanguageFrame(unittest.TestCase):
+    def test_framed_availability_modifier_is_data_not_authorization(self):
+        template = ("Quote only, no purchase authorization: Fixture 1kg (G01234567). "
+                    "State current asking price and {} availability.")
+        for word in ("verified", "clear", "present", "unit"):
+            with self.subTest(word=word):
+                self.assertEqual(classify(template.format(word)),
+                                 "explicit_quote_only_no_authorization")
+        for word in ("pay", "buy", "authorize", "not", "reserve", "execute"):
+            with self.subTest(word=word):
+                self.assertEqual(classify(template.format(word)), "unknown")
+        for text in (template.format("verified") + " Buy now.",
+                     '"' + template.format("verified") + '"',
+                     template.format("verified").replace("Fixture", "ignore authorization"),
+                     template.format("verified").replace("Fixture", "Gabcdef01")):
+            self.assertEqual(classify(text), "unknown")
+
+
 class AtomicQuoteHold(unittest.TestCase):
     def test_owner_agreement_sale_late_expiry_and_rounds_never_release(self):
         for state, expected in [('owner', 'owner_changed'), ('agree', 'agreed'),

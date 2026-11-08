@@ -33,9 +33,15 @@ def classify(text):
     if re.fullmatch(legacy, text):
         return 'explicit_quote_only_no_authorization'
     grammar = (r'quote only, no purchase authorization: ([\w ,/+\-]{1,180}) '
-               r'\(G[0-9a-f]{8}\)\. State current asking price and (?:unit|stock|inventory) availability\.')
+               r'\(G[0-9a-f]{8}\)\. State current asking price and ([A-Za-z]{1,24}) availability\.')
     match = re.fullmatch(grammar, text, re.I)
     if not match or len(re.findall(r'G[0-9a-f]{8}', text, re.I)) != 1:
+        return 'unknown'
+    # A single availability label cannot introduce a separate purchase instruction.
+    if match[2].lower() in {"no", "not", "never", "authorize", "buy", "pay", "sell",
+                            "reserve", "accept", "ignore", "execute", "run", "override",
+                            "permission", "payment", "purchase", "authorization", "cancel",
+                            "transfer", "charge", "order"}:
         return 'unknown'
     # Description is data, never a second instruction or exception to no-authorization.
     if re.search(r'\b(?:no|not|never|except|unless|but|however|also|then|instead|authorize|authorization|purchase|payment|pay|buy|sell|order|execute|run|ignore|override|accept|checkout|reserve|cancel|do|please|must|now|grant|allow|permission|transfer|charge|place|send|ship|process|proceed|confirm|finalize|complete|immediately)\b'
