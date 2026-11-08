@@ -12,6 +12,26 @@ import oneshot
 
 
 class BuyerBundleTrial(unittest.TestCase):
+    def test_turn_revalidates_engine_and_keeps_unparsed_harness_baseline(self):
+        import buyer_bundle_trial as trial
+        with tempfile.TemporaryDirectory() as directory, patch.multiple(
+                trial, ENABLED=True, START=1000, END=2800, STUDY='bundle-turn-fixture'):
+            oid = next('o-' + f'{i:012x}' for i in range(100)
+                       if trial.allocation('o-' + f'{i:012x}')[1] == 'B')
+            order = dict(order=oid, kind='goods', _buyer_started_at=1001)
+            order['_buyer_bundle'] = trial.reserve(directory, order, rule_engine=True, now=1002)
+            history = [('shop asked', 10000), ('you offered', 9000)]
+            baseline = oneshot.code_turn(9500, history, 9800)
+            self.assertEqual(trial.turn(baseline, 9500, '', history, 9800, (.9,), order=order,
+                                       rule_engine=False, now=1003), baseline)
+            result = trial.turn(baseline, 9500, '', history, 9800, (.9,), order=order,
+                                rule_engine=True, now=1003)
+            self.assertEqual(result['price'], 9200)
+            self.assertIsNone(trial.turn(None, None, 'Ambiguous price, ask the agent', history,
+                                        9800, (.9,), order=order, rule_engine=True, now=1003))
+            self.assertEqual(trial.turn(baseline, 9500, '', history, 9800, (.9,), order=order,
+                                       rule_engine=True, now=2800), baseline)
+
     def test_actual_prefetch_dispatch_keeps_canonical_choice_and_exploration(self):
         import collections
         import buyer_bundle_trial as trial

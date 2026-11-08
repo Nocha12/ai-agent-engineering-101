@@ -81,6 +81,40 @@ def counter(baseline, ask, history, limit, steps):
     return {**baseline, 'action': 'walk_away', 'price': 0}
 
 
+def turn(baseline, meta, text, history, limit, steps, *, order, rule_engine=False,
+         quoted=None, now=None):
+    context = order.get('_buyer_bundle')
+    if (not valid(context, rule_engine=rule_engine, now=now) or context['arm'] != 'B'
+            or order.get('kind') != 'goods' or baseline is None):
+        return baseline
+    import oneshot
+    ask = meta if meta is not None else oneshot.text_price(text, history, quoted, True)
+    result = counter(baseline, ask, history, limit, steps)
+    if result != baseline:
+        decisions = order.setdefault('_bundle_counters', [])
+        if len(decisions) < 8:
+            decisions.append(dict(history_index=len(history), action=result['action'],
+                                  baseline_price=baseline.get('price'), decision_price=result['price']))
+    return result
+
+
+def measurement(order, out):
+    context = order.get('_buyer_bundle')
+    if not context:
+        return None
+    history = out.get('history') or []
+    decisions = []
+    for row in order.get('_bundle_counters') or []:
+        index = row['history_index'] + 1
+        entry = history[index] if index < len(history) else None
+        decisions.append({**row, 'history_offer_attempt':
+                          entry[1] if entry and entry[0] == 'you offered' else None})
+    return dict(study=context['study'], arm=context['arm'],
+                eligible=(order.get('_bundle_plan') or {}).get('eligible'),
+                slot_eligible=(order.get('_bundle_plan') or {}).get('slot_eligible'),
+                counter_decisions=decisions)
+
+
 def schedule(baseline, fits, rivals, skus, scores):
     """Reorder fitted exploitation only, within the same requested SKU/rival class.
 

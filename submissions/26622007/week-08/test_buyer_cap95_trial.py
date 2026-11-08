@@ -93,7 +93,7 @@ class CallbackTests(unittest.TestCase):
             order={"order":identity,"kind":"goods","_buyer_started_at":100}
             q={"ask":100,"text":"Asking 100. Warranty: 6 hours."}
             ns={**vars(m),"discount_arm":None,"probe_arm":None,"goods_first_arm":None,
-                "limit":80,"steps":(.9,),"q":q,"resume":True,"order":order,
+                "limit":80,"steps":(.9,),"q":q,"resume":True,"order":order,"rule_engine":True,
                 "args":SimpleNamespace(budget=100),"shop":{"name":"fixture"},"key":"G123","r3":True}
             exec(compile(ast.Module(body=[callback],type_ignores=[]),"<actual ladder>","exec"),ns)
             ladder=ns["price_ladder"]

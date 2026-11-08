@@ -1610,6 +1610,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "firm_trial": buyer_firm_trial.measurement(order, out),
         "first95_trial": buyer_first95_trial.measurement(order, out),
         "cap95_trial": buyer_cap95_trial.measurement(order, out),
+        "buyer_bundle": buyer_bundle_trial.measurement(order, out),
         "food_sku_trial": order.get("_food_sku_trial"),
         "turns": dict(out.get("turns") or {}),
         "goods_extra_quote_started": order.get("_goods_extra_quote_started"),
@@ -1893,11 +1894,13 @@ def main():
                     goods_first_arm or order.get("_one_won_default") or
                     order.get("_goods_extra_quote_probe") or order.get("_quote_alignment") or
                     order.get("_food_quote_yield")), now=time.time(), log=log)
-            return buyer_cap95_trial.turn(result, history, limit, steps, order=order,
+            result = buyer_cap95_trial.turn(result, history, limit, steps, order=order,
                 shop=shop["name"], sku=key, probe=bool(not r3 or discount_arm or probe_arm or
                     goods_first_arm or order.get("_one_won_default") or
                     order.get("_goods_extra_quote_probe") or order.get("_quote_alignment") or
                     order.get("_food_quote_yield")), now=time.time(), log=log)
+            return buyer_bundle_trial.turn(result, meta, text, history, limit, steps,
+                order=order, rule_engine=rule_engine, quoted=q.get("ask") if resume else None)
 
         if steps:
             log(f"[offer] oneshot: {', '.join(f'{s:.2f}' for s in steps)} of the first ask, then the counter, priced by code")
@@ -1973,6 +1976,8 @@ def main():
         order["_stock_terminal_written"] = buyer_stock_evidence.terminal(
             order.get("_stock_evidence"), state=out.get("state"), passed_to_kit=result.get("receipt") is not None)
         buyer_fresh_rotation.event(order.get("_fresh_rotation"), "terminal",
+                                   state=out.get("state"), passed_to_kit=result.get("receipt") is not None)
+        buyer_fresh_rotation.event(order.get("_buyer_bundle"), "terminal",
                                    state=out.get("state"), passed_to_kit=result.get("receipt") is not None)
         try:
             records.write(md, "orders", {**order_record(order, args, shops, quotes, first_choice, first_reason, shop, reason, offer,

@@ -108,7 +108,7 @@ class CallbackFakeTests(unittest.TestCase):
                         if isinstance(node, ast.FunctionDef) and node.name == "price_ladder")
         namespace = {**vars(m), "discount_arm":None, "probe_arm":None,
             "goods_first_arm":None, "limit":cap, "steps":(.9,), "q":q,
-            "resume":True, "order":order, "args":SimpleNamespace(budget=130),
+            "resume":True, "order":order, "args":SimpleNamespace(budget=130), "rule_engine":True,
             "shop":{"name":"fixture"}, "key":"G12345678", "r3":True}
         exec(compile(ast.Module(body=[callback],type_ignores=[]), "<fixture callback>","exec"),namespace)
         ladder = namespace["price_ladder"]
