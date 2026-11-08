@@ -17,6 +17,7 @@ says so and the shop goes on. The harness commits only under this folder and che
 because the repository's rules forbid both; pushes happen only with META_PUSH=1.
 """
 import datetime
+import hashlib
 import importlib
 import json
 import os
@@ -43,6 +44,7 @@ KIT_PATTERN = os.environ.get("META_KIT_PATTERN", "market_kit.py join")
 CHATGPT_CODEX = "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"
 ECON_ROUND = 3
 STARTED = time.time()             # Astra's clock when no cycle is recorded yet
+TRIED = os.path.join(ROOT, ".market", "meta_tried.json")   # when each kind last started, kept across restarts
 NOT_CODE = ("meta/evidence/", "meta/changes.jsonl", "meta/grades.jsonl", "meta/state.json", "meta/last-",
             "meta/experiments_log.jsonl")
 LIVE = ("logs", "memory")         # what the kit and the shop keep writing: never staged by the harness (.gitignore too)
@@ -819,10 +821,70 @@ def market_round():
         return None
 
 
+def loaded_sources():
+    """The files of this folder's modules the loop has imported (meta_harness, hard_limits, scorecard and theirs)."""
+    root = os.path.realpath(ROOT) + os.sep
+    out = set()
+    for m in list(sys.modules.values()):
+        p = getattr(m, "__file__", None)
+        if isinstance(p, str) and p.endswith(".py") and os.path.realpath(p).startswith(root):
+            out.add(os.path.realpath(p))
+    return sorted(out)
+
+
+def code_stamp(paths):
+    """{path: sha1 of its source, or None when it cannot be read}."""
+    out = {}
+    for p in paths:
+        try:
+            with open(p, "rb") as f:
+                out[p] = hashlib.sha1(f.read()).hexdigest()
+        except OSError:
+            out[p] = None
+    return out
+
+
+def stale_code(stamp):
+    """The names of the files whose source is no longer what the loop loaded. The loop lives for days and only scorecard
+    is reloaded: 2327f1c fixed verify_evidence at 11/08 23:44, the loop started at 14:08 kept the old function, and
+    terra-1109-002601 and astra-1109-011816 were reverted for quoting a whole "OK" line (GPT Pro 11/09 01:39 6.3)."""
+    now = code_stamp(stamp)
+    return sorted(os.path.basename(p) for p in stamp if now[p] != stamp[p])
+
+
+def load_tried():
+    try:
+        with open(TRIED, encoding="utf-8") as f:
+            t = json.load(f)
+        return {k: float(v) for k, v in t.items() if isinstance(v, (int, float))} if isinstance(t, dict) else {}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def save_tried(tried):
+    try:
+        os.makedirs(os.path.dirname(TRIED), exist_ok=True)
+        tmp = TRIED + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(tried, f)
+        os.replace(tmp, TRIED)
+    except OSError as e:
+        log(f"could not keep the cycle times: {e}")
+
+
+def restart_if_stale(stamp):
+    """Leave between cycles when the code changed: run_meta.sh starts the loop again in 60 s with the new code."""
+    old = stale_code(stamp)
+    if old:
+        log(f"code changed since the loop started ({', '.join(old)}): restarting to load it")
+        sys.exit(0)
+
+
 def run():
     """Terra, then its hour of trading; Astra when twelve hours have passed. Nothing happens before Round 3: no data."""
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-    tried = {}                        # a cycle that crashed before recording still waits its turn
+    stamp = code_stamp(loaded_sources())
+    tried = load_tried()              # a cycle that crashed before recording still waits its turn, across a restart too
     while True:
         if (market_round() or 0) < ECON_ROUND:
             log("Round 3 has not opened, waiting")
@@ -834,14 +896,19 @@ def run():
             if wait(kind) > 0:
                 continue
             tried[kind] = time.time()
+            save_tried(tried)
             try:
                 cycle(kind)
             except Exception as e:   # noqa: BLE001 - the shop runs on regardless; the next cycle tries again
                 log(f"{kind} cycle failed: {type(e).__name__}: {e}")
             push()
+        restart_if_stale(stamp)
         nxt = {k: time.strftime("%m-%d %H:%M", time.localtime(time.time() + max(0, wait(k)))) for k in every}
         log(f"next terra {nxt['terra']}, astra {nxt['astra']}")
-        time.sleep(min(RUN_SECONDS, max(60, min(wait("terra"), wait("astra")))))
+        end = time.time() + min(RUN_SECONDS, max(60, min(wait("terra"), wait("astra"))))
+        while time.time() < end:          # a push during the wait is picked up within a minute, not after the hour
+            time.sleep(max(0, min(60, end - time.time())))
+            restart_if_stale(stamp)
 
 
 if __name__ == "__main__":

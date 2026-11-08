@@ -886,3 +886,53 @@ class ExperimentQueueTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StaleCodeTest(unittest.TestCase):
+    # 11/09: 2327f1c fixed verify_evidence at 23:44, but the loop started 11/08 14:08 kept the old function and
+    # terra-1109-002601 and astra-1109-011816 were reverted for quoting a whole "OK" line (GPT Pro 11/09 01:39 §6.3)
+    def test_a_changed_source_is_named_and_an_unchanged_one_is_not(self):
+        with tempfile.TemporaryDirectory() as d:
+            a, b = os.path.join(d, "a.py"), os.path.join(d, "b.py")
+            for p in (a, b):
+                with open(p, "w") as f:
+                    f.write("x = 1\n")
+            stamp = mh.code_stamp([a, b])
+            self.assertEqual(mh.stale_code(stamp), [])
+            with open(b, "w") as f:
+                f.write("x = 2\n")
+            self.assertEqual(mh.stale_code(stamp), ["b.py"])
+            os.remove(a)
+            self.assertEqual(mh.stale_code(stamp), ["a.py", "b.py"])
+
+    def test_the_loaded_sources_are_this_folders_modules(self):
+        names = {os.path.basename(p) for p in mh.loaded_sources()}
+        self.assertTrue({"meta_harness.py", "hard_limits.py", "scorecard.py"} <= names)
+        self.assertFalse(any(not os.path.realpath(p).startswith(os.path.realpath(mh.ROOT) + os.sep)
+                             for p in mh.loaded_sources()))
+
+    def test_tried_survives_a_restart(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(mh, "TRIED", os.path.join(d, "tried.json")):
+            self.assertEqual(mh.load_tried(), {})
+            mh.save_tried({"terra": 123.5})
+            self.assertEqual(mh.load_tried(), {"terra": 123.5})
+            with open(mh.TRIED, "w") as f:
+                f.write("{not json")
+            self.assertEqual(mh.load_tried(), {})
+
+    def test_the_loop_exits_between_cycles_when_its_code_changed(self):
+        # the loop leaves (run_meta.sh starts it again in 60 s) only after the cycles of a pass, never inside one
+        calls = []
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(mh, "TRIED", os.path.join(d, "tried.json")), \
+                mock.patch.object(mh, "market_round", return_value=3), \
+                mock.patch.object(mh, "due", return_value=0), \
+                mock.patch.object(mh, "cycle", side_effect=lambda k: calls.append(k)), \
+                mock.patch.object(mh, "push"), mock.patch.object(mh, "log"), \
+                mock.patch.object(mh, "stale_code", return_value=["meta_harness.py"]), \
+                mock.patch.object(mh.signal, "signal"):
+            with self.assertRaises(SystemExit) as e:
+                mh.run()
+            self.assertEqual(e.exception.code, 0)
+            self.assertEqual(calls, ["terra", "astra"])
+            self.assertEqual(set(mh.load_tried()), {"terra", "astra"})
