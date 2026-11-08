@@ -7,13 +7,18 @@ import time
 import unittest
 from contextlib import ExitStack
 from unittest.mock import patch
+import os
+_import_market = tempfile.TemporaryDirectory()
+_import_environment = patch.dict(os.environ, {'MARKET_DIR': _import_market.name})
+_import_environment.start()
 import seller
 import test_round3 as round3
+_import_environment.stop()
 
 NAMES = ("READER_TRIAL", "CONCESSION_TRIAL", "LATE_CONCESSION",
          "OPENING_DEFAULT", "DRAIN", "OPENING_CUE", "LATE_SPEED",
          "JEV_TRANSPORT", "SHELF_REPLY", "EXACT_ACCEPT", "EXACT_COUNTER",
-         "GRADE_PREFERENCE", "FOOD_OPENING", "AT_FLOOR_EXACT", "DEEP_LOWBALL")
+         "GRADE_PREFERENCE", "FOOD_OPENING", "AT_FLOOR_EXACT", "DEEP_LOWBALL", "QUOTE_HOLD")
 
 
 def manifest(root):

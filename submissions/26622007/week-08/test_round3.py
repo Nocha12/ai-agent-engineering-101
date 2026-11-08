@@ -18,6 +18,11 @@ import time
 import unittest
 from unittest import mock
 
+# Controller roots are fixed at import time; never import against a live market.
+_import_market = tempfile.TemporaryDirectory()
+_import_environment = mock.patch.dict(os.environ, {'MARKET_DIR': _import_market.name})
+_import_environment.start()
+
 import httpx
 import uvicorn
 from cryptography.hazmat.primitives import serialization
@@ -39,6 +44,7 @@ import shop_memory                 # noqa: E402
 import shop_stock                  # noqa: E402
 from catalog import Catalog        # noqa: E402
 from shop_stock import StockBook, markdown   # noqa: E402
+_import_environment.stop()
 
 MARKET_KEY = Ed25519PrivateKey.generate()
 MARKET_PUB = base64.b64encode(MARKET_KEY.public_key().public_bytes(
@@ -177,7 +183,7 @@ class EndToEnd(unittest.TestCase):
         for name in ("READER_TRIAL", "CONCESSION_TRIAL", "LATE_CONCESSION",
                      "OPENING_DEFAULT", "DRAIN", "OPENING_CUE", "LATE_SPEED",
                      "JEV_TRANSPORT", "SHELF_REPLY", "EXACT_ACCEPT", "EXACT_COUNTER",
-                     "GRADE_PREFERENCE", "FOOD_OPENING", "AT_FLOOR_EXACT", "DEEP_LOWBALL"):
+                     "GRADE_PREFERENCE", "FOOD_OPENING", "AT_FLOOR_EXACT", "DEEP_LOWBALL", "QUOTE_HOLD"):
             patches.append(mock.patch.object(seller, name,
                                             type(getattr(seller, name))(root=fixture_root)))
         for p in patches:

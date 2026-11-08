@@ -9,6 +9,11 @@ import math
 import os
 import re
 import time
+import threading
+import functools
+import hashlib
+import copy
+import uuid
 from pathlib import Path
 
 ECON_ROUND = 3
@@ -157,12 +162,34 @@ def _rank(rank, u):
     return r if isinstance(r, (int, float)) and not isinstance(r, bool) and math.isfinite(r) else float("inf")
 
 
+def canonical_task(value):
+    try:
+        return isinstance(value, str) and str(uuid.UUID(value)) == value
+    except (ValueError, AttributeError):
+        return False
+
+
+def market_unit(value):
+    return canonical_task(value) or bool(isinstance(value, str) and re.fullmatch(r'u-[0-9a-f]{12}', value))
+
+
+def synchronized(fn):
+    @functools.wraps(fn)
+    def call(self, *args, **kwargs):
+        with self._lock:
+            return fn(self, *args, **kwargs)
+    return call
+
+
 class StockBook:
     """A unit is free, promised to a talk (held, renewed by each message), agreed and waiting for its payment (held for
     PAY_SECONDS), or sold. Payment shows as the unit leaving inventory.json (the kit's checkout) or mark_sold (ours):
     on_paid(info) is called then, on_unpaid(info, why) when the wait runs out or the checkout is cancelled."""
 
     def __init__(self, load=load_inventory):
+        self._lock = threading.RLock()
+        self._generation = 0
+        self.generations = {}
         self.load = load
         self.held = {}      # unit -> time promised (renewed); a hold lasts HOLD_SECONDS, or PAY_SECONDS once agreed
         self.owner = {}     # unit -> task that holds it
@@ -237,6 +264,7 @@ class StockBook:
     def _drop(self, unit):
         self.held.pop(unit, None)
         self.owner.pop(unit, None)
+        self.generations.pop(unit, None)
 
     def units(self):
         """Units free to promise: in stock, not expired, not promised, not sold since the file was written."""
@@ -285,9 +313,12 @@ class StockBook:
         return self.pick(text)[0]
 
     def hold(self, unit, task=None):
+        self._generation += 1
+        self.generations[unit] = self._generation
         self.held[unit] = time.time()
         if task is not None:
             self.owner[unit] = task
+        return dict(unit=unit, task=task, generation=self._generation, held_at=self.held[unit])
 
     def holder(self, unit):
         """The task holding this unit now, None when it is free (a run-out hold counts as free)."""
@@ -296,7 +327,7 @@ class StockBook:
 
     def agree(self, unit, info):
         """The talk closed a deal on this unit: keep it for the payment."""
-        self.held[unit] = time.time()
+        self.hold(unit, info.get("task"))
         self.agreed[unit] = {"at": time.time(), **info}
         if info.get("task") is not None:
             self.owner[unit] = info["task"]
@@ -331,3 +362,105 @@ class StockBook:
         if not fit:
             return None, f"no {want} in stock"
         return min(fit, key=lambda u: (u.get("expires_at") or float("inf"), u.get("supplied_at") or 0)), None
+
+    def pool_snapshot(self, now=None, *, inventory=None):
+        """Detached whole inventory journal; deliberately never calls units()/settle()."""
+        now = time.time() if now is None else now
+        inv = copy.deepcopy(self.load() if inventory is None else inventory)
+        if inv.get('round', 0) < ECON_ROUND or not isinstance(inv.get('units'), list):
+            raise ValueError('inventory_missing')
+        rows, seen = [], set()
+        for u in inv['units']:
+            uid = u['unit']
+            if uid in seen:
+                raise ValueError('duplicate_unit')
+            seen.add(uid)
+            for key in ('sku', 'kind', 'grade', 'cost', 'expires_at', 'cert'):
+                if key not in u:
+                    raise ValueError('inventory_field_missing')
+            rows.append(dict(unit=uid, sku=u['sku'], kind=u['kind'], grade=u['grade'],
+                             cost=u['cost'], expires_at=u['expires_at'],
+                             cert_sha256=hashlib.sha256(json.dumps(u['cert'], sort_keys=True,
+                                 separators=(',', ':'), allow_nan=False).encode()).hexdigest(),
+                             held_at=self.held.get(uid), owner=self.owner.get(uid),
+                             generation=self.generations.get(uid), agreed=uid in self.agreed,
+                             late=uid in self.late, sold=uid in self.sold))
+        rows.sort(key=lambda x: x['unit'])
+        encoded = json.dumps(rows, sort_keys=True, separators=(',', ':'), allow_nan=False)
+        return dict(at=now, units=copy.deepcopy(rows),
+                    sha256=hashlib.sha256(encoded.encode()).hexdigest(),
+                    orphan_state=sorted((set(self.held) | set(self.agreed) | set(self.late) |
+                                         self.sold) - seen))
+
+    def compare_and_release_quote(self, token, *, rounds, shadow=True, now=None, inventory=None):
+        """Compare own quote generation, then project or drop under the SAME state lock.
+
+        No settlement, callbacks, agreement cancellation, or inventory renewal here.
+        Caller must hold the first-turn lease; the runtime controller is shadow-only.
+        """
+        now = time.time() if now is None else now
+        uid = token.get('unit')
+        reason = None
+        full_owner = canonical_task(token.get('task'))
+        if not full_owner:
+            reason = 'invalid_owner'
+        elif not market_unit(uid):
+            reason = 'invalid_unit'
+        elif type(rounds) is not int or rounds != 0:
+            reason = 'continuation'
+        elif not token.get('task') or self.owner.get(uid) != token['task']:
+            reason = 'owner_changed'
+        elif self.generations.get(uid) != token.get('generation'):
+            reason = 'generation_changed'
+        elif self.held.get(uid) != token.get('held_at') or uid not in self.held:
+            reason = 'hold_changed'
+        elif uid in self.agreed:
+            reason = 'agreed'
+        elif uid in self.late:
+            reason = 'late'
+        elif uid in self.sold:
+            reason = 'sold'
+        elif not 0 <= now - self.held[uid] < HOLD_SECONDS:
+            reason = 'hold_expired'
+        else:
+            inv = self.load() if inventory is None else inventory
+            matches = [u for u in inv.get('units', []) if u.get('unit') == uid]
+            if inv.get('round', 0) < ECON_ROUND or len(matches) != 1:
+                reason = 'inventory_missing'
+            elif expired(matches[0], now):
+                reason = 'expired'
+        if reason:
+            return dict(reason=reason, released=False)
+        if not shadow:
+            self._drop(uid)
+        return dict(reason='would_release' if shadow else 'released', released=not shadow,
+                    remaining_seconds=HOLD_SECONDS - (now - token['held_at']))
+
+    def quote_competitor(self, token, need, *, sku, warranty=0, required_warranty=0, inventory=None):
+        """Current held unit would fit another complete demand; never alters the pool."""
+        now = time.time()
+        inv = copy.deepcopy(self.load() if inventory is None else inventory)
+        snapshot = self.pool_snapshot(now, inventory=inv)
+        state = self.compare_and_release_quote(token, rounds=0, shadow=True, now=now, inventory=inv)
+        if state['reason'] != 'would_release':
+            return dict(reason=state['reason'])
+        u = next(u for u in inv['units'] if u['unit'] == token['unit'])
+        if (u['sku'] != sku or unfit(u, need, now) is not None
+                or (u.get('kind') == 'goods' and warranty < required_warranty)
+                or (u.get('kind') == 'food' and required_warranty > 0)):
+            return dict(reason='selection_guard')
+        alternatives = [v['unit'] for v in inv['units']
+                        if v['sku'] == sku and v['unit'] not in self.held and v['unit'] not in self.sold
+                        and not expired(v, now) and unfit(v, need, now) is None]
+        return dict(reason='inventory_compatible_candidate', economic_status='unknown',
+                    pool_sha256=snapshot['sha256'], snapshot=snapshot,
+                    free_alternatives=alternatives, selection_blocked=not alternatives)
+
+
+# Every public reader/mutator and internal state helper shares one RLock.
+# Callbacks run synchronously while locked: existing callbacks enqueue memory writes,
+# never await another thread. Same-thread reentry is supported; no async lock spans.
+for _method in ('economy', 'grade', 'settle', 'available', '_drop', 'units', 'pick',
+                'find', 'hold', 'holder', 'agree', 'release', 'mark_sold', 'ship',
+                'pool_snapshot', 'compare_and_release_quote', 'quote_competitor'):
+    setattr(StockBook, _method, synchronized(getattr(StockBook, _method)))

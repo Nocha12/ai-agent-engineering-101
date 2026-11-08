@@ -72,6 +72,7 @@ import seller_grade_preference
 import food_opening_trial
 import deep_lowball_trial
 import at_floor_exact_trial
+import quote_hold
 
 READER_TRIAL = seller_reader_trial.Trial()
 CONCESSION_TRIAL = seller_concession_trial.Trial()
@@ -88,6 +89,7 @@ GRADE_PREFERENCE = seller_grade_preference.GradePreferenceTrial()
 FOOD_OPENING = food_opening_trial.FoodOpeningTrial()
 AT_FLOOR_EXACT = at_floor_exact_trial.AtFloorExactTrial()
 DEEP_LOWBALL = deep_lowball_trial.DeepLowballTrial()
+QUOTE_HOLD = quote_hold.QuoteHold()
 import agent_memory
 import hard_limits
 import market_model
@@ -413,6 +415,24 @@ class Seller(AgentExecutor):
         log(f"UNPAID {info['deal']['id']} unit {info['deal']['unit']} at {info['price']}: {why}; the unit is on sale again")
 
     async def open_from_stock(self, task, text, up, say):
+        row = QUOTE_HOLD.begin(task.id, text, self.stock)
+        observation = {} if row is not None else None
+        outcome = 'no_quote'
+        try:
+            await self._open_from_stock(task, text[:MAX_TEXT], up, say, observation)
+            if observation is not None and observation.get('quoted'):
+                outcome = 'quote'
+        except asyncio.CancelledError:
+            outcome = 'timeout_or_cancelled'
+            raise
+        except Exception:
+            outcome = 'error'
+            raise
+        finally:
+            QUOTE_HOLD.finish(row, self.stock, deal=self.open.get(task.id),
+                              token=(observation or {}).get('token'), outcome=outcome)
+
+    async def _open_from_stock(self, task, text, up, say, observation=None):
         """Round 3, the first message: which unit, and the opening price. No harness call: nothing here needs one.
         Only a unit that fits the buyer's needs is offered (shop_stock.unfit); the price is profit_price's: the reserve is
         the floor F, the first ask P0. Goods that break too often for the warranty are not sold."""
@@ -420,7 +440,8 @@ class Seller(AgentExecutor):
                        OPENING_CUE, LATE_SPEED, JEV_TRANSPORT, SHELF_REPLY,
                        EXACT_ACCEPT, EXACT_COUNTER, GRADE_PREFERENCE,
                        FOOD_OPENING, AT_FLOOR_EXACT)
-        if not await asyncio.to_thread(DEEP_LOWBALL.pre_pick_ok, trial_peers):
+        if (not QUOTE_HOLD.pre_pick_ok((*trial_peers, DEEP_LOWBALL))
+                or not await asyncio.to_thread(DEEP_LOWBALL.pre_pick_ok, (*trial_peers, QUOTE_HOLD))):
             await up.reject(say("Sorry, the shop cannot start a new talk right now."))
             return
         pricing = shop_memory.load_pricing()
@@ -445,7 +466,9 @@ class Seller(AgentExecutor):
             await up.reject(say("Sorry, we cannot sell this item with a fair warranty right now."))
             log(f"task {task.id[:8]} -> REJECTED (break chance {q['b']:.0%} above the warranty limit; no sale without one)")
             return
-        self.stock.hold(u["unit"], task.id)
+        hold_token = self.stock.hold(u["unit"], task.id)
+        if observation is not None:
+            observation['token'] = hold_token
         ask_price, reserve, arm = q["open"], q["floor"], None
         low, keep, cause = markdown(u, hard_limits.clamp_cfg("markdown", pricing.get("markdown") or {}),
                                     (pricing.get("restock") or {}).get("round_ends_at"))
@@ -494,6 +517,8 @@ class Seller(AgentExecutor):
                       f"certificate of the unit.{' ' + note if note else ''} My price: {ask_price}.")
         quote_text = await asyncio.to_thread(OPENING_CUE.message, task.id, deal, quote_text)
         await up.requires_input(say(quote_text, ask_price))
+        if observation is not None:
+            observation['quoted'] = True
         log(f"task {task.id[:8]} -> INPUT_REQUIRED {u['sku']} ask {ask_price}")
 
     @staticmethod
@@ -577,16 +602,25 @@ class Seller(AgentExecutor):
         say = lambda text, ask=None: up.new_agent_message(parts=[new_text_part(text)],
                                                           metadata={"ask": ask} if ask is not None else None)
         text = (get_message_text(context.message) or "")[:MAX_TEXT]
+        QUOTE_HOLD.touch(task.id)
         deal = self.open.get(task.id)
+        if deal is None and QUOTE_HOLD.config() and not self.stock.economy():
+            row = QUOTE_HOLD.begin(task.id, get_message_text(context.message) or '', self.stock)
+            QUOTE_HOLD.finish(row, self.stock, outcome='inventory_or_round_unknown')
         log(f"task {task.id[:8]} <- {text!r}")
 
         if DRAIN.closed or (deal is None and DRAIN.active()):   # seller_drain: restarting; talks under way go on, new ones wait a minute
+            row = QUOTE_HOLD.begin(task.id, get_message_text(context.message) or '', self.stock,
+                                   first=deal is None)
+            QUOTE_HOLD.finish(row, self.stock, outcome='draining')
             await up.reject(say("Sorry, the shop is restarting for an update. Please ask again in a minute."))
             log(f"task {task.id[:8]} -> REJECTED (draining for a restart)")
             return
 
         if deal is None and self.stock.economy():
-            await self.open_from_stock(task, text, up, say)
+            # Preserve the full input for the conservative grammar; the existing picker
+            # still receives its original bounded input in _open_from_stock.
+            await self.open_from_stock(task, get_message_text(context.message) or '', up, say)
             return
 
         if deal is None:  # first message: which item?
