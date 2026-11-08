@@ -29,11 +29,13 @@ class StatsTest(unittest.TestCase):
         self.assertAlmostEqual(st["shops"]["b|goods"]["p"], (0 + 20 * 0.25) / (30 + 20))
         self.assertAlmostEqual(a["talk"], 10.0)
 
-    def test_old_unpaid_and_no_value_rows_do_not_count(self):
+    def test_old_and_unpaid_rows_do_not_count_and_no_value_is_a_failure(self):
+        # NO_VALUE (picked, then no talk: 11/08 19:43-20:03 ddolcom 0/12) is a failure of that shop (rank-cause.md)
         rows = [row("a", "goods", 10000, 9000, ts=NOW - 25 * 3600), row("a", "goods", 10000, 9000, order="o-1"),
-                row("a", "goods", 10000, state="NO_VALUE"), row("a", "food", 5000, 4000)]
+                row("a", "goods", 10000, state="NO_VALUE"), row("a", "food", 5000, 4000),
+                dict(row("a", "goods", 10000), state=None)]
         st = rp.stats_from_rows(rows, {"o-1": False}, NOW)
-        self.assertEqual((st["shops"]["a|goods"]["n"], st["shops"]["a|goods"]["k"]), (1, 0))
+        self.assertEqual((st["shops"]["a|goods"]["n"], st["shops"]["a|goods"]["k"]), (2, 0))
         self.assertEqual(st["shops"]["a|food"]["k"], 1)
 
 
@@ -113,6 +115,14 @@ class BestQuoteTest(unittest.TestCase):
         stats = {"pool": {"goods": {"p": 0.0, "ratio": 1.0, "talk": 10.0}}, "shops": {}}
         self.ASKS = {"a": 6400, "b": 6000, "c": 9900}
         self.assertEqual(self.run_bq({"kind": "goods", "_rank_pg": {"stats": stats}}), "b")
+
+    def test_on_with_no_ask_within_the_limit_keeps_the_current_order(self):
+        # all over the 7,000 cap: P x g picked c (P 1, E[final] half the ask) and the order ended with no talk
+        # (11/08 19:43-20:03, rank-cause.md); nothing fits, so the order before rank_pg
+        self.ASKS = {"a": 7500, "b": 8000, "c": 9900}
+        order = {"kind": "goods", "_rank_pg": {"stats": self.STATS}}
+        self.assertEqual(self.run_bq(order), "a")
+        self.assertEqual((order["_rank_pg"]["plain"], order["_rank_pg"]["picked"]), ("a", "a"))
 
     def test_on_without_stats_for_the_kind_keeps_the_current_order(self):
         order = {"kind": "goods", "_rank_pg": {"stats": {"pool": {}, "shops": {}}}}

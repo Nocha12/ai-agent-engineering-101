@@ -1348,7 +1348,12 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
     best = max(scored, key=lambda x: (fits(x[2]), x[0] - rival_deny.penalty(x[2]["name"], rival), meta(x[2]), -x[1]))[2] \
         if scored else None
     rk = order.get("_rank_pg")
-    if rk is not None and scored:
+    if rk is not None and scored and not any(fits(s) for _, _, s in scored):
+        # nothing within my limit: the order before rank_pg (11/08 19:43-20:03 P x g took asks 15-33% over the limit, 8 of
+        # 11 changed picks ended with no talk; review/W-20261108-1915-AX전부적용/rank-cause.md)
+        rk["plain"] = rk["picked"] = best["name"]
+        rk["no_fit"] = True
+    elif rk is not None and scored:
         # 대표님 7959-7977: P(deal | shop, kind) x (1 - b)(1 - E[final] / list) / T replaces the ask's share (fits first,
         # as before: the limits and guards stay where they are; buyer_rank_pg). A quote it cannot score keeps the old order.
         def g_of(s):

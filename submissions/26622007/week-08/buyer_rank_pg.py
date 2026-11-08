@@ -63,15 +63,16 @@ def _first_ask(r):
 
 
 def stats_from_rows(rows, paid, now):
-    """{"pool": {kind: {p, ratio, talk}}, "shops": {"shop|kind": {n, k, p, ratio, talk}}} from order lines: the talks
-    with the shop kept (state set, not NO_VALUE) in the last HOURS. A deal: completed, a price, passed to the kit and not
+    """{"pool": {kind: {p, ratio, talk}}, "shops": {"shop|kind": {n, k, p, ratio, talk}}} from order lines: the orders
+    with the shop kept (state set) in the last HOURS; NO_VALUE (kept, then no talk) is a failure of that shop (11/08
+    19:43-20:03: ddolcom 0/12 by NO_VALUE kept its P .41 while they were left out). A deal: completed, a price, passed to the kit and not
     known unpaid. ratio: mean final price / first ask of the deals; talk: mean seconds end - quotes."""
     cell, pool = {}, {}
     for r in rows:
         ts, shop, kind = r.get("ts"), r.get("shop"), r.get("kind")
         if not (_num(ts) and now - HOURS * 3600 <= ts <= now and isinstance(shop, str) and kind in ("goods", "food")):
             continue
-        if r.get("state") in (None, "NO_VALUE"):
+        if r.get("state") is None:
             continue
         first = _first_ask(r)
         ok = (r.get("state") == DONE and _num(r.get("price")) and r.get("passed_to_kit") is True
