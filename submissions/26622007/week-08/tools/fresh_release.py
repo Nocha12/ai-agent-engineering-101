@@ -1,11 +1,13 @@
 """Publisher-owned full buyer code release; leaves the live checkout untouched."""
 import hashlib
+import copy
 import json
 import os
 from pathlib import Path
 import re
 import shlex
 import sys
+import uuid
 
 VERIFY_SOURCE = r'''
 import hashlib,json,os,stat
@@ -145,3 +147,88 @@ def command(root, digest, python=sys.executable, *, live_dir=None):
                        '--release', str(Path(root).absolute()), '--sha256', digest,
                        '--publisher-uid', str(Path(root).stat().st_uid),
                        '--live-dir', str(Path(live_dir or Path.cwd()).absolute()), '--'])
+
+
+def join_config(original, buyer_command, live_dir):
+    configured = copy.deepcopy(original)
+    if not Path(live_dir).is_absolute() or not isinstance(buyer_command, str) or not buyer_command:
+        raise ValueError('absolute live directory and pinned buyer command required')
+    try:
+        tokens = shlex.split(configured['market_buyer']['cmd'])
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError('market buyer command required') from error
+    if tokens[:1] == ['env']:
+        tokens.pop(0)
+    environment = []
+    while tokens and re.match(r'^[A-Z_][A-Z0-9_]*=', tokens[0]):
+        assignment = tokens.pop(0)
+        name = assignment.split('=', 1)[0]
+        if (name in ('AGENT_TOOLS', 'AGENT_RELEASE_LIVE_DIR')
+                or re.search('KEY|TOKEN|SECRET|PASS|OWNER|AUTH|COOKIE|CRED', name)
+                or not (name == 'HARNESS' or name.startswith(('BUYER_', 'AGENT_', 'SHOP_', 'MARKET_')))):
+            raise ValueError('unsupported buyer environment assignment')
+        environment.append(assignment)
+    if (len(tokens) < 2 or not re.fullmatch(r'python(?:3(?:\.\d+)?)?', Path(tokens[0]).name)
+            or tokens[1] != 'market_buyer.py'):
+        raise ValueError('plain existing Python buyer command required')
+    suffix = tokens[2:]
+    expected = {'--shops': '{shops}', '--item': '{item}', '--budget': '{budget}', '--order': '{order}'}
+    pairs = list(zip(suffix[::2], suffix[1::2]))
+    if (len(suffix) % 2 or len(dict(pairs)) != len(pairs)
+            or not {'--shops', '--item', '--budget'} <= set(dict(pairs))
+            or any(expected.get(key) != value for key, value in pairs)):
+        raise ValueError('existing kit placeholders required')
+    for role, value in configured.items():
+        if isinstance(value, dict) and isinstance(value.get('cmd'), str):
+            value['cmd'] = 'cd ' + shlex.quote(str(live_dir)) + ' && ' + value['cmd']
+    prefix = shlex.join(['env', *environment]) + ' ' if environment else ''
+    configured['market_buyer']['cmd'] = ('cd ' + shlex.quote(str(live_dir)) + ' && '
+        + prefix + buyer_command + ' ' + ' '.join(suffix))
+    return configured
+
+
+def publish_join(root, configured, aliases):
+    root = Path(root).absolute()
+    if root.parent.resolve() != root.parent:
+        raise ValueError('canonical managed join parent required')
+    for name, target in aliases.items():
+        if (name in ('.', '..', 'agent.json', '.gitignore')
+                or not re.fullmatch(r'[A-Za-z_.][A-Za-z0-9_.-]*', name) or not Path(target).is_absolute()):
+            raise ValueError('simple aliases to existing absolute live paths required')
+    raw = json.dumps(configured, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode()
+    root.mkdir(mode=0o700)
+    for name, data in (('agent.json', raw), ('.gitignore', b'*.pem\n.market/\n')):
+        fd = os.open(root / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o400)
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        (root / name).chmod(0o444)
+    for name, target in aliases.items():
+        (root / name).symlink_to(target)
+    root.chmod(0o555)
+    return hashlib.sha256(raw).hexdigest()
+
+
+def select_join(store, generation):
+    store, generation = Path(store).absolute(), Path(generation).absolute()
+    if (store.resolve() != store or generation.resolve() != generation
+            or generation.parent != store / 'join-generations'
+            or store.stat().st_uid != os.getuid() or store.stat().st_mode & 0o022
+            or generation.parent.stat().st_uid != os.getuid() or generation.parent.stat().st_mode & 0o022
+            or generation.stat().st_uid != os.getuid() or generation.stat().st_mode & 0o222):
+        raise ValueError('exclusive publisher-managed join generation required')
+    selector = store / 'current-join'
+    if selector.exists() and not selector.is_symlink():
+        raise ValueError('foreign selector is preserved')
+    temporary = store / ('.join-select-' + uuid.uuid4().hex)
+    try:
+        temporary.symlink_to(generation)
+        os.replace(temporary, selector)
+        fd = os.open(store, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    finally:
+        temporary.unlink(missing_ok=True)

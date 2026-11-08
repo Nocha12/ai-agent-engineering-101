@@ -187,9 +187,32 @@ live; the existing credential fallback location and live agent notebook path
 are preserved without copying keys into the release. Live JSON/ledger/notebook
 data remain mutable inputs, not immutable executable code.
 
-The existing kit still captures `agent.json` once, and the existing supervisor
-still passes its own source directory to official `join --dir`. This addition
-does not implement or prove a persistent managed selector, actual consumer
-access, kit transition, full first-choice replay, real A/B or economic results.
-Those conditions require separate review and operating evidence. Do not deploy
-the old guarded command as a replacement for all-order baseline availability.
+The existing kit still captures `agent.json` once. The protected existing
+`run_market.sh` now optionally selects official `join --dir` through
+`/Users/Shared/ax-buyer-W-20261106-1950/current-join`. The publisher UID is 501 on
+this host; the actual consumer UID is 502. The selector's store, generation
+parent, read-only generation and config must belong to that publisher with no
+group/other write access. Consumer write access, external targets, writable
+configs and malformed selectors fail before starting a kit. An absent selector
+retains ordinary operation. `--check-join-selector [store]` performs this check
+without reading credentials or starting services. Each kit reentry captures one
+selected directory; changing a pointer does not reload a running kit.
+
+`join_config` preserves the existing buyer environment assignments and kit
+placeholders while substituting the pinned command. Unknown shell forms,
+secret-bearing assignments and custom mutable tool-directory overrides are
+rejected during preparation. Other role commands retain their original text
+and run from the live cwd. `publish_join` creates new read-only config generations
+with aliases to existing live data/logs/keys/checkout policy; keys are not copied
+or granted new permissions. The required `.gitignore` prevents kit startup from
+trying to edit the read-only config directory. `select_join` atomically replaces
+only the publisher-owned selector and retains every old generation. The actual
+ordinary meta Git/model writer is UID502 outside this store; it cannot write
+these bytes. The runner remains in the existing `hard_limits.PROTECTED` contract;
+this does not claim protection against a writer violating that runner contract.
+
+Implementation/preparation is separate from actual consumer and shared kit
+transition receipts. A source archive or pointer update alone proves neither
+cached command application nor a full first-choice replay, real A/B or economic
+results. Do not deploy the old guarded command as a replacement for all-order
+baseline availability.

@@ -15,6 +15,44 @@ REPO = Path(__file__).resolve().parents[3]
 
 
 class FreshRelease(unittest.TestCase):
+    def test_managed_join_keeps_roles_environment_and_kit_placeholders(self):
+        original = {'market_buyer': {'cmd': 'HARNESS=fixture BUYER_CHOOSE_ENGINE=rule python market_buyer.py --shops {shops} --item {item} --budget {budget} --order {order}'},
+                    'seller': {'cmd': 'python seller.py --port {port}'}, 'harness': 'fixture policy'}
+        configured = fresh_release.join_config(original, 'pinned-buyer-command', '/fixture/live')
+        self.assertEqual(original['seller']['cmd'], 'python seller.py --port {port}')
+        self.assertEqual(configured['seller']['cmd'], 'cd /fixture/live && python seller.py --port {port}')
+        self.assertEqual(configured['harness'], original['harness'])
+        self.assertEqual(configured['market_buyer']['cmd'], 'cd /fixture/live && env HARNESS=fixture BUYER_CHOOSE_ENGINE=rule pinned-buyer-command --shops {shops} --item {item} --budget {budget} --order {order}')
+        for command in ('python other.py', 'HARNESS=fixture python market_buyer.py; bad',
+                        'API_KEY=fixture python market_buyer.py --shops {shops} --item {item} --budget {budget}'):
+            with self.subTest(command=command),self.assertRaises(ValueError):
+                fresh_release.join_config({'market_buyer': {'cmd': command}}, 'pinned', '/fixture/live')
+
+    def test_managed_join_retains_cached_generation_and_foreign_selector(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            store = Path(temporary)/'managed'
+            parent = store/'join-generations'
+            parent.mkdir(parents=True)
+            live = Path(temporary)/'live'
+            live.mkdir()
+            (live/'runtime.json').write_text('{"fixture":true}')
+            first, rollback = parent/'candidate', parent/'rollback'
+            first_config = {'market_buyer':{'cmd':'candidate fixture'}}
+            digest = fresh_release.publish_join(first,first_config,{'runtime.json':live/'runtime.json'})
+            self.assertEqual(digest,__import__('hashlib').sha256((first/'agent.json').read_bytes()).hexdigest())
+            fresh_release.select_join(store,first)
+            cached = json.loads((store/'current-join/agent.json').read_text())
+            fresh_release.publish_join(rollback,{'market_buyer':{'cmd':'rollback fixture'}},{})
+            fresh_release.select_join(store,rollback)
+            self.assertEqual(cached,first_config)
+            self.assertEqual(json.loads((store/'current-join/agent.json').read_text())['market_buyer']['cmd'],'rollback fixture')
+            self.assertEqual(json.loads((first/'runtime.json').read_text()),{'fixture':True})
+            (store/'current-join').unlink()
+            (store/'current-join').write_text('foreign selector')
+            with self.assertRaises(ValueError):
+                fresh_release.select_join(store,first)
+            self.assertEqual((store/'current-join').read_text(),'foreign selector')
+
     def test_release_executes_pinned_entry_and_resource(self):
         files = {
             "market_buyer.py": b"from pathlib import Path\nimport policy\nassert policy.VALUE == 7\nprint(Path(__file__).parent.joinpath('tools/probe/manifest.json').read_text())\n",

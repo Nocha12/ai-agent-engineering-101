@@ -36,6 +36,8 @@ select_join_dir() {
   done
   mode="$(/usr/bin/stat -f %Lp "$directory/agent.json")" || return 1
   (( (8#$mode & 0222) == 0 )) || return 1
+  mode="$(/usr/bin/stat -f %Lp "$directory")" || return 1
+  (( (8#$mode & 0222) == 0 )) || return 1
   canonical="$(cd "$store" 2>/dev/null && pwd -P)" || return 1
   [ "$canonical" = "$store" ] || return 1
   if [ "$(/usr/bin/id -u)" != 501 ]; then
