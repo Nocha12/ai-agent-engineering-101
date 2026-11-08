@@ -11,14 +11,21 @@ expectation E = (1 - b)(1 - p) - q p, and it is bought only when E >= S, my curr
 At h = 6 that is 1 - S / (1 - b), the cap a 6 h goods deal already has (market_buyer.saved_cap). E.g. b = .072,
 S = .2955: 6 h 68.2%, 3 h 65.6%, 0 h 63.3%.
 
-A safety rail on top: the expected out-of-warranty loss of the short-warranty deals paid in the last hour, sum q * price,
-stays under EXPOSURE_SHARE of the cash buffer (the switch file's cash_buffer, else hard_limits.STOP_BUYING_BELOW, the
-buffer's floor). The accept band (plan A, 105%) does not apply to these deals: p_max(h) is the ceiling.
+A safety rail on top: the expected out-of-warranty loss of the short-warranty deals passed to the kit in the last hour,
+sum q * price, stays under EXPOSURE_SHARE of the cash buffer (the switch file's cash_buffer, else
+hard_limits.STOP_BUYING_BELOW, the buffer's floor). Each deal reserves its loss in EXPOSURE_FILE under a lock before it
+goes to the kit; a reservation that cannot be read or written pays nothing. The accept band (plan A, 105%) does not
+apply to these deals: p_max(h) is the ceiling. The kit may ship another acceptable SKU at the agreed price, so p and b
+are taken at the worst SKU the shop can ship for the order (the cheapest list price, the highest break chance). The
+shop also picks the unit, and a C unit breaks far more often than the SKU's mean (refunded under a 6 h warranty, not
+here): only the grades whose own break chance keeps p <= p_max(h) are accepted (the kit checks the unit's certificate
+against accept.grades), and b is the worst of those.
 
 Switch: .market/buyer_short_warranty.json {"enabled": true, "cash_buffer": <won>}; missing, unreadable or anything
 else is off, and off is the old behaviour exactly (6 h or no deal). BUYER_SHORT_WARRANTY=0 in the environment is off
 too. Read at every order, so no restart either way.
 """
+import fcntl
 import json
 import os
 import time
@@ -33,7 +40,9 @@ BOARD_MAX_AGE = 3 * 3600        # a board snapshot older than this is not my Sav
 BOARD_TAIL = 200000             # bytes of board_history.jsonl read for the last snapshot
 EXPOSURE_SHARE = 0.02           # sum q * price of the last hour's short-warranty deals <= this share of the cash buffer
 EXPOSURE_SECONDS = 3600
-ORDERS_TAIL = 4000000           # bytes of measure/orders.jsonl read for that hour
+BUFFER_MAX = 40000000           # a switch-file cash_buffer above this is cut to it (11/08 18:06 restock: 34.5M)
+GRADES = ("A", "B", "C")
+EXPOSURE_FILE = "buyer_short_warranty_exposure.jsonl"    # one line per short-warranty deal passed to the kit
 ME = ("nocha12",)               # my buyer's name on the board, compared lowercased
 
 
@@ -97,7 +106,7 @@ def board_saved(md, now=None):
                 d = json.loads(line)
             except ValueError:
                 continue
-            if not number(d.get("ts")) or now - d["ts"] > BOARD_MAX_AGE:
+            if not number(d.get("ts")) or not -300 <= now - d["ts"] <= BOARD_MAX_AGE:
                 return FALLBACK_SAVED
             for name, row in (d.get("buyers") or {}).items():
                 if str(name).lower() in ME and isinstance(row, list) and row and number(row[0]) and 0 < row[0] < 1:
@@ -116,7 +125,8 @@ def state(md, order, now=None, env=None):
     if cfg is None:
         return None
     buf = cfg.get("cash_buffer")
-    return {"S": board_saved(md, now), "buffer": buf if number(buf) and buf > 0 else hard_limits.STOP_BUYING_BELOW,
+    return {"S": board_saved(md, now),
+            "buffer": min(buf, BUFFER_MAX) if number(buf) and buf > 0 else hard_limits.STOP_BUYING_BELOW,
             "hist": {}}
 
 
@@ -130,38 +140,64 @@ def hours_for(sw, shop, quote=None):
     return h if h is not None and h < BREAK_HOURS else None
 
 
-def exposure(md, now=None):
-    """sum q * price of the short-warranty deals passed to the kit in the last EXPOSURE_SECONDS (measure/orders.jsonl)."""
+def reserve(md, loss, room, order=None, now=None):
+    """(ok, used): under a lock, the last hour's reserved loss in EXPOSURE_FILE, and when loss fits under room the
+    reservation is written before the deal goes to the kit. Raises when the file cannot be read or written, so the
+    caller pays nothing (fails closed); a line that does not parse is an error too."""
     now = now or time.time()
-    total = 0.0
-    try:
-        with open(os.path.join(md, "measure", "orders.jsonl"), "rb") as f:
-            f.seek(0, 2)
-            f.seek(max(0, f.tell() - ORDERS_TAIL))
-            lines = f.read().decode("utf-8", "replace").splitlines()
-    except OSError:
-        return 0.0
-    for line in lines:
-        if '"short_warranty_buy"' not in line:
-            continue
+    path = os.path.join(md, EXPOSURE_FILE)
+    with open(path + ".lock", "a") as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)
         try:
-            d = json.loads(line)
-        except ValueError:
-            continue
-        s = d.get("short_warranty_buy")
-        if not isinstance(s, dict) or not d.get("passed_to_kit") or not number(d.get("ts")) or now - d["ts"] > EXPOSURE_SECONDS:
-            continue
-        if number(s.get("loss")):
-            total += s["loss"]
-    return total
+            used = 0.0
+            if os.path.exists(path):
+                with open(path, encoding="utf-8") as f:
+                    for line in f:
+                        if not line.strip():
+                            continue
+                        d = json.loads(line)          # ValueError: unknown exposure, pay nothing
+                        if not number(d.get("ts")) or not number(d.get("loss")):
+                            raise ValueError("an exposure line without ts or loss")
+                        if now - d["ts"] <= EXPOSURE_SECONDS:     # a line from "the future" (clock, rounding) counts
+                            used += d["loss"]
+            if used + loss > room:
+                return False, used
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"ts": round(now, 1), "loss": round(loss, 1), "order": order}) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+            return True, used
+        finally:
+            fcntl.flock(lk, fcntl.LOCK_UN)
 
 
-def receipt_check(sw, md, rec, list_price, b, now=None):
+def worst(prices, chances):
+    """(list price, b) the check uses: the cheapest list price and the highest break chance of the SKUs the shop may
+    ship. A chance of None is FALLBACK_BREAK; one over 1 is 1; under 0 is FALLBACK_BREAK."""
+    lp = min((p for p in prices if number(p) and p > 0), default=None)
+    bs = [min(c, 1.0) if number(c) and c >= 0 else FALLBACK_BREAK for c in chances] or [FALLBACK_BREAK]
+    return lp, max(bs)
+
+
+def grades_ok(price, list_price, h, S, b_by_grade):
+    """(grades, b): the grades at whose break chance a deal at price keeps S with an h-hour warranty, and the highest
+    break chance among them. b_by_grade: {grade: b or None}. ([], None) when none does."""
+    if not number(price) or not number(list_price) or list_price <= 0:
+        return [], None
+    p = price / list_price
+    ok = [(g, min(b, 1.0) if number(b) and b >= 0 else FALLBACK_BREAK) for g, b in sorted(b_by_grade.items())]
+    ok = [(g, b) for g, b in ok if p <= p_max(h, b, S) and p_max(h, b, S) > 0]
+    return [g for g, _ in ok], max((b for _, b in ok), default=None)
+
+
+def receipt_check(sw, md, rec, list_price, b, order=None, now=None):
     """(ok, record, why) for a goods receipt whose warranty is short: ok when p <= p_max(h) and the hour's exposure
-    leaves room for it. record goes on the order line (short_warranty_buy) either way."""
-    h = rec.get("warranty_hours") if number(rec.get("warranty_hours")) and rec.get("warranty_hours") > 0 else 0
+    leaves room for it (then reserved). record goes on the order line (short_warranty_buy) either way. list_price and
+    b: worst() over the SKUs the shop may ship."""
+    w = rec.get("warranty_hours")
+    h = w if number(w) and w > 0 else 0
     price = rec.get("price")
-    b = b if number(b) and 0 <= b < 1 else FALLBACK_BREAK
+    b = min(b, 1.0) if number(b) and b >= 0 else FALLBACK_BREAK
     S = sw["S"]
     pm = p_max(h, b, S)
     if not number(price) or not number(list_price) or list_price <= 0:
@@ -169,12 +205,15 @@ def receipt_check(sw, md, rec, list_price, b, now=None):
     p = price / list_price
     loss = outside_chance(b, h) * price
     rec_ = {"h": h, "b": round(b, 4), "S": round(S, 4), "p_max": round(pm, 4), "p": round(p, 4),
-            "loss": round(loss, 1)}
-    if p > pm:
+            "list": list_price, "loss": round(loss, 1)}
+    if p > pm or pm <= 0:
         return False, dict(rec_, ok=False), f"warranty {h:g} h: price {p:.1%} of list is over p_max {pm:.1%}"
     room = EXPOSURE_SHARE * sw["buffer"]
-    used = exposure(md, now)
+    try:
+        ok, used = reserve(md, loss, room, order, now)
+    except Exception as e:  # noqa: BLE001 - an exposure that cannot be read pays nothing
+        return False, dict(rec_, ok=False), f"warranty {h:g} h: exposure unknown ({type(e).__name__})"
     rec_["exposure"] = round(used, 1)
-    if used + loss > room:
+    if not ok:
         return False, dict(rec_, ok=False), f"warranty {h:g} h: the hour's expected loss {used + loss:.0f} would pass {room:.0f}"
     return True, dict(rec_, ok=True), None

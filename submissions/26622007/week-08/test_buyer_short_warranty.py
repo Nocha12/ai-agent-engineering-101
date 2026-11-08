@@ -88,23 +88,73 @@ class ReceiptCheckTest(unittest.TestCase):
             self.assertFalse(ok)                                   # no warranty named: 0 h
             ok, rec, _ = sw.receipt_check(self.st(), d, {"price": 6000}, 10000, None)
             self.assertEqual(rec["b"], sw.FALLBACK_BREAK)          # no break chance known: the p90
+            ok, rec, _ = sw.receipt_check(self.st(), d, {"price": 6000, "warranty_hours": True}, 10000, 0.072)
+            self.assertEqual(rec["h"], 0)                            # a bool is not hours
 
-    def test_the_hours_exposure_caps_it(self):
+    def test_the_hours_exposure_caps_it_and_is_reserved(self):
         now = time.time()
         with tempfile.TemporaryDirectory() as d:
-            os.makedirs(os.path.join(d, "measure"))
-            with open(os.path.join(d, "measure", "orders.jsonl"), "w") as f:
-                for ts, passed in ((now - 100, True), (now - 200, False), (now - 4000, True)):
-                    f.write(json.dumps({"ts": ts, "passed_to_kit": passed,
-                                        "short_warranty_buy": {"ok": True, "loss": 15000}}) + "\n")
-                f.write("broken\n")
-            self.assertEqual(sw.exposure(d, now), 15000)
-            # buffer 1,000,000: room 20,000; 15,000 used + 0.072 x 6,000 = 432 -> fits; 0.072 x 100,000 = 7,200 does not
-            ok, _, _ = sw.receipt_check(self.st(1000000), d, {"price": 6000, "warranty_hours": 0}, 10000, 0.072, now)
+            path = os.path.join(d, sw.EXPOSURE_FILE)
+            with open(path, "w") as f:
+                for ts, loss in ((now - 100, 15000), (now - 4000, 15000)):     # the second is over an hour old
+                    f.write(json.dumps({"ts": ts, "loss": loss}) + "\n")
+            # buffer 1,000,000: room 20,000; 15,000 used + 0.072 x 6,000 = 432 -> fits and is reserved
+            ok, rec, _ = sw.receipt_check(self.st(1000000), d, {"price": 6000, "warranty_hours": 0}, 10000, 0.072, "o-1", now)
             self.assertTrue(ok)
-            ok, rec, why = sw.receipt_check(self.st(1000000), d, {"price": 100000, "warranty_hours": 0}, 200000, 0.072, now)
+            self.assertEqual(rec["exposure"], 15000)
+            with open(path) as f:
+                self.assertEqual(json.loads(f.readlines()[-1])["order"], "o-1")
+            # 15,432 used + 0.072 x 100,000 = 7,200 does not fit, and is not reserved
+            ok, rec, why = sw.receipt_check(self.st(1000000), d, {"price": 100000, "warranty_hours": 0}, 200000, 0.072, "o-2", now)
             self.assertFalse(ok)
             self.assertIn("expected loss", why)
+            with open(path) as f:
+                self.assertEqual(len(f.readlines()), 3)
+
+    def test_an_unreadable_exposure_pays_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, sw.EXPOSURE_FILE), "w") as f:
+                f.write("broken\n")
+            ok, _, why = sw.receipt_check(self.st(), d, {"price": 6000, "warranty_hours": 0}, 10000, 0.072)
+            self.assertFalse(ok)
+            self.assertIn("exposure unknown", why)
+            ok, _, why = sw.receipt_check(self.st(), os.path.join(d, "missing-dir"), {"price": 6000}, 10000, 0.072)
+            self.assertFalse(ok)
+
+    def test_parallel_buyers_cannot_both_take_the_last_room(self):
+        import threading
+        with tempfile.TemporaryDirectory() as d:
+            st = self.st(1000000)                       # room 20,000; each 0 h unit at 100,000 x .1 = 10,000... x2 fits,
+            res = []                                    # a third does not, however the threads interleave
+            ts = [threading.Thread(target=lambda: res.append(
+                sw.receipt_check(st, d, {"price": 100000, "warranty_hours": 0}, 200000, 0.1)[0])) for _ in range(5)]
+            [t.start() for t in ts]
+            [t.join() for t in ts]
+            self.assertEqual(sorted(res), [False, False, False, True, True])
+
+    def test_only_grades_that_keep_S_are_accepted(self):
+        # 11/06 grade rates: A 3%, B 12.2%, C 34.4%; at h 0, S .2955: p_max A .6745, B .5845, C .3605
+        rates = {"A": 0.03, "B": 0.122, "C": 0.344}
+        self.assertEqual(sw.grades_ok(6500, 10000, 0, 0.2955, rates), (["A"], 0.03))
+        self.assertEqual(sw.grades_ok(5800, 10000, 0, 0.2955, rates), (["A", "B"], 0.122))
+        self.assertEqual(sw.grades_ok(3000, 10000, 0, 0.2955, rates), (["A", "B", "C"], 0.344))
+        self.assertEqual(sw.grades_ok(6800, 10000, 0, 0.2955, rates), ([], None))
+        self.assertEqual(sw.grades_ok(6000, 10000, 0, 0.2955, {"A": None, "B": 1.0}), (["A"], sw.FALLBACK_BREAK))
+        self.assertEqual(sw.grades_ok(6000, None, 0, 0.2955, rates), ([], None))
+
+    def test_a_switch_cash_buffer_is_capped(self):
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, sw.SWITCH), "w") as f:
+                f.write('{"enabled": true, "cash_buffer": 1e12}')
+            self.assertEqual(sw.state(d, {"kind": "goods"}, env={})["buffer"], sw.BUFFER_MAX)
+
+    def test_b_of_one_or_worse_buys_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            for b in (1.0, 1.5):
+                ok, _, _ = sw.receipt_check(self.st(), d, {"price": 100, "warranty_hours": 0}, 10000, b)
+                self.assertFalse(ok)
+        self.assertEqual(sw.worst([10000, 7000, None, 0], [0.05, None, 1.2]), (7000, 1.0))
+        self.assertEqual(sw.worst([], []), (None, sw.FALLBACK_BREAK))
 
 
 class BuyerHooksTest(unittest.TestCase):
@@ -215,7 +265,7 @@ class MainTest(unittest.TestCase):
     def test_on_pays_a_0h_receipt_within_p_max_and_tells_the_kit(self):
         out, calls, o = self.run_main({"enabled": True, "cash_buffer": 34000000}, 6000, 0)
         self.assertIsNotNone(out["receipt"])
-        self.assertEqual(out["accept"], {"warranty_hours": 0})
+        self.assertEqual(out["accept"], {"warranty_hours": 0, "grades": ["A", "B", "C"]})   # no ledger: b = p90 for all
         s = o["short_warranty_buy"]
         self.assertTrue(s["ok"])
         self.assertEqual((s["h"], s["S"], s["p"]), (0, 0.3, 0.6))

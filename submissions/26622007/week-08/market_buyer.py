@@ -717,14 +717,25 @@ def warranty_short(rec, order):
     return None if w >= need else f"warranty {w} h, I buy goods only with {need} h"
 
 
-def short_warranty_receipt(rec, order, md, catalog, key, chance, short):
+def short_warranty_receipt(rec, order, md, catalog, key, chance, short, shop=None):
     """buyer_short_warranty on: None when this short-warranty receipt is within p_max(h) of its SKU and the hour's
     exposure (order["_sw_buy"] then says so), else short with the reason added. Fails closed."""
     try:
-        sku = rec.get("item") or key
-        lp = (catalog.get(sku) or {}).get("list_price")
-        b = chance if sku == key else market_model.break_chance(ledger_breaks(md, catalog), sku)
-        ok, note, why = buyer_short_warranty.receipt_check(order["_sw"], md, rec, lp, b)
+        # the kit pays a checkout for any acceptable SKU at the agreed price: the worst one this shop can ship counts
+        skus = {rec.get("item") or key} | {o.get("sku") for o in (shop or {}).get("usable") or [] if o.get("sku")}
+        stats = ledger_breaks(md, catalog)
+        lp, _ = buyer_short_warranty.worst([(catalog.get(s) or {}).get("list_price") for s in skus], [])
+        w = rec.get("warranty_hours")
+        h = w if hard_limits.number(w) and w > 0 else 0
+        # the shop picks the unit: each grade at the worst of its SKUs' chance; only grades that keep S are accepted
+        by_grade = {g: buyer_short_warranty.worst([], [market_model.unit_break_chance(stats, s, g) if stats else None
+                                                        for s in skus])[1] for g in buyer_short_warranty.GRADES}
+        grades, b = buyer_short_warranty.grades_ok(rec.get("price"), lp, h, order["_sw"]["S"], by_grade)
+        if not grades:
+            b = max(by_grade.values())
+        ok, note, why = buyer_short_warranty.receipt_check(order["_sw"], md, rec, lp, b, order.get("order"))
+        if note:
+            note["grades"] = grades
     except Exception as e:  # noqa: BLE001 - a check that fails pays nothing
         return f"{short}; short-warranty check failed: {type(e).__name__}"
     if note:
@@ -1674,6 +1685,9 @@ def main():
     with open(args.shops, encoding="utf-8") as f:
         shops = [s for s in json.load(f) if s.get("url") and s.get("name")]
     order = load_json(args.order, {}) if args.order else {}
+    if isinstance(order, dict):
+        for k in ("_sw", "_sw_buy", "_sw_h_est"):     # buyer_short_warranty's own state is set here, never read in
+            order.pop(k, None)
     r3 = isinstance(order, dict) and bool(order.get("acceptable"))
     if r3:
         # Keep a retained invocation start on resume; invalid values fail closed in the trial.
@@ -1967,11 +1981,11 @@ def main():
         out["state"] = "COMPLETED_NO_RECEIPT"
     short = warranty_short(rec, order) if r3 and rec is not None else None    # not cheating: just not a deal I pay for
     if short and order.get("_sw") is not None and not problems:
-        short = short_warranty_receipt(rec, order, md, catalog, key, chance, short)
+        short = short_warranty_receipt(rec, order, md, catalog, key, chance, short, shop)
     if short:
         warnings.append(short)
     over = over_limit(rec, offer, limit, catalog, args.budget,
-                      receipt_band(rec, offer, band_base, band_pct)) if r3 and rec is not None and not problems and not short else None
+                      None if (order.get("_sw_buy") or {}).get("ok") else receipt_band(rec, offer, band_base, band_pct)) if r3 and rec is not None and not problems and not short else None
     if over:
         warnings.append(over)
     for p in problems:
@@ -2005,6 +2019,7 @@ def main():
             result["accept"] = accept_policy(order)
             if result["receipt"] is not None and (order.get("_sw_buy") or {}).get("ok"):
                 result["accept"]["warranty_hours"] = order["_sw_buy"]["h"]     # the kit checks the checkout against it
+                result["accept"]["grades"] = list(order["_sw_buy"]["grades"])  # ... and the unit's certified grade
         if order.get("kind") == "goods" and asks:
             buyer_stock_evidence.observe(md, shop, key, ask=asks[-1], snapshot_at=order.get("_stock_snapshot_at"))
         order["_stock_terminal_written"] = buyer_stock_evidence.terminal(

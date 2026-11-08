@@ -203,8 +203,9 @@ def no_warranty(text):
 
 
 def short_warranty_hours(text):
-    """The hours of the short warranty no_warranty(text) saw: 0 for none or a 0 h one, else the largest named; None when
-    no_warranty(text) is False (buyer_short_warranty prices the deal at those hours)."""
+    """The hours of a short warranty in goods text: 0 when it says none or 0 h anywhere (even beside a longer one, the
+    stricter reading), else the largest named when under 6 h; None when it names nothing short (buyer_short_warranty
+    prices the deal at those hours)."""
     t = SAFE_RE.sub(_keep_stop, text or "")
     hours = []
     for m in WARRANTY_HOURS.finditer(t):
