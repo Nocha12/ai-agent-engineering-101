@@ -15,7 +15,7 @@ kind, shrunk to the kind's pool: (k + SHRINK p) / (n + SHRINK). No talk seconds 
 The ÷T is only with "per_time": true in the switch; without it the key is P x g (main 11/08 19:22: the final replay,
 shop-profiles.md 6, gave P x price +12% ALL/h and ÷T +9%).
 
-No ask within my limit (no_fit): the order as before, or with "nofit": true in the switch, of the asks within the talk band
+No ask within my limit (no_fit): the order as before, or with "nofit": true in the switch (or "ab": the B half of the orders), of the asks within the talk band
 (market_buyer.TALK_OVER_SHARE over the limit) the most P_nofit(shop, kind) x g(limit / list), where P_nofit is the deal
 rate of the orders kept with that shop when no quote fitted, over the last NOFIT_HOURS (11/08 24h: 1,794 goods orders, mjforge kept 411 for 2 paid,
 ddolcom 221 for 114, the cheapest ask decided; review/W-20261108-2241-AXPro주기, 대표님 8033 "잘 받아주는 곳으로").
@@ -24,6 +24,7 @@ Switch: .market/buyer_rank_pg.json {"enabled": true}; missing, unreadable or any
 current order exactly. BUYER_RANK_PG=0 in the environment is off too. Read at every order, so no restart either way.
 """
 import fcntl
+import hashlib
 import json
 import os
 import time
@@ -32,6 +33,7 @@ SWITCH = "buyer_rank_pg.json"
 CACHE = "buyer_rank_pg_cache.json"
 HOURS = 24
 NOFIT_HOURS = 3     # no-fit deal rates turned at 19:32 (short warranty on): ddolcom 112/198 before, 1/22 after
+NOFIT_BAND = 0.20   # = market_buyer.TALK_OVER_SHARE: a kept ask over it ends with no talk, so it says nothing of the shop
 SHRINK = 20.0
 NEXT_ORDER_SECONDS = 20.0
 REFRESH = 1800
@@ -86,7 +88,11 @@ def stats_from_rows(rows, paid, now):
         s = r.get("seconds") or {}
         talk = s.get("end") - s.get("quotes") if _num(s.get("end")) and _num(s.get("quotes")) else None
         qs = [q for q in r.get("quotes") or () if isinstance(q, dict)]
-        if qs and not any(q.get("fit") is True for q in qs) and ts >= now - NOFIT_HOURS * 3600:
+        kept = next((q for q in qs if q.get("shop") == shop and _num(q.get("ask")) and _num(q.get("limit"))), None)
+        # no ask within my limit, and the kept ask within the talk band (an ask over it never reaches a talk: 11/08 24h
+        # 0 of 335 paid; independent review 23:0x)
+        if qs and not any(q.get("fit") is True for q in qs) and ts >= now - NOFIT_HOURS * 3600 and kept is not None \
+                and 0 < kept["limit"] and kept["ask"] <= kept["limit"] * (1 + NOFIT_BAND):
             for c in (ncell.setdefault((shop, kind), [0, 0]), npool.setdefault(kind, [0, 0])):
                 c[0] += 1
                 c[1] += ok
@@ -194,8 +200,21 @@ def state(md, order, env=None, now=None):
         st = stats(md, now)
     except Exception:   # noqa: BLE001 - the ranking never stops an order
         return None
-    return ({"stats": st, "per_time": sw.get("per_time") is True, "nofit": sw.get("nofit") is True}
-            if isinstance(st, dict) else None)
+    if not isinstance(st, dict):
+        return None
+    arm = nofit_arm(sw, order)
+    return {"stats": st, "per_time": sw.get("per_time") is True, "nofit": sw.get("nofit") is True or arm == "B",
+            **({"nofit_arm": arm} if arm else {})}
+
+
+def nofit_arm(sw, order):
+    """"nofit": "ab" in the switch: half the orders (B, by the order id) get the no-fit pick, the other half (A) the order
+    before, at the same hours (GPT Pro 11/08 23:0x §2.9: a field test in the one buyer kit, 9-12 h, same-time arms; its
+    replay gave +0.02 to +0.57 paid/h, ours +2.1 to +2.7 halved). Anything else: None."""
+    oid = (order or {}).get("order")
+    if sw.get("nofit") != "ab" or not isinstance(oid, str) or not oid:
+        return None
+    return "B" if int(hashlib.sha256(oid.encode()).hexdigest(), 16) % 2 else "A"
 
 
 def cell(rk, shop, kind):

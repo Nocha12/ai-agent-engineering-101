@@ -9,10 +9,11 @@ import buyer_rank_pg
 import market_buyer
 
 
-def row(shop, ok, fit, kind="goods", ts=None):
+def row(shop, ok, fit, kind="goods", ts=None, ask=8000):
     return {"ts": ts or time.time() - 60, "shop": shop, "kind": kind, "order": f"o-{shop}-{ok}-{fit}-{id(object())}",
             "state": "TASK_STATE_COMPLETED" if ok else "TASK_STATE_FAILED", "price": 7000 if ok else None,
-            "passed_to_kit": ok, "quotes": [{"shop": shop, "ask": 8000, "fit": fit}], "seconds": {"quotes": 1, "end": 3}}
+            "passed_to_kit": ok, "quotes": [{"shop": shop, "ask": ask, "limit": 7000, "fit": fit}],
+            "seconds": {"quotes": 1, "end": 3}}
 
 
 class NoFitStatsTest(unittest.TestCase):
@@ -34,6 +35,26 @@ class NoFitStatsTest(unittest.TestCase):
         rows = [row("d", True, False, ts=old)] * 10 + [row("d", False, False)] * 2
         nf = buyer_rank_pg.stats_from_rows(rows, {}, time.time())["nofit"]
         self.assertEqual((nf["shops"]["d|goods"]["n"], nf["shops"]["d|goods"]["k"]), (2, 0))
+
+    def test_a_kept_ask_over_the_band_or_none_does_not_count(self):
+        rows = [row("m", False, False, ask=9000)] * 5 + [row("m", False, False, ask=None)] * 5 + [row("m", True, False)] * 2
+        nf = buyer_rank_pg.stats_from_rows(rows, {}, time.time())["nofit"]
+        self.assertEqual((nf["shops"]["m|goods"]["n"], nf["shops"]["m|goods"]["k"]), (2, 2))
+
+    def test_ab_splits_the_orders_by_id(self):
+        sw = {"enabled": True, "nofit": "ab"}
+        arms = {buyer_rank_pg.nofit_arm(sw, {"order": f"o-{i:04d}"}) for i in range(40)}
+        self.assertEqual(arms, {"A", "B"})
+        self.assertEqual(buyer_rank_pg.nofit_arm(sw, {"order": "o-x"}), buyer_rank_pg.nofit_arm(sw, {"order": "o-x"}))
+        self.assertIsNone(buyer_rank_pg.nofit_arm(sw, {}))
+        self.assertIsNone(buyer_rank_pg.nofit_arm({"enabled": True, "nofit": True}, {"order": "o-x"}))
+        with tempfile.TemporaryDirectory() as md:
+            with open(os.path.join(md, buyer_rank_pg.SWITCH), "w") as f:
+                json.dump(sw, f)
+            with mock.patch.object(buyer_rank_pg, "stats", lambda md, now=None: {"pool": {}, "shops": {}}):
+                for i in range(20):
+                    st = buyer_rank_pg.state(md, {"order": f"o-{i}"})
+                    self.assertEqual(st["nofit"], st["nofit_arm"] == "B")
 
     def test_switch_turns_it_on(self):
         with tempfile.TemporaryDirectory() as md:
@@ -85,6 +106,11 @@ class NoFitPickTest(unittest.TestCase):
 
     def test_off_is_the_current_order(self):
         self.assertEqual(self.run_bq({"b": 7400, "c": 8000, "d": 9000}, self.rk(nofit=False)), "b")
+
+    def test_a_cache_without_nofit_keeps_the_current_order(self):
+        rk = self.rk()
+        del rk["stats"]["nofit"]
+        self.assertEqual(self.run_bq({"b": 7400, "c": 8000, "d": 9000}, rk), "b")
 
     def test_food_keeps_the_current_order(self):
         self.assertEqual(self.run_bq({"b": 7400, "c": 8000, "d": 9000}, self.rk(), kind="food"), "b")
