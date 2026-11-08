@@ -51,7 +51,8 @@ class FixtureIsolation(unittest.TestCase):
                 enabled=True, version=seller.sol_seller_margin.VERSION, study_id='ambient-margin-regression',
                 epoch=now-10, start=now-10, end=now+43190,
                 salt='ambient-margin-regression-salt',
-                source_sha256=seller.sol_seller_margin.SOURCE_BINDING,
+                disk_snapshot_sha256=seller.sol_seller_margin.DISK_SNAPSHOT_SHA256,
+                **seller.sol_source_load.proof()['claim'],
                 baseline=baseline, baseline_sha256=seller.sol_seller_margin.digest(baseline))))
             margin.quote('ambient-fixture-task', dict(unit='u-anonymous', sku='G00000000',
                          grade='A', kind='goods', cost=100000, list_price=500000),

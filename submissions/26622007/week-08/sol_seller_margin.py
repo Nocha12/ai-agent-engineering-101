@@ -6,6 +6,7 @@ No inventory, payment, model, network, legacy controller or pricing writes.
 """
 from contextlib import closing
 import hashlib
+import fcntl
 import json
 import math
 import os
@@ -14,13 +15,18 @@ import re
 import sqlite3
 import sys
 import time
+import uuid
 
 import profit_price
 import hard_limits
+import sol_source_load
+
+class StudyError(RuntimeError):
+    """No public quote may consume an uncommitted or conflicting assignment."""
 
 VERSION = 2
 COMMON_ADOPTED = {'seller_late_concession', 'at_floor_exact_trial', 'exact_counter_trial', 'exact_accept_trial'}
-SOURCE_FILES = ('sol_seller_margin.py', 'seller.py', 'profit_price.py', 'hard_limits.py',
+SOURCE_FILES = ('sol_source_load.py', 'sol_seller_margin.py', 'seller.py', 'profit_price.py', 'hard_limits.py',
                 'shop_stock.py', 'shop_memory.py', 'seller_opening_default.py',
                 'seller_concession_trial.py', 'seller_reader_trial.py', 'seller_late_concession.py',
                 'at_floor_exact_trial.py', 'exact_counter_trial.py', 'exact_accept_trial.py',
@@ -34,12 +40,15 @@ def digest(value):
 
 
 def source_manifest():
+    if any((Path(__file__).parent/name).is_symlink() for name in SOURCE_FILES):
+        raise StudyError('disk snapshot symlink')
     return {name: hashlib.sha256((Path(__file__).parent/name).read_bytes()).hexdigest() for name in SOURCE_FILES}
 
 
-LOADED_SOURCES = source_manifest()
-# Capture at import, never claim a long-running process loaded edited disk code.
-SOURCE_BINDING = digest(LOADED_SOURCES)
+DISK_SNAPSHOT = source_manifest()
+# Import-time disk snapshot only, not proof of loaded Python bytecode. Activation
+# also requires a fresh seller and source immutability across imports/verification.
+DISK_SNAPSHOT_SHA256 = digest(DISK_SNAPSHOT)
 
 
 def baseline_snapshot(pricing, others=()):
@@ -55,11 +64,54 @@ def baseline_snapshot(pricing, others=()):
                               disabled=(peer.root/'disabled').exists(),
                               version='adopted-v1',
                               opening_disabled=(peer.root/'seller_opening_default.disabled').exists())
-    return dict(pricing=effective, policies=policies, sources=LOADED_SOURCES)
+    return dict(pricing=effective, policies=policies, disk_snapshot=DISK_SNAPSHOT)
 
 
-class StudyError(RuntimeError):
-    """No public quote may consume an uncommitted or conflicting assignment."""
+class Admission:
+    """Serialize consumption with the supported controller producer.
+
+    consume() is synchronous on the seller loop, immediately before invoking
+    transport. The linearization point is its final current-clock check, not ACK.
+    """
+    def __init__(self, study, cfg, task, assignment, pricing, loader, peers):
+        self.study, self.cfg = study, cfg
+        self.task, self.assignment = task, assignment
+        self.pricing, self.loader, self.peers = pricing, loader, peers
+        self.consumed = False
+        self.closed = False
+
+    def __enter__(self): return self
+    def __exit__(self, *exc): self.close()
+    def close(self):
+        self.closed = True
+
+    def consume(self):
+        if self.closed or self.consumed:
+            raise StudyError('admission already closed or consumed')
+        try:
+            handle = self.study._controller_lock(wait=False)
+        except BlockingIOError as exc:
+            raise StudyError('controller transition in progress') from exc
+        with handle:
+            return self._consume_locked()
+
+    def _consume_locked(self):
+        self.study.event(self.task, self.assignment, 'consume_intent')
+        # DB waits/fsync precede this final check. OFF writers use this same lock.
+        cfg = self.study.config()
+        at = time.time()
+        if (cfg != self.cfg or not cfg or not cfg['start'] <= at < cfg['end']
+                or any(self.study.peer_active(p, at) for p in self.peers)):
+            raise StudyError('admission revoked or expired')
+        if self.assignment['eligible']:
+            pricing = self.loader() if self.loader is not None else self.pricing
+            self.study.verify_baseline(self.task, cfg, pricing, self.peers)
+        # Baseline/source reads also precede the linearization point.
+        at = time.time()
+        if not cfg['start'] <= at < cfg['end']:
+            raise StudyError('admission expired before transport')
+        self.consumed = True
+        return at
 
 
 def number(v):
@@ -71,6 +123,41 @@ class MarginStudy:
         self.observation_unknown = 0
         self.root = Path(root) if root is not None else Path(
             os.environ.get('MARKET_DIR') or Path(__file__).parent/'.market')/'sol_seller_margin_v2'
+
+    def _controller_lock(self, wait=True):
+        self.root.mkdir(parents=True, exist_ok=True)
+        path = self.root/'controller.lock'
+        if self.root.is_symlink() or path.is_symlink():
+            raise StudyError('controller lock symlink')
+        handle = path.open('a+b')
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
+            return handle
+        except BaseException:
+            handle.close()
+            raise
+
+    def write_controller(self, cfg):
+        """Only supported ON/OFF producer; serializes with consumption.
+
+        OFF completion fences new admissions. An already admitted send may still
+        be pending/delivered/unknown; its original terms remain binding.
+        """
+        with self._controller_lock():
+            path = self.root/'controller.json'
+            if path.is_symlink():
+                raise StudyError('controller symlink')
+            tag = uuid.uuid4().hex
+            if path.exists():
+                with (self.root/('controller-'+tag+'.backup')).open('xb') as f:
+                    f.write(path.read_bytes()); f.flush(); os.fsync(f.fileno())
+            pending = self.root/('controller-'+tag+'.pending')
+            with pending.open('x') as f:
+                json.dump(cfg, f, sort_keys=True, allow_nan=False); f.flush(); os.fsync(f.fileno())
+            os.replace(pending, path)
+            fd = os.open(self.root, os.O_RDONLY)
+            try: os.fsync(fd)
+            finally: os.close(fd)
 
     def config(self, now=None):
         now = time.time() if now is None else now
@@ -85,8 +172,8 @@ class MarginStudy:
                 raise ValueError('enabled')
             if c['enabled'] is False:
                 return None
-            if set(c) != {'enabled', 'version', 'study_id', 'epoch', 'start', 'end', 'salt', 'source_sha256',
-                          'baseline', 'baseline_sha256'}:
+            if set(c) != {'enabled', 'version', 'study_id', 'epoch', 'start', 'end', 'salt', 'disk_snapshot_sha256',
+                          'baseline', 'baseline_sha256', 'load_generation', 'load_proof_sha256'}:
                 raise ValueError('schema')
             if type(c['version']) is not int or c['version'] != VERSION:
                 raise ValueError('version')
@@ -97,8 +184,10 @@ class MarginStudy:
                 raise ValueError('time')
             if c['epoch'] != c['start'] or not 9*3600 <= c['end']-c['start'] <= 12*3600:
                 raise ValueError('window')
-            if c['source_sha256'] != SOURCE_BINDING:
-                raise ValueError('source_binding')
+            if c['disk_snapshot_sha256'] != DISK_SNAPSHOT_SHA256:
+                raise ValueError('disk_snapshot')
+            if not sol_source_load.verifies(Path(__file__).parent, c, DISK_SNAPSHOT):
+                raise ValueError('fresh_frozen_load_proof')
             if not isinstance(c['baseline'], dict) or digest(c['baseline']) != c['baseline_sha256']:
                 raise ValueError('baseline_signature')
             return c if c['start'] <= now < c['end'] else None
@@ -184,7 +273,9 @@ class MarginStudy:
             changed = bool(eligible and reason == 'price_change')
             chosen = candidate if changed else q
             rec = dict(study_id=c['study_id'], version=VERSION, epoch=c['epoch'], salt=c['salt'],
-                       source_sha256=SOURCE_BINDING, task=task, at=now, cluster=cluster,
+                       disk_snapshot_sha256=DISK_SNAPSHOT_SHA256,
+                       load_generation=c['load_generation'], load_proof_sha256=c['load_proof_sha256'],
+                       task=task, at=now, cluster=cluster,
                        unit=unit.get('unit'), sku=unit.get('sku'), grade=unit.get('grade'),
                        cost=unit.get('cost'), list_price=unit.get('list_price'), kind=unit.get('kind'),
                        median=median, floor=q['floor'], b=q['b'], eligible=eligible, arm=arm,
@@ -222,7 +313,7 @@ class MarginStudy:
             self.event(task, dict(study_id=c['study_id'], epoch=c['epoch']), 'selection_miss', now=now)
 
     def verify_baseline(self, task, cfg, pricing, others):
-        if (source_manifest() != LOADED_SOURCES or
+        if (not sol_source_load.verifies(Path(__file__).parent, cfg, DISK_SNAPSHOT) or source_manifest() != DISK_SNAPSHOT or
                 digest(baseline_snapshot(pricing, others)) != cfg['baseline_sha256']):
             try:
                 self.event(task, cfg, 'paused', reason='baseline_changed', economic_status='unknown')
@@ -231,12 +322,19 @@ class MarginStudy:
             raise StudyError('baseline changed; paused unknown')
 
     def ready(self, task, assignment, deal, keep, others=(), now=None, pricing=None, pricing_loader=None):
+        if not assignment:
+            return None
+        cfg = self._prepare(task, assignment, deal, keep, others, now, pricing, pricing_loader)
+        return Admission(self, cfg, task, assignment, pricing, pricing_loader, others)
+
+    def _prepare(self, task, assignment, deal, keep, others=(), now=None, pricing=None, pricing_loader=None):
         """Durable final price before publication; common markdown/opening stay common."""
         if not assignment:
             return
         now = time.time() if now is None else now
         c = self.config(now)
-        if (not c or any(c[k] != assignment[k] for k in ('study_id', 'epoch', 'salt', 'source_sha256'))
+        if (not c or any(c[k] != assignment[k] for k in ('study_id', 'epoch', 'salt', 'disk_snapshot_sha256',
+                                                       'load_generation', 'load_proof_sha256'))
                 or not self.pre_pick_ok(others, now)):
             raise StudyError('study changed before quote consumption')
         if assignment['eligible']:
@@ -257,6 +355,7 @@ class MarginStudy:
                    warranty=deal.get('warranty'), actual_treatment=actual,
                    untreated_reason=None if actual else (
                        'downstream_clipped' if assignment['prepared_treatment'] else assignment['reason']))
+        return c
 
     def event(self, task, assignment, event, now=None, **data):
         if not assignment:

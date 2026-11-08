@@ -9,9 +9,35 @@ import time
 from types import SimpleNamespace
 import unittest
 import uuid
+import selectors
+import threading
+import importlib
+import importlib.util
+import shutil
+import sys
 from unittest import mock
 
 import sol_seller_margin as margin
+
+
+def real_loop(coroutine):
+    """Real asyncio scheduling/executors; only its socket wakeup is replaced.
+
+    A bounded selector poll delivers worker callbacks without any socket call.
+    No product coroutine/to_thread, future, lock or executor is mocked here.
+    """
+    class Poll(selectors.SelectSelector):
+        def select(self, timeout=None):
+            return super().select(.005 if timeout is None else min(timeout, .005))
+    class Loop(asyncio.SelectorEventLoop):
+        def _make_self_pipe(self): self._ssock = self._csock = None
+        def _close_self_pipe(self): pass
+    loop = Loop(Poll())
+    try:
+        return loop.run_until_complete(asyncio.wait_for(coroutine, 5))
+    finally:
+        loop.run_until_complete(loop.shutdown_default_executor())
+        loop.close()
 
 
 def offline_await(coroutine, before=None):
@@ -49,7 +75,8 @@ class MarginTest(unittest.TestCase):
         self.root.mkdir(exist_ok=True)
         baseline = margin.baseline_snapshot(self.pricing, updates.pop('others', ()))
         cfg = dict(enabled=True, version=margin.VERSION, study_id='sol-margin-new-001', epoch=1000,
-                   start=1000, end=44200, salt='fresh-sol-salt-001', source_sha256=margin.SOURCE_BINDING)
+                   start=1000, end=44200, salt='fresh-sol-salt-001', disk_snapshot_sha256=margin.DISK_SNAPSHOT_SHA256,
+                   **margin.sol_source_load.proof()['claim'])
         cfg.update(baseline=baseline, baseline_sha256=margin.digest(baseline))
         cfg.update(updates)
         (self.root/'controller.json').write_text(json.dumps(cfg))
@@ -63,6 +90,54 @@ class MarginTest(unittest.TestCase):
         self.assertEqual(q['open'], 291000)
         self.assertIsNone(assignment)
         self.assertFalse(self.root.exists())
+
+    def test_preimported_old_dependency_cannot_certify_new_disk_snapshot(self):
+        source = Path(margin.__file__).parent
+        for preloaded in ('local', 'foreign', False):
+            with self.subTest(preloaded=preloaded), tempfile.TemporaryDirectory() as td, \
+                    mock.patch.dict(sys.modules), mock.patch.object(sys, 'meta_path', list(sys.meta_path)), \
+                    mock.patch.object(sys, 'path', [td, *sys.path]):
+                root = Path(td)
+                for p in source.glob('*.py'): shutil.copyfile(p, root/p.name)
+                names = {p.stem for p in root.glob('*.py')}
+                for name in names: sys.modules.pop(name, None)
+                profit = root/'profit_price.py'
+                text = profit.read_text()
+                if preloaded:
+                    old_path = profit
+                    if preloaded == 'foreign':
+                        (root/'foreign').mkdir()
+                        old_path = root/'foreign'/'profit_price.py'
+                    old_path.write_text(text+"\nDISK_REVISION = 'old'\n")
+                    spec = importlib.util.spec_from_file_location('profit_price', old_path)
+                    old = importlib.util.module_from_spec(spec)
+                    sys.modules['profit_price'] = old
+                    spec.loader.exec_module(old)
+                profit.write_text(text+"\nDISK_REVISION = 'new'\n")
+                bootstrap = None
+                if (root/'sol_source_load.py').exists():
+                    bootstrap = importlib.import_module('sol_source_load')
+                    bootstrap.install()
+                m = importlib.import_module('sol_seller_margin')
+                cfg = dict(enabled=True, version=m.VERSION, study_id='source-load-proof-test',
+                           epoch=1000, start=1000, end=44200, salt='source-proof-test-salt')
+                if hasattr(m, 'DISK_SNAPSHOT_SHA256'):
+                    cfg.update(disk_snapshot_sha256=m.DISK_SNAPSHOT_SHA256,
+                               **bootstrap.proof()['claim'])
+                else:
+                    cfg['source_sha256'] = m.SOURCE_BINDING
+                baseline = m.baseline_snapshot(self.pricing)
+                cfg.update(baseline=baseline, baseline_sha256=m.digest(baseline))
+                trial = m.MarginStudy(root/'study')
+                trial.root.mkdir()
+                (trial.root/'controller.json').write_text(json.dumps(cfg))
+                if preloaded:
+                    self.assertEqual(m.profit_price.DISK_REVISION, 'old')
+                    with self.assertRaises(m.StudyError):
+                        trial.quote('fresh-task', self.unit, 300000, .04, (), self.pricing, now=1100)
+                else:
+                    self.assertEqual(m.profit_price.DISK_REVISION, 'new')
+                    self.assertIsNotNone(trial.quote('fresh-task', self.unit, 300000, .04, (), self.pricing, now=1100)[1])
 
     def test_missing_or_unknown_grade_never_blocks_baseline_or_gets_b_price(self):
         self.enable()
@@ -199,7 +274,7 @@ class MarginTest(unittest.TestCase):
         self.unit['cost'] = 200000
         with self.assertRaises(margin.StudyError):
             self.quote()
-        self.enable(source_sha256='0'*64)
+        self.enable(disk_snapshot_sha256='0'*64)
         with self.assertRaises(margin.StudyError):
             self.quote(task='task-source')
 
@@ -262,6 +337,112 @@ class MarginTest(unittest.TestCase):
         with self.assertRaises(margin.StudyError):
             self.trial.ready(a['task'], a, dict(ask=300000, reserve=100000), 1, now=1100)
 
+    def test_ready_off_between_config_read_and_peer_check_cannot_consume(self):
+        self.enable()
+        _, a = self.quote()
+        original = self.trial.config
+        reads = []
+        def read(now=None):
+            cfg = original(now)
+            if not reads:
+                (self.root/'controller.json').write_text('{"enabled":false}')
+            reads.append(True)
+            return cfg
+        with mock.patch.object(self.trial, 'config', read), self.assertRaises(margin.StudyError):
+            permit = self.trial.ready(a['task'], a, dict(ask=300000, reserve=100000), 1,
+                                      now=1100, pricing=self.pricing)
+            if permit is not None:
+                with permit:
+                    permit.consume()
+
+    def test_expiry_after_durable_ready_before_transport_cannot_consume(self):
+        self.enable()
+        _, a = self.quote()
+        clock = [1100]
+        event = self.trial.event
+        def after_write(*args, **kwargs):
+            event(*args, **kwargs)
+            if args[2] == 'quote_ready': clock[0] = 50000
+        with mock.patch.object(margin.time, 'time', lambda: clock[0]), \
+                mock.patch.object(self.trial, 'event', after_write), self.assertRaises(margin.StudyError):
+            permit = self.trial.ready(a['task'], a, dict(ask=300000, reserve=100000), 1,
+                                      now=1100, pricing=self.pricing)
+            if permit is not None:
+                with permit:
+                    permit.consume()
+
+    def test_real_off_writer_fences_consumption_and_preserves_already_admitted_send(self):
+        self.enable()
+        _, a = self.quote()
+        requested, finished = threading.Event(), threading.Event()
+        seen = []
+        permit = self.trial.ready(a['task'], a, dict(ask=300000, reserve=100000), 1,
+                                  now=1100, pricing=self.pricing)
+        lock, event = self.trial._controller_lock, self.trial.event
+        def write_off():
+            self.trial.write_controller({'enabled':False})
+            seen.append(permit.consumed)
+            finished.set()
+        writer = threading.Thread(target=write_off)
+        def notified_lock(wait=True):
+            if threading.current_thread() is writer: requested.set()
+            return lock(wait)
+        def at_intent(*args, **kwargs):
+            event(*args, **kwargs)
+            if args[2]=='consume_intent':
+                writer.start()
+                self.assertTrue(requested.wait(1))
+                self.assertFalse(finished.is_set())  # actual other fd's flock is fenced
+        with mock.patch.object(margin.time, 'time', return_value=1100), \
+                mock.patch.object(self.trial, '_controller_lock', notified_lock), \
+                mock.patch.object(self.trial, 'event', at_intent):
+            with permit:
+                self.assertEqual(permit.consume(), 1100)
+            writer.join(2)
+        self.assertFalse(writer.is_alive())
+        self.assertEqual(seen, [True])
+        self.assertIsNone(self.trial.config(now=1100))
+
+    def test_real_off_writer_winning_gate_blocks_prepared_consumption(self):
+        self.enable()
+        _, a = self.quote()
+        permit = self.trial.ready(a['task'], a, dict(ask=300000, reserve=100000), 1,
+                                  now=1100, pricing=self.pricing)
+        locked, release = threading.Event(), threading.Event()
+        lock = self.trial._controller_lock
+        writer = threading.Thread(target=lambda: self.trial.write_controller({'enabled':False}))
+        def pause_writer(wait=True):
+            handle = lock(wait)
+            if threading.current_thread() is writer:
+                locked.set()
+                if not release.wait(2): handle.close(); raise AssertionError('fixture release timeout')
+            return handle
+        with mock.patch.object(self.trial, '_controller_lock', pause_writer):
+            writer.start()
+            try:
+                self.assertTrue(locked.wait(1))
+                with permit, self.assertRaises(margin.StudyError): permit.consume()
+            finally:
+                release.set()
+                writer.join(2)
+        self.assertFalse(writer.is_alive())
+        self.assertFalse(permit.consumed)
+        self.assertIsNone(self.trial.config(now=1100))
+
+    def test_expiry_during_consume_intent_io_is_checked_after_the_wait(self):
+        self.enable()
+        _, a = self.quote()
+        permit = self.trial.ready(a['task'], a, dict(ask=300000, reserve=100000), 1,
+                                  now=1100, pricing=self.pricing)
+        clock, event = [1100], self.trial.event
+        def delayed(*args, **kwargs):
+            event(*args, **kwargs)
+            if args[2]=='consume_intent': clock[0]=50000
+        with mock.patch.object(margin.time, 'time', lambda:clock[0]), \
+                mock.patch.object(self.trial, 'event', delayed), permit, self.assertRaises(margin.StudyError):
+            permit.consume()
+        self.assertFalse(permit.consumed)
+
 
 class SellerExposureTest(unittest.TestCase):
     def test_real_seller_first_quote_records_final_treatment_after_common_opening(self):
@@ -291,10 +472,33 @@ class SellerExposureTest(unittest.TestCase):
     def test_publication_cancel_retains_unknown_not_unpublished(self):
         self.exercise_case('transport_cancel')
 
+    def test_lost_ack_buyer_can_accept_the_existing_unknown_quote(self):
+        self.exercise_case('lost_ack_accept')
+
+    def test_real_off_producer_after_ready_cleans_unpublished_trade(self):
+        self.exercise_case('off_after_ready')
+
     def test_published_off_and_sqlite_error_do_not_block_common_record_or_flush(self):
         self.exercise_case('published_journal_failure')
 
-    def exercise_case(self, action=None):
+    def test_prior_memory_writer_failure_fixture_does_not_taint_next_public_trade(self):
+        self.exercise_case('prior_writer_failure')
+
+    def test_two_first_quotes_cannot_overwrite_the_same_unit_owner(self):
+        self.exercise_case('concurrent_quotes')
+
+    def test_eight_first_quotes_keep_one_owner(self):
+        self.exercise_case('concurrent_quotes', quote_count=8)
+
+    def test_study_off_first_quotes_still_keep_one_owner(self):
+        self.exercise_case('concurrent_quotes', study_on=False)
+
+    def test_real_loop_worker_quotes_preserve_one_owner_on_and_off(self):
+        for enabled in (True, False):
+            with self.subTest(enabled=enabled):
+                self.exercise_case('real_concurrent_quotes', study_on=enabled)
+
+    def exercise_case(self, action=None, *, quote_count=2, study_on=True):
         # All filesystem/controller boundaries use this fresh fixture. No HTTP/model stubs
         # can conceal a model attempt: direct_runner's process/network sentinel rejects it.
         with tempfile.TemporaryDirectory() as td, contextlib.ExitStack() as stack:
@@ -315,6 +519,25 @@ class SellerExposureTest(unittest.TestCase):
                            'AT_FLOOR_EXACT', 'DEEP_LOWBALL', 'QUOTE_HOLD')
             for name in controllers:
                 stack.enter_context(mock.patch.object(getattr(seller, name), 'root', root/name))
+            if action == 'prior_writer_failure':
+                # Exact polluter from the full-suite log, before the real public
+                # trade/strict-flush victim below. Do not clear the victim's state.
+                from test_seller_memory_writer import MemoryWriter
+                MemoryWriter('test_a_failing_write_is_logged_not_raised').debug()
+                # The polluter's fixture must also preserve a pre-existing sticky
+                # failure, rather than clearing failures for the next test.
+                ambient = seller.MEMORY_FAILURES
+                with mock.patch.object(seller, 'MEMORY_FAILURES', [True]) as prior:
+                    MemoryWriter('test_a_failing_write_is_logged_not_raised').debug()
+                    self.assertIs(seller.MEMORY_FAILURES, prior)
+                    self.assertEqual(prior, [True])
+                    with self.assertRaisesRegex(RuntimeError, 'drain is not clean'):
+                        seller.flush_memory(strict=True)
+                self.assertIs(seller.MEMORY_FAILURES, ambient)
+                MemoryWriter('test_remember_returns_at_once_and_the_writes_keep_their_order').debug()
+                from test_seller_drain import PersistenceTest
+                PersistenceTest('test_failed_memory_write_blocks_flush').debug()
+                action = 'published_journal_failure'
             if action == 'adopted_common':
                 for name in ('LATE_CONCESSION', 'AT_FLOOR_EXACT', 'EXACT_COUNTER', 'EXACT_ACCEPT'):
                     peer_root = getattr(seller, name).root
@@ -332,7 +555,8 @@ class SellerExposureTest(unittest.TestCase):
             (trial.root/'controller.json').write_text(json.dumps(dict(
                 enabled=True, version=margin.VERSION, study_id='sol-seller-integration-001',
                 epoch=now-1, start=now-1, end=now+43199, salt='new-integration-salt',
-                source_sha256=margin.SOURCE_BINDING,
+                disk_snapshot_sha256=margin.DISK_SNAPSHOT_SHA256,
+                **margin.sol_source_load.proof()['claim'],
                 baseline=margin.baseline_snapshot(pricing, [getattr(seller, name) for name in controllers if name != 'DRAIN']),
                 baseline_sha256=margin.digest(margin.baseline_snapshot(pricing, [getattr(seller, name) for name in controllers if name != 'DRAIN'])))))
             # Choose an actually assigned B cluster through the public price seam.
@@ -356,10 +580,120 @@ class SellerExposureTest(unittest.TestCase):
                 rejected = None
                 async def requires_input(self, message):
                     self.quote = message
-                    if action == 'transport_failure': raise OSError('fixture ambiguous delivery')
+                    if action in ('transport_failure', 'lost_ack_accept'): raise OSError('fixture ambiguous delivery')
                     if action == 'transport_cancel': raise asyncio.CancelledError()
                 async def reject(self, message): self.rejected = message
             up = Updater()
+            if action == 'off_after_ready':
+                prepare = trial._prepare
+                def stop_after_prepare(*args, **kwargs):
+                    cfg = prepare(*args, **kwargs)
+                    trial.write_controller({'enabled':False})
+                    return cfg
+                with mock.patch.object(trial, '_prepare', stop_after_prepare), self.assertRaises(margin.StudyError):
+                    real_loop(shop.open_from_stock(task, u['sku'], up, lambda text, price=None:(text, price)))
+                self.assertIsNone(up.quote)
+                self.assertNotIn(task.id, shop.open)
+                self.assertNotEqual(stock.holder(u['unit']), task.id)
+                return
+            if action == 'lost_ack_accept':
+                with self.assertRaises(OSError):
+                    real_loop(shop.open_from_stock(task, u['sku'], up, lambda text, price=None: (text, price)))
+                deal = shop.open[task.id]
+                original_price = up.quote[1]  # the buyer received this before ACK was lost
+                self.assertEqual(deal['sol_margin_publication'], 'unknown')
+                class Continue:
+                    failed_message = None
+                    completed = False
+                    receipt = None
+                    def new_agent_message(self, **kw): return kw
+                    async def failed(self, message): self.failed_message = message
+                    async def reject(self, message): self.failed_message = message
+                    async def add_artifact(self, parts, name): self.receipt = parts
+                    async def complete(self, message): self.completed = True
+                follow = Continue()
+                from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+                key = Ed25519PrivateKey.generate()  # ephemeral fixture, no real key file
+                context = SimpleNamespace(current_task=SimpleNamespace(id=task.id, context_id='fixture'), message=None)
+                with mock.patch.object(seller, 'get_message_text', return_value=str(original_price)), \
+                     mock.patch.object(seller, 'TaskUpdater', return_value=follow), \
+                     mock.patch.object(seller, 'load_shop_key', return_value=key), \
+                     mock.patch.object(seller, 'decide_turn', side_effect=AssertionError('model forbidden')):
+                    real_loop(shop._execute(context, None))
+                seller.flush_memory(strict=True)
+                self.assertTrue(follow.completed)
+                self.assertIsNone(follow.failed_message)
+                self.assertIsNotNone(follow.receipt)
+                from google.protobuf.json_format import MessageToDict
+                receipt = MessageToDict(follow.receipt[0].data)
+                receipt['price'] = int(receipt['price'])  # official protobuf Value numeric wire type
+                self.assertEqual((receipt['price'], receipt['task'], receipt['unit']),
+                                 (original_price, task.id, u['unit']))
+                key.public_key().verify(seller.base64.b64decode(receipt['sig_seller']),
+                    seller.canon({k:receipt[k] for k in ('shop','item','price','task')}))
+                self.assertEqual(stock.agreed[u['unit']]['price'], original_price)
+                self.assertEqual(deal['sol_margin_publication'], 'unknown')
+                self.assertFalse(any(e['event']=='quoted' and e['task']==task.id for e in trial.events()))
+                self.assertTrue(any(e['event']=='local_agreed' and e['task']==task.id for e in trial.events()))
+                return
+            if action == 'real_concurrent_quotes':
+                if not study_on:
+                    (trial.root/'controller.json').write_text('{"enabled":false}')
+                barrier = threading.Barrier(2, timeout=3)
+                original = trial.quote
+                def synchronized_quote(*args, **kwargs):
+                    barrier.wait()  # both actual workers are after pick, before hold
+                    return original(*args, **kwargs)
+                tasks = [SimpleNamespace(id=str(uuid.uuid4())) for _ in range(2)]
+                updates = [Updater() for _ in tasks]
+                async def concurrent():
+                    await asyncio.gather(*(shop.open_from_stock(t, u['sku'], out,
+                        lambda text, price=None: (text, price)) for t,out in zip(tasks,updates)))
+                with mock.patch.object(trial, 'quote', synchronized_quote):
+                    real_loop(concurrent())
+                winners = [i for i,out in enumerate(updates) if out.quote is not None]
+                self.assertEqual(len(winners), 1)
+                winner = tasks[winners[0]].id
+                self.assertEqual(stock.holder(u['unit']), winner)
+                self.assertEqual(set(shop.open), {winner})
+                self.assertEqual(sum(out.rejected is not None for out in updates), 1)
+                return
+            if action == 'concurrent_quotes':
+                if not study_on:
+                    (trial.root/'controller.json').write_text('{"enabled":false}')
+                # Real coroutines, deliberately suspended at the new quote await
+                # after both picks. No loop/socket or timing sleeps are needed.
+                checkpoint = object()
+                class Pause:
+                    def __await__(self):
+                        yield checkpoint
+                async def step(function, *args, **kwargs):
+                    if getattr(function, '__self__', None) is trial and function.__name__ == 'quote':
+                        await Pause()
+                    return function(*args, **kwargs)
+                tasks = [SimpleNamespace(id=str(uuid.uuid4())) for _ in range(quote_count)]
+                updates = [Updater() for _ in tasks]
+                pending = [shop.open_from_stock(t, u['sku'], out, lambda text, price=None: (text, price))
+                           for t, out in zip(tasks, updates)]
+                with mock.patch.object(asyncio, 'to_thread', step):
+                    try:
+                        for c in pending:
+                            self.assertIs(c.send(None), checkpoint)
+                        self.assertIsNone(stock.holder(u['unit']))
+                        for c in pending:
+                            with self.assertRaises(StopIteration):
+                                c.send(None)
+                    finally:
+                        for c in pending:
+                            c.close()
+                self.assertEqual(sum(out.quote is not None for out in updates), 1)
+                self.assertEqual(stock.holder(u['unit']), tasks[0].id)
+                self.assertEqual(set(shop.open), {tasks[0].id})
+                self.assertEqual(updates[0].quote[1], 291000 if study_on else 282270)
+                self.assertTrue(all(out.rejected is not None for out in updates[1:]))
+                lost = [e for e in trial.events() if e['event'] == 'selection_lost']
+                self.assertEqual([e['task'] for e in lost], [t.id for t in tasks[1:]] if study_on else [])
+                return
             def before(function, args):
                 if getattr(function, '__self__', None) is trial and function.__name__ == 'ready':
                     if action == 'off_before_ready':

@@ -50,6 +50,7 @@ def manifest(paths):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--meta-source", type=Path)
+    parser.add_argument("--seller-source", type=Path)
     parser.add_argument("tests", nargs="*")
     options = parser.parse_args()
     names = options.tests or DEFAULTS
@@ -63,6 +64,14 @@ def main():
                 or name.startswith("test_sol_seller_margin.")) for name in names):
         raise SystemExit("Only the approved offline test seams are allowed")
     meta_bytes = None
+    seller_bytes = None
+    if options.seller_source is not None:
+        fixture = options.seller_source.absolute()
+        if fixture != fixture.resolve() or not stat.S_ISREG(fixture.lstat().st_mode) or fixture.stat().st_size > 2_000_000:
+            parser.error('seller-source must be a canonical regular pinned fixture')
+        seller_bytes = fixture.read_bytes()
+        if hashlib.sha256(seller_bytes).hexdigest() != 'eb9f4f81bdd3d805c7fb747aff3416b22c8884e4f19823addf1ee421bff0d636':
+            parser.error('seller-source must match the approved be49 historical seller')
     if options.meta_source is not None:
         fixture = options.meta_source.absolute()
         if (fixture != fixture.resolve() or fixture.suffix != ".py"
@@ -99,6 +108,9 @@ def main():
             shutil.copyfile(path, copy / path.name)
         if meta_bytes is not None:
             (copy / "meta_harness.py").write_bytes(meta_bytes)
+        if seller_bytes is not None:
+            (copy / 'seller.py').write_bytes(seller_bytes)
+            print('SELLER_SOURCE fixture=be49 sha256='+hashlib.sha256(seller_bytes).hexdigest(), flush=True)
         selected_meta = (copy / "meta_harness.py").read_bytes()
         print(f"META_SOURCE mode={'fixture' if meta_bytes is not None else 'current'} "
               f"sha256={hashlib.sha256(selected_meta).hexdigest()} "
@@ -198,6 +210,8 @@ def main():
         try:
             os.chdir(copy)
             sys.path[0] = str(copy)
+            import sol_source_load
+            sol_source_load.install()  # trusted fixture equivalent of the seller's first import
             suite = unittest.defaultTestLoader.loadTestsFromNames(names)
             print(f"Python {sys.version.split()[0]}; disposable source/state/settings/controllers; subprocess/socket denied",
                   flush=True)
