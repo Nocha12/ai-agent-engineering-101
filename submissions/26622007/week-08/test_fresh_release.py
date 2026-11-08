@@ -8,6 +8,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
+from types import SimpleNamespace
 
 from tools import fresh_release
 
@@ -52,6 +54,13 @@ class FreshRelease(unittest.TestCase):
             with self.assertRaises(ValueError):
                 fresh_release.select_join(store,first)
             self.assertEqual((store/'current-join').read_text(),'foreign selector')
+            (store/'current-join').unlink()
+            collision=store/'.join-select-collision'
+            collision.write_text('foreign temporary')
+            with patch.object(fresh_release.uuid,'uuid4',return_value=SimpleNamespace(hex='collision')):
+                with self.assertRaises(FileExistsError):
+                    fresh_release.select_join(store,first)
+            self.assertEqual(collision.read_text(),'foreign temporary')
 
     def test_release_executes_pinned_entry_and_resource(self):
         files = {

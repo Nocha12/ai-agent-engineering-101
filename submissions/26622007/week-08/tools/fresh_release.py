@@ -212,18 +212,23 @@ def publish_join(root, configured, aliases):
 
 def select_join(store, generation):
     store, generation = Path(store).absolute(), Path(generation).absolute()
+    config = generation / 'agent.json'
     if (store.resolve() != store or generation.resolve() != generation
             or generation.parent != store / 'join-generations'
             or store.stat().st_uid != os.getuid() or store.stat().st_mode & 0o022
             or generation.parent.stat().st_uid != os.getuid() or generation.parent.stat().st_mode & 0o022
-            or generation.stat().st_uid != os.getuid() or generation.stat().st_mode & 0o222):
+            or generation.stat().st_uid != os.getuid() or generation.stat().st_mode & 0o222
+            or not config.is_file() or config.is_symlink()
+            or config.stat().st_uid != os.getuid() or config.stat().st_mode & 0o222):
         raise ValueError('exclusive publisher-managed join generation required')
     selector = store / 'current-join'
     if selector.exists() and not selector.is_symlink():
         raise ValueError('foreign selector is preserved')
     temporary = store / ('.join-select-' + uuid.uuid4().hex)
+    created = False
     try:
         temporary.symlink_to(generation)
+        created = True
         os.replace(temporary, selector)
         fd = os.open(store, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
@@ -231,4 +236,5 @@ def select_join(store, generation):
         finally:
             os.close(fd)
     finally:
-        temporary.unlink(missing_ok=True)
+        if created:
+            temporary.unlink(missing_ok=True)
