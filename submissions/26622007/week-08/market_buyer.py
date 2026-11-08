@@ -1297,6 +1297,7 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
     first batch with the chosen shop and are not asked again."""
     k = int(cfg.get("quote_shops", 1))
     if k < 2 or (not others and not pre):
+        buyer_rank_pg.unselected(order.get("_rank_pg"), "no_quote_selection")
         return chosen, {}
     got, pool = (pre["got"], []) if pre else ({}, [])
     ctl = pre["ctl"] if pre else quote_ctl()
@@ -1312,6 +1313,7 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
             late = True
         else:       # no prefetch to read: keep the deadline and ask no new shop
             order["_quote_deadline"]["skipped"] = "past at the start"
+            buyer_rank_pg.unselected(order.get("_rank_pg"), "no_quotes")
             return chosen, {}
     if late:
         rest, rounds = [s for s in rest if s["name"] in asked], 1
@@ -1406,6 +1408,11 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
                                       -x[1]))[2] if scored else None
     rk = order.get("_rank_pg")
     tier = [s for _, _, s in scored if normal(s)] or [s for _, _, s in scored]    # the shops best can come from
+    selection = {"version": 2, "tier": "normal" if any(normal(s) for s in tier) else "short" if tier else "unknown",
+                 "shops": [s["name"] for s in tier], "eligible": bool(tier) and not any(fits(s) for s in tier)}
+    order["_rank_selection"] = selection
+    if rk is not None:
+        rk["selection"] = selection
     if rk is not None and scored and not any(fits(s) for s in tier):
         # nothing within my limit: the order before rank_pg (11/08 19:43-20:03 P x g took asks 15-33% over the limit, 8 of
         # 11 changed picks ended with no talk; review/W-20261108-1915-AX전부적용/rank-cause.md)
@@ -1467,6 +1474,14 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
         except Exception as e:  # noqa: BLE001 - a bad cache never stops an order: the current order
             rk["error"] = f"{type(e).__name__}"
         rk["picked"] = best["name"]
+    if rk is not None:
+        if rk.get("nofit_scores"):
+            rk.update(treatment="applied", untreated_reason=None)
+        elif rk.get("treatment") != "untreated":
+            rk.update(treatment="untreated", untreated_reason=("no_quotes" if not scored else
+                      "control" if rk.get("nofit_arm") == "A" else "ineligible" if not selection["eligible"] else
+                      "scoring_exception" if rk.get("error") else "no_scores"))
+        buyer_rank_pg.selection_recorded(rk)
     keep = best["name"] if best else chosen["name"] if resumable(got.get(chosen["name"])) else None
     with ctl.get("lock") or contextlib.nullcontext():
         ctl.update(done=True, winner=keep)    # a late quote thread of the kept shop must not cancel it either
@@ -1770,6 +1785,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "cap95_trial": buyer_cap95_trial.measurement(order, out),
         "b3": order.get("_b3"),
         "b1": order.get("_b1"),
+        "rank_selection": order.get("_rank_selection"),
         "food_sku_trial": order.get("_food_sku_trial"),
         "turns": dict(out.get("turns") or {}),
         "goods_extra_quote_started": order.get("_goods_extra_quote_started"),
@@ -1811,18 +1827,24 @@ def main():
     if not MEMORY:
         test = os.path.basename(args.shops).startswith("test-shops")
         MEMORY = "memory/test_memory.json" if test else "memory/market_memory.json"
-    with open(args.shops, encoding="utf-8") as f:
-        shops = [s for s in json.load(f) if s.get("url") and s.get("name")]
     order = load_json(args.order, {}) if args.order else {}
     if isinstance(order, dict):
-        for k in ("_sw", "_sw_buy", "_sw_h_est"):     # buyer_short_warranty's own state is set here, never read in
+        for k in ("_sw", "_sw_buy", "_sw_h_est", "_rank_pg", "_rank_selection"):  # internal state, never read in
             order.pop(k, None)
+    md = os.path.dirname(args.shops) or "."
+    rk = buyer_rank_pg.state(md, order) if args.order else None
     r3 = isinstance(order, dict) and bool(order.get("acceptable"))
+    if rk is not None:
+        if r3:
+            order["_rank_pg"] = rk
+        else:
+            buyer_rank_pg.unselected(rk, "non_round3_order")
     if r3:
         # Keep a retained invocation start on resume; invalid values fail closed in the trial.
         order.setdefault("_buyer_started_at", time.time())
         order["_food_quote_yield"] = order.get("kind") == "food" and quote_yield_arm(order.get("order"))
-    md = os.path.dirname(args.shops) or "."
+    with open(args.shops, encoding="utf-8") as f:
+        shops = [s for s in json.load(f) if s.get("url") and s.get("name")]
     if r3:
         order["_stock_evidence_md"] = md
         order["_stock_shops_path"] = args.shops
@@ -1846,6 +1868,7 @@ def main():
         if MEMORY == MEMORY_R2:
             start_round3_memory()
     if not shops:
+        buyer_rank_pg.unselected(rk, "no_shop_in_stock")
         log("[choose] no shops with this order in stock" if r3 else "[choose] no shops in the list")
         if r3:
             order["_stock_terminal_written"] = buyer_stock_evidence.terminal(
@@ -1858,6 +1881,7 @@ def main():
                                          "quote_alignment_arm": (order.get("_quote_alignment") or {}).get("arm"),
                                          "stock_evidence": buyer_stock_evidence.measurement(order),
                                          "quotes": [], "quote_attempts_complete": True,
+                                         **({"rank_pg": buyer_rank_pg.metadata(rk)} if rk is not None else {}),
                                          "state": "NO_SHOP_IN_STOCK", "seconds": {"end": round(time.time() - STARTED, 2)}})
         print(json.dumps({"shop": "", "receipt": None, **({} if r3 else {"stars": 1, "review": "No shops to trade with."})}))
         return 0
@@ -1878,9 +1902,6 @@ def main():
         order["_sw"] = sw
         _SW_CTX.update(md=md, catalog=catalog)
         log(f"[short-warranty] on: S {order['_sw']['S']:.4f}, goods with a short warranty priced at p_max(h)")
-    rk = buyer_rank_pg.state(md, order) if r3 else None
-    if rk is not None:
-        order["_rank_pg"] = rk
     try:
         qd = buyer_quote_deadline.state(md, order, STARTED) if r3 else None
     except Exception as e:  # noqa: BLE001 - the switch never ends the run: off
@@ -2166,6 +2187,8 @@ def main():
             buyer_stock_evidence.observe(md, shop, key, ask=asks[-1], snapshot_at=order.get("_stock_snapshot_at"))
         order["_stock_terminal_written"] = buyer_stock_evidence.terminal(
             order.get("_stock_evidence"), state=out.get("state"), passed_to_kit=result.get("receipt") is not None)
+        if rk is not None and rk.get("treatment") == "unknown":
+            buyer_rank_pg.unselected(rk, "no_quote_selection")
         try:
             records.write(md, "orders", {**order_record(order, args, shops, quotes, first_choice, first_reason, shop, reason, offer,
                                                         limit, chance, out, rec, result, problems, warnings, short, why, stages,
@@ -2177,7 +2200,7 @@ def main():
                                          **({"short_warranty": {"S": order["_sw"]["S"], "h_est": order.get("_sw_h_est"),
                                                                 "shops": order["_sw"]["hist"]}}
                                             if order.get("_sw") is not None else {}),
-                                         **({"rank_pg": {k: v for k, v in order["_rank_pg"].items() if k != "stats"}}
+                                         **({"rank_pg": buyer_rank_pg.metadata(order["_rank_pg"])}
                                             if order.get("_rank_pg") is not None else {}),
                                          **({"quote_deadline": order["_quote_deadline"]}
                                             if order.get("_quote_deadline") is not None else {}),

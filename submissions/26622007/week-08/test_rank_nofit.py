@@ -13,7 +13,13 @@ def row(shop, ok, fit, kind="goods", ts=None, ask=8000):
     return {"ts": ts or time.time() - 60, "shop": shop, "kind": kind, "order": f"o-{shop}-{ok}-{fit}-{id(object())}",
             "state": "TASK_STATE_COMPLETED" if ok else "TASK_STATE_FAILED", "price": 7000 if ok else None,
             "passed_to_kit": ok, "quotes": [{"shop": shop, "ask": ask, "limit": 7000, "fit": fit}],
+            "rank_selection": {"version": 2, "tier": "normal", "eligible": not fit, "shops": [shop]},
             "seconds": {"quotes": 1, "end": 3}}
+
+
+def confirmed(rows):
+    # Unit-level exact-join outcomes; integration joins are covered by test_rank_integrity's production-schema fixture.
+    return {r["order"]: "confirmed" for r in rows if r["passed_to_kit"]}
 
 
 class NoFitStatsTest(unittest.TestCase):
@@ -22,7 +28,7 @@ class NoFitStatsTest(unittest.TestCase):
 
     def test_only_orders_with_no_ask_within_the_limit_count(self):
         rows = [row("m", False, False)] * 10 + [row("m", True, True)] * 10 + [row("d", True, False)] * 10
-        st = buyer_rank_pg.stats_from_rows(rows, {}, time.time())
+        st = buyer_rank_pg.stats_from_rows(rows, confirmed(rows), time.time())
         nf = st["nofit"]
         self.assertEqual((nf["shops"]["m|goods"]["n"], nf["shops"]["m|goods"]["k"]), (10, 0))
         self.assertEqual((nf["shops"]["d|goods"]["n"], nf["shops"]["d|goods"]["k"]), (10, 10))
@@ -33,16 +39,16 @@ class NoFitStatsTest(unittest.TestCase):
     def test_only_the_last_nofit_hours_count(self):
         old = time.time() - (buyer_rank_pg.NOFIT_HOURS + 1) * 3600
         rows = [row("d", True, False, ts=old)] * 10 + [row("d", False, False)] * 2
-        nf = buyer_rank_pg.stats_from_rows(rows, {}, time.time())["nofit"]
+        nf = buyer_rank_pg.stats_from_rows(rows, confirmed(rows), time.time())["nofit"]
         self.assertEqual((nf["shops"]["d|goods"]["n"], nf["shops"]["d|goods"]["k"]), (2, 0))
 
     def test_a_kept_ask_over_the_band_or_none_does_not_count(self):
         rows = [row("m", False, False, ask=9000)] * 5 + [row("m", False, False, ask=None)] * 5 + [row("m", True, False)] * 2
-        nf = buyer_rank_pg.stats_from_rows(rows, {}, time.time())["nofit"]
+        nf = buyer_rank_pg.stats_from_rows(rows, confirmed(rows), time.time())["nofit"]
         self.assertEqual((nf["shops"]["m|goods"]["n"], nf["shops"]["m|goods"]["k"]), (2, 2))
 
     def test_ab_splits_the_orders_by_id(self):
-        sw = {"enabled": True, "nofit": "ab"}
+        sw = {"enabled": True, "nofit": "ab", "nofit_version": 2, "nofit_experiment": "unit", "nofit_epoch": 1794140000}
         arms = {buyer_rank_pg.nofit_arm(sw, {"order": f"o-{i:04d}"}) for i in range(40)}
         self.assertEqual(arms, {"A", "B"})
         self.assertEqual(buyer_rank_pg.nofit_arm(sw, {"order": "o-x"}), buyer_rank_pg.nofit_arm(sw, {"order": "o-x"}))
@@ -51,7 +57,7 @@ class NoFitStatsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as md:
             with open(os.path.join(md, buyer_rank_pg.SWITCH), "w") as f:
                 json.dump(sw, f)
-            with mock.patch.object(buyer_rank_pg, "stats", lambda md, now=None: {"pool": {}, "shops": {}}):
+            with mock.patch.object(buyer_rank_pg, "stats", lambda md, now=None: {"pool": {}, "shops": {}, "nofit": {"pool": {"goods": {"p": 0.2}}, "shops": {}}}):
                 for i in range(20):
                     st = buyer_rank_pg.state(md, {"order": f"o-{i}"})
                     self.assertEqual(st["nofit"], st["nofit_arm"] == "B")
@@ -61,7 +67,7 @@ class NoFitStatsTest(unittest.TestCase):
             with open(os.path.join(md, buyer_rank_pg.SWITCH), "w") as f:
                 json.dump({"enabled": True, "nofit": True}, f)
             with mock.patch.object(buyer_rank_pg, "stats", lambda md, now=None: {"pool": {}, "shops": {}}):
-                self.assertTrue(buyer_rank_pg.state(md, {})["nofit"])
+                self.assertFalse(buyer_rank_pg.state(md, {})["nofit"])  # unversioned legacy switch stays off
             with open(os.path.join(md, buyer_rank_pg.SWITCH), "w") as f:
                 json.dump({"enabled": True}, f)
             with mock.patch.object(buyer_rank_pg, "stats", lambda md, now=None: {"pool": {}, "shops": {}}):

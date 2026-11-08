@@ -12,7 +12,7 @@ NOW = 1794140000.0
 
 
 def row(shop, kind, ask, price=None, talk=10.0, ts=NOW - 600, state="TASK_STATE_COMPLETED", order=None):
-    return {"ts": ts, "shop": shop, "kind": kind, "order": order, "quotes": [{"shop": shop, "ask": ask}], "asks": [ask],
+    return {"ts": ts, "shop": shop, "kind": kind, "order": order or f"o-{shop}-{kind}", "quotes": [{"shop": shop, "ask": ask}], "asks": [ask],
             "state": state if price is not None or state != "TASK_STATE_COMPLETED" else "TASK_STATE_CANCELED",
             "price": price, "passed_to_kit": price is not None, "seconds": {"quotes": 5.0, "end": 5.0 + talk}}
 
@@ -20,7 +20,7 @@ def row(shop, kind, ask, price=None, talk=10.0, ts=NOW - 600, state="TASK_STATE_
 class StatsTest(unittest.TestCase):
     def test_shrunk_to_the_kinds_pool(self):
         rows = [row("a", "goods", 10000, 9000) for _ in range(10)] + [row("b", "goods", 10000) for _ in range(30)]
-        st = rp.stats_from_rows(rows, {}, NOW)
+        st = rp.stats_from_rows(rows, {"o-a-goods": "confirmed"}, NOW)
         pool = st["pool"]["goods"]
         self.assertAlmostEqual(pool["p"], 10 / 40)
         self.assertAlmostEqual(pool["ratio"], 0.9)                         # final price / first ask, of the deals
@@ -34,7 +34,7 @@ class StatsTest(unittest.TestCase):
         rows = [row("a", "goods", 10000, 9000, ts=NOW - 25 * 3600), row("a", "goods", 10000, 9000, order="o-1"),
                 row("a", "goods", 10000, state="NO_VALUE"), row("a", "food", 5000, 4000),
                 dict(row("a", "goods", 10000), state=None)]
-        st = rp.stats_from_rows(rows, {"o-1": False}, NOW)
+        st = rp.stats_from_rows(rows, {"o-1": "refused", "o-a-food": "confirmed"}, NOW)
         self.assertEqual((st["shops"]["a|goods"]["n"], st["shops"]["a|goods"]["k"]), (2, 0))
         self.assertEqual(st["shops"]["a|food"]["k"], 1)
 

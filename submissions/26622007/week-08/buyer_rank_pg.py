@@ -15,10 +15,11 @@ kind, shrunk to the kind's pool: (k + SHRINK p) / (n + SHRINK). No talk seconds 
 The ÷T is only with "per_time": true in the switch; without it the key is P x g (main 11/08 19:22: the final replay,
 shop-profiles.md 6, gave P x price +12% ALL/h and ÷T +9%).
 
-No ask within my limit (no_fit): the order as before, or with "nofit": true in the switch (or "ab": the B half of the orders), of the asks within the talk band
-(market_buyer.TALK_OVER_SHARE over the limit) the most P_nofit(shop, kind) x g(limit / list), where P_nofit is the deal
-rate of the orders kept with that shop when no quote fitted, over the last NOFIT_HOURS (11/08 24h: 1,794 goods orders, mjforge kept 411 for 2 paid,
-ddolcom 221 for 114, the cheapest ask decided; review/W-20261108-2241-AXPro주기, 대표님 8033 "잘 받아주는 곳으로").
+No-fit learning uses the recorded selection tier and eligibility, not any-fit over all quotes. Legacy tier
+unknowns are excluded and counted. Learning successes require an exact confirmed payment/settlement join;
+delivered unknowns are excluded from resolved probability denominators and retain unknown economic value.
+No-fit requires the versioned A/B switch documented in rank-integrity.md; old nofit switches are off.
+A and B share adaptive statistics, so A is not a fixed holdout and this is not a full-ON causal estimate.
 
 Switch: .market/buyer_rank_pg.json {"enabled": true}; missing, unreadable or anything else is off, and off is the
 current order exactly. BUYER_RANK_PG=0 in the environment is off too. Read at every order, so no restart either way.
@@ -26,8 +27,10 @@ current order exactly. BUYER_RANK_PG=0 in the environment is off too. Read at ev
 import fcntl
 import hashlib
 import json
+import math
 import os
 import time
+import uuid
 
 SWITCH = "buyer_rank_pg.json"
 CACHE = "buyer_rank_pg_cache.json"
@@ -42,7 +45,10 @@ DONE = "TASK_STATE_COMPLETED"
 
 
 def _num(x):
-    return type(x) in (int, float) and x == x
+    try:
+        return type(x) in (int, float) and math.isfinite(x)
+    except OverflowError:
+        return False
 
 
 def _switch(md, env=None):
@@ -53,7 +59,7 @@ def _switch(md, env=None):
     try:
         with open(os.path.join(md, SWITCH), encoding="utf-8") as f:
             d = json.load(f)
-    except (OSError, ValueError, TypeError):
+    except (OSError, ValueError, TypeError, RecursionError):
         return None
     return d if isinstance(d, dict) and d.get("enabled") is True else None
 
@@ -70,79 +76,198 @@ def _first_ask(r):
     return asks[0] if isinstance(asks, list) and asks and _num(asks[0]) and asks[0] > 0 else None
 
 
+def _new_cell():
+    return dict(n=0, k=0, confirmed=0, refused=0, unknown=0, failed=0,
+                ratio_sum=0.0, ratio_n=0, talk_sum=0.0, talk_n=0)
+
+
+def _add(c, outcome, price, first, talk):
+    c['n'] += 1
+    c[outcome] += 1
+    if outcome == 'confirmed':
+        c['k'] += 1
+        if first:
+            c['ratio_sum'] += price / first
+            c['ratio_n'] += 1
+    if talk is not None and talk >= 0:
+        c['talk_sum'] += talk
+        c['talk_n'] += 1
+
+
+def _summarize(c, pl=None):
+    resolved = c['n'] - c['unknown']
+    p = c['k'] / resolved if resolved else None
+    ratio = c['ratio_sum'] / c['ratio_n'] if c['ratio_n'] else 1.0
+    talk = c['talk_sum'] / c['talk_n'] if c['talk_n'] else None
+    if pl is not None:
+        p = (c['k'] + SHRINK * pl['p']) / (resolved + SHRINK) if pl['p'] is not None else None
+        ratio = (c['ratio_sum'] + SHRINK * pl['ratio']) / (c['ratio_n'] + SHRINK)
+        talk = (c['talk_sum'] + SHRINK * pl['talk']) / (c['talk_n'] + SHRINK) if pl['talk'] is not None else None
+    return {**{k: c[k] for k in ('n', 'k', 'confirmed', 'refused', 'unknown', 'failed')},
+            'resolved_n': resolved, 'p': p, 'ratio': ratio, 'talk': talk}
+
+
 def stats_from_rows(rows, paid, now):
-    """{"pool": {kind: {p, ratio, talk}}, "shops": {"shop|kind": {n, k, p, ratio, talk}}} from order lines: the orders
-    with the shop kept (state set) in the last HOURS; NO_VALUE (kept, then no talk) is a failure of that shop (11/08
-    19:43-20:03: ddolcom 0/12 by NO_VALUE kept its P .41 while they were left out). A deal: completed, a price, passed to the kit and not
-    known unpaid. ratio: mean final price / first ask of the deals; talk: mean seconds end - quotes."""
+    """Learning cells use resolved observations only; delivered unknown is never a zero return.
+
+    paid contains exact-join statuses from payment_outcomes, never bare paid=True.
+    Non-delivered terminal orders (including NO_VALUE) are known opportunity failures.
+    Legacy selection tiers are not reconstructed from whole-quote fit flags.
+    """
     cell, pool, ncell, npool = {}, {}, {}, {}
+    counts = dict(nofit_population_unknown=0, excluded_rows=0, malformed_rows=0, payment_unknown=0)
     for r in rows:
-        ts, shop, kind = r.get("ts"), r.get("shop"), r.get("kind")
-        if not (_num(ts) and now - HOURS * 3600 <= ts <= now and isinstance(shop, str) and kind in ("goods", "food")):
+        if not isinstance(r, dict):
+            counts['excluded_rows'] += 1
+            counts['malformed_rows'] += 1
             continue
-        if r.get("state") is None:
+        ts, shop, kind = r.get('ts'), r.get('shop'), r.get('kind')
+        oid = r.get('order')
+        seconds = r.get('seconds')
+        quotes = r.get('quotes')
+        malformed = (not _num(ts) or not isinstance(shop, str) or not isinstance(kind, str)
+                     or not isinstance(r.get('state'), (str, type(None)))
+                     or not isinstance(oid, str) or not oid
+                     or not isinstance(seconds, (dict, type(None)))
+                     or (isinstance(seconds, dict) and any(v is not None and not _num(v) for v in seconds.values()))
+                     or not isinstance(quotes, (list, type(None)))
+                     or (isinstance(quotes, list) and any(not isinstance(q, dict) or not isinstance(q.get('shop'), str) for q in quotes))
+                     or (r.get('price') is not None and not _num(r.get('price')))
+                     or type(r.get('passed_to_kit')) not in (bool, type(None)))
+        counts['malformed_rows'] += malformed
+        if not (_num(ts) and now - HOURS * 3600 <= ts <= now and isinstance(shop, str) and kind in ('goods', 'food')):
+            counts['excluded_rows'] += 1
             continue
-        first = _first_ask(r)
-        ok = (r.get("state") == DONE and _num(r.get("price")) and r.get("passed_to_kit") is True
-              and paid.get(r.get("order")) is not False)
-        s = r.get("seconds") or {}
-        talk = s.get("end") - s.get("quotes") if _num(s.get("end")) and _num(s.get("quotes")) else None
-        qs = [q for q in r.get("quotes") or () if isinstance(q, dict)]
-        kept = next((q for q in qs if q.get("shop") == shop and _num(q.get("ask")) and _num(q.get("limit"))), None)
-        # no ask within my limit, and the kept ask within the talk band (an ask over it never reaches a talk: 11/08 24h
-        # 0 of 335 paid; independent review 23:0x)
-        if qs and not any(q.get("fit") is True for q in qs) and ts >= now - NOFIT_HOURS * 3600 and kept is not None \
-                and 0 < kept["limit"] and kept["ask"] <= kept["limit"] * (1 + NOFIT_BAND):
-            for c in (ncell.setdefault((shop, kind), [0, 0]), npool.setdefault(kind, [0, 0])):
-                c[0] += 1
-                c[1] += ok
-        for c in (cell.setdefault((shop, kind), [0, 0, 0.0, 0, 0.0, 0]), pool.setdefault(kind, [0, 0, 0.0, 0, 0.0, 0])):
-            c[0] += 1
-            c[1] += ok
-            if ok and first:
-                c[2] += r["price"] / first
-                c[3] += 1
-            if talk is not None and talk >= 0:
-                c[4] += talk
-                c[5] += 1
-    pools = {k: {"p": c[1] / c[0], "ratio": c[2] / c[3] if c[3] else 1.0, "talk": c[4] / c[5] if c[5] else None}
-             for k, c in pool.items()}
-    shops = {}
-    for (shop, kind), c in cell.items():
-        pl = pools[kind]
-        shops[f"{shop}|{kind}"] = {
-            "n": c[0], "k": c[1],
-            "p": (c[1] + SHRINK * pl["p"]) / (c[0] + SHRINK),
-            "ratio": (c[2] + SHRINK * pl["ratio"]) / (c[3] + SHRINK),
-            "talk": (c[4] + SHRINK * pl["talk"]) / (c[5] + SHRINK) if pl["talk"] is not None else None}
-    npools = {k: {"p": c[1] / c[0]} for k, c in npool.items()}
-    nshops = {f"{shop}|{kind}": {"n": c[0], "k": c[1], "p": (c[1] + SHRINK * npools[kind]["p"]) / (c[0] + SHRINK)}
-              for (shop, kind), c in ncell.items()}
-    return {"pool": pools, "shops": shops, "nofit": {"pool": npools, "shops": nshops}}
+        if not isinstance(r.get('state'), str):
+            counts['excluded_rows'] += 1
+            continue
+        qs = [q for q in quotes if isinstance(q, dict)] if isinstance(quotes, list) else []
+        safe = dict(r, quotes=qs)
+        first = _first_ask(safe)
+        delivered = r.get('state') == DONE and r.get('passed_to_kit') is True
+        outcome = paid.get(oid, 'unknown') if delivered and isinstance(oid, str) else 'unknown' if delivered else 'failed'
+        if r.get('state') == DONE and type(r.get('passed_to_kit')) is not bool:
+            outcome = 'unknown'
+        if delivered and not (_num(r.get('price')) and r['price'] > 0):
+            outcome = 'unknown'
+        if outcome not in ('confirmed', 'refused', 'unknown', 'failed'):
+            outcome = 'unknown'
+        counts['payment_unknown'] += outcome == 'unknown'
+        seconds = seconds if isinstance(seconds, dict) else {}
+        talk = seconds.get('end') - seconds.get('quotes') if _num(seconds.get('end')) and _num(seconds.get('quotes')) else None
+        kept = next((q for q in qs if q.get('shop') == shop and _num(q.get('ask')) and _num(q.get('limit'))), None)
+        selection = r.get('rank_selection')
+        known = (isinstance(selection, dict) and selection.get('version') == VERSION
+                 and selection.get('tier') in ('normal', 'short') and type(selection.get('eligible')) is bool
+                 and isinstance(selection.get('shops'), list) and shop in selection['shops'])
+        counts['nofit_population_unknown'] += not known and kind == 'goods' and ts >= now - NOFIT_HOURS * 3600
+        if known and selection['eligible'] and kind == 'goods' and ts >= now - NOFIT_HOURS * 3600 and kept is not None \
+                and 0 < kept['limit'] and 0 < kept['ask'] <= kept['limit'] * (1 + NOFIT_BAND):
+            for c in (ncell.setdefault((shop, kind), _new_cell()), npool.setdefault(kind, _new_cell())):
+                _add(c, outcome, r.get('price'), first, talk)
+        for c in (cell.setdefault((shop, kind), _new_cell()), pool.setdefault(kind, _new_cell())):
+            _add(c, outcome, r.get('price'), first, talk)
+    pools = {k: _summarize(c) for k, c in pool.items()}
+    shops = {f'{shop}|{kind}': _summarize(c, pools[kind]) for (shop, kind), c in cell.items()}
+    npools = {k: _summarize(c) for k, c in npool.items()}
+    nshops = {f'{shop}|{kind}': _summarize(c, npools[kind]) for (shop, kind), c in ncell.items()}
+    return dict(pool=pools, shops=shops, nofit=dict(pool=npools, shops=nshops), counts=counts)
 
 
-def _tail(path, nbytes=TAIL_BYTES):
+def _tail(path, nbytes=TAIL_BYTES, diagnostics=None):
+    """Bounded tail or full streaming read, with explicit collection/parse coverage."""
+    info = diagnostics if diagnostics is not None else {}
+    info.update(missing=False, truncated=False, malformed_lines=0, rows=0, first_seq=None,
+                first_ts=None, first_row_sha256=None, max_seq=None)
     try:
-        with open(path, "rb") as f:
-            f.seek(0, 2)
-            size = f.tell()
-            f.seek(max(0, size - nbytes))
-            lines = f.read().decode("utf-8", "replace").splitlines()
+        f = open(path, 'rb')
     except OSError:
+        info['missing'] = True
         return
-    for x in lines[1:] if size > nbytes else lines:
+    with f:
+        f.seek(0, 2)
+        size = f.tell()
+        start = max(0, size - nbytes) if nbytes is not None else 0
+        info.update(bytes_at_open=size, truncated=start > 0)
+        f.seek(start)
+        if start:
+            f.readline()  # discard the possible partial first line, never claim prefix completeness
+        while f.tell() < size:
+            raw = f.readline()
+            if not raw:
+                break
+            try:
+                row = json.loads(raw)
+            except (ValueError, UnicodeDecodeError, RecursionError):
+                info['malformed_lines'] += 1
+                continue
+            if not isinstance(row, dict):
+                info['malformed_lines'] += 1
+                continue
+            if info['first_row_sha256'] is None:
+                info.update(first_row_sha256=hashlib.sha256(raw).hexdigest(),
+                            first_seq=row.get('seq') if type(row.get('seq')) is int else None,
+                            first_ts=row.get('ts') if _num(row.get('ts')) else None)
+            info['rows'] += 1
+            seq = row.get('seq')
+            if type(seq) is int:
+                info['max_seq'] = max(seq, info['max_seq']) if info['max_seq'] is not None else seq
+            yield row
+
+
+def _seq(value):
+    if isinstance(value, str) and value.isascii() and value.isdigit():
         try:
-            r = json.loads(x)
+            return int(value)
         except ValueError:
-            continue
-        if isinstance(r, dict):
-            yield r
+            return None
+    return value if type(value) is int else None
 
 
-def compute(md, now):
-    paid = {p["order"]: p["paid"] for p in _tail(os.path.join(md, "payments.jsonl"), 4_000_000)
-            if isinstance(p.get("order"), str) and isinstance(p.get("paid"), bool)}
-    return stats_from_rows(_tail(os.path.join(md, "measure", "orders.jsonl")), paid, now)
+def payment_outcomes(orders, payments, ledger, buyer='nocha12'):
+    """ax-paid-deals contract: last payment; exact order/seq/buyer/amount settle join.
+
+    A paid boolean alone is not confirmation. Unknown means no economic observation.
+    Order IDs are opaque strings (including URL-shaped IDs), never parsed as o-N.
+    """
+    want = {r.get('order') for r in orders if isinstance(r, dict) and isinstance(r.get('order'), str) and r['order']}
+    pays = {}
+    for p in payments:
+        if isinstance(p, dict) and isinstance(p.get('order'), str) and p['order'] in want:
+            pays[p['order']] = p
+    seqs = {_seq(p.get('ledger')) for p in pays.values() if p.get('paid') is True} - {None}
+    settles = {}
+    for s in ledger:
+        if isinstance(s, dict) and s.get('k') == 'settle' and type(s.get('seq')) is int and s['seq'] in seqs:
+            settles[s['seq']] = s
+    outcomes = {}
+    for oid in want:
+        p = pays.get(oid, {})
+        if p.get('paid') is False:
+            outcomes[oid] = 'refused'
+        elif p.get('paid') is True:
+            s = settles.get(_seq(p.get('ledger')), {})
+            outcomes[oid] = 'confirmed' if (s.get('order') == oid and s.get('buyer') == buyer
+                and _num(p.get('price')) and p['price'] > 0 and _num(s.get('amount'))
+                and s['amount'] == p['price']) else 'unknown'
+        else:
+            outcomes[oid] = 'unknown'
+    return outcomes
+
+
+def compute(md, now, buyer='nocha12'):
+    # Bounded observation for adaptive ranking, not a full-epoch economic certification.
+    # Tail misses remain unknown; full-epoch ITT uses reconcile_itt instead.
+    inputs = {'orders': {}, 'payments': {}, 'ledger': {}}
+    orders = list(_tail(os.path.join(md, 'measure', 'orders.jsonl'), TAIL_BYTES, inputs['orders']))
+    payments = _tail(os.path.join(md, 'payments.jsonl'), 4_000_000, inputs['payments'])
+    ledger = _tail(os.path.join(md, 'ledger_rows.jsonl'), TAIL_BYTES, inputs['ledger'])
+    outcomes = payment_outcomes(orders, payments, ledger, buyer)
+    result = stats_from_rows(orders, outcomes, now)
+    result['counts']['malformed_input_lines'] = sum(v.get('malformed_lines', 0) for v in inputs.values())
+    result['observation'] = {'inputs': inputs, 'bounded': True, 'unknown_is_zero': False,
+                             'order_tail_bytes': TAIL_BYTES, 'payment_tail_bytes': 4_000_000, 'ledger_tail_bytes': TAIL_BYTES}
+    return result
 
 
 def _read_cache(path):
@@ -151,7 +276,7 @@ def _read_cache(path):
             d = json.load(f)
     except (OSError, ValueError):
         return None, None
-    if not isinstance(d, dict) or not _num(d.get("at")) or not isinstance(d.get("stats"), dict):
+    if not isinstance(d, dict) or d.get("version") != VERSION or not _num(d.get("at")) or not isinstance(d.get("stats"), dict):
         return None, None
     return d["at"], d["stats"]
 
@@ -181,7 +306,7 @@ def stats(md, now=None):
             tmp = f"{path}.{os.getpid()}.tmp"
             try:
                 with open(tmp, "w", encoding="utf-8") as f:
-                    json.dump({"at": now, "stats": st}, f, sort_keys=True)
+                    json.dump({"version": VERSION, "at": now, "stats": st}, f, sort_keys=True)
                 os.replace(tmp, path)
             finally:
                 if os.path.exists(tmp):
@@ -191,30 +316,163 @@ def stats(md, now=None):
     return st
 
 
-def state(md, order, env=None, now=None):
-    """{"stats": ...} kept on the order when the switch is on and stats can be read; else None (the current order)."""
+JOURNAL = 'buyer_rank_pg_assignments.jsonl'
+VERSION = 2
+
+
+def _experiment(sw, now):
+    return (sw.get('nofit') == 'ab' and sw.get('nofit_version') == VERSION
+            and isinstance(sw.get('nofit_experiment'), str) and bool(sw['nofit_experiment'].strip())
+            and _num(sw.get('nofit_epoch')) and 0 < sw['nofit_epoch'] <= now)
+
+
+def _journal(rk, event):
+    """One locked append + fsync; partial writes stay under the same writer lock."""
+    row = {k: v for k, v in metadata(rk).items() if k not in ('error', 'nofit_scores', 'scores')}
+    row.update(event=event, ts=rk.get("_at", time.time()))
+    path = os.path.join(rk['_journal_md'], JOURNAL)
+    data = (json.dumps(row, sort_keys=True, ensure_ascii=True) + '\n').encode('utf-8')
     try:
-        sw = _switch(md, env)
-        if sw is None:
-            return None
+        with open(path, 'ab', buffering=0) as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            view = memoryview(data)
+            while view:
+                n = os.write(f.fileno(), view)
+                if n <= 0:
+                    raise OSError('short journal write')
+                view = view[n:]
+            os.fsync(f.fileno())
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def metadata(rk):
+    return {k: v for k, v in rk.items() if k != 'stats' and not k.startswith('_')}
+
+
+def selection_recorded(rk):
+    """Persist selection separately from the late terminal order record."""
+    if rk is not None and rk.get('_journal_md') is not None:
+        if not _journal(rk, 'selection'):
+            rk['journal_error'] = True
+
+
+def unselected(rk, reason):
+    if rk is not None:
+        rk.update(treatment='untreated', untreated_reason=reason)
+        selection_recorded(rk)
+
+
+def state(md, order, env=None, now=None):
+    """Assign durably before touching the cache. Missing statistics never erase ITT."""
+    now = time.time() if now is None else now
+    sw = _switch(md, env)
+    if sw is None:
+        return None
+    rk = dict(stats={}, per_time=sw.get('per_time') is True, nofit=False)
+    active = _experiment(sw, now)
+    if active:
+        oid = order.get('order') if isinstance(order, dict) else None
+        valid = isinstance(oid, str) and bool(oid)
+        arm = nofit_arm(sw, order)
+        rk.update(experiment=sw['nofit_experiment'], version=VERSION, epoch=sw['nofit_epoch'],
+                  invocation=uuid.uuid4().hex, order=oid if valid else None,
+                  kind=order.get('kind') if isinstance(order, dict) and isinstance(order.get('kind'), str) else None,
+                  nofit_arm=arm, assignment='assigned' if arm else 'unknown',
+                  treatment='unknown', untreated_reason='selection_pending' if valid else 'invalid_order_id',
+                  _journal_md=md, _at=now)
+        # Persist assignment before cache work, even if cache raises BaseException or this run is terminated.
+        if not _journal(rk, 'assignment'):
+            rk.update(journal_error=True, treatment='untreated', untreated_reason='journal_unavailable')
+    else:
+        rk['untreated_reason'] = 'inactive_or_legacy_switch'
+    try:
         st = stats(md, now)
-    except Exception:   # noqa: BLE001 - the ranking never stops an order
-        return None
-    if not isinstance(st, dict):
-        return None
-    arm = nofit_arm(sw, order)
-    return {"stats": st, "per_time": sw.get("per_time") is True, "nofit": sw.get("nofit") is True or arm == "B",
-            **({"nofit_arm": arm} if arm else {})}
+        rk['stats'] = st if isinstance(st, dict) else {}
+        nf = rk['stats'].get('nofit')
+        nf = nf if isinstance(nf, dict) else {}
+        cells = [c for name in ('pool', 'shops') if isinstance(nf.get(name), dict) for c in nf[name].values()]
+        unavailable = not any(isinstance(c, dict) and _num(c.get('p')) and 0 <= c['p'] <= 1 for c in cells)
+        reason = 'cache_unavailable' if unavailable else 'selection_pending'
+    except Exception:
+        rk['stats'] = {}
+        unavailable, reason = True, 'cache_exception'
+    if active and not rk.get('journal_error'):
+        if unavailable or rk['assignment'] == 'unknown':
+            rk.update(treatment='untreated', untreated_reason=reason if rk['assignment'] != 'unknown' else 'invalid_order_id')
+        rk['nofit'] = rk['nofit_arm'] == 'B' and not unavailable and rk['assignment'] == 'assigned'
+        if not _journal(rk, 'cache'):
+            rk.update(nofit=False, journal_error=True, treatment='untreated', untreated_reason='journal_unavailable')
+    return rk
 
 
 def nofit_arm(sw, order):
-    """"nofit": "ab" in the switch: half the orders (B, by the order id) get the no-fit pick, the other half (A) the order
-    before, at the same hours (GPT Pro 11/08 23:0x §2.9: a field test in the one buyer kit, 9-12 h, same-time arms; its
-    replay gave +0.02 to +0.57 paid/h, ours +2.1 to +2.7 halved). Anything else: None."""
-    oid = (order or {}).get("order")
-    if sw.get("nofit") != "ab" or not isinstance(oid, str) or not oid:
+    """Versioned experiment; legacy nofit switches cannot activate this implementation."""
+    oid = order.get('order') if isinstance(order, dict) else None
+    if not isinstance(sw, dict) or not _experiment(sw, float('inf')) or not isinstance(oid, str) or not oid:
         return None
-    return "B" if int(hashlib.sha256(oid.encode("utf-8", "surrogatepass")).hexdigest(), 16) % 2 else "A"
+    return 'B' if int(hashlib.sha256(oid.encode('utf-8', 'surrogatepass')).hexdigest(), 16) % 2 else 'A'
+
+
+def reconcile_itt(md, experiment, epoch, end=None):
+    """Read-only union of ALL epoch order rows and early journal, with unknowns preserved.
+
+    Full files intentionally: a tail can silently drop the beginning of an epoch.
+    Missing assignment is unknown, never reconstructed as a successful treatment.
+    """
+    end = time.time() if end is None else end
+    entries = {}
+    unlinked = 0
+    invalid_timestamps = 0
+    diagnostics = {'orders': {}, 'journal': {}}
+    for i, row in enumerate(_tail(os.path.join(md, 'measure', 'orders.jsonl'), None, diagnostics['orders'])):
+        ts = row.get('ts')
+        if not _num(ts):
+            invalid_timestamps += 1
+        if not (_num(ts) and epoch <= ts < end):
+            continue
+        oid = row.get('order')
+        meta = row.get('rank_pg')
+        meta = meta if isinstance(meta, dict) else {}
+        key = ('order', oid) if isinstance(oid, str) and oid else ('invocation', meta['invocation']) if isinstance(meta.get('invocation'), str) else ('row', i)
+        unlinked += key[0] == 'row'
+        entries[key] = dict(assignment='unknown', treatment='unknown', source='order', has_order=True,
+                            order=oid if isinstance(oid, str) and oid else None, ts=ts,
+                            kind=row.get('kind') if isinstance(row.get('kind'), str) else None,
+                            state=row.get('state') if isinstance(row.get('state'), str) else None, _terminal_metadata=False)
+        if meta.get('experiment') == experiment and meta.get('epoch') == epoch and meta.get('version') == VERSION:
+            entries[key].update(meta)
+            entries[key]['_terminal_metadata'] = True
+    for row in _tail(os.path.join(md, JOURNAL), None, diagnostics['journal']):
+        if row.get('experiment') != experiment or row.get('epoch') != epoch or row.get('version') != VERSION:
+            continue
+        ts = row.get('ts')
+        if not (_num(ts) and epoch <= ts < end):
+            continue
+        oid = row.get('order')
+        token = row.get('invocation')
+        if not isinstance(token, str):
+            continue
+        key = ('order', oid) if isinstance(oid, str) and oid else ('invocation', token)
+        entry = entries.setdefault(key, dict(assignment='unknown', treatment='unknown', source='journal', has_order=False))
+        # Terminal measurement is newer than selection; journal fills missing early-exit metadata only.
+        if not entry.get('_terminal_metadata'):
+            entry.update(row)
+    assignments = dict(A=0, B=0, unknown=0)
+    treatments = dict(applied=0, untreated=0, unknown=0)
+    for entry in entries.values():
+        arm = entry.get('nofit_arm') if entry.get('assignment') == 'assigned' else None
+        assignments[arm if arm in ('A', 'B') else 'unknown'] += 1
+        t = entry.get('treatment')
+        treatments[t if isinstance(t, str) and t in treatments else 'unknown'] += 1
+        entry.pop('_terminal_metadata', None)
+    return dict(experiment=experiment, version=VERSION, epoch=epoch, end=end, total=len(entries),
+                assignment=assignments, treatment=treatments, orders=list(entries.values()), inputs=diagnostics,
+                unlinked_order_rows=unlinked, coverage_certified=False,
+                excluded_invalid_timestamps=invalid_timestamps,
+                all_observed_rows_linked=not unlinked and not invalid_timestamps and not any(
+                    v.get('missing') or v.get('malformed_lines') for v in diagnostics.values()))
 
 
 def cell(rk, shop, kind):
