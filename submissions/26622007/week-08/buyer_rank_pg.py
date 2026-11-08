@@ -214,7 +214,7 @@ def nofit_arm(sw, order):
     oid = (order or {}).get("order")
     if sw.get("nofit") != "ab" or not isinstance(oid, str) or not oid:
         return None
-    return "B" if int(hashlib.sha256(oid.encode()).hexdigest(), 16) % 2 else "A"
+    return "B" if int(hashlib.sha256(oid.encode("utf-8", "surrogatepass")).hexdigest(), 16) % 2 else "A"
 
 
 def cell(rk, shop, kind):
