@@ -66,6 +66,7 @@ import buyer_cap95_trial
 import buyer_b3b1
 import buyer_accept_band
 import buyer_quote_deadline
+import buyer_food_shelf
 import buyer_rank_pg
 import buyer_shop_profile
 import buyer_short_warranty
@@ -1396,6 +1397,13 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
             else:
                 order["_goods_extra_quote_baseline"] = {"shop": chosen["name"], "would_skip_at_snapshot": None}
     scored = [(surplus(s), i, s) for i, s in enumerate(pool) if surplus(s) is not None]
+    if order.get("_food_shelf") is not None:
+        # buyer_food_shelf arm B: a food quote whose shop x SKU the kit last refused to pay for, for too little shelf life
+        # left, leaves the pick when another quote can be picked (arm A and off: every quote, as before)
+        try:
+            scored = buyer_food_shelf.keep(order["_food_shelf"], scored, order["use_within_hours"] + SHELF_MARGIN)
+        except Exception as e:  # noqa: BLE001 - the study never stops an order: every quote
+            order["_food_shelf"]["error"] = type(e).__name__
     # an ask read from the text ranks after a metadata ask of the same fit and share (a misread or made-up text ask
     # must not take the trade from a shop that stated its price in data; independent review 11/06 13:30)
     meta = lambda s: (got.get(s["name"]) or {}).get("ask_src") != "text"
@@ -1787,6 +1795,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "b1": order.get("_b1"),
         "rank_selection": order.get("_rank_selection"),
         "food_sku_trial": order.get("_food_sku_trial"),
+        "food_shelf": buyer_food_shelf.measurement(order.get("_food_shelf")),
         "turns": dict(out.get("turns") or {}),
         "goods_extra_quote_started": order.get("_goods_extra_quote_started"),
         "goods_extra_quote_added": order.get("_goods_extra_quote_added", 0),
@@ -1909,6 +1918,13 @@ def main():
         qd = None
     if qd is not None:
         order["_quote_deadline"] = qd
+    try:
+        fsh = buyer_food_shelf.state(md, order) if r3 else None
+    except Exception as e:  # noqa: BLE001 - the switch never ends the run: off
+        log(f"[food-shelf] switch read failed: {type(e).__name__}: {e}")
+        fsh = None
+    if fsh is not None:
+        order["_food_shelf"] = fsh
     left, brief = skip_short_warranty(shops, memory, catalog, order) if r3 else (list(shops), [])
     if brief:
         log(f"[choose] skip for goods {brief}: their recent receipts to me had too short a warranty to pay for")
