@@ -103,6 +103,8 @@ class MarginStudy:
 
         The caller supplies the same ledger median/risk/history to both policies.
         Missing median, floor/cap clipping and warranty refusals remain in ITT.
+        Valid fixed scarce asks exclude the SKU from target ITT in both arms,
+        even when that ask is below the median and absent from baseline why.
         """
         now = time.time() if now is None else now
         q = profit_price.quote(unit, median, measured, paid, pricing)
@@ -120,12 +122,16 @@ class MarginStudy:
             cluster = [unit.get('sku'), unit.get('grade')]
             if not all(isinstance(v, str) and v for v in cluster):
                 raise StudyError('missing assignment unit')
-            # Include all high goods, even when treatment is not possible.
-            eligible = unit.get('kind') == 'goods' and (unit.get('list_price') or 0) >= 300000
+            scarce_asks = profit_price.cfg_of(pricing).get('scarce_asks')
+            scarce = scarce_asks.get(unit.get('sku')) if isinstance(scarce_asks, dict) else None
+            scarce_fixed = number(scarce) and scarce > 0
+            # Record excluded selections, but compare only non-scarce high goods.
+            high_goods = unit.get('kind') == 'goods' and (unit.get('list_price') or 0) >= 300000
+            eligible = high_goods and not scarce_fixed
             arm = 'B' if hashlib.sha256(json.dumps(
                 [c['salt'], *cluster], separators=(',', ':')).encode()).digest()[0] < 128 else 'A'
             candidate = q
-            reason = 'outside_target'
+            reason = 'scarce_fixed_ask' if high_goods and scarce_fixed else 'outside_target'
             if eligible:
                 reason = 'no_median'
                 if number(median) and median > 0:

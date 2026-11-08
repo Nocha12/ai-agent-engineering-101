@@ -58,7 +58,9 @@ def main():
                 or name == "test_profit_rules.PriceTest"
                 or name.startswith("test_profit_rules.PriceTest.")
                 or name == "test_meta.StaleCodeTest"
-                or name.startswith("test_meta.StaleCodeTest.")) for name in names):
+                or name.startswith("test_meta.StaleCodeTest.")
+                or name == "test_sol_seller_margin"
+                or name.startswith("test_sol_seller_margin.")) for name in names):
         raise SystemExit("Only the approved offline test seams are allowed")
     meta_bytes = None
     if options.meta_source is not None:

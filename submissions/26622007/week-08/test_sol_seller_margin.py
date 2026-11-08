@@ -79,7 +79,7 @@ class MarginTest(unittest.TestCase):
         self.assertTrue(missing['eligible'])
         self.assertEqual(missing['reason'], 'no_median')
 
-    def test_caps_scarce_refusal_and_food_keep_baseline_policy(self):
+    def test_caps_and_food_keep_baseline_policy(self):
         self.enable()
         self.pricing['price']['ask_caps'] = {self.unit['sku']: {'A': 280000}}
         q, a = self.quote()
@@ -88,6 +88,27 @@ class MarginTest(unittest.TestCase):
         _, a = self.quote(task='task-food')
         self.assertFalse(a['eligible'])
         self.assertFalse(a['prepared_treatment'])
+
+    def assert_scarce_excluded(self, fixed_ask, expected_baseline):
+        self.enable()
+        arms = self.both_arms()
+        self.unit['sku'] = arms['B'][1]['sku']
+        self.pricing['price']['scarce_asks'] = {self.unit['sku']: fixed_ask}
+        q, assignment = self.quote(task='scarce-case')
+        self.assertEqual(assignment['arm'], 'B')
+        self.assertEqual(q['open'], expected_baseline)
+        self.assertEqual(assignment['selected'], expected_baseline)
+        self.assertEqual(assignment['candidate'], expected_baseline)
+        self.assertFalse(assignment['eligible'])  # logged exclusion, outside target ITT
+        self.assertFalse(assignment['prepared_treatment'])
+        self.assertEqual(assignment['reason'], 'scarce_fixed_ask')
+
+    def test_valid_scarce_below_median_is_excluded_even_without_scarce_why(self):
+        # Baseline .97*300000 = 291000; a valid 280000 fixed ask is hidden in why.
+        self.assert_scarce_excluded(280000, 291000)
+
+    def test_valid_scarce_above_median_is_excluded_from_target_itt(self):
+        self.assert_scarce_excluded(310000, 310000)
 
     def test_warranty_refused_stays_in_eligible_itt_without_treatment(self):
         self.enable()
@@ -161,7 +182,10 @@ class SellerExposureTest(unittest.TestCase):
             import shop_memory
             from shop_stock import StockBook
             trial = margin.MarginStudy(root/'new-study')
-            stack.enter_context(mock.patch.object(seller, 'MARGIN_STUDY', trial))
+            # The approved historical seller source lacks this binding. Creating
+            # the injected controller lets its real price path run and fail on
+            # unchanged public-price assertions instead of a missing attribute.
+            stack.enter_context(mock.patch.object(seller, 'MARGIN_STUDY', trial, create=True))
             controllers = ('READER_TRIAL', 'CONCESSION_TRIAL', 'LATE_CONCESSION', 'OPENING_DEFAULT',
                            'DRAIN', 'OPENING_CUE', 'LATE_SPEED', 'JEV_TRANSPORT', 'SHELF_REPLY',
                            'EXACT_ACCEPT', 'EXACT_COUNTER', 'GRADE_PREFERENCE', 'FOOD_OPENING',
@@ -203,7 +227,13 @@ class SellerExposureTest(unittest.TestCase):
             deal = shop.open[task.id]
             self.assertEqual(deal['open'], 300000)
             self.assertEqual(deal['sol_margin']['baseline'], 291000)
-            self.assertEqual(deal['warranty'], 6)
+            # hard_limits.SELLER_GOODS_WARRANTY_HOURS is 72. Both arms use
+            # the unchanged warranty_terms; a pricing max_hours=6 cannot lower it.
+            baseline_deal = dict(kind='goods', id=u['sku'], reserve=deal['reserve'],
+                                 **{'break': deal['break']})
+            shop.warranty_terms(baseline_deal, u['sku'])
+            self.assertEqual(baseline_deal['warranty'], 72)
+            self.assertEqual(deal['warranty'], baseline_deal['warranty'])
             self.assertIn(deal['sol_margin'], trial.observations())
             ready = next(e for e in trial.events() if e['task'] == task.id and e['event'] == 'quote_ready')
             self.assertEqual(ready['baseline_final'], 282270)
@@ -211,6 +241,22 @@ class SellerExposureTest(unittest.TestCase):
             self.assertTrue(ready['actual_treatment'])
             self.assertEqual([e['price'] for e in trial.events()
                               if e['task'] == task.id and e['event'] == 'quoted'], [291000])
+
+    def test_baseline_and_treatment_keep_the_72_hour_product_warranty(self):
+        with tempfile.TemporaryDirectory() as td, contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.dict(os.environ, MARKET_DIR=td))
+            import seller
+            import shop_memory
+            stack.enter_context(mock.patch.object(shop_memory, 'PRICING', str(Path(td)/'pricing.json')))
+            # Explicit low max_hours proves the hard-limit minimum, not an output snapshot.
+            (Path(td)/'pricing.json').write_text(json.dumps(dict(warranty=dict(max_hours=6))))
+            shop = seller.Seller(None, 'anonymous-shop')
+            baseline = dict(kind='goods', id='G00000000', reserve=119118, open=291000)
+            treatment = dict(baseline, open=300000)
+            shop.warranty_terms(baseline, 'G00000000')
+            shop.warranty_terms(treatment, 'G00000000')
+            self.assertEqual(baseline['warranty'], 72)
+            self.assertEqual(treatment['warranty'], 72)
 
 
 class ExactOutcomeTest(unittest.TestCase):
