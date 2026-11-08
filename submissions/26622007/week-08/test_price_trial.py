@@ -70,9 +70,31 @@ class TrialTest(unittest.TestCase):
             self.assertEqual(pp.quote(unit(*on), 800000, None, (), pricing(bad))["open"], base, bad)
 
     def test_shipped_trial(self):
+        # 11/09 01:39 GPT Pro (mw82gkom §2.4): our sold-out batches kept 2.9% of sales against yms979's 11.4%, so half
+        # the 30만+ goods SKU x grades open at 1.0 x median and the other half stay at 0.97 x (the trial arm holds it)
         with open("pricing.json", encoding="utf-8") as f:
-            t = json.load(f)["price"]["high_price_trial"]
-        self.assertEqual((t["factor"], t["share"]), (0.93, 0))    # 02:20-03:21 trial lost: off
+            p = json.load(f)["price"]
+        t = p["high_price_trial"]
+        self.assertEqual((p["high_median_up"]["factor"], t["factor"], t["share"]), (1.0, 0.97, 0.5))
+        self.assertEqual(t["salt"], "20261109-book-margin")
+
+    def test_shipped_split_opens_at_one_or_097_of_the_median_never_under_the_floor(self):
+        with open("pricing.json", encoding="utf-8") as f:
+            shipped = {"price": json.load(f)["price"]}
+        t = shipped["price"]["high_price_trial"]
+        keys = [(f"G{i:04d}", g) for i in range(60) for g in "ABC"]
+        arms = {k: pp.trial_arm(k[0], k[1], t) for k in keys}
+        self.assertTrue(60 <= sum(arms.values()) <= 120)
+        hold = next(k for k, v in arms.items() if v)
+        up = next(k for k, v in arms.items() if not v)
+        cfg = {"price": {**shipped["price"], "ask_caps": {}, "scarce_asks": {}}}
+        self.assertEqual(pp.quote(unit(*up, cost=500000), 800001, None, (), cfg)["open"], 800001)       # 1.0 x
+        self.assertEqual(pp.quote(unit(*hold, cost=500000), 800001, None, (), cfg)["open"], 776001)     # ceil 0.97 x
+        dear = pp.quote(unit(*hold, cost=760000), 800000, None, (), cfg)
+        self.assertEqual(dear["open"], dear["floor"])               # the floor still wins over 0.97 x
+        self.assertGreaterEqual(dear["floor"], 776000)
+        cheap = unit(*up, cost=100000, lp=200000)                   # under 30만: median_up 1.0 as before
+        self.assertEqual(pp.quote(cheap, 180000, None, (), cfg)["open"], 180000)
 
 
 if __name__ == "__main__":
