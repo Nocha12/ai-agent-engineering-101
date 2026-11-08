@@ -112,6 +112,30 @@ def git(*args, check=True):
     return p.stdout.strip()
 
 
+def locate_evidence(path, excerpt, meaning, root=None):
+    """Build a citation from a unique complete line, without guessing a test log's line number.
+
+    Ambiguous matches fail closed; this never repairs a submitted citation or weakens verification.
+    Call after the writer has closed the immutable cycle evidence file.
+    """
+    root = os.path.realpath(root or ROOT)
+    target = os.path.realpath(os.path.join(root, path))
+    if not target.startswith(root + os.sep):
+        raise ValueError("evidence must be inside the repository")
+    excerpt = excerpt.strip()
+    if not excerpt or "\n" in excerpt:
+        raise ValueError("one nonempty complete line required")
+    with open(target, encoding="utf-8", errors="replace") as f:
+        matches = [i for i, line in enumerate(f, 1) if line.strip() == excerpt]
+    if len(matches) != 1:
+        raise ValueError(f"expected one complete matching line, found {len(matches)}")
+    item = {"ref": f"{path}:{matches[0]}", "excerpt": excerpt, "meaning": meaning}
+    problems = verify_evidence([item], root)
+    if problems:
+        raise ValueError("; ".join(problems))
+    return item
+
+
 def verify_evidence(items, root=None):
     """Problems with the citations: each must be a real line of a real file here holding the quoted text."""
     root, problems = root or ROOT, []

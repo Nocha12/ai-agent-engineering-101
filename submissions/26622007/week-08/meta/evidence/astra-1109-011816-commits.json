@@ -1,0 +1,2091 @@
+[
+  {
+    "commit": "d22b7d13",
+    "time": 1794151796,
+    "message": "chore(week-08): 메타 하네스 기록 terra-1109-002601 - rejected\n\nMeta-Harness: meta_harness.py",
+    "files": [
+      "submissions/26622007/week-08/meta/changes.jsonl",
+      "submissions/26622007/week-08/meta/grades.jsonl"
+    ],
+    "before": {
+      "shop_paid": 113,
+      "revenue": 25614368,
+      "buyer_paid": 43,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1411
+    },
+    "after": {
+      "shop_paid": 129,
+      "revenue": 42753304,
+      "buyer_paid": 40,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1359
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "77f9e346",
+    "time": 1794151795,
+    "message": "revert(week-08): fe5e2145 되돌림 - terra-1109-002601 검증 실패: meta/evidence/terra-1109-002601-after-tests.log:1646: the line does not contain 'OK'",
+    "files": [
+      "submissions/26622007/week-08/meta/evidence/terra-1109-002601-after-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1109-002601-head-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1109-002601.json",
+      "submissions/26622007/week-08/meta/last-terra-answer.json",
+      "submissions/26622007/week-08/restock.py"
+    ],
+    "before": {
+      "shop_paid": 113,
+      "revenue": 25614368,
+      "buyer_paid": 43,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1410
+    },
+    "after": {
+      "shop_paid": 129,
+      "revenue": 42753304,
+      "buyer_paid": 40,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1357
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "fe5e2145",
+    "time": 1794151794,
+    "message": "wip(week-08): [terra-1109-002601] 실패 - restock.py의 재입고 판단 지침 두 문장을 복원했다. 제안된 SKU마다 재고, 최근 결제 판매와 폐기 위험을 따로 확인하고 실제 단위 수를 확인하도록 했다. 총량 설정과 현금 안전 한도는 바꾸지 않았다. / meta/evidence/terra-1109-002601-after-tests.log:1646: the line does not contain 'OK'\n\nMeta-Harness: meta_harness.py",
+    "files": [
+      "submissions/26622007/week-08/meta/evidence/terra-1109-002601-after-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1109-002601-head-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1109-002601.json",
+      "submissions/26622007/week-08/meta/last-terra-answer.json",
+      "submissions/26622007/week-08/restock.py"
+    ],
+    "before": {
+      "shop_paid": 113,
+      "revenue": 25614368,
+      "buyer_paid": 43,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1409
+    },
+    "after": {
+      "shop_paid": 129,
+      "revenue": 42753304,
+      "buyer_paid": 40,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1357
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "4af2e4ed",
+    "time": 1794149063,
+    "message": "fix(week-08): nofit_arm hashes any order id (surrogatepass; second review minor)",
+    "files": [
+      "submissions/26622007/week-08/buyer_rank_pg.py"
+    ],
+    "before": {
+      "shop_paid": 122,
+      "revenue": 35494687,
+      "buyer_paid": 52,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1438
+    },
+    "after": {
+      "shop_paid": 138,
+      "revenue": 29471712,
+      "buyer_paid": 50,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1464
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "3c7a6cee",
+    "time": 1794148814,
+    "message": "feat(week-08): buyer_rank_pg \"nofit\": \"ab\" splits the orders by id (B: no-fit pick, A: as before); no-fit rates count only kept asks within the talk band (independent review minor 1-2, GPT Pro 23:0x §2.9 field test)",
+    "files": [
+      "submissions/26622007/week-08/buyer_rank_pg.py",
+      "submissions/26622007/week-08/test_rank_nofit.py"
+    ],
+    "before": {
+      "shop_paid": 125,
+      "revenue": 27929574,
+      "buyer_paid": 49,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1440
+    },
+    "after": {
+      "shop_paid": 130,
+      "revenue": 32836599,
+      "buyer_paid": 54,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1453
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "2327f1c5",
+    "time": 1794148813,
+    "message": "fix(week-08): meta evidence: a quote under 4 characters is good as the whole line (unittest's \"OK\"; 11/08 12 Terra cycles were reverted for citing it, GPT Pro 23:0x §7.1)",
+    "files": [
+      "submissions/26622007/week-08/meta_harness.py",
+      "submissions/26622007/week-08/test_meta.py"
+    ],
+    "before": {
+      "shop_paid": 125,
+      "revenue": 27929574,
+      "buyer_paid": 49,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1440
+    },
+    "after": {
+      "shop_paid": 130,
+      "revenue": 32836599,
+      "buyer_paid": 54,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1453
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "7bedbdcd",
+    "time": 1794148813,
+    "message": "feat(week-08): no goods ask within my limit: with buyer_rank_pg \"nofit\" on, talk to the shop of the talk band likeliest to come down to it (P over the last 3 h x share kept at the limit), not the cheapest ask (19:32-22:58 walk-forward +4.2-5.4 paid goods/h, halved +2.1-2.7; 대표님 8033)",
+    "files": [
+      "submissions/26622007/week-08/buyer_rank_pg.py",
+      "submissions/26622007/week-08/market_buyer.py",
+      "submissions/26622007/week-08/test_rank_nofit.py"
+    ],
+    "before": {
+      "shop_paid": 125,
+      "revenue": 27929574,
+      "buyer_paid": 49,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1440
+    },
+    "after": {
+      "shop_paid": 130,
+      "revenue": 32836599,
+      "buyer_paid": 54,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1453
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "d253b4b5",
+    "time": 1794147480,
+    "message": "chore(week-08): 메타 하네스 기록 terra-1108-231221 - rejected\n\nMeta-Harness: meta_harness.py",
+    "files": [
+      "submissions/26622007/week-08/meta/changes.jsonl",
+      "submissions/26622007/week-08/meta/grades.jsonl"
+    ],
+    "before": {
+      "shop_paid": 135,
+      "revenue": 31055680,
+      "buyer_paid": 43,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1441
+    },
+    "after": {
+      "shop_paid": 128,
+      "revenue": 41736393,
+      "buyer_paid": 53,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1438
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "4e08aaec",
+    "time": 1794147479,
+    "message": "revert(week-08): 5bbfbcd5 되돌림 - terra-1108-231221 검증 실패: tests failed: FAIL: test_clear_quotes_do_not_wait_for_a_slow_agent (test_parallel_quotes.MainOverlap.test_clear_quotes_do_not_wait_for_a_slow_agent)\nffer as 6868 from [6868]\n[23:17:58] seller task 8a5d02bd -> COMPLETED G1 at 6868\n[23:17:58] bu",
+    "files": [
+      "submissions/26622007/week-08/meta/evidence/terra-1108-231221-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-231221.json",
+      "submissions/26622007/week-08/meta/last-terra-answer.json",
+      "submissions/26622007/week-08/restock.py"
+    ],
+    "before": {
+      "shop_paid": 135,
+      "revenue": 31055680,
+      "buyer_paid": 43,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1440
+    },
+    "after": {
+      "shop_paid": 128,
+      "revenue": 41736393,
+      "buyer_paid": 53,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1437
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "5bbfbcd5",
+    "time": 1794147479,
+    "message": "wip(week-08): [terra-1108-231221] 실패 - 직전 두 주기에 증거 줄 번호 오류로 거절된 재입고 판단 지침을 restock.py에 복원했다. SKU별 재고, 최근 결제 판매 및 폐기 위험을 확인하도록 한다. 전체 테스트 1,137건 중 병렬 견적 시간 테스트 1건이 실패했고, 변경 파일의 diff 검사는 통과했다. / tests failed: FAIL: test_clear_quotes_do_not_wait_for_a_slow_agent (test_parallel_quotes.MainOverlap.test_c\n\nMeta-Harness: meta_harness.py",
+    "files": [
+      "submissions/26622007/week-08/meta/evidence/terra-1108-231221-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-231221.json",
+      "submissions/26622007/week-08/meta/last-terra-answer.json",
+      "submissions/26622007/week-08/restock.py"
+    ],
+    "before": {
+      "shop_paid": 135,
+      "revenue": 31055680,
+      "buyer_paid": 43,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1440
+    },
+    "after": {
+      "shop_paid": 128,
+      "revenue": 41736393,
+      "buyer_paid": 53,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1437
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "d2ea8050",
+    "time": 1794143896,
+    "message": "merge(week-08): live meta records (terra-1108-215827) into origin for ff-only pull",
+    "files": [],
+    "before": {
+      "shop_paid": 145,
+      "revenue": 30967537,
+      "buyer_paid": 29,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1427
+    },
+    "after": {
+      "shop_paid": 95,
+      "revenue": 23138449,
+      "buyer_paid": 36,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1436
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "bd5cdfbc",
+    "time": 1794143270,
+    "message": "fix(week-08): quote deadline past at the start with no prefetch asks no shop (at was set to None, lifting the limit for the first and later batches)",
+    "files": [
+      "submissions/26622007/week-08/market_buyer.py",
+      "submissions/26622007/week-08/test_buyer_quote_deadline.py"
+    ],
+    "before": {
+      "shop_paid": 129,
+      "revenue": 29182278,
+      "buyer_paid": 27,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1420
+    },
+    "after": {
+      "shop_paid": 120,
+      "revenue": 28115629,
+      "buyer_paid": 32,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1409
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "d8f9bc5c",
+    "time": 1794142944,
+    "message": "chore(week-08): 메타 하네스 기록 terra-1108-215827 - rejected\n\nMeta-Harness: meta_harness.py",
+    "files": [
+      "submissions/26622007/week-08/meta/changes.jsonl",
+      "submissions/26622007/week-08/meta/grades.jsonl"
+    ],
+    "before": {
+      "shop_paid": 113,
+      "revenue": 30432771,
+      "buyer_paid": 28,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1424
+    },
+    "after": {
+      "shop_paid": 139,
+      "revenue": 32218199,
+      "buyer_paid": 30,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1426
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "6b2fc4f7",
+    "time": 1794142943,
+    "message": "revert(week-08): 88a5b57b 되돌림 - terra-1108-215827 검증 실패: meta/evidence/terra-1108-215827-after-tests.log:1643: the line does not contain 'OK'",
+    "files": [
+      "submissions/26622007/week-08/meta/evidence/terra-1108-215827-after-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-215827-head-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-215827.json",
+      "submissions/26622007/week-08/meta/last-terra-answer.json",
+      "submissions/26622007/week-08/restock.py"
+    ],
+    "before": {
+      "shop_paid": 113,
+      "revenue": 30432771,
+      "buyer_paid": 28,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1422
+    },
+    "after": {
+      "shop_paid": 139,
+      "revenue": 32218199,
+      "buyer_paid": 30,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1427
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "88a5b57b",
+    "time": 1794142942,
+    "message": "wip(week-08): [terra-1108-215827] 실패 - 직전 주기에 증거 로그의 잘못된 줄 번호 때문에 되돌려진 restock.py 지침 두 문장을 복원했다. SKU별 재고·결제 판매·폐기 위험을 확인하도록 하며, 수량 설정과 현금 한도는 바꾸지 않았다. 변경 후 전체 테스트 1,122건과 해당 파일의 diff 검사를 통과했다. / meta/evidence/terra-1108-215827-after-tests.log:1643: the line does not contain 'OK'\n\nMeta-Harness: meta_harness.py",
+    "files": [
+      "submissions/26622007/week-08/meta/evidence/terra-1108-215827-after-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-215827-head-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-215827.json",
+      "submissions/26622007/week-08/meta/last-terra-answer.json",
+      "submissions/26622007/week-08/restock.py"
+    ],
+    "before": {
+      "shop_paid": 113,
+      "revenue": 30432771,
+      "buyer_paid": 28,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1422
+    },
+    "after": {
+      "shop_paid": 139,
+      "revenue": 32218199,
+      "buyer_paid": 30,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1427
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "90f38c5d",
+    "time": 1794142252,
+    "message": "feat(week-08): goods quotes end 13 s into the run behind buyer_quote_deadline.json (market slot 20.8 s; 15:18-21:40 replay +3.1 goods deals/h, +1.0 calibrated; food unchanged)",
+    "files": [
+      "submissions/26622007/week-08/buyer_quote_deadline.py",
+      "submissions/26622007/week-08/market_buyer.py",
+      "submissions/26622007/week-08/test_buyer_quote_deadline.py"
+    ],
+    "before": {
+      "shop_paid": 122,
+      "revenue": 41751241,
+      "buyer_paid": 32,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1431
+    },
+    "after": {
+      "shop_paid": 139,
+      "revenue": 30381750,
+      "buyer_paid": 26,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1405
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "dd30ff1e",
+    "time": 1794140533,
+    "message": "fix(week-08): with buyer_short_warranty on, a 6 h shop goes before one priced as a short warranty (20:15-21:2x 69 of 93 goods orders, 4 deals; calibrated replay 22 -> 40 goods deals since 19:32)",
+    "files": [
+      "submissions/26622007/week-08/market_buyer.py",
+      "submissions/26622007/week-08/test_sw_route.py"
+    ],
+    "before": {
+      "shop_paid": 113,
+      "revenue": 25613838,
+      "buyer_paid": 34,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1470
+    },
+    "after": {
+      "shop_paid": 122,
+      "revenue": 43049847,
+      "buyer_paid": 31,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1451
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "833d124a",
+    "time": 1794140185,
+    "message": "merge(week-08): live meta records (terra-1108-204507) into origin for ff-only pull",
+    "files": [],
+    "before": {
+      "shop_paid": 123,
+      "revenue": 23894655,
+      "buyer_paid": 31,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1475
+    },
+    "after": {
+      "shop_paid": 119,
+      "revenue": 43506181,
+      "buyer_paid": 32,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1458
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "ae3f783f",
+    "time": 1794138510,
+    "message": "chore(week-08): 메타 하네스 기록 terra-1108-204507 - rejected\n\nMeta-Harness: meta_harness.py",
+    "files": [
+      "submissions/26622007/week-08/meta/changes.jsonl",
+      "submissions/26622007/week-08/meta/grades.jsonl"
+    ],
+    "before": {
+      "shop_paid": 114,
+      "revenue": 21830173,
+      "buyer_paid": 32,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1397
+    },
+    "after": {
+      "shop_paid": 122,
+      "revenue": 26332211,
+      "buyer_paid": 33,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1486
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "a1161c3c",
+    "time": 1794138509,
+    "message": "revert(week-08): bba78d42 되돌림 - terra-1108-204507 검증 실패: meta/evidence/terra-1108-204507-after-tests.log:1642: the line does not contain 'OK'",
+    "files": [
+      "submissions/26622007/week-08/meta/evidence/terra-1108-204507-after-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-204507-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-204507.json",
+      "submissions/26622007/week-08/meta/last-terra-answer.json",
+      "submissions/26622007/week-08/restock.py"
+    ],
+    "before": {
+      "shop_paid": 115,
+      "revenue": 21845246,
+      "buyer_paid": 32,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1400
+    },
+    "after": {
+      "shop_paid": 122,
+      "revenue": 26332211,
+      "buyer_paid": 33,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1488
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "bba78d42",
+    "time": 1794138508,
+    "message": "wip(week-08): [terra-1108-204507] 실패 - restock.py의 재입고 판단 지침에 SKU별 실제 재고, 최근 결제 판매와 폐기 위험을 확인하도록 추가했다. 수량 설정과 현금 안전 한도는 변경하지 않았다. 변경 후 전체 테스트 1,115건과 해당 파일의 diff 검사를 통과했다. / meta/evidence/terra-1108-204507-after-tests.log:1642: the line does not contain 'OK'\n\nMeta-Harness: meta_harness.py",
+    "files": [
+      "submissions/26622007/week-08/meta/evidence/terra-1108-204507-after-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-204507-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-204507.json",
+      "submissions/26622007/week-08/meta/last-terra-answer.json",
+      "submissions/26622007/week-08/restock.py"
+    ],
+    "before": {
+      "shop_paid": 115,
+      "revenue": 21845246,
+      "buyer_paid": 32,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1401
+    },
+    "after": {
+      "shop_paid": 122,
+      "revenue": 26332211,
+      "buyer_paid": 33,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1487
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "067bc594",
+    "time": 1794138022,
+    "message": "fix(week-08): short-warranty talk cap = the receipt check's (cheapest acceptable list, grade chance); read ggari-shop's lowest-price sentence\n\n19:32-20:32 with buyer_short_warranty on, 35 goods orders agreed short-warranty units the receipt check then refused\n(ddolcom grade C at 60% of the quoted SKU's list, 111-163% of the cheapest acceptable list): short_cap and the talk limit\npriced the quoted SKU's list and SKU chance, the receipt the cheapest acceptable list and grade chances. short_terms now\nserves both; a quote naming one grade is capped at its chance. Replay: all 20 refused receipts 19:32-20:00 are over the\nnew cap from the first ask, the one paid in 24 h stays under it; 13 of the 35 had another quote within my limit.\nggari-shop's \"Our lowest price for this unit: N. Reply ok to take it.\" had no ask in 55 quotes in 6 h (36 within my\nlimit, 16 unpaid orders; GPT Pro 19:53 §2.3). W-20261108-1943-AXPro주기, 2 independent reviews, 1121 tests OK.",
+    "files": [
+      "submissions/26622007/week-08/market_buyer.py",
+      "submissions/26622007/week-08/test_short_talk_cap.py"
+    ],
+    "before": {
+      "shop_paid": 104,
+      "revenue": 22363052,
+      "buyer_paid": 33,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1396
+    },
+    "after": {
+      "shop_paid": 136,
+      "revenue": 27105296,
+      "buyer_paid": 30,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1483
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "e3bfe9b6",
+    "time": 1794138014,
+    "message": "fix(week-08): rank_pg keeps the current pick when no ask fits; NO_VALUE counts as the shop's failure (19:43-20:03 replay, rank-cause.md)",
+    "files": [
+      "submissions/26622007/week-08/buyer_rank_pg.py",
+      "submissions/26622007/week-08/market_buyer.py",
+      "submissions/26622007/week-08/test_buyer_rank_pg.py"
+    ],
+    "before": {
+      "shop_paid": 106,
+      "revenue": 22447402,
+      "buyer_paid": 34,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1397
+    },
+    "after": {
+      "shop_paid": 135,
+      "revenue": 27094770,
+      "buyer_paid": 30,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1483
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "bfb4ffb7",
+    "time": 1794137742,
+    "message": "docs(week-08): counters in orders.jsonl is the shop asks, ours are our_offers",
+    "files": [
+      "submissions/26622007/week-08/market_buyer.py"
+    ],
+    "before": {
+      "shop_paid": 121,
+      "revenue": 25418347,
+      "buyer_paid": 30,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1388
+    },
+    "after": {
+      "shop_paid": 120,
+      "revenue": 24873034,
+      "buyer_paid": 35,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1467
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "18266afe",
+    "time": 1794134817,
+    "message": "chore(week-08): 메타 하네스 기록 terra-1108-193151 - running\n\nMeta-Harness: meta_harness.py",
+    "files": [
+      "submissions/26622007/week-08/meta/changes.jsonl",
+      "submissions/26622007/week-08/meta/experiments_log.jsonl",
+      "submissions/26622007/week-08/meta/grades.jsonl"
+    ],
+    "before": {
+      "shop_paid": 118,
+      "revenue": 23522600,
+      "buyer_paid": 29,
+      "mature": 7,
+      "missing_cost": 0,
+      "known_mature_net": 84239,
+      "market_paid": 1384
+    },
+    "after": {
+      "shop_paid": 139,
+      "revenue": 27043950,
+      "buyer_paid": 31,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1440
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "231af61e",
+    "time": 1794134614,
+    "message": "feat(week-08): buyer_rank_pg ranks by P x g; ÷T only with \"per_time\": true in the switch (main 19:22, replay +12% vs +9%)",
+    "files": [
+      "submissions/26622007/week-08/buyer_rank_pg.py",
+      "submissions/26622007/week-08/test_buyer_rank_pg.py"
+    ],
+    "before": {
+      "shop_paid": 129,
+      "revenue": 25186189,
+      "buyer_paid": 33,
+      "mature": 27,
+      "missing_cost": 0,
+      "known_mature_net": -835673,
+      "market_paid": 1428
+    },
+    "after": {
+      "shop_paid": 134,
+      "revenue": 24423945,
+      "buyer_paid": 28,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1404
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "46e061fc",
+    "time": 1794134215,
+    "message": "feat(week-08): [terra-1108-193151] forum.py에 최근 수요글 최대 3개를 읽기 전용으로 분석하는 지침을 추가했다. 과거 정산은 현재 재고나 잔여기한의 증거로 취급하지 않는다. 전체 테스트 1,114건과 diff 검사를 통과했다.\n\n이유: 포럼 수요글을 카탈로그 SKU와 실제 결제 정산에 연결하면 예산과 잔여기한을 확인할 수 있는 수요 후보를 찾을 수 있다. 실제 매입이나 Players 점수의 추가 효과는 아직 확인되지 않았다.\n기대: 예산·필요 잔여기한·실제 정산 근거가 함께 확인된 수요 후보 수 12시간 안에 수요글 3개에서 유효 후보 1개 이상, 잘못 연결된 결제행 0개\n\nMeta-Harness: meta_harness.py",
+    "files": [
+      "submissions/26622007/week-08/forum.py",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-193151-head-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-193151.json",
+      "submissions/26622007/week-08/meta/last-terra-answer.json"
+    ],
+    "before": {
+      "shop_paid": 146,
+      "revenue": 28845076,
+      "buyer_paid": 41,
+      "mature": 57,
+      "missing_cost": 0,
+      "known_mature_net": -1729986,
+      "market_paid": 1499
+    },
+    "after": {
+      "shop_paid": 120,
+      "revenue": 27037179,
+      "buyer_paid": 29,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1384
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "dee6dae3",
+    "time": 1794133586,
+    "message": "fix(week-08): rank by g alone when it keeps nothing; ties by the ask's share (adversarial review)",
+    "files": [
+      "submissions/26622007/week-08/buyer_rank_pg.py",
+      "submissions/26622007/week-08/market_buyer.py",
+      "submissions/26622007/week-08/test_buyer_rank_pg.py"
+    ],
+    "before": {
+      "shop_paid": 142,
+      "revenue": 31198592,
+      "buyer_paid": 47,
+      "mature": 103,
+      "missing_cost": 0,
+      "known_mature_net": -965839,
+      "market_paid": 1503
+    },
+    "after": {
+      "shop_paid": 114,
+      "revenue": 22600477,
+      "buyer_paid": 29,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1347
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "64f6474f",
+    "time": 1794133444,
+    "message": "fix(week-08): a broken rank cache keeps the current order (Codex review)",
+    "files": [
+      "submissions/26622007/week-08/market_buyer.py",
+      "submissions/26622007/week-08/test_buyer_rank_pg.py"
+    ],
+    "before": {
+      "shop_paid": 144,
+      "revenue": 32358725,
+      "buyer_paid": 47,
+      "mature": 112,
+      "missing_cost": 0,
+      "known_mature_net": -862532,
+      "market_paid": 1498
+    },
+    "after": {
+      "shop_paid": 106,
+      "revenue": 20591948,
+      "buyer_paid": 30,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1349
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "47a211f4",
+    "time": 1794133237,
+    "message": "feat(week-08): short-warranty p_max with a -1 break outside the warranty; P x final-price rank (buyer_rank_pg switch); our_offers in orders.jsonl (tests)",
+    "files": [
+      "submissions/26622007/week-08/buyer_rank_pg.py",
+      "submissions/26622007/week-08/buyer_short_warranty.py",
+      "submissions/26622007/week-08/hard_limits.py",
+      "submissions/26622007/week-08/market_buyer.py",
+      "submissions/26622007/week-08/test_buyer_rank_pg.py",
+      "submissions/26622007/week-08/test_buyer_short_warranty.py"
+    ],
+    "before": {
+      "shop_paid": 126,
+      "revenue": 28478049,
+      "buyer_paid": 44,
+      "mature": 117,
+      "missing_cost": 0,
+      "known_mature_net": -840536,
+      "market_paid": 1463
+    },
+    "after": {
+      "shop_paid": 114,
+      "revenue": 21015290,
+      "buyer_paid": 31,
+      "mature": 0,
+      "missing_cost": 0,
+      "known_mature_net": 0,
+      "market_paid": 1375
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "8ba98120",
+    "time": 1794130448,
+    "message": "fix(week-08): accept band ceiling never over value_limit; short-warranty p_max bounded by value_limit and budget (tests)",
+    "files": [
+      "submissions/26622007/week-08/buyer_accept_band.py",
+      "submissions/26622007/week-08/market_buyer.py",
+      "submissions/26622007/week-08/test_buyer_accept_band.py",
+      "submissions/26622007/week-08/test_buyer_short_warranty.py"
+    ],
+    "before": {
+      "shop_paid": 129,
+      "revenue": 20142522,
+      "buyer_paid": 33,
+      "mature": 129,
+      "missing_cost": 0,
+      "known_mature_net": 678285,
+      "market_paid": 1378
+    },
+    "after": {
+      "shop_paid": 102,
+      "revenue": 16280147,
+      "buyer_paid": 36,
+      "mature": 102,
+      "missing_cost": 0,
+      "known_mature_net": 472005,
+      "market_paid": 1359
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "8c10218c",
+    "time": 1794129932,
+    "message": "Merge remote-tracking branch 'origin/week-08' into week-08",
+    "files": [],
+    "before": {
+      "shop_paid": 116,
+      "revenue": 20874265,
+      "buyer_paid": 29,
+      "mature": 116,
+      "missing_cost": 0,
+      "known_mature_net": 123733,
+      "market_paid": 1315
+    },
+    "after": {
+      "shop_paid": 108,
+      "revenue": 12844347,
+      "buyer_paid": 35,
+      "mature": 108,
+      "missing_cost": 0,
+      "known_mature_net": 471735,
+      "market_paid": 1434
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "861839cf",
+    "time": 1794129866,
+    "message": "chore(week-08): 메타 하네스 기록 terra-1108-181734 - rejected\n\nMeta-Harness: meta_harness.py",
+    "files": [
+      "submissions/26622007/week-08/meta/changes.jsonl",
+      "submissions/26622007/week-08/meta/grades.jsonl"
+    ],
+    "before": {
+      "shop_paid": 114,
+      "revenue": 20437430,
+      "buyer_paid": 30,
+      "mature": 114,
+      "missing_cost": 0,
+      "known_mature_net": 97423,
+      "market_paid": 1326
+    },
+    "after": {
+      "shop_paid": 106,
+      "revenue": 11784580,
+      "buyer_paid": 36,
+      "mature": 106,
+      "missing_cost": 0,
+      "known_mature_net": 399834,
+      "market_paid": 1431
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "be3b66a5",
+    "time": 1794129865,
+    "message": "revert(week-08): 0609d596 되돌림 - terra-1108-181734 검증 실패: tests failed: FAIL: test_a_prefetched_shop_a_moment_late_is_not_waited_for (test_parallel_quotes.MainOverlap.test_a_prefetched_shop_a_moment_late_is_not_waited_for)\n1: no harness call\n[18:24:23] seller task 7875df4b harness read the offer as 6",
+    "files": [
+      "submissions/26622007/week-08/forum.py",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-181734-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-181734.json",
+      "submissions/26622007/week-08/meta/last-terra-answer.json"
+    ],
+    "before": {
+      "shop_paid": 114,
+      "revenue": 20437430,
+      "buyer_paid": 30,
+      "mature": 114,
+      "missing_cost": 0,
+      "known_mature_net": 97423,
+      "market_paid": 1325
+    },
+    "after": {
+      "shop_paid": 106,
+      "revenue": 11784580,
+      "buyer_paid": 36,
+      "mature": 106,
+      "missing_cost": 0,
+      "known_mature_net": 399834,
+      "market_paid": 1432
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "0609d596",
+    "time": 1794129864,
+    "message": "wip(week-08): [terra-1108-181734] 실패 - forum.py에 최근 수요글 최대 3개를 카탈로그와 실제 정산에 연결하는 읽기 전용 분석 지침을 추가했다. 과거 정산을 현재 재고나 잔여기한의 증거로 취급하지 않도록 했다. / tests failed: FAIL: test_a_prefetched_shop_a_moment_late_is_not_waited_for (test_parallel_quotes.MainOverlap.test_a_prefetched_shop_a_moment_late_is_not_waited_f\n\nMeta-Harness: meta_harness.py",
+    "files": [
+      "submissions/26622007/week-08/forum.py",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-181734-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-181734.json",
+      "submissions/26622007/week-08/meta/last-terra-answer.json"
+    ],
+    "before": {
+      "shop_paid": 114,
+      "revenue": 20437430,
+      "buyer_paid": 30,
+      "mature": 114,
+      "missing_cost": 0,
+      "known_mature_net": 97423,
+      "market_paid": 1325
+    },
+    "after": {
+      "shop_paid": 106,
+      "revenue": 11784580,
+      "buyer_paid": 36,
+      "mature": 106,
+      "missing_cost": 0,
+      "known_mature_net": 399834,
+      "market_paid": 1432
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "a6cd6fbf",
+    "time": 1794129723,
+    "message": "fix(week-08): short warranty priced at the worst of all the order's acceptable SKUs (the kit ships any of them)",
+    "files": [
+      "submissions/26622007/week-08/market_buyer.py",
+      "submissions/26622007/week-08/test_buyer_short_warranty.py"
+    ],
+    "before": {
+      "shop_paid": 122,
+      "revenue": 24217613,
+      "buyer_paid": 27,
+      "mature": 122,
+      "missing_cost": 0,
+      "known_mature_net": 535595,
+      "market_paid": 1340
+    },
+    "after": {
+      "shop_paid": 105,
+      "revenue": 11398043,
+      "buyer_paid": 38,
+      "mature": 105,
+      "missing_cost": 0,
+      "known_mature_net": 387994,
+      "market_paid": 1424
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "0a84cfd1",
+    "time": 1794129494,
+    "message": "fix(week-08): short warranty review - locked exposure reservation fails closed, worst shippable SKU and accepted grades, b=1 buys nothing, no band, buffer cap",
+    "files": [
+      "submissions/26622007/week-08/ask_read.py",
+      "submissions/26622007/week-08/buyer_short_warranty.py",
+      "submissions/26622007/week-08/market_buyer.py",
+      "submissions/26622007/week-08/test_buyer_short_warranty.py"
+    ],
+    "before": {
+      "shop_paid": 127,
+      "revenue": 31677802,
+      "buyer_paid": 24,
+      "mature": 127,
+      "missing_cost": 0,
+      "known_mature_net": -226738,
+      "market_paid": 1363
+    },
+    "after": {
+      "shop_paid": 108,
+      "revenue": 11419949,
+      "buyer_paid": 40,
+      "mature": 108,
+      "missing_cost": 0,
+      "known_mature_net": 416903,
+      "market_paid": 1371
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "5f16938e",
+    "time": 1794129138,
+    "message": "feat(week-08): short-warranty goods bought under an expected-value cap p_max(h) behind .market/buyer_short_warranty.json (owner 7955)",
+    "files": [
+      "submissions/26622007/week-08/ask_read.py",
+      "submissions/26622007/week-08/buyer_short_warranty.py",
+      "submissions/26622007/week-08/hard_limits.py",
+      "submissions/26622007/week-08/market_buyer.py",
+      "submissions/26622007/week-08/test_buyer_short_warranty.py"
+    ],
+    "before": {
+      "shop_paid": 129,
+      "revenue": 37456064,
+      "buyer_paid": 27,
+      "mature": 129,
+      "missing_cost": 0,
+      "known_mature_net": -480601,
+      "market_paid": 1382
+    },
+    "after": {
+      "shop_paid": 101,
+      "revenue": 10739559,
+      "buyer_paid": 34,
+      "mature": 101,
+      "missing_cost": 0,
+      "known_mature_net": 858704,
+      "market_paid": 1337
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "09b62263",
+    "time": 1794126067,
+    "message": "chore(week-08): 메타 하네스 기록 terra-1108-170417 - running\n\nMeta-Harness: meta_harness.py",
+    "files": [
+      "submissions/26622007/week-08/meta/changes.jsonl",
+      "submissions/26622007/week-08/meta/experiments_log.jsonl",
+      "submissions/26622007/week-08/meta/grades.jsonl"
+    ],
+    "before": {
+      "shop_paid": 108,
+      "revenue": 20911416,
+      "buyer_paid": 28,
+      "mature": 108,
+      "missing_cost": 1,
+      "known_mature_net": 1062724,
+      "market_paid": 1364
+    },
+    "after": {
+      "shop_paid": 157,
+      "revenue": 48464397,
+      "buyer_paid": 40,
+      "mature": 157,
+      "missing_cost": 0,
+      "known_mature_net": -5051789,
+      "market_paid": 1446
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "a723f838",
+    "time": 1794125622,
+    "message": "Merge branch 'shop-profile-w1655' into week-08",
+    "files": [],
+    "before": {
+      "shop_paid": 107,
+      "revenue": 26212804,
+      "buyer_paid": 27,
+      "mature": 107,
+      "missing_cost": 1,
+      "known_mature_net": 501378,
+      "market_paid": 1387
+    },
+    "after": {
+      "shop_paid": 152,
+      "revenue": 40117531,
+      "buyer_paid": 40,
+      "mature": 152,
+      "missing_cost": 0,
+      "known_mature_net": -3468199,
+      "market_paid": 1468
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "7b60866e",
+    "time": 1794125584,
+    "message": "fix(week-08): shop profile switch read inside the guard",
+    "files": [
+      "submissions/26622007/week-08/buyer_shop_profile.py"
+    ],
+    "before": {
+      "shop_paid": 106,
+      "revenue": 28293040,
+      "buyer_paid": 29,
+      "mature": 106,
+      "missing_cost": 1,
+      "known_mature_net": 285213,
+      "market_paid": 1399
+    },
+    "after": {
+      "shop_paid": 153,
+      "revenue": 39667086,
+      "buyer_paid": 38,
+      "mature": 153,
+      "missing_cost": 0,
+      "known_mature_net": -3582543,
+      "market_paid": 1455
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "041b137d",
+    "time": 1794125465,
+    "message": "feat(week-08): [terra-1108-170417] restock.py에서 만료된 실험이 추가한 네 줄을 제거했다. 전체 테스트의 기존 임시 경로 실패를 해결하기 위해 test_quote_owner_executor.py의 경로도 정규화했다. 커밋이나 push는 하지 않았다.\n\n이유: 공급 감사 실험의 필수 지침을 제거하면 감사 결측이나 전체 재고 부담을 이유로 광범위한 재입고를 보류하는 판단이 줄어든다.\n기대: 감사 결측 또는 전체 재고 부담을 이유로 한 광범위한 재입고 보류 건수 변경 후 재입고 판단 3건에서 해당 보류 0건을 기대한다. 추가 매출과 Players 효과는 아직 추정할 수 없다.\n\nMeta-Harness: meta_harness.py",
+    "files": [
+      "submissions/26622007/week-08/meta/evidence/terra-1108-170417-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-170417.json",
+      "submissions/26622007/week-08/meta/last-terra-answer.json",
+      "submissions/26622007/week-08/restock.py",
+      "submissions/26622007/week-08/test_quote_owner_executor.py"
+    ],
+    "before": {
+      "shop_paid": 110,
+      "revenue": 30729501,
+      "buyer_paid": 27,
+      "mature": 110,
+      "missing_cost": 1,
+      "known_mature_net": 308260,
+      "market_paid": 1414
+    },
+    "after": {
+      "shop_paid": 147,
+      "revenue": 38209363,
+      "buyer_paid": 39,
+      "mature": 147,
+      "missing_cost": 0,
+      "known_mature_net": -3954561,
+      "market_paid": 1464
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "75e5e793",
+    "time": 1794125350,
+    "message": "fix(week-08): shop profile review - value_limit cap, plan A receipt band for another SKU, price misses only, band deals keep a shop, failed compute cached, plan A off is off",
+    "files": [
+      "submissions/26622007/week-08/buyer_shop_profile.py",
+      "submissions/26622007/week-08/market_buyer.py",
+      "submissions/26622007/week-08/test_buyer_shop_profile.py"
+    ],
+    "before": {
+      "shop_paid": 116,
+      "revenue": 32180960,
+      "buyer_paid": 27,
+      "mature": 116,
+      "missing_cost": 1,
+      "known_mature_net": 258823,
+      "market_paid": 1412
+    },
+    "after": {
+      "shop_paid": 146,
+      "revenue": 39756875,
+      "buyer_paid": 39,
+      "mature": 146,
+      "missing_cost": 0,
+      "known_mature_net": -4279250,
+      "market_paid": 1481
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "2759c158",
+    "time": 1794125350,
+    "message": "docs(week-08): buyer_shop_profile module docstring",
+    "files": [
+      "submissions/26622007/week-08/buyer_shop_profile.py"
+    ],
+    "before": {
+      "shop_paid": 116,
+      "revenue": 32180960,
+      "buyer_paid": 27,
+      "mature": 116,
+      "missing_cost": 1,
+      "known_mature_net": 258823,
+      "market_paid": 1412
+    },
+    "after": {
+      "shop_paid": 146,
+      "revenue": 39756875,
+      "buyer_paid": 39,
+      "mature": 146,
+      "missing_cost": 0,
+      "known_mature_net": -4279250,
+      "market_paid": 1481
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "71287e99",
+    "time": 1794125350,
+    "message": "feat(week-08): wire buyer shop profile into plan A accept band behind .market/buyer_shop_profile.json",
+    "files": [
+      "submissions/26622007/week-08/buyer_shop_profile.py",
+      "submissions/26622007/week-08/market_buyer.py",
+      "submissions/26622007/week-08/test_buyer_shop_profile.py"
+    ],
+    "before": {
+      "shop_paid": 116,
+      "revenue": 32180960,
+      "buyer_paid": 27,
+      "mature": 116,
+      "missing_cost": 1,
+      "known_mature_net": 258823,
+      "market_paid": 1412
+    },
+    "after": {
+      "shop_paid": 146,
+      "revenue": 39756875,
+      "buyer_paid": 39,
+      "mature": 146,
+      "missing_cost": 0,
+      "known_mature_net": -4279250,
+      "market_paid": 1481
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "603ad506",
+    "time": 1794125340,
+    "message": "feat(week-08): buyer shop profile - per-shop accept percent from the log (module, tests)",
+    "files": [
+      "submissions/26622007/week-08/buyer_shop_profile.py",
+      "submissions/26622007/week-08/test_buyer_shop_profile.py"
+    ],
+    "before": {
+      "shop_paid": 116,
+      "revenue": 32180960,
+      "buyer_paid": 27,
+      "mature": 116,
+      "missing_cost": 1,
+      "known_mature_net": 258823,
+      "market_paid": 1415
+    },
+    "after": {
+      "shop_paid": 146,
+      "revenue": 39756875,
+      "buyer_paid": 39,
+      "mature": 146,
+      "missing_cost": 0,
+      "known_mature_net": -4279250,
+      "market_paid": 1477
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "3a3104db",
+    "time": 1794125071,
+    "message": "fix(week-08): plan A keeps my raise to the limit; takes only the final ask; guard widened only for the band turn\n\nIndependent review (Important 1): the band replaced my one raise to the limit. Now only a turn that would walk away\ntakes a final ask in (limit, ceiling]; the talk guard widens only for that turn (accept_band) or a FAST turn under it;\nthe orders.jsonl field is written only when the switch is on.",
+    "files": [
+      "submissions/26622007/week-08/buyer.py",
+      "submissions/26622007/week-08/buyer_accept_band.py",
+      "submissions/26622007/week-08/market_buyer.py",
+      "submissions/26622007/week-08/test_buyer_accept_band.py"
+    ],
+    "before": {
+      "shop_paid": 131,
+      "revenue": 42698188,
+      "buyer_paid": 27,
+      "mature": 131,
+      "missing_cost": 0,
+      "known_mature_net": 1177417,
+      "market_paid": 1423
+    },
+    "after": {
+      "shop_paid": 133,
+      "revenue": 34786186,
+      "buyer_paid": 39,
+      "mature": 133,
+      "missing_cost": 1,
+      "known_mature_net": -4571337,
+      "market_paid": 1475
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "f371395f",
+    "time": 1794124801,
+    "message": "feat(week-08): buyer plan A - take a counter up to 105% of my limit (in budget) behind .market/buyer_accept_band.json\n\nW-20261108-1645-AX성사율원인, owner telegram 7918. 89% of 1,925 failed orders in 24 h ended on price 1-10% over my\nlimit. Once the oneshot steps are spent, a shop counter in (limit, min(limit*105//100, budget)] is taken; my own\noffers are unchanged; the receipt check pays up to the same ceiling. Warranty rules, hard_limits, budget unchanged.\nSwitch off (missing/false, or BUYER_ACCEPT_BAND=0) is the old behaviour. revert: this commit, or the switch off.",
+    "files": [
+      "submissions/26622007/week-08/buyer.py",
+      "submissions/26622007/week-08/buyer_accept_band.py",
+      "submissions/26622007/week-08/market_buyer.py",
+      "submissions/26622007/week-08/test_buyer_accept_band.py"
+    ],
+    "before": {
+      "shop_paid": 128,
+      "revenue": 43067652,
+      "buyer_paid": 29,
+      "mature": 128,
+      "missing_cost": 0,
+      "known_mature_net": 1132397,
+      "market_paid": 1463
+    },
+    "after": {
+      "shop_paid": 121,
+      "revenue": 31485180,
+      "buyer_paid": 35,
+      "mature": 121,
+      "missing_cost": 1,
+      "known_mature_net": -3866022,
+      "market_paid": 1424
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "17d809e3",
+    "time": 1794122650,
+    "message": "ops(week-08): pin verified buyer publisher selector",
+    "files": [
+      "submissions/26622007/week-08/run_market.sh"
+    ],
+    "before": {
+      "shop_paid": 108,
+      "revenue": 19142745,
+      "buyer_paid": 39,
+      "mature": 108,
+      "missing_cost": 0,
+      "known_mature_net": 1373852,
+      "market_paid": 1431
+    },
+    "after": {
+      "shop_paid": 113,
+      "revenue": 39183428,
+      "buyer_paid": 30,
+      "mature": 113,
+      "missing_cost": 0,
+      "known_mature_net": 2027376,
+      "market_paid": 1476
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "7c34816c",
+    "time": 1794122117,
+    "message": "fix(week-08): B3 skips probe openings; one switch reading per order; sturdier paid_rates",
+    "files": [
+      "submissions/26622007/week-08/buyer_b3b1.py",
+      "submissions/26622007/week-08/market_buyer.py",
+      "submissions/26622007/week-08/test_buyer_b3b1.py"
+    ],
+    "before": {
+      "shop_paid": 114,
+      "revenue": 22561237,
+      "buyer_paid": 36,
+      "mature": 114,
+      "missing_cost": 0,
+      "known_mature_net": 2339914,
+      "market_paid": 1507
+    },
+    "after": {
+      "shop_paid": 126,
+      "revenue": 39723363,
+      "buyer_paid": 31,
+      "mature": 126,
+      "missing_cost": 0,
+      "known_mature_net": 1411795,
+      "market_paid": 1409
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "b8ba2cb2",
+    "time": 1794121987,
+    "message": "feat(week-08): buyer B3+B1 bundle behind .market/buyer_b3b1.json switch\n\nB3: one more offer at 0.92 of the first ask instead of taking a counter over it.\nB1: quote order ranks fitters by yield x recent paid share (6h, shrunk).\nOff unless the switch file says enabled true; BUYER_B3B1=0 wins.",
+    "files": [
+      "submissions/26622007/week-08/buyer_b3b1.py",
+      "submissions/26622007/week-08/market_buyer.py",
+      "submissions/26622007/week-08/test_buyer_b3b1.py"
+    ],
+    "before": {
+      "shop_paid": 109,
+      "revenue": 21461345,
+      "buyer_paid": 36,
+      "mature": 109,
+      "missing_cost": 0,
+      "known_mature_net": 2367121,
+      "market_paid": 1506
+    },
+    "after": {
+      "shop_paid": 124,
+      "revenue": 34714456,
+      "buyer_paid": 32,
+      "mature": 124,
+      "missing_cost": 0,
+      "known_mature_net": 2667586,
+      "market_paid": 1410
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "a5bffcc5",
+    "time": 1794121376,
+    "message": "Merge localhost:/Users/market/ai-agent-engineering-101 into W-20261106-2225-AX극단상향",
+    "files": [],
+    "before": {
+      "shop_paid": 119,
+      "revenue": 17797021,
+      "buyer_paid": 33,
+      "mature": 119,
+      "missing_cost": 0,
+      "known_mature_net": 979596,
+      "market_paid": 1478
+    },
+    "after": {
+      "shop_paid": 111,
+      "revenue": 23300946,
+      "buyer_paid": 36,
+      "mature": 111,
+      "missing_cost": 0,
+      "known_mature_net": 2107778,
+      "market_paid": 1415
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "70766b45",
+    "time": 1794121231,
+    "message": "fix: recognize framed quote-only availability requests",
+    "files": [
+      "submissions/26622007/week-08/quote_hold.py",
+      "submissions/26622007/week-08/test_quote_hold.py"
+    ],
+    "before": {
+      "shop_paid": 124,
+      "revenue": 17396422,
+      "buyer_paid": 36,
+      "mature": 124,
+      "missing_cost": 0,
+      "known_mature_net": 781186,
+      "market_paid": 1506
+    },
+    "after": {
+      "shop_paid": 104,
+      "revenue": 21139680,
+      "buyer_paid": 35,
+      "mature": 104,
+      "missing_cost": 0,
+      "known_mature_net": 2227895,
+      "market_paid": 1403
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "95259c4a",
+    "time": 1794120908,
+    "message": "feat: add isolated quote-only hold shadow with durable diagnostics",
+    "files": [
+      "submissions/26622007/week-08/quote_hold.py",
+      "submissions/26622007/week-08/seller.py",
+      "submissions/26622007/week-08/shop_stock.py",
+      "submissions/26622007/week-08/test_quote_hold.py",
+      "submissions/26622007/week-08/test_round3.py",
+      "submissions/26622007/week-08/test_trial_fixture_isolation.py"
+    ],
+    "before": {
+      "shop_paid": 129,
+      "revenue": 21103834,
+      "buyer_paid": 39,
+      "mature": 129,
+      "missing_cost": 0,
+      "known_mature_net": 1563361,
+      "market_paid": 1516
+    },
+    "after": {
+      "shop_paid": 107,
+      "revenue": 18949297,
+      "buyer_paid": 37,
+      "mature": 107,
+      "missing_cost": 0,
+      "known_mature_net": 1344744,
+      "market_paid": 1418
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "0c6762c5",
+    "time": 1794120861,
+    "message": "chore(week-08): 메타 하네스 기록 terra-1108-154830 - rejected\n\nMeta-Harness: meta_harness.py",
+    "files": [
+      "submissions/26622007/week-08/meta/changes.jsonl",
+      "submissions/26622007/week-08/meta/grades.jsonl"
+    ],
+    "before": {
+      "shop_paid": 128,
+      "revenue": 21534225,
+      "buyer_paid": 37,
+      "mature": 128,
+      "missing_cost": 0,
+      "known_mature_net": 1630810,
+      "market_paid": 1516
+    },
+    "after": {
+      "shop_paid": 109,
+      "revenue": 19146068,
+      "buyer_paid": 39,
+      "mature": 109,
+      "missing_cost": 0,
+      "known_mature_net": 1372509,
+      "market_paid": 1429
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "e2bf9496",
+    "time": 1794120860,
+    "message": "revert(week-08): 9539e9aa 되돌림 - terra-1108-154830 검증 실패: meta/evidence/terra-1108-154830-final-tests.log:1600: the line does not contain 'OK'",
+    "files": [
+      "submissions/26622007/week-08/meta/evidence/terra-1108-154830-final-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-154830-head-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-154830-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-154830.json",
+      "submissions/26622007/week-08/meta/last-terra-answer.json",
+      "submissions/26622007/week-08/restock.py",
+      "submissions/26622007/week-08/test_quote_owner_executor.py"
+    ],
+    "before": {
+      "shop_paid": 128,
+      "revenue": 21534225,
+      "buyer_paid": 37,
+      "mature": 128,
+      "missing_cost": 0,
+      "known_mature_net": 1630810,
+      "market_paid": 1516
+    },
+    "after": {
+      "shop_paid": 109,
+      "revenue": 19146068,
+      "buyer_paid": 39,
+      "mature": 109,
+      "missing_cost": 0,
+      "known_mature_net": 1372509,
+      "market_paid": 1429
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "9539e9aa",
+    "time": 1794120859,
+    "message": "wip(week-08): [terra-1108-154830] 실패 - restock.py에서 실험이 추가한 네 줄을 제거했다. 기존 전체 테스트 27건 실패의 원인이던 test_quote_owner_executor.py의 임시 경로도 정규화했다. 수정 후 전체 테스트 1,017건이 통과했다. 커밋과 push는 하지 않았다. / meta/evidence/terra-1108-154830-final-tests.log:1600: the line does not contain 'OK'\n\nMeta-Harness: meta_harness.py",
+    "files": [
+      "submissions/26622007/week-08/meta/evidence/terra-1108-154830-final-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-154830-head-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-154830-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-154830.json",
+      "submissions/26622007/week-08/meta/last-terra-answer.json",
+      "submissions/26622007/week-08/restock.py",
+      "submissions/26622007/week-08/test_quote_owner_executor.py"
+    ],
+    "before": {
+      "shop_paid": 128,
+      "revenue": 21534225,
+      "buyer_paid": 37,
+      "mature": 128,
+      "missing_cost": 0,
+      "known_mature_net": 1630810,
+      "market_paid": 1515
+    },
+    "after": {
+      "shop_paid": 109,
+      "revenue": 19146068,
+      "buyer_paid": 39,
+      "mature": 109,
+      "missing_cost": 0,
+      "known_mature_net": 1372509,
+      "market_paid": 1430
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "1c824864",
+    "time": 1794118654,
+    "message": "Merge localhost:/Users/market/ai-agent-engineering-101 into W-20261106-2225-AX극단상향",
+    "files": [],
+    "before": {
+      "shop_paid": 124,
+      "revenue": 31560733,
+      "buyer_paid": 36,
+      "mature": 124,
+      "missing_cost": 0,
+      "known_mature_net": 3183671,
+      "market_paid": 1433
+    },
+    "after": {
+      "shop_paid": 120,
+      "revenue": 14897012,
+      "buyer_paid": 40,
+      "mature": 120,
+      "missing_cost": 0,
+      "known_mature_net": 760101,
+      "market_paid": 1475
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "390c6d8f",
+    "time": 1794118518,
+    "message": "test: isolate seller E2E trial state from runtime namespaces",
+    "files": [
+      "submissions/26622007/week-08/test_round3.py",
+      "submissions/26622007/week-08/test_trial_fixture_isolation.py"
+    ],
+    "before": {
+      "shop_paid": 118,
+      "revenue": 32472535,
+      "buyer_paid": 37,
+      "mature": 118,
+      "missing_cost": 0,
+      "known_mature_net": 2514945,
+      "market_paid": 1427
+    },
+    "after": {
+      "shop_paid": 120,
+      "revenue": 14537339,
+      "buyer_paid": 42,
+      "mature": 120,
+      "missing_cost": 0,
+      "known_mature_net": 697836,
+      "market_paid": 1473
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "fcb5da0a",
+    "time": 1794116311,
+    "message": "chore(week-08): 메타 하네스 기록 terra-1108-143219 - rejected\n\nMeta-Harness: meta_harness.py",
+    "files": [
+      "submissions/26622007/week-08/meta/changes.jsonl",
+      "submissions/26622007/week-08/meta/grades.jsonl"
+    ],
+    "before": {
+      "shop_paid": 101,
+      "revenue": 31851816,
+      "buyer_paid": 26,
+      "mature": 101,
+      "missing_cost": 0,
+      "known_mature_net": 2891411,
+      "market_paid": 1408
+    },
+    "after": {
+      "shop_paid": 118,
+      "revenue": 30947163,
+      "buyer_paid": 39,
+      "mature": 118,
+      "missing_cost": 0,
+      "known_mature_net": 2051872,
+      "market_paid": 1430
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "1ded06b0",
+    "time": 1794116310,
+    "message": "revert(week-08): e990b86d 되돌림 - terra-1108-143219 검증 실패: meta/evidence/terra-1108-143219-parallel-test.log:5: the line does not contain 'OK'",
+    "files": [
+      "submissions/26622007/week-08/meta/evidence/terra-1108-143219-head-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-143219-parallel-test.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-143219-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-143219.json",
+      "submissions/26622007/week-08/meta/last-terra-answer.json",
+      "submissions/26622007/week-08/restock.py",
+      "submissions/26622007/week-08/test_quote_owner_executor.py"
+    ],
+    "before": {
+      "shop_paid": 101,
+      "revenue": 31851816,
+      "buyer_paid": 26,
+      "mature": 101,
+      "missing_cost": 0,
+      "known_mature_net": 2891411,
+      "market_paid": 1407
+    },
+    "after": {
+      "shop_paid": 118,
+      "revenue": 30947163,
+      "buyer_paid": 39,
+      "mature": 118,
+      "missing_cost": 0,
+      "known_mature_net": 2051872,
+      "market_paid": 1431
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "e990b86d",
+    "time": 1794116310,
+    "message": "wip(week-08): [terra-1108-143219] 실패 - restock.py에서 실험이 추가한 네 줄을 제거하고, 기존 테스트 실패를 해결하도록 test_quote_owner_executor.py의 임시 경로를 정규화했다. 전체 테스트는 기존 병렬 견적 시간 제한 테스트 1건에서 실패했고, 해당 테스트의 단독 재실행은 통과했다. / meta/evidence/terra-1108-143219-parallel-test.log:5: the line does not contain 'OK'\n\nMeta-Harness: meta_harness.py",
+    "files": [
+      "submissions/26622007/week-08/meta/evidence/terra-1108-143219-head-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-143219-parallel-test.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-143219-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-143219.json",
+      "submissions/26622007/week-08/meta/last-terra-answer.json",
+      "submissions/26622007/week-08/restock.py",
+      "submissions/26622007/week-08/test_quote_owner_executor.py"
+    ],
+    "before": {
+      "shop_paid": 101,
+      "revenue": 31851816,
+      "buyer_paid": 26,
+      "mature": 101,
+      "missing_cost": 0,
+      "known_mature_net": 2891411,
+      "market_paid": 1407
+    },
+    "after": {
+      "shop_paid": 118,
+      "revenue": 30947163,
+      "buyer_paid": 39,
+      "mature": 118,
+      "missing_cost": 0,
+      "known_mature_net": 2051872,
+      "market_paid": 1431
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "e5c25115",
+    "time": 1794113725,
+    "message": "Merge remote-tracking branch 'macmini-market/week-08' into W-20261106-2225-AX극단상향",
+    "files": [],
+    "before": {
+      "shop_paid": 111,
+      "revenue": 15844488,
+      "buyer_paid": 38,
+      "mature": 111,
+      "missing_cost": 0,
+      "known_mature_net": -1042210,
+      "market_paid": 1355
+    },
+    "after": {
+      "shop_paid": 60,
+      "revenue": 24319393,
+      "buyer_paid": 18,
+      "mature": 60,
+      "missing_cost": 0,
+      "known_mature_net": 2201347,
+      "market_paid": 1363
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "ac6c2278",
+    "time": 1794113546,
+    "message": "셀러 정형 저가제안 단일변수 실험을 기본 비활성으로 추가",
+    "files": [
+      "submissions/26622007/week-08/deep_lowball_trial.py",
+      "submissions/26622007/week-08/seller.py",
+      "submissions/26622007/week-08/test_deep_lowball_trial.py"
+    ],
+    "before": {
+      "shop_paid": 126,
+      "revenue": 19280204,
+      "buyer_paid": 37,
+      "mature": 126,
+      "missing_cost": 0,
+      "known_mature_net": 74630,
+      "market_paid": 1387
+    },
+    "after": {
+      "shop_paid": 50,
+      "revenue": 19795168,
+      "buyer_paid": 16,
+      "mature": 50,
+      "missing_cost": 0,
+      "known_mature_net": 1749092,
+      "market_paid": 1338
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "b63be686",
+    "time": 1794111740,
+    "message": "chore(week-08): 메타 하네스 기록 terra-1108-131916 - rejected\n\nMeta-Harness: meta_harness.py",
+    "files": [
+      "submissions/26622007/week-08/meta/changes.jsonl",
+      "submissions/26622007/week-08/meta/grades.jsonl"
+    ],
+    "before": {
+      "shop_paid": 139,
+      "revenue": 20123972,
+      "buyer_paid": 33,
+      "mature": 139,
+      "missing_cost": 0,
+      "known_mature_net": 1546768,
+      "market_paid": 1471
+    },
+    "after": {
+      "shop_paid": 126,
+      "revenue": 19280204,
+      "buyer_paid": 37,
+      "mature": 126,
+      "missing_cost": 0,
+      "known_mature_net": 74630,
+      "market_paid": 1382
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "ca3a7036",
+    "time": 1794111740,
+    "message": "revert(week-08): 6d69415a 되돌림 - terra-1108-131916 검증 실패: meta/evidence/terra-1108-131916-tests.log:1577: the line does not contain 'OK'",
+    "files": [
+      "submissions/26622007/week-08/meta/evidence/terra-1108-131916-head-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-131916-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-131916.json",
+      "submissions/26622007/week-08/meta/last-terra-answer.json",
+      "submissions/26622007/week-08/restock.py",
+      "submissions/26622007/week-08/test_quote_owner_executor.py"
+    ],
+    "before": {
+      "shop_paid": 139,
+      "revenue": 20123972,
+      "buyer_paid": 33,
+      "mature": 139,
+      "missing_cost": 0,
+      "known_mature_net": 1546768,
+      "market_paid": 1471
+    },
+    "after": {
+      "shop_paid": 126,
+      "revenue": 19280204,
+      "buyer_paid": 37,
+      "mature": 126,
+      "missing_cost": 0,
+      "known_mature_net": 74630,
+      "market_paid": 1382
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "6d69415a",
+    "time": 1794111739,
+    "message": "wip(week-08): [terra-1108-131916] 실패 - restock.py에서 해당 실험이 추가한 네 줄만 제거했다. 기존 전체 테스트를 막던 임시 경로도 정규화했다. 변경 전 1,008개 테스트 중 27개가 실패했고 변경 후 1,008개가 통과했다. 커밋과 push는 하지 않았다. / meta/evidence/terra-1108-131916-tests.log:1577: the line does not contain 'OK'\n\nMeta-Harness: meta_harness.py",
+    "files": [
+      "submissions/26622007/week-08/meta/evidence/terra-1108-131916-head-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-131916-tests.log",
+      "submissions/26622007/week-08/meta/evidence/terra-1108-131916.json",
+      "submissions/26622007/week-08/meta/last-terra-answer.json",
+      "submissions/26622007/week-08/restock.py",
+      "submissions/26622007/week-08/test_quote_owner_executor.py"
+    ],
+    "before": {
+      "shop_paid": 139,
+      "revenue": 20123972,
+      "buyer_paid": 33,
+      "mature": 139,
+      "missing_cost": 0,
+      "known_mature_net": 1546768,
+      "market_paid": 1470
+    },
+    "after": {
+      "shop_paid": 126,
+      "revenue": 19280204,
+      "buyer_paid": 37,
+      "mature": 126,
+      "missing_cost": 0,
+      "known_mature_net": 74630,
+      "market_paid": 1383
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "719575ad",
+    "time": 1794111495,
+    "message": "chore(week-08): 메타 하네스 기록 astra-1108-123308 - rejected\n\nMeta-Harness: meta_harness.py",
+    "files": [
+      "submissions/26622007/week-08/meta/changes.jsonl",
+      "submissions/26622007/week-08/meta/grades.jsonl"
+    ],
+    "before": {
+      "shop_paid": 137,
+      "revenue": 17990624,
+      "buyer_paid": 37,
+      "mature": 137,
+      "missing_cost": 0,
+      "known_mature_net": 750923,
+      "market_paid": 1493
+    },
+    "after": {
+      "shop_paid": 119,
+      "revenue": 19093184,
+      "buyer_paid": 35,
+      "mature": 119,
+      "missing_cost": 0,
+      "known_mature_net": 237149,
+      "market_paid": 1393
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "e1a02f39",
+    "time": 1794111495,
+    "message": "revert(week-08): 8fc529d7 되돌림 - astra-1108-123308 검증 실패: no answer within 2700 s",
+    "files": [
+      "submissions/26622007/week-08/meta/REPORT-notes.md",
+      "submissions/26622007/week-08/meta/audit_astra_123308.py",
+      "submissions/26622007/week-08/meta/build_astra_123308_review.py",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-audit-stderr.txt",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-audit-v2-stderr.txt",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-audit-v2.jsonl",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-audit.jsonl",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-dropped-tool.json",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-measurements.jsonl",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-path-before.log",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-probe-attempt.txt",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-probes-v2.jsonl",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-probes.jsonl",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-rejected-test-copy.log",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-review.json",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-rules.html",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-scorecards.jsonl",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-settings.jsonl",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-tests.log",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-tool-probe.jsonl",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-validation-v2.json",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-validation.json",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308.json",
+      "submissions/26622007/week-08/meta/evidence_citations.py",
+      "submissions/26622007/week-08/meta/experiments.json",
+      "submissions/26622007/week-08/meta/last-astra-answer.json",
+      "submissions/26622007/week-08/meta/measure_astra_123308.py",
+      "submissions/26622007/week-08/meta/probe_astra_123308.py",
+      "submissions/26622007/week-08/meta/strategy.md",
+      "submissions/26622007/week-08/meta/terra.md",
+      "submissions/26622007/week-08/restock.py",
+      "submissions/26622007/week-08/test_evidence_citations.py",
+      "submissions/26622007/week-08/test_quote_owner_executor.py",
+      "submissions/26622007/week-08/tools/auto_market_research_context/manifest.json",
+      "submissions/26622007/week-08/tools/auto_market_research_context/tool.py"
+    ],
+    "before": {
+      "shop_paid": 137,
+      "revenue": 17990624,
+      "buyer_paid": 37,
+      "mature": 137,
+      "missing_cost": 0,
+      "known_mature_net": 750923,
+      "market_paid": 1493
+    },
+    "after": {
+      "shop_paid": 119,
+      "revenue": 19093184,
+      "buyer_paid": 35,
+      "mature": 119,
+      "missing_cost": 0,
+      "known_mature_net": 237149,
+      "market_paid": 1393
+    },
+    "after_hours": 0.5
+  },
+  {
+    "commit": "8fc529d7",
+    "time": 1794111494,
+    "message": "wip(week-08): [astra-1108-123308] 실패 - no answer within 2700 s / no answer within 2700 s\n\nMeta-Harness: meta_harness.py",
+    "files": [
+      "submissions/26622007/week-08/meta/REPORT-notes.md",
+      "submissions/26622007/week-08/meta/audit_astra_123308.py",
+      "submissions/26622007/week-08/meta/build_astra_123308_review.py",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-audit-stderr.txt",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-audit-v2-stderr.txt",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-audit-v2.jsonl",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-audit.jsonl",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-dropped-tool.json",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-measurements.jsonl",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-path-before.log",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-probe-attempt.txt",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-probes-v2.jsonl",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-probes.jsonl",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-rejected-test-copy.log",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-review.json",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-rules.html",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-scorecards.jsonl",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-settings.jsonl",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-tests.log",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-tool-probe.jsonl",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-validation-v2.json",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308-validation.json",
+      "submissions/26622007/week-08/meta/evidence/astra-1108-123308.json",
+      "submissions/26622007/week-08/meta/evidence_citations.py",
+      "submissions/26622007/week-08/meta/experiments.json",
+      "submissions/26622007/week-08/meta/last-astra-answer.json",
+      "submissions/26622007/week-08/meta/measure_astra_123308.py",
+      "submissions/26622007/week-08/meta/probe_astra_123308.py",
+      "submissions/26622007/week-08/meta/strategy.md",
+      "submissions/26622007/week-08/meta/terra.md",
+      "submissions/26622007/week-08/restock.py",
+      "submissions/26622007/week-08/test_evidence_citations.py",
+      "submissions/26622007/week-08/test_quote_owner_executor.py",
+      "submissions/26622007/week-08/tools/auto_market_research_context/manifest.json",
+      "submissions/26622007/week-08/tools/auto_market_research_context/tool.py"
+    ],
+    "before": {
+      "shop_paid": 137,
+      "revenue": 17990624,
+      "buyer_paid": 37,
+      "mature": 137,
+      "missing_cost": 0,
+      "known_mature_net": 750923,
+      "market_paid": 1492
+    },
+    "after": {
+      "shop_paid": 119,
+      "revenue": 19093184,
+      "buyer_paid": 35,
+      "mature": 119,
+      "missing_cost": 0,
+      "known_mature_net": 237149,
+      "market_paid": 1394
+    },
+    "after_hours": 0.5
+  }
+]

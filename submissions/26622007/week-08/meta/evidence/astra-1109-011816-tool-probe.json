@@ -1,0 +1,6 @@
+{
+  "fixture": "catalog G1 침대; paid settle #1 sku G1",
+  "exit": 0,
+  "stdout": "{\"catalog_count\": 1, \"catalog\": [{\"name\": \"침대\", \"category\": \"가구\"}], \"ledger_count\": 0, \"ledger\": [], \"forum\": []}\n",
+  "stderr": ""
+}

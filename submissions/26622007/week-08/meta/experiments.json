@@ -44,6 +44,28 @@
    "min_sample": "수요글 3개; 없으면 표본부족으로 종료",
    "hours": 12,
    "undo": "이번 수요 연결 맥락 문장만 제거; 후보 자동매입 금지"
+  },
+  {
+   "id": "sku-local-context-1109",
+   "change": "forum-demand 종료 후 restock.GOAL에 제안 SKU별 실제 수량·최근 결제·폐기위험 확인, 다른 SKU 총재고만으로 보류하지 않는 두 문장을 추가한다. 설정은 유지한다.",
+   "evidence": "meta/evidence/astra-1109-011816-audit.jsonl:203 총재고 이유 No restock; :81 G8 3입고3판매; :1 상점3048결제",
+   "metric": "근거 완비 재입고 판단 수 및 재고 오독/총량만의 보류 수",
+   "direction": "above",
+   "threshold": "근거완비 >=2; 오독 및 총량만의 보류 =0",
+   "min_sample": "재입고 판단3건 및 완료 공급창2개",
+   "hours": 12,
+   "undo": "이번 restock.GOAL 두 문장만 제거한다. 총량 설정 및 현금 안전한도는 유지한다."
+  },
+  {
+   "id": "concentrated-demand-context-1109",
+   "change": "주 실험 종료 후 restock.GOAL에 신규 고가후보 하나의 공개 결제를 최대 구매자 포함/제외 두 경우로 비교하는 맥락 문장 추가. 자동매입 없이 기존 ledger_search를 사용한다.",
+   "evidence": "meta/evidence/astra-1109-011816-supplement-v2.jsonl:2 yms979 G8ec51935 125결제 중 mjforge116; :6 seochanit54건 모두 mjforge",
+   "metric": "최대 구매자 제외 잔여결제·구매자 수를 정확히 인용한 후보 분석 수",
+   "direction": "above",
+   "threshold": "정확한 후보 분석 >=1; 결제 중복 및 구매자를 판매자로 연결한 오류 =0",
+   "min_sample": "최근12h 결제10건 이상인 후보1개, 원장 seq 대조10건",
+   "hours": 12,
+   "undo": "이번 집중도 맥락 문장만 제거하고 매입 목표는 바꾸지 않는다."
   }
  ]
 }
