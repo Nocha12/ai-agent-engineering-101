@@ -16,6 +16,43 @@ ROOT="$(cd "$HERE/../../.." && pwd)"
 ENV_FILE="$HERE/../.env"
 NAME="${MARKET_NAME:-nocha12}"
 
+select_join_dir() {
+  local store="$1" selector="$1/current-join" directory path owner mode canonical
+  if [ ! -e "$selector" ] && [ ! -L "$selector" ]; then
+    printf '%s\n' "$HERE"
+    return 0
+  fi
+  [ -L "$selector" ] || { echo "[join-selector] symlink required" >&2; return 1; }
+  directory="$(cd "$selector" 2>/dev/null && pwd -P)" || return 1
+  case "$directory" in "$store"/join-generations/*) ;; *) return 1 ;; esac
+  canonical="${directory#"$store"/join-generations/}"
+  case "$canonical" in ""|*/*|.*|*$'\n'*|*$'\r'*) return 1 ;; esac
+  [ -f "$directory/agent.json" ] && [ ! -L "$directory/agent.json" ] || return 1
+  for path in "$store" "$store/join-generations" "$directory" "$directory/agent.json"; do
+    [ ! -L "$path" ] || return 1
+    owner="$(/usr/bin/stat -f %u "$path")" || return 1
+    mode="$(/usr/bin/stat -f %Lp "$path")" || return 1
+    [ "$owner" = 501 ] && (( (8#$mode & 022) == 0 )) || return 1
+  done
+  mode="$(/usr/bin/stat -f %Lp "$directory/agent.json")" || return 1
+  (( (8#$mode & 0222) == 0 )) || return 1
+  mode="$(/usr/bin/stat -f %Lp "$directory")" || return 1
+  (( (8#$mode & 0222) == 0 )) || return 1
+  canonical="$(cd "$store" 2>/dev/null && pwd -P)" || return 1
+  [ "$canonical" = "$store" ] || return 1
+  if [ "$(/usr/bin/id -u)" != 501 ]; then
+    for path in "$store" "$store/join-generations" "$directory" "$directory/agent.json"; do
+      [ ! -w "$path" ] || return 1
+    done
+  fi
+  printf '%s\n' "$directory"
+}
+
+if [ "${1:-}" = --check-join-selector ]; then
+  select_join_dir "${2:-/Users/Shared/ax-buyer-W-20261106-1950}"
+  exit $?
+fi
+
 read_env() {
   grep -E "^\s*(export\s+)?$1=" "$ENV_FILE" | tail -1 | sed -E "s/^\s*(export\s+)?$1=//; s/^[\"']//; s/[\"']\s*$//"
 }
@@ -51,8 +88,12 @@ trap leave INT TERM
 cd "$ROOT"
 source .venv/bin/activate
 while true; do
+  JOIN_DIR="$(select_join_dir /Users/Shared/ax-buyer-W-20261106-1950)" || {
+    echo "[join-selector] invalid managed generation; kit not started" >&2
+    exit 1
+  }
   # The kit prints why it stops (e.g. a refused join) to stderr only; keep it next to the kit's log.
-  python scripts/market_kit.py join --dir "$HERE" --market https://market.ourolabs.ai --name "$NAME" --tunnel \
+  python scripts/market_kit.py join --dir "$JOIN_DIR" --market https://market.ourolabs.ai --name "$NAME" --tunnel \
     2>> "$HERE/logs/kit-stderr.log" &
   KIT=$!
   wait "$KIT"
