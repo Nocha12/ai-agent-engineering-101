@@ -1,0 +1,162 @@
+"""Plan A (owner 11/08, telegram 7918): a shop's counter within 105% of my limit, and within the order's budget, is taken."""
+import os, tempfile, unittest
+from unittest import mock
+
+import buyer
+import buyer_accept_band as band
+import market_buyer as mb
+import oneshot
+
+
+def switch(md, body):
+    with open(os.path.join(md, band.SWITCH), "w") as f:
+        f.write(body)
+
+
+class SwitchTest(unittest.TestCase):
+    def test_off_unless_the_switch_file_says_on(self):
+        with tempfile.TemporaryDirectory() as md:
+            self.assertIsNone(band.percent(md, env={}))
+            for body, want in (('{"enabled": true}', 105), ('{"enabled": false}', None), ('{"enabled": 1}', None),
+                               ("not json", None), ("[]", None)):
+                switch(md, body)
+                self.assertEqual(band.percent(md, env={}), want, body)
+            switch(md, '{"enabled": true}')
+            self.assertIsNone(band.percent(md, env={"BUYER_ACCEPT_BAND": "0"}))   # the environment off wins
+
+
+class CeilingTest(unittest.TestCase):
+    def test_105_percent_of_the_limit_inside_the_budget(self):
+        self.assertEqual(band.ceiling(10000, 20000, 105), 10500)
+        self.assertEqual(band.ceiling(10001, 20000, 105), 10501)         # 10501.05, never rounded up
+        self.assertEqual(band.ceiling(10000, 10300, 105), 10300)         # the order's budget holds
+        self.assertEqual(band.ceiling(10000, 9000, 105), 10000)          # never under the limit itself
+
+    def test_off_or_no_limit_is_the_limit(self):
+        self.assertEqual(band.ceiling(10000, 20000, None), 10000)
+        self.assertEqual(band.ceiling(0, 20000, 105), 0)                 # limit 0: no talk, as before
+
+
+def walk_after_my_limit(ask):
+    """oneshot after my 0.9 offer and my one raise to the limit 10000: the shop's next counter."""
+    history = [("shop asked", 12000), ("you offered", 9000), ("shop asked", 11000), ("you offered", 10000)]
+    return oneshot.code_turn(ask, history, 10000, (0.9,)), history
+
+
+class TurnTest(unittest.TestCase):
+    def test_boundaries_104_9_105_105_1(self):
+        for ask, taken in ((10490, True), (10500, True), (10510, False)):
+            base, history = walk_after_my_limit(ask)
+            self.assertEqual(base["action"], "walk_away")
+            out, note = band.turn(base, history, 10000, 10500, (0.9,))
+            if taken:
+                self.assertEqual(out, {"shop_price": ask, "action": "offer", "price": ask}, ask)
+                self.assertEqual(note, {"taken": ask, "limit": 10000, "ceiling": 10500})
+            else:
+                self.assertEqual((out, note), (base, None), ask)
+
+    def test_counter_within_the_band_is_taken_instead_of_the_raise_to_my_limit(self):
+        history = [("shop asked", 12000), ("you offered", 9000)]
+        base = oneshot.code_turn(10400, history, 10000, (0.9,))
+        self.assertEqual(base, {"shop_price": 10400, "action": "offer", "price": 10000})
+        out, _ = band.turn(base, history, 10000, 10500, (0.9,))
+        self.assertEqual(out["price"], 10400)
+
+    def test_over_the_budget_is_not_taken(self):
+        base, history = walk_after_my_limit(10400)
+        out, note = band.turn(base, history, 10000, band.ceiling(10000, 10300, 105), (0.9,))
+        self.assertEqual((out, note), (base, None))
+
+    def test_off_is_the_old_turn(self):
+        base, history = walk_after_my_limit(10400)
+        self.assertEqual(band.turn(base, history, 10000, 10000, (0.9,)), (base, None))
+
+    def test_the_opening_ask_still_gets_my_first_offer(self):
+        base = oneshot.code_turn(10400, [], 10000, (0.9,))
+        self.assertEqual(band.turn(base, [], 10000, 10500, (0.9,)), (base, None))
+
+    def test_a_shop_that_did_not_take_its_own_ask_is_left(self):
+        history = [("shop asked", 12000), ("you offered", 9000), ("shop asked", 10400), ("you offered", 10400)]
+        base = oneshot.code_turn(10400, history, 10000, (0.9,))
+        self.assertEqual(band.turn(base, history, 10000, 10500, (0.9,)), (base, None))
+
+    def test_steps_left_keep_their_counter(self):
+        history = [("shop asked", 12000), ("you offered", 9000)]
+        base = oneshot.code_turn(10400, history, 10000, (0.75, 0.85))
+        self.assertEqual(band.turn(base, history, 10000, 10500, (0.75, 0.85)), (base, None))
+
+    def test_the_harness_turn_is_left_alone(self):
+        self.assertEqual(band.turn(None, [("shop asked", 12000), ("you offered", 9000)], 10000, 10500, (0.9,)), (None, None))
+
+
+def task(state, ask=None, receipt=None):
+    t = {"id": "t-1", "status": {"state": state, "message": {"parts": [{"text": f"asking {ask}"}],
+                                                          **({"metadata": {"ask": ask}} if ask is not None else {})}}}
+    if receipt:
+        t["artifacts"] = [{"parts": [{"data": receipt}]}]
+    return t
+
+
+class TalkTest(unittest.TestCase):
+    def talk(self, ceiling):
+        sent = []
+
+        def send(url, text, task_id=None):
+            sent.append(text)
+            return task("TASK_STATE_COMPLETED", receipt={"price": int(text), "item": "G1"})
+        ladder = lambda meta, text, history: {"shop_price": meta, "action": "offer", "price": 10400}
+        with mock.patch.object(buyer, "send", send), mock.patch.object(buyer, "decide", side_effect=AssertionError("no harness")):
+            buyer.talk("u", task("TASK_STATE_INPUT_REQUIRED", 10400), "x", 10000, "",
+                       {"history": [("shop asked", 12000), ("you offered", 9000)], "agreed": None, "holds": 0},
+                       ladder=ladder, ceiling=ceiling)
+        return sent
+
+    def test_a_code_offer_up_to_the_ceiling_goes_out(self):
+        self.assertEqual(self.talk(10500), ["10400"])
+
+    def test_without_a_ceiling_the_limit_guard_holds(self):
+        self.assertEqual(self.talk(None), ["10000"])
+
+
+class ReceiptTest(unittest.TestCase):
+    offer = {"sku": "G4c4977ca", "list_price": 18120}
+
+    def test_a_receipt_within_the_ceiling_is_paid(self):
+        self.assertIsNone(mb.over_limit({"item": "G4c4977ca", "price": 10500.0}, self.offer, 10000, {}, 20000, band=105))
+        self.assertIn("over my limit", mb.over_limit({"item": "G4c4977ca", "price": 10501.0}, self.offer, 10000, {}, 20000,
+                                                      band=105))
+        self.assertIn("over my limit", mb.over_limit({"item": "G4c4977ca", "price": 10400.0}, self.offer, 10000, {}, 10300,
+                                                      band=105))           # over the order's budget
+
+    def test_off_is_the_limit(self):
+        self.assertIn("over my limit", mb.over_limit({"item": "G4c4977ca", "price": 10001.0}, self.offer, 10000, {}, 20000))
+
+
+class RealLadderTest(unittest.TestCase):
+    """market_buyer.main's own price_ladder: the band moves only the turn where my steps are spent."""
+
+    def ladder(self, order, top):
+        import ast, inspect
+        from types import SimpleNamespace
+        node = next(n for n in ast.walk(ast.parse(inspect.getsource(mb.main)))
+                    if isinstance(n, ast.FunctionDef) and n.name == "price_ladder")
+        ns = {**vars(mb), "discount_arm": None, "probe_arm": None, "goods_first_arm": None, "limit": 10000,
+              "steps": (.9,), "q": {"ask": 11000}, "resume": True, "order": order, "args": SimpleNamespace(budget=20000),
+              "shop": {"name": "fixture"}, "key": "G12345678", "r3": False}
+        exec(compile(ast.Module(body=[node], type_ignores=[]), "<ladder>", "exec"), ns)
+        order["_accept_band_top"] = top if top > 10000 else None
+        return ns["price_ladder"]
+
+    def test_on_takes_a_counter_within_105_off_raises_to_the_limit(self):
+        history = [("shop asked", 11000), ("you offered", 9900)]
+        on = {"kind": "goods"}
+        self.assertEqual(self.ladder(on, 10500)(10500, "", history), {"shop_price": 10500, "action": "offer", "price": 10500})
+        self.assertEqual(on["_accept_band"], {"taken": 10500, "limit": 10000, "ceiling": 10500})
+        off = {"kind": "goods"}
+        self.assertEqual(self.ladder(off, 10000)(10500, "", history), {"shop_price": 10500, "action": "offer", "price": 10000})
+        self.assertNotIn("_accept_band", off)
+        self.assertEqual(self.ladder({"kind": "goods"}, 10500)(10510, "", history)["price"], 10000)   # 105.1%: the raise
+
+
+if __name__ == "__main__":
+    unittest.main()

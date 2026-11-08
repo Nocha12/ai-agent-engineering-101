@@ -64,6 +64,7 @@ import buyer_firm_trial
 import buyer_first95_trial
 import buyer_cap95_trial
 import buyer_b3b1
+import buyer_accept_band
 import rival_deny
 
 # Revenue rivals of my shop asked last (rival_deny): off from 11/07 00:30. With best_quote stopping at QUOTE_ENOUGH asks they
@@ -1442,11 +1443,12 @@ def check_receipt(rec, out, item, budget, order=None, catalog=None):
     return problems, warnings
 
 
-def over_limit(rec, offer, limit, catalog, budget):
+def over_limit(rec, offer, limit, catalog, budget, band=None):
     """Why a receipt is not one I pay for: its price is over my limit for its SKU (saved_cap, patch 3.4). A shop that
     sends a receipt at once, with no offer from me, skipped the talk where the limit is kept: 3 of the receipts paid from
     11/06 08:45 to 13:35 (Jaehoonang, agreed None) were over it, e.g. 13,532 for a limit of 13,415 (GPT Pro 11/06 13:30
-    B2). None when the price is within it. Not cheating: the shop may ask what it likes; I just do not pay it."""
+    B2). None when the price is within it. Not cheating: the shop may ask what it likes; I just do not pay it.
+    band: buyer_accept_band.percent, the limit then goes up to that share of it (never over the budget)."""
     price = (rec or {}).get("price")
     if not isinstance(price, (int, float)) or isinstance(price, bool) or not isinstance(limit, (int, float)):
         return None
@@ -1455,6 +1457,7 @@ def over_limit(rec, offer, limit, catalog, budget):
         lp = ((catalog or {}).get(sku) or {}).get("list_price")
         if isinstance(lp, (int, float)):   # its list price unknown: the asked SKU's limit holds, not the budget
             limit = min(value_limit({"list_price": lp}, budget, 0, buyer_cfg()), saved_cap({"list_price": lp}, 0))
+    limit = buyer_accept_band.ceiling(limit, budget, band)
     return f"receipt price {price:g} is over my limit {limit:g} for {sku}" if round(price) > limit else None
 
 
@@ -1735,6 +1738,8 @@ def main():
     if r3 and order.get("kind") == "goods":
         chance = market_model.break_chance(ledger_breaks(md, catalog), key)
     limit = min(value_limit(offer, args.budget, chance, buyer_cfg()), saved_cap(offer, chance)) if r3 else args.budget
+    band_pct = buyer_accept_band.percent(md) if r3 else None    # plan A: a counter up to 105% of the limit is taken
+    top = buyer_accept_band.ceiling(limit, args.budget, band_pct) if r3 else limit
     mine = my_history(memory, shop["name"])
     pattern = shop_pattern(ledger_rows(md), shop["url"], catalog) if r3 else None
     deals, low = item_stats(mine, key)
@@ -1749,7 +1754,8 @@ def main():
         log(f"memory note for the harness: {note}")
     if r3:
         log(f"[offer] {offer['sku']} {offer['name']}: list {offer['list_price']}, limit {limit}, {len(shop['usable'])} fit"
-            + (f", breaks {chance:.1%} of the time in the ledger" if chance else ""))
+            + (f", breaks {chance:.1%} of the time in the ledger" if chance else "")
+            + (f", takes a counter up to {top} ({band_pct}%)" if top > limit else ""))
     talk_mode = None      # no talk (NO_VALUE, an error before it)
     probe_arm = None
     try:
@@ -1799,6 +1805,7 @@ def main():
             goods_first_arm = buyer_goods_first_one.reserve(md, order, shop["name"], key)
         order["_goods_first_one_probe"] = goods_first_arm
 
+        order["_accept_band_top"] = top if r3 and top > limit else None     # read in the ladder
         on = order["_b3b1_on"] if "_b3b1_on" in order else buyer_b3b1.enabled(md)
         order["_b3"] = {"applied": False} if on else None    # B3 on for this order (read in the ladder)
 
@@ -1829,6 +1836,11 @@ def main():
                 if note:
                     order["_b3"] = note
                     log(f"[b3] {shop['name']}: counter {note['baseline']} over {buyer_b3b1.ACCEPT_SHARE} of {note['first']}, offer {note['price']}")
+            if order.get("_accept_band_top"):
+                result, note = buyer_accept_band.turn(result, history, limit, order["_accept_band_top"], steps)
+                if note:
+                    order["_accept_band"] = note
+                    log(f"[band] {shop['name']}: counter {note['taken']} is over my limit {limit} but within {note['ceiling']}: taken")
             return result
 
         if steps:
@@ -1838,7 +1850,7 @@ def main():
                         stop_if=(lambda text, turn: (quote_refused(text, order) if turn == 1 else None)
                                  or goods_text_refused(text, order)) if r3 else None,
                         reply_to=(lambda text: shop_question_reply(text, order)) if r3 else None,
-                        ladder=price_ladder if steps else None,
+                        ladder=price_ladder if steps else None, ceiling=top if top > limit else None,
                         take_at=min(limit, int(offer["list_price"] * FOOD_TAKE_SHARE))
                         if r3 and FOOD_TAKE_ASK and order.get("kind") == "food" else None)
         out["asked"] = key if r3 else None
@@ -1868,7 +1880,7 @@ def main():
     short = warranty_short(rec, order) if r3 and rec is not None else None    # not cheating: just not a deal I pay for
     if short:
         warnings.append(short)
-    over = over_limit(rec, offer, limit, catalog, args.budget) if r3 and rec is not None and not problems and not short else None
+    over = over_limit(rec, offer, limit, catalog, args.budget, band_pct) if r3 and rec is not None and not problems and not short else None
     if over:
         warnings.append(over)
     for p in problems:
@@ -1910,7 +1922,9 @@ def main():
                                                         catalog, probe_arm=probe_arm), "skipped_short_warranty": brief,
                                          "gave_up": gave_up, "rival_shop": shop["name"] in rival,
                                          "talk_mode": talk_mode, "turns": (out or {}).get("turns"),
-                                         "quote_alignment_applied": list(order.get("_quote_alignment_applied", []))})
+                                         "quote_alignment_applied": list(order.get("_quote_alignment_applied", [])),
+                                         "accept_band": {"pct": band_pct, "ceiling": top,
+                                                         "taken": (order.get("_accept_band") or {}).get("taken")}})
         except Exception as e:   # noqa: BLE001 - a measurement never stops the result line the kit waits for
             log(f"[measure] order record failed: {type(e).__name__}: {e}")
     print(json.dumps(result, ensure_ascii=False), flush=True)
