@@ -169,3 +169,25 @@ def payment_scores(trades, settled, category, *, now):
             quality = (sum(qualities) + .5) / (len(qualities) + 2)
             scores[key] = (paid + 1) / (n + 2) * (.5 + .5 * quality)
     return scores, audit
+
+
+def decide(context, baseline, fits, rivals, skus, scores, audit, *, k, code_eligible,
+           rule_engine=False, now=None):
+    names = [s['name'] for s in baseline]
+    if not valid(context, rule_engine=rule_engine, now=now):
+        return names, None
+    treatment = [s['name'] for s in schedule(baseline, fits, rivals, skus, scores)]
+    batch = max(0, k - 1)
+    plan = dict(protocol='goods-bundle-v1', baseline=names, treatment=treatment, k=k,
+                first_baseline=names[:batch], first_treatment=treatment[:batch],
+                slot_eligible=set(names[:batch]) != set(treatment[:batch]),
+                counter_eligible=bool(code_eligible), eligible=bool(code_eligible or names[:batch] != treatment[:batch]),
+                inputs=[dict(name=s['name'], usable=[dict(sku=skus[s['name']])]) for s in baseline],
+                history_audit=audit)
+    row = dict(schema=1, event='decision', order=context['order'], study=STUDY, arm=context['arm'],
+               at=time.time() if now is None else now, plan=plan)
+    prior = _io(lambda: _once(os.path.join(context['directory'], 'decision.json'), row))
+    if (not prior or prior.get('plan') != plan or prior.get('arm') != context['arm'] or
+            not valid(context, rule_engine=rule_engine, now=now)):
+        return names, None
+    return (treatment if context['arm'] == 'B' else names), plan

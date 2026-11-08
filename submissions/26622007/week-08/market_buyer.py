@@ -1066,6 +1066,17 @@ def start_quotes(shops, order, budget, chance_of, got, ctl, *, rule_engine=None)
         order["_stock_dispatched"] = True
     # Resolve on direct calls too; persisted order fields cannot authorize B.
     rule_engine = choose_by_rule() if rule_engine is None else rule_engine
+    bundle_ctx = order.get("_buyer_bundle") if rule_engine is True else None
+    if (bundle_ctx and order.get("_stock_phase") == "prefetch" and
+            not order.get("_bundle_dispatched") and order.get("_bundle_inputs")):
+        baseline, fits, rivals, k, scores, audit, code_eligible = order["_bundle_inputs"]
+        skus = {s["name"]: selected_offer(s, budget)["sku"] for s in baseline}
+        names, plan = buyer_bundle_trial.decide(bundle_ctx, baseline, fits, rivals, skus, scores, audit,
+            k=k, code_eligible=code_eligible, rule_engine=rule_engine)
+        order["_bundle_selection_asked"] = {s["name"] for s in baseline[:max(0, k - 1)]}
+        by_name = {s["name"]: s for s in baseline}
+        shops[:] = [by_name[n] for n in names[:max(0, k - 1)]]
+        order["_bundle_plan"], order["_bundle_dispatched"] = plan, True
     fresh_ctx = order.get("_fresh_rotation") if rule_engine is True else None
     if (fresh_ctx and order.get("_stock_phase") == "prefetch"
             and not order.get("_fresh_dispatched") and order.get("_fresh_inputs")):
@@ -1098,6 +1109,10 @@ def start_quotes(shops, order, budget, chance_of, got, ctl, *, rule_engine=None)
                     thread_started_at=started_at, boundary="quote_thread_started",
                     phase=order.get("_stock_phase", "quotes")):
                 order["_fresh_witness_failures"] = order.get("_fresh_witness_failures", 0) + 1
+        if bundle_ctx:
+            buyer_fresh_rotation.event(bundle_ctx, "attempt", shop=s["name"], sku=o["sku"],
+                thread_started_at=started_at, boundary="quote_thread_started",
+                phase=order.get("_stock_phase", "quotes"))
         if order.get("_stock_evidence") and not buyer_stock_evidence.attempt(
                 order["_stock_evidence"], s["name"], o["sku"], phase=order.get("_stock_phase", "quotes"),
                 intended_reorder=order.get("_stock_reordered", False)):
@@ -1144,6 +1159,14 @@ def prefetch_pool(left, memory, md, category, k, rival=frozenset(), kind=None, o
         order["_stock_quotable"] = others
     if order is not None and order.get("_fresh_rotation"):
         order["_fresh_inputs"] = (list(others), fits, rival, k, others)
+    if order is not None and order.get("_buyer_bundle"):
+        scores, audit = buyer_bundle_trial.payment_scores(memory.get("trades") or [],
+            buyer_bundle_trial.settlements(SETTLED), category, now=time.time())
+        scores = {s["name"]: scores[(s["name"], selected_offer(s, budget)["sku"])] for s in others
+                  if (s["name"], selected_offer(s, budget)["sku"]) in scores}
+        cfg = buyer_cfg()
+        order["_bundle_inputs"] = (list(others), fits, rival, k, scores, audit,
+                                  oneshot.enabled(cfg) and oneshot.steps(cfg) == (.9,))
     return others[:max(0, k - 1)], others
 
 
@@ -1737,6 +1760,8 @@ def main():
             pre["asked"] = set(pre["threads"])  # final validated batch, including a baseline fallback
             if "_fresh_selection_asked" in order:
                 pre["selection_asked"] = order["_fresh_selection_asked"]
+            if "_bundle_selection_asked" in order:
+                pre["selection_asked"] = order["_bundle_selection_asked"]
             pre["enough"] = lambda: quotes_enough(early, pre["got"], args.budget, buyer_cfg())
             log(f"[quote] asking {', '.join(s['name'] for s in early)} while choosing")
     if gave_up:       # no talk follows, so the harness is not asked to choose either (it took a median 13.4 s)

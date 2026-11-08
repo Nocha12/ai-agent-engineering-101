@@ -12,6 +12,40 @@ import oneshot
 
 
 class BuyerBundleTrial(unittest.TestCase):
+    def test_actual_prefetch_dispatch_keeps_canonical_choice_and_exploration(self):
+        import collections
+        import buyer_bundle_trial as trial
+        import market_buyer as mb
+        now = int(time.time())
+        with tempfile.TemporaryDirectory() as directory, patch.multiple(
+                trial, ENABLED=True, START=now - 1, END=now + 1799, STUDY='bundle-dispatch-fixture'):
+            oid = next('o-' + f'{i:012x}' for i in range(100)
+                       if trial.allocation('o-' + f'{i:012x}')[1] == 'B')
+            order = dict(order=oid, kind='goods', _buyer_started_at=now, _stock_phase='prefetch')
+            order['_buyer_bundle'] = trial.reserve(directory, order, rule_engine=True)
+            shops = [dict(name=n, url='fixture:' + n, reviews=[], usable=[dict(sku='G1', name='goods', list_price=100)])
+                     for n in ['weak', 'good', 'fresh']]
+            stamp = time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime(now - 30000))
+            trades = [dict(order=n+str(i), shop=n, item='G1', category='goods', time=stamp,
+                           paid=(n == 'good'), price=70, list_price=100)
+                      for n in ('weak', 'good') for i in range(3)]
+            rows = [dict(order='good'+str(i), shop='good', sku='G1', time=now-30000,
+                         price=70, warranty_hours=6, claim_honest=True) for i in range(3)]
+            ledger = Path(directory)/'settled.jsonl'
+            ledger.write_text(''.join(json.dumps(r)+'\n' for r in rows))
+            sent = []
+            with patch.object(mb, 'recent_fits', return_value=collections.Counter(weak=5, good=4)), \
+                    patch.object(mb, 'SETTLED', str(ledger)), patch.object(mb, 'quote', side_effect=lambda s,*a: sent.append(s['name'])):
+                early, pool = mb.prefetch_pool(shops, {'trades': trades}, directory, 'goods', 3,
+                                              kind='goods', order=order, budget=100)
+                self.assertEqual([s['name'] for s in early], ['weak', 'fresh'])
+                threads = mb.start_quotes(early, order, 100, lambda _: 0, {}, mb.quote_ctl(), rule_engine=True)
+                for thread in threads.values():
+                    thread.join(1)
+            self.assertEqual(set(sent), {'good', 'fresh'})
+            self.assertEqual(order['_bundle_selection_asked'], {'weak', 'fresh'})
+            self.assertEqual([s['name'] for s in pool], ['weak', 'fresh', 'good'])
+
     def test_actual_main_assigns_before_empty_stock_without_external_calls(self):
         import buyer_bundle_trial as trial
         import market_buyer as mb
