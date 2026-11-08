@@ -131,7 +131,8 @@ def verify_evidence(items, root=None):
             line = next((x for i, x in enumerate(f, 1) if i == n), None)
         if line is None:
             problems.append(f"{e['ref']}: no such line")
-        elif len(excerpt) < 4 or excerpt not in line:
+        elif not excerpt or excerpt not in line or (len(excerpt) < 4 and excerpt != line.strip()):
+            # a quote under 4 characters only as the whole line (unittest's "OK": 11/08 12 cycles were reverted for it)
             problems.append(f"{e['ref']}: the line does not contain {excerpt[:60]!r}")
     return problems
 

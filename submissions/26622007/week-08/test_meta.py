@@ -765,6 +765,15 @@ class EvidenceTest(unittest.TestCase):
                 self.assertTrue(mh.verify_evidence([bad], d), bad)
             self.assertTrue(mh.verify_evidence([], d))
 
+    def test_a_short_quote_is_good_only_as_the_whole_line(self):
+        # unittest ends with a line "OK": 11/08 12 Terra cycles were reverted for citing it (GPT Pro 11/08 23:0x §7.1)
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "t.log"), "w") as f:
+                f.write("Ran 1143 tests in 78.480s\n\nOK\nNOT OK\n")
+            self.assertEqual(mh.verify_evidence([{"ref": "t.log:3", "excerpt": "OK"}], d), [])
+            self.assertTrue(mh.verify_evidence([{"ref": "t.log:4", "excerpt": "OK"}], d))
+            self.assertTrue(mh.verify_evidence([{"ref": "t.log:3", "excerpt": ""}], d))
+
 
 class RivalsTest(unittest.TestCase):
     def test_the_shops_ahead_in_profit_and_my_rank(self):
