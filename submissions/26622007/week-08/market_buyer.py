@@ -1923,8 +1923,9 @@ def main():
                                          "gave_up": gave_up, "rival_shop": shop["name"] in rival,
                                          "talk_mode": talk_mode, "turns": (out or {}).get("turns"),
                                          "quote_alignment_applied": list(order.get("_quote_alignment_applied", [])),
-                                         "accept_band": {"pct": band_pct, "ceiling": top,
-                                                         "taken": (order.get("_accept_band") or {}).get("taken")}})
+                                         **({"accept_band": {"pct": band_pct, "ceiling": top,
+                                                             "taken": (order.get("_accept_band") or {}).get("taken")}}
+                                            if band_pct else {})})
         except Exception as e:   # noqa: BLE001 - a measurement never stops the result line the kit waits for
             log(f"[measure] order record failed: {type(e).__name__}: {e}")
     print(json.dumps(result, ensure_ascii=False), flush=True)

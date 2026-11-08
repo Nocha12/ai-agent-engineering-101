@@ -138,8 +138,8 @@ def negotiate(card_url, item, budget, note="", request=None, resume=None, stop_i
     take_at: a machine-readable ask (message metadata) at or under it is offered back at once, with no counter and no
     harness call (market_buyer sets it for food, where countering lost more deals than it saved).
     ladder(metadata ask, shop text, history): the turn priced by code (oneshot.turn), or None for the harness.
-    ceiling: a turn priced by code may offer up to it instead of budget (buyer_accept_band, plan A); the harness and the
-    holds keep budget.
+    ceiling: the band's turn (buyer_accept_band, plan A: "accept_band" in the code turn), and a FAST turn after it, may
+    offer up to it instead of budget; every other turn, the harness and the holds keep budget.
     """
     out = {"state": "", "task": None, "receipt": None, "history": [], "agreed": None, "holds": 0}
     if resume:
@@ -267,9 +267,11 @@ def talk(url, t, item, budget, note, out, stop_if=None, take_at=None, reply_to=N
                 log("harness: walk away")
                 break
         offer = d["price"]
-        top = max(budget, ceiling) if code and not fast and ceiling else budget
+        # the band's own turn, or a FAST turn after it (the shop came down under my band offer), may go up to ceiling
+        band = ceiling and ((code and not fast and code.get("accept_band")) or (fast and taken and taken[-1] > budget))
+        top = max(budget, ceiling) if band else budget
         if offer > top:
-            log(f"GUARD offer {offer} > budget {top} -> {top}")
+            log(f"GUARD offer {offer} > {'ceiling' if band else 'budget'} {top} -> {top}")
             offer = top
         if offer > ask_price:
             log(f"GUARD offer {offer} > ask {ask_price} -> {ask_price}")

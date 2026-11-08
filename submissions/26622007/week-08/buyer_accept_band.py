@@ -5,9 +5,9 @@ Of 1,925 orders that ended with no deal 11/07 16:43 - 11/08 16:43, about 89% end
 1-10% over my limit (list x (1 - 0.30 / (1 - b)), about 0.68-0.70 of list) while the buyers ahead of us pay 0.70-0.76 of
 list for goods. Goods converted 21%, food 81%.
 
-The band: once my oneshot steps are spent, a shop counter over my limit but at or under 105% of it (and never over the
-order's budget) is taken, as a counter at or under the limit always was. My own offers stay as they were (the steps, then
-one raise to the limit); only what I take moves. The receipt check (market_buyer.over_limit) pays up to the same ceiling.
+The band: my own offers stay as they were (the oneshot steps, then one raise to the limit). Where the talk would then
+end, a shop's final ask over my limit but at or under 105% of it (and never over the order's budget) is taken instead of
+walking away; only what I take moves. The receipt check (market_buyer.over_limit) pays up to the same ceiling.
 Everything else holds: hard_limits, the goods 6 h warranty (warranty_short, the short-warranty shop skip), the budget.
 
 Switch: .market/buyer_accept_band.json {"enabled": true}; missing, unreadable or anything else is off, and off is the
@@ -45,19 +45,19 @@ def ceiling(limit, budget, pct):
 
 
 def turn(baseline, history, limit, top, steps):
-    """(the turn, a note or None). Takes the shop's ask when it is over my limit and at or under top, my steps are
-    spent, and the turn would otherwise walk away or offer under it. A shop that already turned down its own ask
-    (my last offer was that ask) is left to walk, as before; a harness turn (None) is left alone."""
-    if not isinstance(baseline, dict) or not isinstance(top, int) or not isinstance(limit, int) or top <= limit:
+    """(the turn, a note or None). Where the turn would walk away, takes the shop's ask when it is over my limit and at
+    or under top and my steps are spent: the shop's final ask, after my steps and my one raise to the limit. A shop that
+    already turned down its own ask (my last offer was that ask) is left to walk, as before; any other turn, and a
+    harness turn (None), is left alone. The taken turn carries "accept_band": True, which lets buyer.talk send it."""
+    if not isinstance(baseline, dict) or baseline.get("action") != "walk_away":
+        return baseline, None
+    if not isinstance(top, int) or not isinstance(limit, int) or top <= limit:
         return baseline, None
     ask = baseline.get("shop_price")
     if type(ask) is not int or not limit < ask <= top:
         return baseline, None
     offers = [p for who, p in history if who == "you offered"]
-    if len(offers) < len(steps or ()) or not offers or offers[-1] >= ask:
+    if not offers or len(offers) < len(steps or ()) or offers[-1] >= ask:
         return baseline, None
-    if baseline.get("action") == "offer" and isinstance(baseline.get("price"), int) and baseline["price"] >= ask:
-        return baseline, None
-    if baseline.get("action") not in ("offer", "walk_away"):
-        return baseline, None
-    return {**baseline, "action": "offer", "price": ask}, {"taken": ask, "limit": limit, "ceiling": top}
+    return ({**baseline, "action": "offer", "price": ask, "accept_band": True},
+            {"taken": ask, "limit": limit, "ceiling": top})
