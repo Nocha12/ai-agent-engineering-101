@@ -1,65 +1,55 @@
 {
   "changed": true,
-  "hypothesis": "재입고 판단에서 SKU별 재고와 판매를 따로 확인하면, 다른 상품의 재고 부담이나 잘못 읽은 재고 수량 때문에 검증된 품절 상품의 보충을 보류하는 판단이 줄어든다.",
-  "change_summary": "restock.py의 재입고 판단 지침에 SKU별 실제 재고, 최근 결제 판매와 폐기 위험을 확인하도록 추가했다. 수량 설정과 현금 안전 한도는 변경하지 않았다. 변경 후 전체 테스트 1,115건과 해당 파일의 diff 검사를 통과했다.",
-  "target_metric": "재고 수량을 잘못 읽거나 다른 SKU의 재고만을 이유로 검증된 품절 SKU의 보충을 보류한 판단 수",
-  "expected": "다음 재입고 판단 3건에서 해당 오류 0건을 목표로 한다. 추가 매출과 ΔPlayers는 아직 추정할 수 없다.",
+  "hypothesis": "포럼 수요글을 카탈로그 SKU와 실제 결제 정산에 연결하면 예산과 잔여기한을 확인할 수 있는 수요 후보를 찾을 수 있다. 실제 매입이나 Players 점수의 추가 효과는 아직 확인되지 않았다.",
+  "change_summary": "forum.py에 최근 수요글 최대 3개를 읽기 전용으로 분석하는 지침을 추가했다. 과거 정산은 현재 재고나 잔여기한의 증거로 취급하지 않는다. 전체 테스트 1,114건과 diff 검사를 통과했다.",
+  "target_metric": "예산·필요 잔여기한·실제 정산 근거가 함께 확인된 수요 후보 수",
+  "expected": "12시간 안에 수요글 3개에서 유효 후보 1개 이상, 잘못 연결된 결제행 0개",
   "evidence": [
     {
-      "ref": "meta/evidence/terra-1108-204507.json:19703",
-      "excerpt": "\"reason\": \"The prior decisions show substantial inventory and repeated success with G200e39a3, but that SKU is already stocked at 0 units and recent stock has been topped up repeatedly. Current state has 180 units and high-cost furniture inventory, plus expiring food; avoid the formula’s broad additions and do not add more food while existing stock is at risk. The market-demand result provided only a total and no SKU/category rates, so it does not justify new purchases. I would leave the purchase list empty rather than add speculative stock.\",",
-      "meaning": "판단이 0개인 SKU를 재고가 있다고 표현하고 다른 재고의 부담을 함께 들어 전체 보충을 보류했다."
+      "ref": "meta/evidence/terra-1108-193151.json:23089",
+      "excerpt": "\"id\": \"forum-demand-join-113730\"",
+      "meaning": "실행 중인 실험이 없고 이 실험이 큐의 다음 순서다."
     },
     {
-      "ref": "meta/evidence/terra-1108-204507.json:110",
+      "ref": "meta/evidence/terra-1108-193151.json:110",
       "excerpt": "\"need\": 0.0011,",
       "meaning": "Saved가 다음 상대와 동률이 되기까지 필요한 차이다."
     },
     {
-      "ref": "meta/evidence/terra-1108-204507.json:23028",
-      "excerpt": "\"settled_as_shop\": 294,",
-      "meaning": "직전 팩 이후 로그에 기록된 상점 정산 수다. 로그 회전이 있어 완전한 원장 집계로 보지 않는다."
-    },
-    {
-      "ref": "meta/evidence/terra-1108-204507-after-tests.log:1640",
-      "excerpt": "Ran 1115 tests in 106.259s",
-      "meaning": "변경 후 전체 테스트 실행 표본이다."
-    },
-    {
-      "ref": "meta/evidence/terra-1108-204507-after-tests.log:1642",
-      "excerpt": "OK",
-      "meaning": "전체 테스트가 통과했다."
+      "ref": ".market/decisions.jsonl:7182",
+      "excerpt": "No purchase: current inventory is substantial",
+      "meaning": "직전 재입고 지침 제거 뒤에도 재고 규모를 포함한 사유로 전체 매입을 보류한 판단이 남았다."
     }
   ],
   "evidence_gap": {
-    "missing": "새 지침이 실제 재입고 판단과 판매를 개선하는지 아직 관측되지 않았다.",
-    "measurement": "변경 후 재입고 판단 3건에서 각 SKU의 실제 재고, 결제 판매와 보류 사유를 대조한다.",
+    "missing": "새 지침이 예산·필요 잔여기한·실제 결제행을 정확히 연결하는지 아직 결과가 없다.",
+    "measurement": "이번 주기에 포럼 분석 지침을 추가했다. 이후 판단의 수요글 ID, 예산, 필요 잔여기한, SKU와 정산 번호를 대조한다.",
     "judge_line": {
-      "metric": "재고 수량을 잘못 읽거나 다른 SKU의 재고만을 이유로 검증된 품절 SKU의 보충을 보류한 판단 수",
-      "direction": "below",
-      "threshold": "1건",
-      "min_sample": "변경 후 재입고 판단 3건",
-      "expires": "2026-11-09 08:45 KST",
-      "undo": "기준 미달이면 이번에 restock.py에 추가한 두 문장만 제거한다. 표본이 부족하면 효과 미확정으로 판정한다."
+      "metric": "유효 수요 후보 수와 잘못 연결된 결제행 수",
+      "direction": "above",
+      "threshold": "유효 후보 0개 초과 및 잘못 연결된 결제행 0개",
+      "min_sample": "수요글 3개",
+      "expires": "2026-11-09 07:31 KST",
+      "undo": "기준 미달 또는 표본 부족이면 이번 forum.py 수요 연결 지침만 제거한다."
     }
   },
-  "previous_verdict": "keep",
-  "previous_reason": "직전 포럼 수요 연결 지침은 유지한다. 실행 중인 12시간 실험은 아직 만료되지 않았고 유효 후보와 잘못 연결한 정산행을 판정할 최소 표본이 확인되지 않았다. 이후 사람이 적용한 구매자 순위 로직은 별도 변경으로 유지한다.",
-  "grade_summary": "Players는 1.645로 62명 중 6위이며 선두와 0.054, 바로 위와 0.005 차이다. 직전 팩 이후 Players는 그대로이고 book은 268,590,616원에서 269,039,273원으로 증가했다. 로그 차분은 상점 정산 294건, 구매 결제 77건, 품절 1건, checkout 거절 9건이다. 현재 로그 표본의 원가 미만 제안, 보증 거절, 구매 결제 거절, 포럼 게시·투표 거절은 각각 0건이다. 24시간 초과 재고는 42개·23,116,479원이고 누락 도구는 없다. 보관 손실 누계는 2,573,911원, 등급 하락은 105건·0원이며 폐기 손실은 별도 확인되지 않았다. 환불은 과거 추정이 섞인 누계와 분리해 원장 연결 추정 455건·249,876,413원으로 본다. Shop ALL 0.843, Buyer ALL 0.802, Saved 0.2981, 포럼 평점 0.890, 구매 거래 5,846건, 게시물 1,024건이다. 보드 계산 오차는 양쪽 0이고 새 패치와 경보는 없다. Luna는 최근 1시간 103회·0.0185 비용이며 호출 수 제한은 아니다.",
+  "previous_verdict": "fix",
+  "previous_reason": "직전 승인된 재입고 감사 지침 제거 후에도 재입고 판단 4회에서 재고 규모와 식품 만료를 이유로 광범위한 매입을 보류했다. 제거만으로 보류를 없애지 못해 추가 원인 확인이 필요하다. 직전 포럼 실험 시도는 병렬 견적 시간 테스트 실패로 거절됐으며, 이번 전체 테스트에서는 해당 실패가 재현되지 않았다.",
+  "grade_summary": "Players 1.645로 62명 중 6위, 선두와 0.040, 바로 위와 0.001 차이다. 직전 사용 가능한 팩은 17:04이며 18:17 팩이 누락돼 차분을 한 시간 실적으로 볼 수 없다. 그 기간 Players 1.646→1.645, 원가 기준 book 258,452,538→268,590,616원, 상점 정산 627건, 구매 결제 178건이었다. 현재 Shop ALL 0.843, Buyer ALL 0.802, Saved 0.2974, 포럼 평점 0.890, 구매 거래 5,767건, 게시물 1,010건, 별점 순위값 4.44다. 보드 계산 오차는 양쪽 0이고 새 패치와 경보는 없다. 해당 차분에서 품절 5건, 구매 결제 거절 3건, checkout 거절 21건, settle 거절 2건이었다. 현재 로그 표본에서 원가 미만 제안·보증 거절·포럼 게시 및 투표 거절은 각각 0건이다. 24시간 초과 재고는 42개·22,690,065원이고 누락 도구는 없다. 보관 손실 누계 2,519,408원, 등급 하락 103건·0원이며, 과거 추정이 섞인 환불 누계와 원장 연결 집계 444건·240,956,571원은 구분한다. 폐기 손실은 별도 집계가 없어 확정하지 못했다.",
   "weakest": [
-    "상점 재입고 판단",
-    "구매자 Saved"
+    "구매자 Saved",
+    "검증 가능한 포럼 수요 분석"
   ],
   "strategy_check": {
-    "current": "인증과 정직한 등급, 상품 72시간 보증을 내세운 폭넓은 식품·생활용품 및 검증된 고가 가구·침구 판매와 Saved 중심 구매",
-    "gap_cause": "bug",
+    "current": "인증·정직한 등급·72시간 상품 보증을 내세운 폭넓은 식품·생활용품과 검증된 고가 가구·침구 판매 및 Saved 중심 구매",
+    "gap_cause": "unclear",
     "keep_or_shift": "keep",
-    "reason": "최근 6.2시간 Players 변화는 우리 +0.003, 바로 위 −0.001, 선두 +0.015이고 12.8시간은 각각 +0.010, +0.003, +0.044다. 바로 위보다는 빨랐지만 선두에는 뒤진다. 우리는 17,462거래·28,918방문·매출 32.35억 원이고 book 선두 yms979는 22,294거래·33,071방문·매출 67.82억 원이다. 인증·보증과 원가 하한 협상을 유지하면서 SKU별 보충 판단 오류를 고친다. Saved의 다음 상대 0.2992까지 0.0011이 필요하고 통과 시 약 +0.00909인 반면 book은 다음 상대 358,481,416원까지 89,545,609원이 필요하다. 현재 정책을 이길 대안의 추가 ΔPlayers는 확인되지 않았다."
+    "reason": "최근 6.2시간 Players 성장은 우리 +0.003, 바로 위 −0.006, 선두 +0.010이고 12.8시간은 각각 +0.010, +0.018, +0.021이다. 바로 위보다 최근 6시간은 빨랐지만 12시간과 선두에는 뒤진다. 우리 상점은 17,167거래·28,515방문·매출 3,179,194,664원이고 book 선두 yms979는 22,070거래·32,739방문·매출 6,724,016,055원이다. 카드와 포럼을 통한 유입, 인증·보증 및 원가 하한 협상을 유지한다. Saved 다음 상대 0.2985까지 0.0011이 필요하고 통과 시 약 +0.00909인 반면 book 다음 상대 355,445,632원까지는 87,064,081원이 필요하다. 포럼 수요 연결의 추가 Players 효과는 아직 미확정이며, 현 전략보다 나은 대안의 인과 근거도 부족하다."
   },
   "action_kind": "prompt",
   "experiment": {
     "id": "forum-demand-join-113730",
-    "step": "continue",
-    "result": "11월 9일 07:46 KST까지 진행한다. 수요글 3개에서 예산·잔여기한·실제 정산 근거를 갖춘 후보 1개 이상과 잘못 연결한 결제행 0개가 기준이며, 아직 판정 표본이 확인되지 않았다."
+    "step": "start",
+    "result": "수요 연결 지침을 적용했다. 12시간 뒤 수요글 3개를 표본으로 유효 후보 1개 이상과 잘못 연결한 결제행 0개를 판정한다."
   }
 }
