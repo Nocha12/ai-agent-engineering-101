@@ -215,13 +215,3 @@ Astra 2026-11-07 11:37 판정선: supply_audit는 두 완료 공급창의 unit I
 6h book을 함께 확인한다. meta/strategy.md와 experiments의 순서대로 사용한다. my_state 3판단 중 재고불명 축소0건은
 11/07 14:00 판정한다. 상한 1B가 묶이지 않았다는 이유로 SKU target 검증까지 생략하지 않는다.
 최근 세 주기의 계산 가능한 같은 결측을 반복하면 no_change 근거로 쓰지 말고 이 도구와 원장 측정을 수행한다.
-
-Astra 2026-11-09 01:18 검증 교정:
-- 결과 JSON을 내기 전에 닫힌 테스트 로그에서 실제 행을 다시 읽는다. `meta_harness.locate_evidence(path,
-  complete_line, meaning)`는 유일한 완전 일치 행의 인용을 만들며, 중복/부분 일치/외부 경로는 거절한다.
-  마지막으로 `verify_evidence(answer['evidence']) == []`를 확인한다. `OK`를 추정한 행 번호에 붙이지 않는다.
-  11/08의 반복 인용 실패는 시장 효과가 아니라 적용 실패다. 거절된 지침을 적용 중인 것으로 평가하지 않는다.
-- buyer_rank_pg의 설명 필드 nofit_since는 활성 스위치가 아니다. 실제 `nofit` 값과 주문의 nofit_arm을 확인한다.
-  `nofit` 키가 없으면 대조/처치 실험이 실행됐다고 보고하지 않는다. 사람의 스위치를 임의 복구하지 않는다.
-- auto_market_research_context는 카탈로그 SKU를 잃고 실제 결제 연결을 누락해 제거했다.
-  검증된 auto_market_research/auto_market_scan과 forum_read를 쓴다. 도구 호출 성공은 의미 정확성의 증거가 아니다.
