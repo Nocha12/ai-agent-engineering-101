@@ -1088,7 +1088,10 @@ def prefetch_pool(left, memory, md, category, k, rival=frozenset(), kind=None, o
     active = quote_yield_arm(order_id) if yield_arm is None else yield_arm
     yields = recent_quote_yields(md, category) if kind == "food" and active else None
     fits = recent_fits(md, category)
-    rates = buyer_b3b1.paid_rates(md) if buyer_b3b1.enabled(md) else None
+    on = buyer_b3b1.enabled(md)
+    if order is not None:
+        order["_b3b1_on"] = on        # one reading of the switch for B1 and B3 of this order
+    rates = buyer_b3b1.paid_rates(md) if on else None
     if rates is not None and order is not None:
         plain = [s["name"] for s in quote_order(others, fits, k, yields)]
         order["_b1"] = {"on": True, "prior": rates[1], "reordered": plain != [s["name"] for s in quote_order(others, fits, k, yields, rates)]}
@@ -1107,6 +1110,7 @@ def prefetch_pool(left, memory, md, category, k, rival=frozenset(), kind=None, o
                 current_left = [{**s, **current_by_name[s["name"]]} for s in left]
             current_rival = rival_deny.rivals(md, now=at) if RIVAL_DENY else rival
             current_others = [s for s in current_left if not caught_cheating(my_history(memory, s["name"]))]
+            # rates as read at prefetch: a few seconds do not move a 6 h paid share
             current_others = rival_deny.others_first(quote_order(current_others, latest_fits, k, rates=rates), current_rival)
             return buyer_stock_evidence.plan(md, current_others, latest_fits, current_rival,
                 {s["name"]: selected_offer(s, budget)["sku"] for s in current_others}, k=k, now=at)
@@ -1795,7 +1799,8 @@ def main():
             goods_first_arm = buyer_goods_first_one.reserve(md, order, shop["name"], key)
         order["_goods_first_one_probe"] = goods_first_arm
 
-        order["_b3"] = {"applied": False} if buyer_b3b1.enabled(md) else None    # B3 on for this order (read in the ladder)
+        on = order["_b3b1_on"] if "_b3b1_on" in order else buyer_b3b1.enabled(md)
+        order["_b3"] = {"applied": False} if on else None    # B3 on for this order (read in the ladder)
 
         def price_ladder(meta, text, history):
             d = (buyer_opening_discount.turn if discount_arm else opening_probe_turn)(
@@ -1819,7 +1824,8 @@ def main():
                     order.get("_goods_extra_quote_probe") or order.get("_quote_alignment") or
                     order.get("_food_quote_yield")), now=time.time(), log=log)
             if order.get("_b3") is not None:
-                result, note = buyer_b3b1.b3_turn(result, history, limit)
+                result, note = buyer_b3b1.b3_turn(result, history, limit, probe=bool(
+                    discount_arm or probe_arm or goods_first_arm or order.get("_one_won_default")))
                 if note:
                     order["_b3"] = note
                     log(f"[b3] {shop['name']}: counter {note['baseline']} over {buyer_b3b1.ACCEPT_SHARE} of {note['first']}, offer {note['price']}")

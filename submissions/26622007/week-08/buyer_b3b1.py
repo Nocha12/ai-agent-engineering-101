@@ -21,7 +21,7 @@ ACCEPT_SHARE = .92
 RATE_HOURS = 6
 RATE_MIN = 3          # settled tries of a shop before its own share counts
 RATE_PRIOR_WEIGHT = 2
-RATE_BYTES = 30_000_000
+RATE_BYTES = 12_000_000   # ~11 h of orders.jsonl (11/08), past the 6 h window
 
 
 def enabled(md, env=None):
@@ -36,9 +36,10 @@ def enabled(md, env=None):
     return isinstance(d, dict) and d.get("enabled") is True
 
 
-def b3_turn(baseline, history, limit):
-    """(the turn, a note or None). Changes only an offer right after my first and only offer."""
-    if not isinstance(baseline, dict) or baseline.get("action") != "offer":
+def b3_turn(baseline, history, limit, probe=False):
+    """(the turn, a note or None). Changes only an offer right after my first and only offer; never in an order whose
+    opening is a probe (1-won default/probe, opening discount, goods first-one), so those keep their own measurement."""
+    if probe or not isinstance(baseline, dict) or baseline.get("action") != "offer":
         return baseline, None
     offers = [p for who, p in history if who == "you offered"]
     asks = [p for who, p in history if who == "shop asked"]
@@ -78,8 +79,8 @@ def paid_rates(md, now=None, hours=RATE_HOURS):
         tries = {}
         for r in _tail(os.path.join(md, "measure", "orders.jsonl")):
             ts = r.get("ts")
-            if r.get("passed_to_kit") is True and isinstance(r.get("shop"), str) and r.get("order") in paid and \
-                    isinstance(ts, (int, float)) and now - hours * 3600 <= ts <= now:
+            if r.get("passed_to_kit") is True and isinstance(r.get("shop"), str) and isinstance(r.get("order"), str) and \
+                    r["order"] in paid and type(ts) in (int, float) and now - hours * 3600 <= ts <= now:
                 tries.setdefault(r["shop"], []).append(paid[r["order"]])
     except OSError:
         return {}, None

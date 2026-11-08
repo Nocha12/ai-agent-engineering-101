@@ -32,7 +32,7 @@ class B3Test(unittest.TestCase):
 
     def test_limit_bounds_the_extra_counter(self):
         out, _ = buyer_b3b1.b3_turn(offer(1100, 905), [("shop asked", 1000), ("you offered", 900)], limit=905)
-        self.assertEqual(out["price"], 905)                       # baseline already at limit: no lower offer than limit?
+        self.assertEqual(out["price"], 905)                       # baseline already at the limit: nothing to lower
         out, note = buyer_b3b1.b3_turn(offer(1100, 950), [("shop asked", 1000), ("you offered", 900)], limit=950)
         self.assertEqual((out["price"], note["applied"]), (920, True))
 
@@ -47,6 +47,18 @@ class B3Test(unittest.TestCase):
                               ({"shop_price": 960, "action": "walk_away", "price": 0}, h2[:2]),
                               (offer(960, 960), [("you offered", 900)]), (None, h2[:2])):
             self.assertEqual(buyer_b3b1.b3_turn(base, history, limit=2000), (base, None))
+
+    def test_probe_openings_keep_their_own_ladder(self):
+        base = offer(960, 960)
+        self.assertEqual(buyer_b3b1.b3_turn(base, [("shop asked", 1000), ("you offered", 1)], 2000, probe=True), (base, None))
+
+    def test_malformed_rows_do_not_break_rates(self):
+        now = time.time()
+        with tempfile.TemporaryDirectory() as md:
+            B1Test.write(None, md, [{"ts": now, "order": ["x"], "shop": "a", "passed_to_kit": True},
+                                    {"ts": True, "order": "y", "shop": "a", "passed_to_kit": True}, [1]],
+                         [{"order": "y", "paid": True}, {"order": ["x"], "paid": True}])
+            self.assertEqual(buyer_b3b1.paid_rates(md, now=now), ({}, None))
 
     def test_never_below_or_at_my_last_offer(self):
         base = offer(930, 930)
@@ -122,6 +134,8 @@ class LadderTest(unittest.TestCase):
         on = {"kind": "goods", "_b3": {"applied": False}}
         self.assertEqual(self.ladder(on)(960, "", history), offer(960, 920))
         self.assertEqual(on["_b3"]["price"], 920)
+        probe = {"kind": "food", "_b3": {"applied": False}, "_one_won_default": True}
+        self.assertEqual(self.ladder(probe)(960, "", history), offer(960, 960))
         off = {"kind": "goods"}
         self.assertEqual(self.ladder(off)(960, "", history), offer(960, 960))
         self.assertEqual(self.ladder(on)(900 + 40, "", history + [("shop asked", 960), ("you offered", 920)]),
