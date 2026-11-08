@@ -11,21 +11,29 @@ import re
 from pathlib import Path
 import threading
 import time
+import unicodedata
 
 
 _LOCK = threading.Lock()
 _CONFIG = Path(__file__).with_suffix(".json")
+_SEPARATORS = "-‐‑‒–—−./"
+_STEMS = ("warrant", "guarant", "cover", "refund", "moneyback", "return", "replace",
+          "repair", "break", "broke", "defect", "fault", "insur", "protect", "assur", "hr", "hour",
+          "보증", "보장", "환불", "반품", "교환", "고장", "파손", "불량", "시간")
+_AFTER_SALES = re.compile(r"(?<!\w)a[\s/\.\-‐‑‒–—−]*s(?!\w)")
 
 
 def requested(text):
     """Ambiguous refund, breakage or duration language keeps the normal terms."""
     if len(text or "") > 8000:
         return True
-    text = (text or "").lower()
-    return (any(word in text for word in ("warrant", "guarantee", "refund", "break", "broke",
-                                          "broken", "defect", "hrs", "hr", "hour", "보증", "보장",
-                                          "환불", "고장", "교환", "시간"))
-            or bool(re.search(r"\d\s*h\b", text)))
+    text = unicodedata.normalize("NFKC", text or "").lower()
+    # Compact once, then scan fixed stems and a single digit/unit pair. This
+    # absorbs spelling separators without repeated scans of digit/space runs.
+    compact = "".join(char for char in text if not char.isspace() and char not in _SEPARATORS)
+    return (any(stem in compact for stem in _STEMS)
+            or bool(_AFTER_SALES.search(text))
+            or bool(re.search(r"\dh", compact)))
 
 
 def _number(value):

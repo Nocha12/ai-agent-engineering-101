@@ -4,6 +4,7 @@ Run with python -m unittest test_seller_warranty_trial in an offline source/stat
 """
 import copy
 import asyncio
+import concurrent.futures
 import hashlib
 import json
 import os
@@ -20,12 +21,49 @@ import shop_memory
 from shop_stock import StockBook
 
 
+ORIGINAL_MEMORY_WRITER = seller.MEMORY_WRITER
+
+
+class DiscardingMemoryWriter:
+    """Complete submissions without running callbacks or creating a worker."""
+
+    def __init__(self):
+        self.futures = []
+
+    def submit(self, fn, *args, **kwargs):
+        future = concurrent.futures.Future()
+        future.set_result(None)
+        self.futures.append(future)
+        return future
+
+    def shutdown(self, wait=True):
+        if wait and self.futures:
+            concurrent.futures.wait(self.futures)
+
+
 # Inventory contract: unit/sku/grade strings, integer list_price/cost,
 # nullable expires_at, cert object. No live inventory is consulted.
 UNIT = dict(unit="unit-fixture-c", sku="G00000001", name="fixture box",
             category="goods > box", kind="goods", grade="C", cost=7000,
             list_price=10000, expires_at=None, supplied_at=100.0,
             cert={"cert": {"unit": "unit-fixture-c", "grade": "C"}, "sig": "fixture"})
+
+
+# Literal buyer variants: each must preserve a 72h receipt on either turn.
+WARRANTY_REQUESTS = (
+    "I require 6-h money-back coverage", "warrant", "warranties", "WARRANTY",
+    "guaranty", "guaranteed", "cover", "covered", "coverage", "refund", "refunded",
+    "money back", "money-back", "MONEY‐BACK", "money‑back", "money – back",
+    "return", "return policy", "replacement", "replace", "repair", "repairable",
+    "break", "breakage", "broke", "broken", "defect", "defective", "faulty",
+    "insurance", "insured", "protection", "protect", "assurance", "assured",
+    "보증", "보장", "환불", "반품", "교환", "고장", "파손", "불량",
+    "A/S", "AS", "a / s", "Ａ／Ｓ", "ＡＳ", "6h", "6-h", "6 h", "6hr",
+    "6-hour", "6시간", "72h", "6.h", "6 . h", "6-hr", "6.hr", "6 hrs.",
+    "6-hours", "6.hour", "6-시간", "6.시간", "６－Ｈ", "７２ｈ", "6‑h",
+    "6–hour", "6—hr", "6−h", "6\t h", "6.5-h", "w a r r a n t y",
+    "guar-anty", "c o v e r", "money\tback", "보 증", "파 손", "re-placement",
+)
 
 
 def protected_state():
@@ -49,9 +87,15 @@ class WarrantyTrialTest(unittest.TestCase):
     def setUp(self):
         before = protected_state()
         self.addCleanup(lambda: self.assertEqual(protected_state(), before))
+        failures = list(seller.MEMORY_FAILURES)
+        self.addCleanup(lambda: self.assertEqual(seller.MEMORY_FAILURES, failures))
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
+        self.memory_writer = DiscardingMemoryWriter()
+        writer = mock.patch.object(seller, "MEMORY_WRITER", self.memory_writer)
+        writer.start()
+        self.addCleanup(writer.stop)
         for name in ("READER_TRIAL", "CONCESSION_TRIAL", "LATE_CONCESSION",
                      "OPENING_DEFAULT", "DRAIN", "OPENING_CUE", "LATE_SPEED",
                      "JEV_TRANSPORT", "SHELF_REPLY", "EXACT_ACCEPT", "EXACT_COUNTER",
@@ -77,6 +121,9 @@ class WarrantyTrialTest(unittest.TestCase):
         clock = mock.patch("time.time", return_value=150.0)
         clock.start()
         self.addCleanup(clock.stop)
+        # Cleanups run in reverse order: finish submissions before restoring
+        # any memory/controller path, the original executor, or protected hashes.
+        self.addCleanup(self.finish_memory)
         self.unit = copy.deepcopy(UNIT)
         self.stock = StockBook(load=lambda: {"round": 3, "units": [self.unit]})
         self.shop = seller.Seller(None, "fixture shop", self.stock)
@@ -84,6 +131,10 @@ class WarrantyTrialTest(unittest.TestCase):
                         salt="fixture-salt", enabled=True, share=1.0,
                         start_at=100, stop_at=200, grades=["C"])
         self.write_config()
+
+    def finish_memory(self):
+        self.memory_writer.shutdown(wait=True)
+        self.assertTrue(all(future.done() for future in self.memory_writer.futures))
 
     def write_config(self, **changes):
         self.cfg.update(changes)
@@ -108,6 +159,21 @@ class WarrantyTrialTest(unittest.TestCase):
                      "GRADE_PREFERENCE", "FOOD_OPENING", "AT_FLOOR_EXACT", "DEEP_LOWBALL", "QUOTE_HOLD"):
             with self.subTest(controller=name):
                 self.assertTrue(getattr(seller, name).root.is_relative_to(self.root))
+
+    def test_accept_never_submits_to_original_writer_or_records_memory(self):
+        from google.protobuf.json_format import MessageToDict
+
+        with mock.patch.object(ORIGINAL_MEMORY_WRITER, "submit",
+                               side_effect=AssertionError("real memory executor must not receive test work")), \
+                mock.patch.object(shop_memory, "record",
+                                  side_effect=AssertionError("warranty tests must not record memory")):
+            deal, _ = self.opening("G00000001")
+            up = self.followup(str(deal["ask"]))
+        up.complete.assert_awaited_once()
+        receipt = MessageToDict(up.add_artifact.call_args.kwargs["parts"][0].data)
+        self.assertEqual(receipt["unit"], self.unit["unit"])
+        self.assertTrue(self.memory_writer.futures)
+        self.assertTrue(all(future.done() for future in self.memory_writer.futures))
 
     def test_treatment_discloses_as_is_and_receipt_omits_warranty_even_with_pricing_fallback(self):
         deal = self.deal()
@@ -221,6 +287,35 @@ class WarrantyTrialTest(unittest.TestCase):
                     note = self.quote(deal, "G00000001 " + "x" * 510 + " " + request)
                     self.assertIn("72 h warranty", note)
                     self.assertEqual(self.shop.stock_receipt("task-fixture", deal, 9000)["warranty_hours"], 72)
+                    self.assertEqual(self.rows()[-1]["arm"], "control")
+
+    def test_request_variants_keep_72h_through_first_or_followup_acceptance(self):
+        from google.protobuf.json_format import MessageToDict
+
+        self.pricing.write_text(json.dumps({"warranty_hours": 0}))
+        for request in WARRANTY_REQUESTS:
+            for followup in (False, True):
+                with self.subTest(request=request, followup=followup):
+                    # Recreate only the synthetic stock/shop; every case is a
+                    # fresh eligible grade C unit in the active share=1 window.
+                    self.stock = StockBook(load=lambda: {"round": 3, "units": [self.unit]})
+                    self.shop = seller.Seller(None, "fixture shop", self.stock)
+                    text = "G00000001 " + "x" * 510 + " " + request
+                    deal, note = self.opening("G00000001" if followup else text)
+                    if followup:
+                        self.assertEqual(deal["warranty_trial"]["arm"], "treatment")
+                        self.followup(text)
+                    else:
+                        self.assertIn("72 h warranty", note)
+                    row = self.rows()[-1]
+                    self.assertEqual(row["arm"], "control")
+                    self.assertEqual(row["reason"], "followup_warranty_request" if followup else "buyer_requested")
+                    # Accept by price only, after the request: the artifact must
+                    # retain control even though this message has no keywords.
+                    up = self.followup(str(deal["ask"]))
+                    up.complete.assert_awaited_once()
+                    receipt = MessageToDict(up.add_artifact.call_args.kwargs["parts"][0].data)
+                    self.assertEqual(receipt["warranty_hours"], 72)
                     self.assertEqual(self.rows()[-1]["arm"], "control")
 
     def test_unit_assignment_is_deterministic_across_tasks_and_share_endpoints(self):
