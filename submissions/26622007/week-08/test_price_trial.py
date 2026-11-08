@@ -95,6 +95,12 @@ class TrialTest(unittest.TestCase):
         self.assertGreaterEqual(dear["floor"], 776000)
         cheap = unit(*up, cost=100000, lp=200000)                   # under 30만: median_up 1.0 as before
         self.assertEqual(pp.quote(cheap, 180000, None, (), cfg)["open"], 180000)
+        capped = {"price": {**cfg["price"], "ask_caps": {hold[0]: {hold[1]: 700000}}}}
+        self.assertEqual(pp.quote(unit(*hold, cost=500000), 800001, None, (), capped)["open"], 700000)   # caps after
+        # independent review 3b040aa: with no SKU median both halves open at 1.0 x the kind's share of list (no control;
+        # 0 of 1,522 30만+ quotes 11/08 00:23-11/09 02:27 had no median), so those units stay out of the comparison
+        for k in (hold, up):
+            self.assertEqual(pp.quote(unit(*k, cost=500000), None, None, (), cfg)["open"], round(0.755 * 1000000))
 
 
 if __name__ == "__main__":
