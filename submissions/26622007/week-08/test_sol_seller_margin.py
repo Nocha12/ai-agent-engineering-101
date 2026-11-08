@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import unittest
 import uuid
 import selectors
+import sqlite3
 import threading
 import importlib
 import importlib.util
@@ -43,21 +44,15 @@ def real_loop(coroutine):
 def offline_await(coroutine, before=None):
     """Deterministic scheduler boundary; run real business/SQLite functions inline.
 
-    Concurrency/HTTP belong to test_round3 on the approved host runner. The strong
-    offline guard forbids asyncio's socketpair, including its self-pipe.
+    Use the socket-free real loop for shielded abort observers. This inline seam
+    is not concurrency evidence; the real_loop contention tests use real workers.
     """
     async def inline(function, *args, **kwargs):
         if before:
             before(function, args)
         return function(*args, **kwargs)
     with mock.patch.object(asyncio, 'to_thread', inline):
-        try:
-            coroutine.send(None)
-        except StopIteration as done:
-            return done.value
-        finally:
-            coroutine.close()
-    raise AssertionError('offline seam unexpectedly suspended')
+        return real_loop(coroutine)
 
 class MarginTest(unittest.TestCase):
     def setUp(self):
@@ -378,7 +373,7 @@ class MarginTest(unittest.TestCase):
         seen = []
         permit = self.trial.ready(a['task'], a, dict(ask=300000, reserve=100000), 1,
                                   now=1100, pricing=self.pricing)
-        lock, event = self.trial._controller_lock, self.trial.event
+        lock = self.trial._controller_lock
         def write_off():
             self.trial.write_controller({'enabled':False})
             seen.append(permit.consumed)
@@ -386,16 +381,18 @@ class MarginTest(unittest.TestCase):
         writer = threading.Thread(target=write_off)
         def notified_lock(wait=True):
             if threading.current_thread() is writer: requested.set()
-            return lock(wait)
-        def at_intent(*args, **kwargs):
-            event(*args, **kwargs)
-            if args[2]=='consume_intent':
-                writer.start()
-                self.assertTrue(requested.wait(1))
-                self.assertFalse(finished.is_set())  # actual other fd's flock is fenced
+            handle = lock(wait)
+            if threading.current_thread() is not writer and not wait:
+                try:
+                    writer.start()
+                    self.assertTrue(requested.wait(1))
+                    self.assertFalse(finished.is_set())  # actual other fd's flock is fenced
+                except BaseException:
+                    handle.close()
+                    raise
+            return handle
         with mock.patch.object(margin.time, 'time', return_value=1100), \
-                mock.patch.object(self.trial, '_controller_lock', notified_lock), \
-                mock.patch.object(self.trial, 'event', at_intent):
+                mock.patch.object(self.trial, '_controller_lock', notified_lock):
             with permit:
                 self.assertEqual(permit.consume(), 1100)
             writer.join(2)
@@ -432,16 +429,75 @@ class MarginTest(unittest.TestCase):
     def test_expiry_during_consume_intent_io_is_checked_after_the_wait(self):
         self.enable()
         _, a = self.quote()
-        permit = self.trial.ready(a['task'], a, dict(ask=300000, reserve=100000), 1,
-                                  now=1100, pricing=self.pricing)
         clock, event = [1100], self.trial.event
         def delayed(*args, **kwargs):
             event(*args, **kwargs)
             if args[2]=='consume_intent': clock[0]=50000
         with mock.patch.object(margin.time, 'time', lambda:clock[0]), \
-                mock.patch.object(self.trial, 'event', delayed), permit, self.assertRaises(margin.StudyError):
-            permit.consume()
+                mock.patch.object(self.trial, 'event', delayed):
+            permit = self.trial.ready(a['task'], a, dict(ask=300000, reserve=100000), 1,
+                                      now=1100, pricing=self.pricing)
+            with permit, self.assertRaises(margin.StudyError):
+                permit.consume()
         self.assertFalse(permit.consumed)
+
+    def test_sqlite_writer_does_not_stall_final_gate_or_another_quote(self):
+        for drift in (False, True):
+            with self.subTest(baseline_drift=drift):
+                self.enable()
+                _, a = self.quote(task='busy-gate-'+str(drift))
+                with mock.patch.object(margin.time, 'time', return_value=1100):
+                    permit = self.trial.ready(a['task'], a, dict(ask=300000, reserve=100000),
+                                              1, pricing=self.pricing)
+                if drift:
+                    permit.loader = lambda: dict(self.pricing, markdown=dict(start_hours=1))
+                locked, release = threading.Event(), threading.Event()
+                failures, times = [], {}
+                def hold_sqlite():
+                    try:
+                        with contextlib.closing(sqlite3.connect(self.root/'journal.sqlite3')) as db:
+                            db.execute('BEGIN IMMEDIATE')
+                            times['locked'] = time.monotonic()
+                            locked.set()
+                            release.wait(.45)  # bounded escape if the event loop is blocked
+                            db.rollback()
+                    except BaseException as exc:
+                        failures.append(type(exc).__name__)
+                        locked.set()
+                writer = threading.Thread(target=hold_sqlite)
+                writer.start()
+                self.assertTrue(locked.wait(1))
+                off = margin.MarginStudy(Path(self.temp.name)/('off-'+str(drift)))
+                async def heartbeat():
+                    await asyncio.sleep(.015)
+                    times['heartbeat'] = time.monotonic()-times['locked']
+                    release.set()
+                async def other_quote():
+                    await asyncio.sleep(.005)  # progress after the final gate has begun
+                    result, assignment = await asyncio.to_thread(off.quote, 'other', self.unit,
+                        300000, .04, (), self.pricing)
+                    self.assertIsNone(assignment)
+                    self.assertEqual(result['open'],291000)
+                    times['other_quote'] = time.monotonic()-times['locked']
+                async def gate():
+                    if drift:
+                        with self.assertRaisesRegex(margin.StudyError, 'baseline changed'):
+                            permit.consume()
+                    else:
+                        self.assertEqual(permit.consume(),1100)
+                async def run():
+                    await asyncio.gather(heartbeat(), other_quote(), gate())
+                try:
+                    with mock.patch.object(margin.time, 'time', return_value=1100), permit:
+                        real_loop(run())
+                finally:
+                    release.set()
+                    writer.join(2)
+                self.assertFalse(writer.is_alive())
+                self.assertEqual(failures,[])
+                print('SQLITE_GATE_HEARTBEAT '+json.dumps(dict(drift=drift,**times)), flush=True)
+                self.assertLess(times['heartbeat'],.15)
+                self.assertLess(times['other_quote'],.15)
 
 
 class SellerExposureTest(unittest.TestCase):
@@ -478,6 +534,9 @@ class SellerExposureTest(unittest.TestCase):
     def test_real_off_producer_after_ready_cleans_unpublished_trade(self):
         self.exercise_case('off_after_ready')
 
+    def test_final_gate_baseline_drift_is_journaled_paused_unknown(self):
+        self.exercise_case('baseline_after_ready')
+
     def test_published_off_and_sqlite_error_do_not_block_common_record_or_flush(self):
         self.exercise_case('published_journal_failure')
 
@@ -497,6 +556,15 @@ class SellerExposureTest(unittest.TestCase):
         for enabled in (True, False):
             with self.subTest(enabled=enabled):
                 self.exercise_case('real_concurrent_quotes', study_on=enabled)
+
+    def test_abort_journal_sqlite_busy_keeps_the_loop_responsive_and_cleans_hold(self):
+        self.exercise_case('abort_busy_journal')
+
+    def test_cancel_during_abort_journal_keeps_cleanup_and_the_observation(self):
+        self.exercise_case('abort_busy_cancel')
+
+    def test_unknown_publication_cancel_journal_keeps_terms_and_the_observation(self):
+        self.exercise_case('unknown_busy_cancel')
 
     def exercise_case(self, action=None, *, quote_count=2, study_on=True):
         # All filesystem/controller boundaries use this fresh fixture. No HTTP/model stubs
@@ -584,17 +652,110 @@ class SellerExposureTest(unittest.TestCase):
                     if action == 'transport_cancel': raise asyncio.CancelledError()
                 async def reject(self, message): self.rejected = message
             up = Updater()
-            if action == 'off_after_ready':
+            if action in ('abort_busy_journal', 'abort_busy_cancel', 'unknown_busy_cancel'):
+                locked, release, observed = threading.Event(), threading.Event(), threading.Event()
+                failures, times = [], {}
+                def hold_sqlite():
+                    try:
+                        with contextlib.closing(sqlite3.connect(trial.root/'journal.sqlite3')) as db:
+                            db.execute('BEGIN IMMEDIATE')
+                            times['locked'] = time.monotonic()
+                            locked.set()
+                            release.wait(.45)  # bounded escape for the old synchronous abort
+                            db.rollback()
+                    except BaseException as exc:
+                        failures.append(type(exc).__name__)
+                        locked.set()
+                writer = threading.Thread(target=hold_sqlite)
+                def start_writer():
+                    writer.start()
+                    if not locked.wait(1): raise AssertionError('writer did not lock')
+                ready, observe = trial.ready, trial.observe_event
+                def fail_after_real_ready(*args, **kwargs):
+                    ready(*args, **kwargs)  # actual prepared price and durable intent
+                    start_writer()
+                    if action == 'abort_busy_cancel': raise asyncio.CancelledError()
+                    raise margin.StudyError('fixture failure after durable preparation')
+                def watched(*args, **kwargs):
+                    try: return observe(*args, **kwargs)
+                    finally: observed.set()
+                async def cancel_transport(message):
+                    up.quote = message  # delivery is possible, never label it unpublished
+                    await asyncio.to_thread(start_writer)
+                    raise asyncio.CancelledError()
+                async def run():
+                    job = asyncio.create_task(shop.open_from_stock(task, u['sku'], up,
+                                                   lambda text, price=None:(text, price)))
+                    async def pulse():
+                        while not locked.is_set(): await asyncio.sleep(.002)
+                        await asyncio.sleep(.015)
+                        times['heartbeat'] = time.monotonic()-times['locked']
+                        if action != 'unknown_busy_cancel':
+                            self.assertNotIn(task.id,shop.open)
+                            self.assertNotEqual(stock.holder(u['unit']),task.id)
+                        if action.endswith('_cancel'):
+                            times['cancel_requested'] = job.cancel()
+                            await asyncio.sleep(.005)
+                            times['cancel_waits_for_observer'] = not job.done()
+                        release.set()
+                    results = await asyncio.gather(job, pulse(), return_exceptions=True)
+                    if isinstance(results[1],BaseException): raise results[1]
+                    self.assertIsInstance(results[0], margin.StudyError if action=='abort_busy_journal'
+                                          else asyncio.CancelledError)
+                    self.assertTrue(await asyncio.to_thread(observed.wait,1))
+                with mock.patch.object(trial, 'observe_event', watched):
+                    if action == 'unknown_busy_cancel':
+                        stack.enter_context(mock.patch.object(up,'requires_input',cancel_transport))
+                    else:
+                        stack.enter_context(mock.patch.object(trial,'ready',fail_after_real_ready))
+                    try:
+                        real_loop(run())
+                    finally:
+                        release.set()
+                        if writer.ident is not None: writer.join(2)
+                self.assertFalse(writer.is_alive())
+                self.assertEqual(failures,[])
+                print('SQLITE_ABORT_HEARTBEAT '+json.dumps(dict(action=action,**times)), flush=True)
+                self.assertLess(times['heartbeat'],.15)
+                if action.endswith('_cancel'):
+                    self.assertTrue(times['cancel_requested'])
+                    self.assertTrue(times['cancel_waits_for_observer'])
+                events=[e['event'] for e in trial.events() if e['task']==task.id]
+                self.assertEqual(events.count('consume_intent'),1)
+                self.assertEqual(events.count('quote_ready'),1)
+                self.assertNotIn('quoted',events)
+                self.assertIn(task.id,{r['task'] for r in trial.observations()})
+                if action=='unknown_busy_cancel':
+                    self.assertEqual(shop.open[task.id]['sol_margin_publication'],'unknown')
+                    self.assertEqual(stock.holder(u['unit']),task.id)
+                    self.assertNotIn(task.id,shop.margin_blocked)
+                    self.assertEqual(events.count('publication_unknown'),1)
+                else:
+                    self.assertIn(task.id,shop.margin_blocked)
+                    self.assertEqual(events.count('unpublished_abort'),1)
+                return
+            if action in ('off_after_ready', 'baseline_after_ready'):
                 prepare = trial._prepare
                 def stop_after_prepare(*args, **kwargs):
                     cfg = prepare(*args, **kwargs)
-                    trial.write_controller({'enabled':False})
+                    if action == 'off_after_ready':
+                        trial.write_controller({'enabled':False})
+                    else:
+                        changed=json.loads((root/'pricing.json').read_text())
+                        changed['price']['ask_caps']={u['sku']:{'A':280000}}
+                        (root/'pricing.json').write_text(json.dumps(changed))
                     return cfg
                 with mock.patch.object(trial, '_prepare', stop_after_prepare), self.assertRaises(margin.StudyError):
                     real_loop(shop.open_from_stock(task, u['sku'], up, lambda text, price=None:(text, price)))
                 self.assertIsNone(up.quote)
                 self.assertNotIn(task.id, shop.open)
                 self.assertNotEqual(stock.holder(u['unit']), task.id)
+                if action == 'baseline_after_ready':
+                    events=[e for e in trial.events() if e['task']==task.id]
+                    pauses=[e for e in events if e['event']=='paused']
+                    self.assertEqual(len(pauses),1)
+                    self.assertEqual(pauses[0]['economic_status'],'unknown')
+                    self.assertTrue(any(e['event']=='unpublished_abort' for e in events))
                 return
             if action == 'lost_ack_accept':
                 with self.assertRaises(OSError):
@@ -716,6 +877,7 @@ class SellerExposureTest(unittest.TestCase):
                 self.assertIsNone(up.quote)
                 self.assertFalse(task.id in shop.open, 'prepared task retained')
                 self.assertNotEqual(stock.holder(u['unit']), task.id)
+                if action == 'io_before_ready': self.assertGreater(trial.observation_unknown,0)
                 # The same task must not consume its previous prepared B on retry.
                 offline_await(shop.open_from_stock(task, u['sku'], up, lambda text, price=None: (text, price)))
                 self.assertIsNone(up.quote)

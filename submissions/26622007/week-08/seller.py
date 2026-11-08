@@ -433,33 +433,53 @@ class Seller(AgentExecutor):
             if observation is not None and observation.get('quoted'):
                 outcome = 'quote'
         except asyncio.CancelledError:
-            self._margin_abort(task.id)
             outcome = 'timeout_or_cancelled'
+            await self._margin_abort(task.id)
             raise
-        except Exception:
-            self._margin_abort(task.id)
+        except Exception as exc:
             outcome = 'error'
+            await self._margin_abort(task.id, paused=isinstance(exc, sol_seller_margin.BaselineChanged))
             raise
         finally:
             QUOTE_HOLD.finish(row, self.stock, deal=self.open.get(task.id),
                               token=(observation or {}).get('token'), outcome=outcome)
 
-    def _margin_abort(self, task_id):
+    async def _margin_abort(self, task_id, *, paused=False):
         deal = self.open.get(task_id)
         if not deal or not deal.get('sol_margin') or deal.get('sol_margin_publication') == 'published':
             return
         if deal.get('sol_margin_publication') in ('sending', 'unknown'):
             deal['sol_margin_publication'] = 'unknown'
-            MARGIN_STUDY.observe_event(task_id, deal['sol_margin'], 'publication_unknown',
-                                      consumed_at=deal.get('sol_margin_consumed_at'), economic_status='unknown')
+            event, data = 'publication_unknown', dict(
+                consumed_at=deal.get('sol_margin_consumed_at'), economic_status='unknown')
             log('SOL_MARGIN publication unknown; existing terms remain negotiable')
-            return
-        self.margin_blocked.add(task_id)
-        self.open.pop(task_id, None)
-        self.free(task_id, deal)
-        MARGIN_STUDY.observe_event(task_id, deal['sol_margin'], 'unpublished_abort',
-                                  actual_treatment=False, reason='admission_or_prepublication_failure')
-        log('SOL_MARGIN unpublished quote aborted; old assignment retained')
+        else:
+            self.margin_blocked.add(task_id)
+            self.open.pop(task_id, None)
+            self.free(task_id, deal)
+            event, data = 'unpublished_abort', dict(actual_treatment=False,
+                reason='admission_or_prepublication_failure', economic_status='unknown')
+            log('SOL_MARGIN unpublished quote aborted; old assignment retained')
+        # State/owned holds are resolved before yielding. Capture the controller:
+        # cancellation must not drop a queued observation or consult a later one.
+        study, assignment = MARGIN_STUDY, deal['sol_margin']
+        def observe():
+            if paused:
+                study.observe_event(task_id, assignment, 'paused',
+                                    reason='baseline_changed', economic_status='unknown')
+            study.observe_event(task_id, assignment, event, **data)
+        pending = asyncio.create_task(asyncio.to_thread(observe))
+        cancelled = False
+        while not pending.done():
+            try:
+                await asyncio.shield(pending)
+            except asyncio.CancelledError:
+                cancelled = True
+        pending.result()
+        # Keep the outer drain turn alive until this worker has released its DB
+        # resources; preserve cancellation after observation/unknown is resolved.
+        if cancelled:
+            raise asyncio.CancelledError()
 
     async def _open_from_stock(self, task, text, up, say, observation=None):
         """Round 3, the first message: which unit, and the opening price. No harness call: nothing here needs one.
