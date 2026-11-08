@@ -12,6 +12,17 @@ import oneshot
 
 
 class BuyerBundleTrial(unittest.TestCase):
+    def setUp(self):
+        import httpx
+        blocked = AssertionError('fixture external boundary blocked')
+        for target in (('socket.socket.connect', blocked), ('socket.socket.connect_ex', blocked),
+                       ('socket.create_connection', blocked), ('subprocess.Popen', blocked),
+                       ('subprocess.run', blocked), ('httpx.Client.send', blocked),
+                       ('httpx.AsyncClient.send', blocked)):
+            p = patch(target[0], side_effect=target[1])
+            p.start()
+            self.addCleanup(p.stop)
+
     def test_turn_revalidates_engine_and_keeps_unparsed_harness_baseline(self):
         import buyer_bundle_trial as trial
         with tempfile.TemporaryDirectory() as directory, patch.multiple(

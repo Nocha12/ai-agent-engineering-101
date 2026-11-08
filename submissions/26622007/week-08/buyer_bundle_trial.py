@@ -44,7 +44,8 @@ def valid(context, *, rule_engine=False, now=None):
     identity, arm = allocation(oid)
     return (context.get('study') == STUDY and context.get('start') == START and context.get('end') == END
             and context.get('arm') == arm and context.get('allocation_id') == identity
-            and _number(context.get('started_at')) and START <= context['started_at'] <= now)
+            and context.get('kind') == 'goods' and _number(context.get('at'))
+            and _number(context.get('started_at')) and START <= context['started_at'] <= context['at'] <= now)
 
 
 def reserve(md, order, *, rule_engine=False, conflict=False, now=None):
@@ -52,7 +53,7 @@ def reserve(md, order, *, rule_engine=False, conflict=False, now=None):
     oid, started = _order_id(order.get('order')), order.get('_buyer_started_at')
     if (rule_engine is not True or conflict or not _number(at) or not window(at) or not oid or
             order.get('kind') != 'goods' or not _number(started) or not START <= started <= at or
-            order.get('task') or order.get('resume')):
+            order.get('task') or order.get('resume') or order.get('state') in ('REJECTED', 'CANCELED', 'COMPLETED')):
         return None
     identity, arm = allocation(oid)
     row = dict(schema=1, event='assignment', study=STUDY, order=oid, allocation_id=identity,
