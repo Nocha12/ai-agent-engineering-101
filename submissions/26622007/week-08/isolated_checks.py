@@ -128,8 +128,33 @@ def main():
         blocked = []
         active = [True]
 
-        def deny():
-            blocked.append("forbidden boundary")
+        def deny(event, args):
+            # Metadata only: never retain audited arguments, paths, values or locals.
+            import re
+            clean = lambda s: re.sub(r'[^A-Za-z0-9_.<>-]', '_', s)[:160]
+            access, category = 'other', 'other'
+            if event == 'open':
+                path, mode, flags = args
+                access = ('fd' if isinstance(path, int) else 'write' if
+                          flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND) else 'read')
+                if isinstance(path, (str, bytes, os.PathLike)):
+                    target = Path(os.fsdecode(path)).resolve()
+                    if target.is_relative_to(root):
+                        category = 'temp'
+                    elif any(target.is_relative_to(p) for p in runtime):
+                        category = 'python-runtime'
+                    elif str(target).startswith(('/System/', '/Library/', '/usr/', '/etc/', '/private/etc/')):
+                        category = 'system'
+                    elif str(target).startswith(('/Users/', '/home/')):
+                        category = 'user'
+            stack = []
+            frame = sys._getframe(1)
+            while frame and len(stack) < 20:
+                stack.append(dict(module=clean(str(frame.f_globals.get('__name__', 'unknown'))),
+                                  function=clean(frame.f_code.co_name),
+                                  file=clean(Path(frame.f_code.co_filename).name), line=frame.f_lineno))
+                frame = frame.f_back
+            blocked.append(dict(event=event, access=access, category=category, stack=stack))
             raise PermissionError("offline runner blocked a forbidden boundary")
 
         def inside(path):
@@ -140,20 +165,20 @@ def main():
                 return
             if event.startswith(("subprocess.", "socket.")) or event in (
                     "os.system", "os.posix_spawn", "os.fork", "os.forkpty", "os.exec", "os.spawn", "pty.spawn"):
-                deny()
+                deny(event, args)
             if event == "sqlite3.connect":
                 database = args[0]
                 if database != ":memory:":
                     # Reject URI filenames: their native interpretation differs from Path.resolve().
                     if (not isinstance(database, (str, bytes, os.PathLike))
                             or os.fsdecode(database).startswith("file:") or not inside(database)):
-                        deny()
+                        deny(event, args)
             if event == "sqlite3.load_extension":
-                deny()
+                deny(event, args)
             if event == "open":
                 path, mode, flags = args
                 if isinstance(path, int):
-                    deny()  # No inherited file descriptors supplied to project code.
+                    deny(event, args)  # No inherited file descriptors supplied to project code.
                 writing = flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND)
                 if inside(path):
                     return
@@ -161,12 +186,12 @@ def main():
                 if not writing and (any(resolved.is_relative_to(p) for p in runtime)
                                     or resolved == Path("/dev/null")):
                     return
-                deny()
+                deny(event, args)
             mutation = {"os.remove": (0,), "os.rmdir": (0,), "os.mkdir": (0,), "os.chmod": (0,),
                         "os.rename": (0, 1), "os.link": (0, 1), "os.symlink": (0, 1),
                         "os.truncate": (0,), "os.utime": (0,), "os.chdir": (0,)}
             if event in mutation and any(not inside(args[i]) for i in mutation[event]):
-                deny()
+                deny(event, args)
 
         sys.addaudithook(audit)
         result = None
@@ -183,6 +208,7 @@ def main():
             after = manifest(protected)
             safe = before == after and not blocked and not hits_file.exists()
             tests_rc = 0 if result and result.wasSuccessful() else 1
+            print(f"BLOCKED_DIAGNOSTICS {blocked}", flush=True)
             print(f"PROTECTED_STATIC before={before} after={after}; blocked={len(blocked)}; "
                   f"sentinel_hits={int(hits_file.exists())}; safety={'PASS' if safe else 'FAIL'}; "
                   f"tests_rc={tests_rc}; live_moving_state=NOT_COMPARED", flush=True)

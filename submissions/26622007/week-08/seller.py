@@ -399,6 +399,7 @@ class Seller(AgentExecutor):
         self.stock = stock or StockBook()
         self.stock.on_paid, self.stock.on_unpaid = self.paid, self.unpaid
         self.acp = acp
+        self.margin_blocked = set()  # never reuse an aborted/unconfirmed prepared quote
         self.open = {}  # task id -> {"id", "name", "reserve", "ask", "rounds", "history"}, plus "unit" from Round 3
 
     def free(self, task_id, deal):
@@ -417,6 +418,9 @@ class Seller(AgentExecutor):
         log(f"UNPAID {info['deal']['id']} unit {info['deal']['unit']} at {info['price']}: {why}; the unit is on sale again")
 
     async def open_from_stock(self, task, text, up, say):
+        if task.id in self.margin_blocked:
+            await up.reject(say("Please start a new task; the previous quote was not confirmed."))
+            return
         row = QUOTE_HOLD.begin(task.id, text, self.stock)
         observation = {} if row is not None else None
         outcome = 'no_quote'
@@ -425,14 +429,29 @@ class Seller(AgentExecutor):
             if observation is not None and observation.get('quoted'):
                 outcome = 'quote'
         except asyncio.CancelledError:
+            self._margin_abort(task.id)
             outcome = 'timeout_or_cancelled'
             raise
         except Exception:
+            self._margin_abort(task.id)
             outcome = 'error'
             raise
         finally:
             QUOTE_HOLD.finish(row, self.stock, deal=self.open.get(task.id),
                               token=(observation or {}).get('token'), outcome=outcome)
+
+    def _margin_abort(self, task_id):
+        deal = self.open.get(task_id)
+        if not deal or not deal.get('sol_margin') or deal.get('sol_margin_publication') == 'published':
+            return
+        self.margin_blocked.add(task_id)
+        if deal.get('sol_margin_publication') == 'sending':
+            deal['sol_margin_publication'] = 'unknown'
+            log('SOL_MARGIN publication unknown; prepared quote quarantined')
+            return
+        self.open.pop(task_id, None)
+        self.free(task_id, deal)
+        log('SOL_MARGIN unpublished quote aborted; old assignment retained')
 
     async def _open_from_stock(self, task, text, up, say, observation=None):
         """Round 3, the first message: which unit, and the opening price. No harness call: nothing here needs one.
@@ -442,6 +461,7 @@ class Seller(AgentExecutor):
                        OPENING_CUE, LATE_SPEED, JEV_TRANSPORT, SHELF_REPLY,
                        EXACT_ACCEPT, EXACT_COUNTER, GRADE_PREFERENCE,
                        FOOD_OPENING, AT_FLOOR_EXACT)
+        margin_peers = (*trial_peers, DEEP_LOWBALL, QUOTE_HOLD, OPENING_DEFAULT)
         if (not QUOTE_HOLD.pre_pick_ok((*trial_peers, DEEP_LOWBALL))
                 or not await asyncio.to_thread(DEEP_LOWBALL.pre_pick_ok, (*trial_peers, QUOTE_HOLD))
                 or not await asyncio.to_thread(MARGIN_STUDY.pre_pick_ok, (*trial_peers, DEEP_LOWBALL, QUOTE_HOLD))):
@@ -465,7 +485,8 @@ class Seller(AgentExecutor):
         q, margin_assignment = await asyncio.to_thread(MARGIN_STUDY.quote,
                                task.id, u, sku_median(u["sku"], u.get("list_price"), u.get("grade")),
                                break_chance(u["sku"], u.get("grade")) if u.get("kind") == "goods" else None,
-                               shop_memory.paid_prices(u["sku"]), {**pricing, "warranty": self.warranty_cfg()})
+                               shop_memory.paid_prices(u["sku"]), {**pricing, "warranty": self.warranty_cfg()},
+                               others=margin_peers)
         if q["refuse"]:
             await asyncio.to_thread(MARGIN_STUDY.event, task.id, margin_assignment, "warranty_refused")
             GRADE_PREFERENCE.emit(task.id, grade_assignment, "rejected", reason="warranty")
@@ -489,6 +510,7 @@ class Seller(AgentExecutor):
                                      "rounds": 0, "history": [("you asked", ask_price)]}
         if margin_assignment is not None:
             deal['sol_margin'] = margin_assignment
+            deal['sol_margin_publication'] = 'prepared'
         asked = (text or "").lower()
         if u["sku"].lower() not in asked and (u.get("name") or "\0").lower() not in asked:
             # asked for the category only ("I want to buy a 김치"): the receipt names the order's item, which the market
@@ -525,9 +547,14 @@ class Seller(AgentExecutor):
                       f"certificate of the unit.{' ' + note if note else ''} My price: {ask_price}.")
         quote_text = await asyncio.to_thread(OPENING_CUE.message, task.id, deal, quote_text)
         await asyncio.to_thread(MARGIN_STUDY.ready, task.id, margin_assignment, deal, keep,
-                                (*trial_peers, DEEP_LOWBALL, QUOTE_HOLD))
+                                margin_peers, pricing_loader=lambda: {
+                                    **shop_memory.load_pricing(), "warranty": self.warranty_cfg()})
+        if margin_assignment is not None:
+            deal['sol_margin_publication'] = 'sending'
         await up.requires_input(say(quote_text, ask_price))
-        await asyncio.to_thread(MARGIN_STUDY.event, task.id, margin_assignment, "quoted", price=ask_price)
+        if margin_assignment is not None:
+            deal['sol_margin_publication'] = 'published'
+        await asyncio.to_thread(MARGIN_STUDY.observe_event, task.id, margin_assignment, "quoted", price=ask_price)
         if observation is not None:
             observation['quoted'] = True
         log(f"task {task.id[:8]} -> INPUT_REQUIRED {u['sku']} ask {ask_price}")
@@ -615,6 +642,9 @@ class Seller(AgentExecutor):
         text = (get_message_text(context.message) or "")[:MAX_TEXT]
         QUOTE_HOLD.touch(task.id)
         deal = self.open.get(task.id)
+        if task.id in self.margin_blocked:
+            await up.failed(say("The previous quote's publication is unconfirmed; please start a new task."))
+            return
         if deal is None and QUOTE_HOLD.config() and not self.stock.economy():
             row = QUOTE_HOLD.begin(task.id, get_message_text(context.message) or '', self.stock)
             QUOTE_HOLD.finish(row, self.stock, outcome='inventory_or_round_unknown')
@@ -866,10 +896,10 @@ class Seller(AgentExecutor):
             self._remember_now(*entry)
 
     def _remember_now(self, task_id, deal, result, price=None, observed_at=None):
+        # Experimental telemetry is independent of the common memory/cleanup path.
+        MARGIN_STUDY.observe_event(task_id, deal.get('sol_margin'), 'local_' + result,
+                                  observed_at, price=price, unit=deal.get('unit'))
         try:
-            # Stock disappearance and a signed agreement are observations, not exact settlement proof.
-            MARGIN_STUDY.event(task_id, deal.get('sol_margin'), 'local_' + result,
-                               observed_at, price=price, unit=deal.get('unit'))
             CONCESSION_TRIAL.event(task_id, deal, result, price, observed_at)
             LATE_CONCESSION.event(task_id, deal, result, price, observed_at)
             OPENING_CUE.event(task_id, deal, result, price, observed_at)
