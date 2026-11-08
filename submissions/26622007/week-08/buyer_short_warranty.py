@@ -1,15 +1,16 @@
 """Goods with a warranty shorter than 6 h, bought only under an expected-value cap (owner 11/08 17:55, telegram 7955
 "일단 너가 찾은 수식으로 해"; review/W-20261108-1755-AX짧은보증수식/report.md).
 
-The market scores a goods deal 0 when the unit breaks under the warranty and -price/list when it breaks outside it.
+The market scores a goods deal 0 when the unit breaks under the warranty (refunded) and -1 when it breaks outside it
+(agent.md 229: "a deal that served nothing counts -1, or 0 if refunded"; 11/08 19:09 correction of -price/list).
 Breaks come within 0-6 h of the sale, evenly (about 10,000 market breaks, 11 after 6 h), so with a warranty of h hours a
 unit that breaks (chance b) breaks outside it with q = b * max(0, 6 - h) / 6. A deal at p = price/list keeps in
-expectation E = (1 - b)(1 - p) - q p, and it is bought only when E >= S, my current Saved (the board's, else 0.30):
+expectation E = (1 - b)(1 - p) - q, and it is bought only when E >= S, my current Saved (the board's, else 0.30):
 
-    p_max(h) = (1 - b - S) / ((1 - b) + q)
+    p_max(h) = 1 - (S + q) / (1 - b)
 
-At h = 6 that is 1 - S / (1 - b), the cap a 6 h goods deal already has (market_buyer.saved_cap). E.g. b = .072,
-S = .2955: 6 h 68.2%, 3 h 65.6%, 0 h 63.3%.
+(none when 1 - b <= 0 or p_max <= 0). At h = 6 that is 1 - S / (1 - b), the cap a 6 h goods deal already has
+(market_buyer.saved_cap). E.g. b = .072, S = .2955: 6 h 68.16%, 3 h 64.28%, 0 h 60.40%.
 
 A safety rail on top: the expected out-of-warranty loss of the short-warranty deals passed to the kit in the last hour,
 sum q * price, stays under EXPOSURE_SHARE of the cash buffer (the switch file's cash_buffer, else
@@ -73,15 +74,15 @@ def p_max(h, b, S):
     """The highest price/list at which a deal with an h-hour warranty keeps S in expectation; 0 when none does."""
     b = min(max(b if number(b) else FALLBACK_BREAK, 0.0), 1.0)
     q = outside_chance(b, h)
-    den = (1 - b) + q
-    if den <= 0 or 1 - b - S <= 0:
+    if 1 - b <= 0:
         return 0.0
-    return max(0.0, (1 - b - S) / den)
+    return max(0.0, 1 - (S + q) / (1 - b))
 
 
 def expected(p, h, b):
-    """E[x] = (1 - b)(1 - p) - q p: the share of list a deal at p keeps in expectation."""
-    return (1 - b) * (1 - p) - outside_chance(b, h) * p
+    """E[x] = (1 - b)(1 - p) - q: the share of list a deal at p keeps in expectation (a break outside the warranty
+    counts -1, agent.md 229)."""
+    return (1 - b) * (1 - p) - outside_chance(b, h)
 
 
 def cap(list_price, h, b, S):

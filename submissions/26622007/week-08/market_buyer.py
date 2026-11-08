@@ -65,6 +65,7 @@ import buyer_first95_trial
 import buyer_cap95_trial
 import buyer_b3b1
 import buyer_accept_band
+import buyer_rank_pg
 import buyer_shop_profile
 import buyer_short_warranty
 import rival_deny
@@ -1346,6 +1347,24 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
     # a revenue rival of my shop ranks as if it kept rival_deny.MARGIN less of the list price (within my limit either way)
     best = max(scored, key=lambda x: (fits(x[2]), x[0] - rival_deny.penalty(x[2]["name"], rival), meta(x[2]), -x[1]))[2] \
         if scored else None
+    rk = order.get("_rank_pg")
+    if rk is not None and scored:
+        # 대표님 7959-7977: P(deal | shop, kind) x (1 - b)(1 - E[final] / list) / T replaces the ask's share (fits first,
+        # as before: the limits and guards stay where they are; buyer_rank_pg). A quote it cannot score keeps the old order.
+        def g_of(s):
+            o, b = s["_offer"], chance_of(s["_offer"]["sku"])
+            h = buyer_short_warranty.hours_for(order.get("_sw"), s["name"], got.get(s["name"]))
+            if h is not None:
+                return lambda p: buyer_short_warranty.expected(p, h, b if b is not None else buyer_short_warranty.FALLBACK_BREAK)
+            return lambda p: (1 - (b or 0)) * (1 - p)
+        elapsed = time.time() - STARTED
+        pg = {s["name"]: buyer_rank_pg.score(rk, s["name"], order.get("kind"), got[s["name"]]["ask"], s["_offer"]["list_price"],
+                                             g_of(s), elapsed, rival_deny.penalty(s["name"], rival)) for _, _, s in scored}
+        rk["plain"] = best["name"]
+        if all(v is not None for v in pg.values()):
+            best = max(scored, key=lambda x: (fits(x[2]), pg[x[2]["name"]], meta(x[2]), -x[1]))[2]
+            rk["scores"] = {k: round(v, 6) for k, v in pg.items()}
+        rk["picked"] = best["name"]
     keep = best["name"] if best else chosen["name"] if resumable(got.get(chosen["name"])) else None
     with ctl.get("lock") or contextlib.nullcontext():
         ctl.update(done=True, winner=keep)    # a late quote thread of the kept shop must not cancel it either
@@ -1664,6 +1683,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "sku": (offer or {}).get("sku"), "list_price": (offer or {}).get("list_price"), "limit": limit,
         "break_chance": round(chance, 4) if isinstance(chance, (int, float)) else None,
         "shelf_hours": (catalog.get((offer or {}).get("sku")) or {}).get("shelf_hours"),
+        "our_offers": [p for who, p in out.get("history") or [] if who == "you offered"],
         "state": out.get("state"), "asks": asks, "counters": len(asks), "holds": out.get("holds", 0), "agreed": out.get("agreed"),
         "took": bool(out.get("took")),
         "price": (rec or {}).get("price"), "unit": (rec or {}).get("unit"), "claim": (rec or {}).get("claim"),
@@ -1751,6 +1771,9 @@ def main():
     if sw is not None:
         order["_sw"] = sw
         log(f"[short-warranty] on: S {order['_sw']['S']:.4f}, goods with a short warranty priced at p_max(h)")
+    rk = buyer_rank_pg.state(md, order) if r3 else None
+    if rk is not None:
+        order["_rank_pg"] = rk
     left, brief = skip_short_warranty(shops, memory, catalog, order) if r3 else (list(shops), [])
     if brief:
         log(f"[choose] skip for goods {brief}: their recent receipts to me had too short a warranty to pay for")
@@ -2040,6 +2063,8 @@ def main():
                                          **({"short_warranty": {"S": order["_sw"]["S"], "h_est": order.get("_sw_h_est"),
                                                                 "shops": order["_sw"]["hist"]}}
                                             if order.get("_sw") is not None else {}),
+                                         **({"rank_pg": {k: v for k, v in order["_rank_pg"].items() if k != "stats"}}
+                                            if order.get("_rank_pg") is not None else {}),
                                          **({"shop_profile": {"base": band_base, "pct": band_pct}}
                                             if band_pct != band_base else {}),
                                          **({"accept_band": {"pct": band_pct, "ceiling": top,

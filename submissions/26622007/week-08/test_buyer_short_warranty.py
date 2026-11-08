@@ -22,9 +22,19 @@ class FormulaTest(unittest.TestCase):
 
     def test_the_owners_example(self):
         b, S = 0.072, 0.2955
-        self.assertAlmostEqual(sw.p_max(6, b, S), 0.682, places=3)
-        self.assertAlmostEqual(sw.p_max(3, b, S), 0.656, places=3)
-        self.assertAlmostEqual(sw.p_max(0, b, S), 0.633, places=3)
+        self.assertAlmostEqual(sw.p_max(6, b, S), 0.6816, places=4)
+        self.assertAlmostEqual(sw.p_max(3, b, S), 0.6428, places=4)
+        self.assertAlmostEqual(sw.p_max(0, b, S), 0.6040, places=4)
+
+    def test_a_break_outside_the_warranty_counts_minus_one(self):
+        # agent.md 229: a deal that served nothing counts -1 (0 if refunded), so E = (1 - b)(1 - p) - q, not - q p
+        for p in (0.3, 0.6, 0.9):
+            self.assertAlmostEqual(sw.expected(p, 0, 0.1), 0.9 * (1 - p) - 0.1, places=12)
+            self.assertAlmostEqual(sw.expected(p, 3, 0.1), 0.9 * (1 - p) - 0.05, places=12)
+            self.assertAlmostEqual(sw.expected(p, 6, 0.1), 0.9 * (1 - p), places=12)
+        self.assertEqual(sw.p_max(0, 1.0, 0.3), 0.0)                # 1 - b <= 0: nothing
+        self.assertEqual(sw.p_max(6, 1.0, 0.0), 0.0)
+        self.assertEqual(sw.p_max(0, 0.4, 0.3), 0.0)                # 1 - (.3 + .4) / .6 < 0: nothing
 
     def test_expected_value_at_p_max_is_S(self):
         for h in (0, 1, 2.5, 4, 6):
@@ -76,15 +86,17 @@ class ReceiptCheckTest(unittest.TestCase):
 
     def test_within_p_max_is_paid_over_is_not(self):
         with tempfile.TemporaryDirectory() as d:
-            ok, rec, why = sw.receipt_check(self.st(), d, {"price": 6325, "warranty_hours": 0}, 10000, 0.072)
+            ok, rec, why = sw.receipt_check(self.st(), d, {"price": 6039, "warranty_hours": 0}, 10000, 0.072)
             self.assertTrue(ok, why)
-            self.assertEqual((rec["h"], rec["b"], rec["S"], rec["p_max"], rec["p"]), (0, 0.072, 0.2955, 0.6325, 0.6325))
-            ok, rec, why = sw.receipt_check(self.st(), d, {"price": 6326, "warranty_hours": 0}, 10000, 0.072)
+            self.assertEqual((rec["h"], rec["b"], rec["S"], rec["p_max"], rec["p"]), (0, 0.072, 0.2955, 0.604, 0.6039))
+            ok, rec, why = sw.receipt_check(self.st(), d, {"price": 6041, "warranty_hours": 0}, 10000, 0.072)
             self.assertFalse(ok)
             self.assertIn("over p_max", why)
-            ok, _, _ = sw.receipt_check(self.st(), d, {"price": 6550, "warranty_hours": 3}, 10000, 0.072)
+            ok, _, _ = sw.receipt_check(self.st(), d, {"price": 6400, "warranty_hours": 3}, 10000, 0.072)
             self.assertTrue(ok)
-            ok, _, _ = sw.receipt_check(self.st(), d, {"price": 6550, "warranty_hours": None}, 10000, 0.072)
+            ok, _, _ = sw.receipt_check(self.st(), d, {"price": 6450, "warranty_hours": 3}, 10000, 0.072)
+            self.assertFalse(ok)                                   # p_max(3) 64.28%
+            ok, _, _ = sw.receipt_check(self.st(), d, {"price": 6400, "warranty_hours": None}, 10000, 0.072)
             self.assertFalse(ok)                                   # no warranty named: 0 h
             ok, rec, _ = sw.receipt_check(self.st(), d, {"price": 6000}, 10000, None)
             self.assertEqual(rec["b"], sw.FALLBACK_BREAK)          # no break chance known: the p90
@@ -133,13 +145,14 @@ class ReceiptCheckTest(unittest.TestCase):
             self.assertEqual(sorted(res), [False, False, False, True, True])
 
     def test_only_grades_that_keep_S_are_accepted(self):
-        # 11/06 grade rates: A 3%, B 12.2%, C 34.4%; at h 0, S .2955: p_max A .6745, B .5845, C .3605
+        # 11/06 grade rates: A 3%, B 12.2%, C 34.4%; at h 0, S .2955: p_max A .6644, B .5245, C .0251
         rates = {"A": 0.03, "B": 0.122, "C": 0.344}
         self.assertEqual(sw.grades_ok(6500, 10000, 0, 0.2955, rates), (["A"], 0.03))
-        self.assertEqual(sw.grades_ok(5800, 10000, 0, 0.2955, rates), (["A", "B"], 0.122))
-        self.assertEqual(sw.grades_ok(3000, 10000, 0, 0.2955, rates), (["A", "B", "C"], 0.344))
+        self.assertEqual(sw.grades_ok(5200, 10000, 0, 0.2955, rates), (["A", "B"], 0.122))
+        self.assertEqual(sw.grades_ok(3000, 10000, 0, 0.2955, rates), (["A", "B"], 0.122))
+        self.assertEqual(sw.grades_ok(200, 10000, 0, 0.2955, rates), (["A", "B", "C"], 0.344))
         self.assertEqual(sw.grades_ok(6800, 10000, 0, 0.2955, rates), ([], None))
-        self.assertEqual(sw.grades_ok(6000, 10000, 0, 0.2955, {"A": None, "B": 1.0}), (["A"], sw.FALLBACK_BREAK))
+        self.assertEqual(sw.grades_ok(5800, 10000, 0, 0.2955, {"A": None, "B": 1.0}), (["A"], sw.FALLBACK_BREAK))
         self.assertEqual(sw.grades_ok(6000, None, 0, 0.2955, rates), ([], None))
 
     def test_a_switch_cash_buffer_is_capped(self):
@@ -195,7 +208,7 @@ class BuyerHooksTest(unittest.TestCase):
         shops = [{"name": "s", "_offer": o, "_b": .072}] * 3
         got = {"s": {"ask": 6500, "warranty_h": 0}}
         self.assertTrue(market_buyer.quotes_enough(shops, got, 20000, {}))           # off: 6,500 under the 6 h cap
-        self.assertFalse(market_buyer.quotes_enough(shops, got, 20000, {}, on))      # on: over p_max(0) = 6,264
+        self.assertFalse(market_buyer.quotes_enough(shops, got, 20000, {}, on))      # on: over p_max(0) = 5,991
 
 
 class MainTest(unittest.TestCase):
@@ -265,12 +278,12 @@ class MainTest(unittest.TestCase):
         self.assertIn("warranty 0 h", " ".join(o["warnings"]))
 
     def test_on_pays_a_0h_receipt_within_p_max_and_tells_the_kit(self):
-        out, calls, o = self.run_main({"enabled": True, "cash_buffer": 34000000}, 6000, 0)
+        out, calls, o = self.run_main({"enabled": True, "cash_buffer": 34000000}, 5800, 0)
         self.assertIsNotNone(out["receipt"])
         self.assertEqual(out["accept"], {"warranty_hours": 0, "grades": ["A", "B", "C"]})   # no ledger: b = p90 for all
         s = o["short_warranty_buy"]
         self.assertTrue(s["ok"])
-        self.assertEqual((s["h"], s["S"], s["p"]), (0, 0.3, 0.6))
+        self.assertEqual((s["h"], s["S"], s["p"]), (0, 0.3, 0.58))
         self.assertAlmostEqual(s["p_max"], sw.p_max(0, s["b"], 0.3), places=4)
         self.assertTrue(o["passed_to_kit"])
 
@@ -281,7 +294,7 @@ class MainTest(unittest.TestCase):
         out, calls, o = self.run_main({"enabled": True}, 6000, 0)
         self.assertIsNone(out["receipt"])
         self.assertEqual((o["short_warranty_buy"]["list"], o["short_warranty_buy"]["ok"]), (7000, False))
-        out, calls, o = self.run_main({"enabled": True}, 4300, 0)      # 61.4% of 7,000: under p_max(0) at b .0837
+        out, calls, o = self.run_main({"enabled": True}, 4000, 0)      # 57.1% of 7,000: under p_max(0) 58.1% at b .0837
         self.assertIsNotNone(out["receipt"])
 
     def test_on_refuses_a_0h_receipt_over_p_max(self):
@@ -316,7 +329,7 @@ class MainTest(unittest.TestCase):
         self.assertEqual(off[1][0][0][2], 7000)
 
     def test_on_p_max_never_passes_value_limit_nor_the_budget(self):
-        # p_max(0) is about 6,264 of 10,000: max_price_share 0.5 and a budget of 4,000 each hold it lower (11/08 18:12)
+        # p_max(0) is about 5,812 of 10,000: max_price_share 0.5 and a budget of 4,000 each hold it lower (11/08 18:12)
         mem = {"trades": [{"shop": "s", "item": "G1", "result": "no_warranty",
                            "time": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(time.time() - 60))}]}
 

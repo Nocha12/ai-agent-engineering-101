@@ -146,7 +146,8 @@ MARKDOWN_REASONS = ("food_expiry", "stale_goods", "round_end")
 # does, and inextro and 25620027 (revenue 1st and 3rd, 11/06) quote 72 h to buyers comparing shops.
 # 대표님 7955 승인 (2026-11-08 17:55, "일단 너가 찾은 수식으로 해"): 기대값 상한 내 예외. With the switch
 # .market/buyer_short_warranty.json on, a goods receipt with a shorter warranty is paid only at a price/list at or under
-# p_max(h) = (1 - b - S) / ((1 - b) + b * (6 - h) / 6), under an hourly exposure cap (buyer_short_warranty.py). With the
+# p_max(h) = 1 - (S + q) / (1 - b), q = b * max(0, 6 - h) / 6 (a break outside the warranty counts -1, agent.md 229),
+# under an hourly exposure cap (buyer_short_warranty.py). With the
 # switch off this 6 h holds exactly as before. The other lines here (bankruptcy, cash buffer, budget) are unchanged.
 BUYER_GOODS_WARRANTY_HOURS = 6
 SELLER_GOODS_WARRANTY_HOURS = 72
