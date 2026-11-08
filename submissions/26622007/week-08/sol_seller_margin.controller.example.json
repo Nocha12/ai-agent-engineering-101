@@ -1,0 +1,10 @@
+{
+  "enabled": false,
+  "version": 1,
+  "study_id": "REPLACE_WITH_FRESH_STUDY_ID",
+  "epoch": null,
+  "start": null,
+  "end": null,
+  "salt": "REPLACE_WITH_FRESH_RANDOM_SALT",
+  "source_sha256": "REPLACE_WITH_LOADED_SELLER_BINDING"
+}

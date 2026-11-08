@@ -94,6 +94,8 @@ import agent_memory
 import hard_limits
 import market_model
 import profit_price
+import sol_seller_margin
+MARGIN_STUDY = sol_seller_margin.MarginStudy()
 import shop_forum
 import shop_memory
 from shop_stock import StockBook, last_segment, markdown
@@ -441,7 +443,8 @@ class Seller(AgentExecutor):
                        EXACT_ACCEPT, EXACT_COUNTER, GRADE_PREFERENCE,
                        FOOD_OPENING, AT_FLOOR_EXACT)
         if (not QUOTE_HOLD.pre_pick_ok((*trial_peers, DEEP_LOWBALL))
-                or not await asyncio.to_thread(DEEP_LOWBALL.pre_pick_ok, (*trial_peers, QUOTE_HOLD))):
+                or not await asyncio.to_thread(DEEP_LOWBALL.pre_pick_ok, (*trial_peers, QUOTE_HOLD))
+                or not await asyncio.to_thread(MARGIN_STUDY.pre_pick_ok, (*trial_peers, DEEP_LOWBALL, QUOTE_HOLD))):
             await up.reject(say("Sorry, the shop cannot start a new talk right now."))
             return
         pricing = shop_memory.load_pricing()
@@ -452,16 +455,19 @@ class Seller(AgentExecutor):
         u, miss = self.stock.pick(text, rank=lambda x: floor_rank(x, ranked), **grade_kwargs)
         GRADE_PREFERENCE.selected(task.id, grade_assignment, u, miss, grade_selection)
         if u is None:
+            await asyncio.to_thread(MARGIN_STUDY.selection_miss, task.id)
             GRADE_PREFERENCE.emit(task.id, grade_assignment, "rejected", reason="selection")
             await up.reject(say("Sorry, we have none of that in stock." if miss == "not in stock" else
                                 f"Sorry, none of our units fits your order: {miss}."))
             log(f"task {task.id[:8]} -> REJECTED ({miss})")
             return
         cost, key = math.ceil(u["cost"]), last_segment(u.get("category")) or u["sku"]
-        q = profit_price.quote(u, sku_median(u["sku"], u.get("list_price"), u.get("grade")),
+        q, margin_assignment = await asyncio.to_thread(MARGIN_STUDY.quote,
+                               task.id, u, sku_median(u["sku"], u.get("list_price"), u.get("grade")),
                                break_chance(u["sku"], u.get("grade")) if u.get("kind") == "goods" else None,
                                shop_memory.paid_prices(u["sku"]), {**pricing, "warranty": self.warranty_cfg()})
         if q["refuse"]:
+            await asyncio.to_thread(MARGIN_STUDY.event, task.id, margin_assignment, "warranty_refused")
             GRADE_PREFERENCE.emit(task.id, grade_assignment, "rejected", reason="warranty")
             await up.reject(say("Sorry, we cannot sell this item with a fair warranty right now."))
             log(f"task {task.id[:8]} -> REJECTED (break chance {q['b']:.0%} above the warranty limit; no sale without one)")
@@ -481,6 +487,8 @@ class Seller(AgentExecutor):
                                      "cost": cost, "reserve": reserve, "ask": ask_price, "open": ask_price, "arm": arm,
                                      "break": q["b"], "expires_at": u.get("expires_at"),
                                      "rounds": 0, "history": [("you asked", ask_price)]}
+        if margin_assignment is not None:
+            deal['sol_margin'] = margin_assignment
         asked = (text or "").lower()
         if u["sku"].lower() not in asked and (u.get("name") or "\0").lower() not in asked:
             # asked for the category only ("I want to buy a 김치"): the receipt names the order's item, which the market
@@ -516,7 +524,10 @@ class Seller(AgentExecutor):
         quote_text = (f"{stock_line(u)}. Every deal comes with a signed receipt and the market's "
                       f"certificate of the unit.{' ' + note if note else ''} My price: {ask_price}.")
         quote_text = await asyncio.to_thread(OPENING_CUE.message, task.id, deal, quote_text)
+        await asyncio.to_thread(MARGIN_STUDY.ready, task.id, margin_assignment, deal, keep,
+                                (*trial_peers, DEEP_LOWBALL, QUOTE_HOLD))
         await up.requires_input(say(quote_text, ask_price))
+        await asyncio.to_thread(MARGIN_STUDY.event, task.id, margin_assignment, "quoted", price=ask_price)
         if observation is not None:
             observation['quoted'] = True
         log(f"task {task.id[:8]} -> INPUT_REQUIRED {u['sku']} ask {ask_price}")
@@ -856,6 +867,9 @@ class Seller(AgentExecutor):
 
     def _remember_now(self, task_id, deal, result, price=None, observed_at=None):
         try:
+            # Stock disappearance and a signed agreement are observations, not exact settlement proof.
+            MARGIN_STUDY.event(task_id, deal.get('sol_margin'), 'local_' + result,
+                               observed_at, price=price, unit=deal.get('unit'))
             CONCESSION_TRIAL.event(task_id, deal, result, price, observed_at)
             LATE_CONCESSION.event(task_id, deal, result, price, observed_at)
             OPENING_CUE.event(task_id, deal, result, price, observed_at)
@@ -951,6 +965,7 @@ def build(url, catalog, name):
 
     @contextlib.asynccontextmanager
     async def lifespan(app):
+        log(f"SOL_MARGIN_SOURCE {sol_seller_margin.SOURCE_BINDING} pid {os.getpid()} cwd {os.getcwd()}")
         drain = asyncio.create_task(DRAIN.loop(shop, functools.partial(flush_memory, strict=True), log))
         try:
             yield
