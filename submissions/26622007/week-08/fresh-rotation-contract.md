@@ -193,4 +193,3 @@ does not implement or prove a persistent managed selector, actual consumer
 access, kit transition, full first-choice replay, real A/B or economic results.
 Those conditions require separate review and operating evidence. Do not deploy
 the old guarded command as a replacement for all-order baseline availability.
-

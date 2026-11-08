@@ -11,6 +11,8 @@ import unittest
 
 from tools import fresh_release
 
+REPO = Path(__file__).resolve().parents[3]
+
 
 class FreshRelease(unittest.TestCase):
     def test_release_executes_pinned_entry_and_resource(self):
@@ -34,9 +36,8 @@ class FreshRelease(unittest.TestCase):
             self.assertFalse((root / "__pycache__").exists())
 
     def test_actual_baseline_singleton_prefetch_none_hurry_and_agent(self):
-        repo = Path(__file__).resolve().parents[3]
         pin = "f01be3537c89ef087d743c2b3762ab99f6382f6a"
-        files = fresh_release.files_from_git(repo, pin)
+        files = fresh_release.files_from_git(REPO, pin)
         files['agent_tools.py'] = Path(__file__).with_name('agent_tools.py').read_bytes()
         tail = b'if __name__ == "__main__":\n    sys.exit(main())'
         self.assertIn(tail, files['market_buyer.py'])
