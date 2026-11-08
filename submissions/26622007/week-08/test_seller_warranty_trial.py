@@ -645,6 +645,18 @@ class WarrantyTrialTest(unittest.TestCase):
 
         async def run():
             loop = asyncio.get_running_loop()
+            gaps, running = [], True
+
+            async def heartbeat():
+                previous = loop.time()
+                while running:
+                    await asyncio.sleep(0.01)
+                    now = loop.time()
+                    gaps.append(now - previous)
+                    previous = now
+
+            beat = asyncio.create_task(heartbeat())
+            await asyncio.sleep(0.03)
             first = asyncio.create_task(self.shop.execute(context("I cannot accept this without a warranty"), None))
 
             def cancel_during_append():
@@ -653,8 +665,9 @@ class WarrantyTrialTest(unittest.TestCase):
                         failures.append("warranty append was not reached")
                         return
                     loop.call_soon_threadsafe(first.cancel)
-                    # The synchronous path cannot process cancellation until the
-                    # append completes; the worker path can publish the next turn.
+                    loop.call_soon_threadsafe(lambda: loop.call_later(0.02, first.cancel))
+                    # Hold the write open through repeated cancellation. The next
+                    # turn may start only after the worker has committed control.
                     next_done.wait(0.2)
                 finally:
                     release.set()
@@ -670,6 +683,11 @@ class WarrantyTrialTest(unittest.TestCase):
                 release.set()
                 await asyncio.to_thread(canceller.join, 2)
                 self.assertFalse(canceller.is_alive())
+                running = False
+                await beat
+            gap_ms = max(gaps) * 1000
+            print(f"CANCEL_HEARTBEAT repeated_cancel=True injected_ms=200 max_gap_ms={gap_ms:.3f}", flush=True)
+            self.assertLess(gap_ms, 50)
 
         with mock.patch.object(Path, "open", delayed_open), \
                 mock.patch.object(seller, "TaskUpdater", side_effect=updater), \
@@ -687,7 +705,7 @@ class WarrantyTrialTest(unittest.TestCase):
         self.assertEqual((deal["warranty_trial"]["arm"], deal["warranty"]), ("control", 72))
         self.assertEqual([row["arm"] for row in self.rows()], ["treatment", "control", "control"])
 
-    def test_quote_and_followup_warranty_io_finish_on_event_loop(self):
+    def test_quote_and_followup_warranty_io_finish_in_worker(self):
         main_thread = threading.get_ident()
         path_open = Path.open
         calls = []
@@ -705,8 +723,274 @@ class WarrantyTrialTest(unittest.TestCase):
             self.followup("x" * 510 + " full refund if broken within 6 hrs")
             self.assertEqual(self.rows()[-1]["arm"], "control")
             self.assertEqual(self.shop.stock_receipt("task-fixture", deal, deal["ask"])["warranty_hours"], 72)
-        self.assertEqual([name for name, _ in calls], ["config", "journal", "config", "journal"])
-        self.assertTrue(all(thread == main_thread for _, thread in calls), calls)
+        self.assertEqual([name for name, _ in calls], ["config", "journal", "journal"])
+        self.assertTrue(all(thread != main_thread for _, thread in calls), calls)
+
+    def test_off_quotes_count_config_io_and_never_reread_unchanged_config(self):
+        path_open, path_stat = Path.open, Path.stat
+        for mode in ("missing", "disabled", "outside_window"):
+            with self.subTest(mode=mode):
+                if mode == "missing":
+                    self.config.unlink(missing_ok=True)
+                else:
+                    self.write_config(enabled=mode != "disabled", stop_at=150 if mode == "outside_window" else 200)
+                counts = dict(stat=0, open=0, journal=0)
+
+                def opened(path, *args, **kwargs):
+                    if path == self.config:
+                        counts["open"] += 1
+                    if path.name == "seller_warranty_trial.jsonl":
+                        counts["journal"] += 1
+                    return path_open(path, *args, **kwargs)
+
+                def stated(path, *args, **kwargs):
+                    if path == self.config:
+                        counts["stat"] += 1
+                    return path_stat(path, *args, **kwargs)
+
+                with mock.patch.object(Path, "open", opened), mock.patch.object(Path, "stat", stated), \
+                        mock.patch.object(seller.seller_warranty_trial, "requested",
+                                          side_effect=AssertionError("OFF must not scan")):
+                    self.quote(self.deal())  # cold observation, reported separately
+                    cold = counts.copy()
+                    counts.update(stat=0, open=0, journal=0)
+                    for index in range(5):
+                        deal = self.deal()
+                        self.assertIn("72 h warranty", self.quote(deal, task=f"off-{index}"))
+                        self.assertNotIn("warranty_trial", deal)
+                    print(f"OFF_IO mode={mode} cold={cold} repeated_total={counts} quotes=5 "
+                          f"per_quote_stat={counts['stat']/5} per_quote_open={counts['open']/5}", flush=True)
+                    self.assertEqual(counts, dict(stat=5, open=0, journal=0))
+                self.assertFalse(self.market.exists())
+
+    def test_delayed_warranty_io_keeps_heartbeat_under_50ms(self):
+        from a2a.types import Message
+
+        task_id = "00000000-0000-0000-0000-000000000043"
+        path_open, path_stat = Path.open, Path.stat
+        for mode in ("on_config", "on_append", "off_missing_stat", "off_disabled", "off_window"):
+            for delay in (0, 0.2):
+                with self.subTest(mode=mode, delay=delay):
+                    self.stock = StockBook(load=lambda: {"round": 3, "units": [self.unit]})
+                    self.shop = seller.Seller(None, "fixture shop", self.stock)
+                    # A different path for each measurement prevents cache warming
+                    # from hiding the real delayed read, including disabled config.
+                    self.config = self.root / f"config-{mode}-{delay}.json"
+                    self.write_config(enabled=mode != "off_disabled", stop_at=150 if mode == "off_window" else 200)
+                    if mode == "off_missing_stat":
+                        self.config.unlink()
+                    calls = []
+
+                    class SlowAppend:
+                        def __init__(self, stream):
+                            self.stream = stream
+
+                        def __enter__(self):
+                            self.stream.__enter__()
+                            return self
+
+                        def __exit__(self, *args):
+                            return self.stream.__exit__(*args)
+
+                        def __getattr__(self, name):
+                            return getattr(self.stream, name)
+
+                        def write(self, data):
+                            calls.append("write")
+                            time.sleep(delay)
+                            return self.stream.write(data)
+
+                    def opened(path, *args, **kwargs):
+                        if path == self.config and mode != "on_append":
+                            calls.append("open")
+                            time.sleep(delay)
+                        stream = path_open(path, *args, **kwargs)
+                        if path.name == "seller_warranty_trial.jsonl" and args and args[0] == "a+b" and mode == "on_append":
+                            return SlowAppend(stream)
+                        return stream
+
+                    def stated(path, *args, **kwargs):
+                        if path == self.config and mode == "off_missing_stat":
+                            calls.append("stat")
+                            time.sleep(delay)
+                        return path_stat(path, *args, **kwargs)
+
+                    up = SimpleNamespace(new_agent_message=lambda **kwargs: kwargs,
+                                         requires_input=mock.AsyncMock(), reject=mock.AsyncMock(), failed=mock.AsyncMock())
+
+                    def context(text):
+                        return SimpleNamespace(current_task=SimpleNamespace(id=task_id, context_id="fixture-context"),
+                                               message=Message(role="ROLE_USER", parts=[seller.new_text_part(text)],
+                                                               message_id="fixture-message"))
+
+                    async def run():
+                        loop = asyncio.get_running_loop()
+                        gaps = []
+                        running = True
+
+                        async def heartbeat():
+                            previous = loop.time()
+                            while running:
+                                await asyncio.sleep(0.01)
+                                now = loop.time()
+                                gaps.append(now - previous)
+                                previous = now
+
+                        beat = asyncio.create_task(heartbeat())
+                        try:
+                            await asyncio.sleep(0.03)  # heartbeat is armed before I/O
+                            await self.shop._execute(context("G00000001"), None)
+                            await self.shop._execute(context("Please include a warranty"), None)
+                            await asyncio.sleep(0.03)
+                        finally:
+                            running = False
+                            await beat
+                        return max(gaps) * 1000
+
+                    with mock.patch.dict(os.environ, SELLER_WARRANTY_TRIAL_CONFIG=str(self.config)), \
+                            mock.patch.object(Path, "open", opened), mock.patch.object(Path, "stat", stated), \
+                            mock.patch.object(seller, "TaskUpdater", return_value=up), \
+                            mock.patch.object(seller, "decide_turn", return_value=dict(
+                                buyer_offer=0, action="counter", price=0, message="Fixture reply.")):
+                        gap_ms = asyncio.run(run())
+                    print(f"HEARTBEAT mode={mode} injected_ms={delay*1000:.0f} max_gap_ms={gap_ms:.3f} calls={calls}", flush=True)
+                    self.assertTrue(calls, "delay must reach actual I/O")
+                    up.reject.assert_not_awaited()
+                    up.failed.assert_not_awaited()
+                    self.assertEqual(up.requires_input.await_count, 2)
+                    first = up.requires_input.call_args_list[0].args[0]["parts"][0].text
+                    last = up.requires_input.call_args_list[-1].args[0]["parts"][0].text
+                    deal = self.shop.open[task_id]
+                    if mode.startswith("on_"):
+                        self.assertIn("without a warranty", first)
+                        self.assertIn("72 h warranty", last)
+                        self.assertEqual(self.rows()[-1]["arm"], "control")
+                    else:
+                        self.assertIn("72 h warranty", first)
+                        self.assertNotIn("warranty_trial", deal)
+                    self.assertEqual(self.shop.stock_receipt(task_id, deal, deal["ask"])["warranty_hours"], 72)
+                    self.assertLess(gap_ms, 50, f"loop blocked by {mode}: {gap_ms:.3f}ms")
+
+    def test_journal_contention_keeps_heartbeat_and_public_quotes_consistent(self):
+        from a2a.types import Message
+
+        entered, competing = threading.Event(), threading.Event()
+        units = [self.unit, {**self.unit, "unit": "unit-second-c"}]
+        self.stock = StockBook(load=lambda: {"round": 3, "units": units})
+        self.shop = seller.Seller(None, "fixture shop", self.stock)
+        path_open = Path.open
+        assignment = seller.seller_warranty_trial.Trial._assignment
+        published = []
+        testcase = self
+
+        def assigned(trial, task, *args, **kwargs):
+            row = assignment(trial, task, *args, **kwargs)
+            if task == "contending-task":
+                competing.set()
+            return row
+
+        class SlowAppend:
+            def __init__(self, stream):
+                self.stream = stream
+
+            def __enter__(self):
+                self.stream.__enter__()
+                return self
+
+            def __exit__(self, *args):
+                return self.stream.__exit__(*args)
+
+            def __getattr__(self, name):
+                return getattr(self.stream, name)
+
+            def write(self, data):
+                if not entered.is_set():
+                    entered.set()
+                    if not competing.wait(2):
+                        raise AssertionError("second assignment must reach the held journal lock")
+                    time.sleep(0.2)
+                return self.stream.write(data)
+
+        def opened(path, *args, **kwargs):
+            stream = path_open(path, *args, **kwargs)
+            if path.name == "seller_warranty_trial.jsonl" and args and args[0] == "a+b":
+                return SlowAppend(stream)
+            return stream
+
+        class Updates:
+            def __init__(self, task_id, **kwargs):
+                self.task_id = task_id
+
+            def new_agent_message(self, parts, **kwargs):
+                return parts[0].text
+
+            async def requires_input(self, text):
+                deal = testcase.shop.open[self.task_id]
+                row = next(row for row in testcase.rows() if row["task"] == self.task_id)
+                testcase.assertEqual((row["arm"], deal["warranty_trial"]["arm"]), ("treatment", "treatment"))
+                testcase.assertNotIn("warranty_hours", testcase.shop.stock_receipt(self.task_id, deal, deal["ask"]))
+                testcase.assertIn("without a warranty", text)
+                published.append(self.task_id)
+
+            async def reject(self, text):
+                testcase.fail(f"Unexpected rejection: {text}")
+
+        def context(task):
+            return SimpleNamespace(current_task=SimpleNamespace(id=task, context_id="fixture-context"),
+                                   message=Message(role="ROLE_USER", parts=[seller.new_text_part("G00000001")],
+                                                   message_id="fixture-message"))
+
+        async def run():
+            loop = asyncio.get_running_loop()
+            gaps, running = [], True
+
+            async def heartbeat():
+                previous = loop.time()
+                while running:
+                    await asyncio.sleep(0.01)
+                    now = loop.time()
+                    gaps.append(now - previous)
+                    previous = now
+
+            beat = asyncio.create_task(heartbeat())
+            await asyncio.sleep(0.03)
+            first = asyncio.create_task(self.shop._execute(context("holding-task"), None))
+            second = None
+            try:
+                self.assertTrue(await asyncio.to_thread(entered.wait, 2))
+                second = asyncio.create_task(self.shop._execute(context("contending-task"), None))
+                await asyncio.gather(first, second)
+            finally:
+                competing.set()
+                await asyncio.gather(first, *([second] if second else []), return_exceptions=True)
+                running = False
+                await beat
+            gap_ms = max(gaps) * 1000
+            print(f"CONTENTION_HEARTBEAT injected_ms=200 max_gap_ms={gap_ms:.3f} published={len(published)}", flush=True)
+            self.assertLess(gap_ms, 50)
+
+        with mock.patch.object(Path, "open", opened), \
+                mock.patch.object(seller.seller_warranty_trial.Trial, "_assignment", assigned), \
+                mock.patch.object(seller, "TaskUpdater", Updates):
+            asyncio.run(run())
+        self.assertCountEqual(published, ["holding-task", "contending-task"])
+        self.assertEqual(len({row["unit"] for row in self.rows()}), 2)
+
+    def test_cached_config_checks_clock_and_retries_transient_open_failures(self):
+        trial = seller.seller_warranty_trial
+        with measured_reads(self.config) as reads:
+            self.assertIsNone(trial._config(150)[1])
+            self.assertEqual(trial._config(200)[1], "outside_window")
+            self.assertEqual(trial._config(99)[1], "outside_window")
+            self.assertIsNone(trial._config(100)[1])
+        self.assertEqual(len(reads), 1)
+        self.write_config(enabled=False)
+        with mock.patch.object(Path, "open", side_effect=OSError("transient read failure")) as opened:
+            self.assertEqual(trial._config(150)[1], "config_unavailable")
+            opened.assert_called_once_with("rb")
+        with measured_reads(self.config) as reads:
+            self.assertEqual(trial._config(150)[1], "disabled")
+        self.assertEqual(len(reads), 1)
 
     def test_concurrent_followups_publish_control_after_delayed_treatment(self):
         from a2a.types import Message
@@ -850,9 +1134,12 @@ class WarrantyTrialTest(unittest.TestCase):
         from testdata import seller_warranty_baseline_3de0399 as baseline
         task = "00000000-0000-0000-0000-000000000043"
         self.pricing.write_text(json.dumps({"warranty_hours": 0}))
-        for mode in ("off", "control", "ineligible"):
+        for mode in ("off", "off_missing", "off_window", "control", "ineligible"):
             with self.subTest(mode=mode):
-                self.write_config(enabled=mode != "off", share=0 if mode == "control" else 1)
+                self.write_config(enabled=mode != "off", share=0 if mode == "control" else 1,
+                                  stop_at=150 if mode == "off_window" else 200)
+                if mode == "off_missing":
+                    self.config.unlink()
                 self.unit["grade"] = "A" if mode == "ineligible" else "C"
                 original = self.deal()
                 expected = copy.deepcopy(original)
@@ -897,16 +1184,21 @@ class WarrantyTrialTest(unittest.TestCase):
         self.assertIn("72 h warranty", text)
         self.assertEqual(self.shop.stock_receipt("task-fixture", deal, deal["ask"])["warranty_hours"], 72)
         self.assertNotIn("warranty_trial", deal)
-        read_text = Path.read_text
+        path_open = Path.open
         for error in (RuntimeError("unexpected read failure"), RecursionError("nested config"), UnicodeError("bad encoding")):
+            self.write_config()  # Valid bytes: failure must come from the injected read.
+            calls = []
+
             def broken(path, *args, **kwargs):
                 if path == self.config:
+                    calls.append((path, args))
                     raise error
-                return read_text(path, *args, **kwargs)
-            with self.subTest(error=type(error).__name__), mock.patch.object(Path, "read_text", broken):
+                return path_open(path, *args, **kwargs)
+            with self.subTest(error=type(error).__name__), mock.patch.object(Path, "open", broken):
                 deal = self.deal()
                 self.assertIn("72 h warranty", self.quote(deal))
                 self.assertNotIn("warranty_trial", deal)
+                self.assertEqual(calls, [(self.config, ("rb",))])
         self.assertFalse(self.market.exists())
 
     def test_unencodable_config_strings_keep_opening_and_receipt_control(self):
@@ -968,11 +1260,14 @@ class WarrantyTrialTest(unittest.TestCase):
         from testdata import seller_warranty_baseline_3de0399 as baseline
         task = "00000000-0000-0000-0000-000000000043"
         self.pricing.write_text(json.dumps({"warranty_hours": 0}))
-        for mode in ("off", "control", "ineligible"):
+        for mode in ("off", "off_missing", "off_window", "control", "ineligible"):
             for text in ("G00000001 " + "x" * 510 + " without warranty",
                          "G00000001 without warranty", "G00000001 6 hrs refund if broken"):
                 with self.subTest(mode=mode, text=text[-32:]):
-                    self.write_config(enabled=mode != "off", share=0 if mode == "control" else 1)
+                    self.write_config(enabled=mode != "off", share=0 if mode == "control" else 1,
+                                      stop_at=150 if mode == "off_window" else 200)
+                    if mode == "off_missing":
+                        self.config.unlink()
                     self.unit["grade"] = "A" if mode == "ineligible" else "C"
                     with mock.patch.object(seller.Seller, "warranty_terms",
                                            lambda shop, deal, text, **kw: baseline.warranty_terms(shop, deal, text[:seller.MAX_TEXT])):

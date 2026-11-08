@@ -1,8 +1,11 @@
 """Default-off, unit-randomized grade warranty experiment. No market calls.
 
-Configuration is read for each quote. While enabled, talks retain their arm;
+Configuration metadata is checked for each quote; unchanged bytes are cached.
+The async seller runs the whole terms transaction in a cancellation-safe worker.
+While enabled, talks retain their arm;
 a later request or an OFF configuration restores the normal warranty path.
 """
+import asyncio
 import hashlib
 import json
 import math
@@ -15,6 +18,8 @@ import unicodedata
 
 
 _LOCK = threading.Lock()
+_CONFIG_LOCK = threading.Lock()
+_CONFIG_CACHE = None  # One bounded entry, keyed by path and file metadata.
 _CONFIG = Path(__file__).with_suffix(".json")
 _MAX_CONFIG_BYTES = 64 * 1024
 _MAX_RECORD_BYTES = 64 * 1024  # excludes the terminating newline
@@ -45,9 +50,34 @@ def _number(value):
         return False
 
 
-def _config(now):
+async def finish_before_cancel(fn, *args, **kwargs):
+    """Keep the caller's turn lock until terms and journaling have both finished.
+
+    Shield alone is insufficient: it lets a cancelled caller release its lock
+    while the worker still mutates the deal. Drain even repeated cancellation
+    before propagating it; no public terms or receipt can race that mutation.
+    """
+    worker = asyncio.create_task(asyncio.to_thread(fn, *args, **kwargs))
+    cancelled = False
+    while True:
+        try:
+            result = await asyncio.shield(worker)
+            break
+        except asyncio.CancelledError:
+            if worker.cancelled():
+                raise
+            cancelled = True
+        except Exception:
+            if cancelled:
+                raise asyncio.CancelledError from None
+            raise
+    if cancelled:
+        raise asyncio.CancelledError
+    return result
+
+
+def _read_config(path):
     try:
-        path = Path(os.environ.get("SELLER_WARRANTY_TRIAL_CONFIG") or _CONFIG)
         # Bound the read itself, including when a file grows after opening.
         with path.open("rb") as stream:
             data = stream.read(_MAX_CONFIG_BYTES + 1)
@@ -72,8 +102,29 @@ def _config(now):
         for field in ("study", "salt", "epoch"):
             if isinstance(cfg[field], str):
                 cfg[field].encode("utf-8")
+        return cfg, None
+    except Exception:
+        return {}, "config_unavailable"
+
+
+def _config(now):
+    global _CONFIG_CACHE
+    try:
+        path = Path(os.path.abspath(os.environ.get("SELLER_WARRANTY_TRIAL_CONFIG") or _CONFIG))
+        with _CONFIG_LOCK:
+            stat = path.stat()
+            key = (path, stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+            if _CONFIG_CACHE is None or _CONFIG_CACHE[0] != key:
+                cfg, reason = _read_config(path)
+                # Transient read errors must be retried even with unchanged metadata.
+                _CONFIG_CACHE = None if reason == "config_unavailable" else (key, cfg, reason)
+            else:
+                _, cfg, reason = _CONFIG_CACHE
+        if reason is not None:
+            return cfg, reason
         if not cfg["enabled"]:
             return cfg, "disabled"
+        # Evaluate the clock on every quote, even when bytes are unchanged.
         if not cfg["start_at"] <= now < cfg["stop_at"]:
             return cfg, "outside_window"
         return cfg, None
