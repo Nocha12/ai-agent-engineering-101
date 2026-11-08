@@ -65,6 +65,7 @@ import buyer_first95_trial
 import buyer_cap95_trial
 import buyer_b3b1
 import buyer_accept_band
+import buyer_shop_profile
 import rival_deny
 
 # Revenue rivals of my shop asked last (rival_deny): off from 11/07 00:30. With best_quote stopping at QUOTE_ENOUGH asks they
@@ -1443,6 +1444,21 @@ def check_receipt(rec, out, item, budget, order=None, catalog=None):
     return problems, warnings
 
 
+def accept_percent(md, shop, offer, chance, limit, budget=None, now=None):
+    """(plan A's percent, the percent for this shop): buyer_accept_band's, raised by buyer_shop_profile for a shop that
+    does not come down off its ask (its own switch; off is plan A exactly), never over value_limit. None is no band."""
+    base = buyer_accept_band.percent(md)
+    cap = value_limit(offer, budget, chance, buyer_cfg()) if budget is not None else None
+    return base, buyer_shop_profile.percent(md, shop, base, offer["list_price"], chance, limit, now=now, cap=cap)
+
+
+def receipt_band(rec, offer, base, pct):
+    """The band over_limit checks a receipt with: the shop's percent was cut for the asked SKU, so a receipt for another
+    SKU gets plan A's."""
+    sku = (rec or {}).get("item")
+    return pct if not sku or sku == (offer or {}).get("sku") else base
+
+
 def over_limit(rec, offer, limit, catalog, budget, band=None):
     """Why a receipt is not one I pay for: its price is over my limit for its SKU (saved_cap, patch 3.4). A shop that
     sends a receipt at once, with no offer from me, skipped the talk where the limit is kept: 3 of the receipts paid from
@@ -1738,7 +1754,8 @@ def main():
     if r3 and order.get("kind") == "goods":
         chance = market_model.break_chance(ledger_breaks(md, catalog), key)
     limit = min(value_limit(offer, args.budget, chance, buyer_cfg()), saved_cap(offer, chance)) if r3 else args.budget
-    band_pct = buyer_accept_band.percent(md) if r3 else None    # plan A: a counter up to 105% of the limit is taken
+    # plan A: a counter up to 105% of the limit is taken; more with a shop that holds its ask (buyer_shop_profile)
+    band_base, band_pct = accept_percent(md, shop["name"], offer, chance, limit, args.budget) if r3 else (None, None)
     top = buyer_accept_band.ceiling(limit, args.budget, band_pct) if r3 else limit
     mine = my_history(memory, shop["name"])
     pattern = shop_pattern(ledger_rows(md), shop["url"], catalog) if r3 else None
@@ -1880,7 +1897,8 @@ def main():
     short = warranty_short(rec, order) if r3 and rec is not None else None    # not cheating: just not a deal I pay for
     if short:
         warnings.append(short)
-    over = over_limit(rec, offer, limit, catalog, args.budget, band_pct) if r3 and rec is not None and not problems and not short else None
+    over = over_limit(rec, offer, limit, catalog, args.budget,
+                      receipt_band(rec, offer, band_base, band_pct)) if r3 and rec is not None and not problems and not short else None
     if over:
         warnings.append(over)
     for p in problems:
@@ -1923,6 +1941,8 @@ def main():
                                          "gave_up": gave_up, "rival_shop": shop["name"] in rival,
                                          "talk_mode": talk_mode, "turns": (out or {}).get("turns"),
                                          "quote_alignment_applied": list(order.get("_quote_alignment_applied", [])),
+                                         **({"shop_profile": {"base": band_base, "pct": band_pct}}
+                                            if band_pct != band_base else {}),
                                          **({"accept_band": {"pct": band_pct, "ceiling": top,
                                                              "taken": (order.get("_accept_band") or {}).get("taken")}}
                                             if band_pct else {})})
