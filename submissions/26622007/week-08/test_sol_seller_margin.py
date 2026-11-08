@@ -566,6 +566,25 @@ class SellerExposureTest(unittest.TestCase):
     def test_unknown_publication_cancel_journal_keeps_terms_and_the_observation(self):
         self.exercise_case('unknown_busy_cancel')
 
+    def test_same_task_prepared_off_never_exposes_price_offer_or_cancel(self):
+        for message in ('price?', '291000', 'cancel'):
+            with self.subTest(message=message):
+                self.exercise_case('same_task_prepared_off_'+message)
+
+    def test_same_task_prepared_on_followups_wait_and_initial_continues(self):
+        for message in ('price?', '291000', 'cancel'):
+            with self.subTest(message=message):
+                self.exercise_case('same_task_prepared_on_'+message)
+
+    def test_same_task_waiting_request_cancellation_keeps_first_owner(self):
+        self.exercise_case('same_task_waiter_cancel')
+
+    def test_same_task_preopen_duplicate_cannot_abort_first(self):
+        self.exercise_case('same_task_preopen_duplicate')
+
+    def test_same_task_sending_lostack_off_can_be_accepted(self):
+        self.exercise_case('same_task_sending_lostack')
+
     def exercise_case(self, action=None, *, quote_count=2, study_on=True):
         # All filesystem/controller boundaries use this fresh fixture. No HTTP/model stubs
         # can conceal a model attempt: direct_runner's process/network sentinel rejects it.
@@ -652,6 +671,9 @@ class SellerExposureTest(unittest.TestCase):
                     if action == 'transport_cancel': raise asyncio.CancelledError()
                 async def reject(self, message): self.rejected = message
             up = Updater()
+            if action and action.startswith('same_task_'):
+                self.same_task_case(action, shop, trial, u, task.id, stock)
+                return
             if action in ('abort_busy_journal', 'abort_busy_cancel', 'unknown_busy_cancel'):
                 locked, release, observed = threading.Event(), threading.Event(), threading.Event()
                 failures, times = [], {}
@@ -928,6 +950,171 @@ class SellerExposureTest(unittest.TestCase):
                 self.assertTrue(any(r['task'] == task.id and r['result'] == 'canceled' for r in records))
                 self.assertNotEqual(stock.holder(u['unit']), task.id)
                 self.assertGreater(trial.observation_unknown, 0)
+
+    def same_task_case(self, action, shop, trial, unit, task_id, stock):
+        # Real SDK protobuf Task/Message, RequestContext and TaskUpdater; only the
+        # public queue transport and forbidden model/key seams are fixtures.
+        import seller
+        from a2a.server.agent_execution.context import RequestContext
+        from a2a.server.context import ServerCallContext
+        from a2a.server.events import EventQueue
+        from a2a.types.a2a_pb2 import (Message, Role, SendMessageRequest, Task,
+            TaskState, TaskStatus, TaskStatusUpdateEvent, TaskArtifactUpdateEvent)
+        task = Task(id=task_id, context_id='same-task-fixture',
+                    status=TaskStatus(state=TaskState.TASK_STATE_SUBMITTED))
+        def context(text, *, initial=False):
+            message=Message(message_id=str(uuid.uuid4()), task_id=task.id,
+                context_id=task.context_id, role=Role.ROLE_USER, parts=[seller.new_text_part(text)])
+            return RequestContext(ServerCallContext(), request=SendMessageRequest(message=message),
+                                  task_id=task.id, context_id=task.context_id,
+                                  task=None if initial else task)
+        reached, release = threading.Event(), threading.Event()
+        prepared, release_prepared = threading.Event(), threading.Event()
+        duplicate, release_duplicate = threading.Event(), threading.Event()
+        records, calls, state = [], [], {}
+        first_transport_release = None
+        class Capture(EventQueue):
+            async def enqueue_event(self, event):
+                who=asyncio.current_task().get_name()
+                records.append((who,event))
+                if isinstance(event,Task):
+                    task.CopyFrom(event)  # first returnImmediately-visible task, before any quote
+                if (action=='same_task_sending_lostack' and who=='initial'
+                        and isinstance(event,TaskStatusUpdateEvent)
+                        and event.status.state==TaskState.TASK_STATE_INPUT_REQUIRED):
+                    reached.set()  # real updater enqueued a possibly delivered quote
+                    await first_transport_release.wait()
+                    raise OSError('fixture delivery before lost ACK')
+        queue=Capture()
+        ready, quote=trial.ready, trial.quote
+        def paused_ready(*args,**kwargs):
+            prepared.set()
+            if action=='same_task_preopen_duplicate':
+                if not release_prepared.wait(2): raise AssertionError('prepared checkpoint timeout')
+            else:
+                reached.set()
+                if not release.wait(2): raise AssertionError('ready checkpoint timeout')
+            return ready(*args,**kwargs)
+        call_lock=threading.Lock()
+        def paused_quote(*args,**kwargs):
+            if args[0]!=task.id: return quote(*args,**kwargs)
+            with call_lock:
+                calls.append(threading.get_ident())
+                ordinal=len(calls)
+            if ordinal==1:
+                result=quote(*args,**kwargs)  # first assignment is already durable
+                reached.set()
+                if not release.wait(2): raise AssertionError('quote checkpoint timeout')
+                return result
+            try:
+                return quote(*args,**kwargs)
+            except margin.StudyError:
+                duplicate.set()
+                if not release_duplicate.wait(2): raise AssertionError('duplicate checkpoint timeout')
+                raise
+        def rule(text, deal, floor, reader):
+            offer=int(text) if text.isdecimal() else 0
+            return dict(action='accept' if offer>=deal['ask'] else 'counter',
+                        buyer_offer=offer, price=deal['ask'], message='fixture reply', why='fixture rule')
+        async def wait_for(event):
+            for _ in range(400):
+                if event.is_set(): return
+                await asyncio.sleep(.002)
+            raise AssertionError('producer checkpoint not reached')
+        async def run():
+            nonlocal first_transport_release
+            first_transport_release=asyncio.Event()
+            initial=asyncio.create_task(shop.execute(context(unit['sku'],initial=True),queue),name='initial')
+            follower=None
+            try:
+                await wait_for(reached)
+                if 'prepared_off_' in action or action=='same_task_sending_lostack':
+                    await asyncio.to_thread(trial.write_controller,{'enabled':False})
+                    state['off_completed']=True
+                text=(action.rsplit('_',1)[-1] if '_prepared_' in action else
+                      unit['sku'] if action=='same_task_preopen_duplicate' else
+                      '291000' if action=='same_task_sending_lostack' else 'price?')
+                follower=asyncio.create_task((shop.cancel if text=='cancel' else shop.execute)(
+                    context(text),queue),name='followup')
+                await asyncio.sleep(.03)  # both real producers have had runnable turns
+                state['pending_events']=sum(who=='followup' for who,_ in records)
+                state['initial_waiting']=not initial.done()
+                if action=='same_task_waiter_cancel':
+                    state['waiter_cancelled']=follower.cancel()
+                    await asyncio.gather(follower,return_exceptions=True)
+                    state['owner_after_cancel']=stock.holder(unit['unit'])
+                if action=='same_task_preopen_duplicate':
+                    state['quote_calls_pending']=len(calls)
+                    release.set()
+                    await wait_for(prepared)  # first deal/hold now exists
+                    release_duplicate.set()   # let the duplicate error race its abort
+                    await asyncio.sleep(.03)
+                    state['first_still_open']=task.id in shop.open
+                    state['first_still_owner']=stock.holder(unit['unit'])==task.id
+                release.set(); release_prepared.set(); first_transport_release.set()
+                state['results']=await asyncio.gather(initial,follower,return_exceptions=True)
+            finally:
+                release.set(); release_prepared.set(); release_duplicate.set()
+                first_transport_release.set()
+                await asyncio.gather(initial,*([] if follower is None else [follower]),return_exceptions=True)
+        with mock.patch.object(trial,'ready',paused_ready) if action!='same_task_sending_lostack' else contextlib.nullcontext(), \
+                mock.patch.object(trial,'quote',paused_quote) if action=='same_task_preopen_duplicate' else contextlib.nullcontext(), \
+                mock.patch.object(seller.fast_classify,'seller_turn',rule), \
+                mock.patch.object(seller,'decide_turn',side_effect=AssertionError('model forbidden')), \
+                mock.patch.object(seller,'load_shop_key',return_value=None):
+            real_loop(run())
+        seller.flush_memory(strict=True)
+        self.assertEqual(seller.DRAIN.inflight,0)
+        self.assertEqual(shop._task_turns,{})  # no gate retention/cap after all producers exit
+        print('SAME_TASK '+json.dumps(dict(action=action,**{k:v for k,v in state.items() if k!='results'},
+            results=[type(r).__name__ if isinstance(r,BaseException) else 'ok' for r in state['results']])),flush=True)
+        self.assertTrue(state['initial_waiting'])
+        self.assertEqual(state['pending_events'],0,'followup published/terminated the task before initial finished')
+        self.assertIsInstance(records[0][1],Task)
+        self.assertEqual(records[0][1].status.state,TaskState.TASK_STATE_SUBMITTED)
+        for _,event in records:
+            self.assertEqual(event.id if isinstance(event,Task) else event.task_id,task.id)
+            self.assertEqual(event.context_id,task.context_id)
+        events=[e for e in trial.events() if e['task']==task.id]
+        if 'prepared_off_' in action:
+            self.assertTrue(state['off_completed'])
+            self.assertIsInstance(state['results'][0],margin.StudyError)
+            self.assertFalse(any(isinstance(e,TaskArtifactUpdateEvent) for _,e in records))
+            self.assertFalse(any(e['event']=='quoted' for e in events))
+            self.assertNotIn(task.id,shop.open)
+            self.assertNotEqual(stock.holder(unit['unit']),task.id)
+            self.assertTrue(any(e['event']=='unpublished_abort' for e in events))
+        elif action=='same_task_sending_lostack':
+            self.assertIsInstance(state['results'][0],OSError)
+            self.assertIsNone(state['results'][1])
+            self.assertTrue(any(e['event']=='publication_unknown' for e in events))
+            self.assertFalse(any(e['event']=='quoted' for e in events))
+            receipt=next(e.artifact.parts[0].data for _,e in records if isinstance(e,TaskArtifactUpdateEvent))
+            from google.protobuf.json_format import MessageToDict
+            self.assertEqual(int(MessageToDict(receipt)['price']),291000)
+            self.assertEqual(stock.agreed[unit['unit']]['price'],291000)
+        else:
+            self.assertIsNone(state['results'][0])
+            self.assertEqual(sum(e['event']=='quoted' for e in events),1)
+            first_event=next(i for i,(w,e) in enumerate(records) if w=='initial' and isinstance(e,TaskStatusUpdateEvent))
+            self.assertTrue(all(i>first_event for i,(w,e) in enumerate(records) if w=='followup'))
+            if action=='same_task_preopen_duplicate':
+                self.assertEqual(state['quote_calls_pending'],1)
+                self.assertTrue(state['first_still_open'])
+                self.assertTrue(state['first_still_owner'])
+                self.assertEqual(len(calls),1)
+            if action=='same_task_waiter_cancel':
+                self.assertTrue(state['waiter_cancelled'])
+                self.assertEqual(state['owner_after_cancel'],task.id)
+                self.assertIsInstance(state['results'][1],asyncio.CancelledError)
+            if action.endswith('_cancel') and action!='same_task_waiter_cancel':
+                self.assertNotIn(task.id,shop.open)
+                self.assertNotEqual(stock.holder(unit['unit']),task.id)
+                self.assertEqual(records[-1][1].status.state,TaskState.TASK_STATE_CANCELED)
+            elif action.endswith('_291000'):
+                self.assertEqual(stock.agreed[unit['unit']]['price'],291000)
+            else:
+                self.assertEqual(stock.holder(unit['unit']),task.id)
 
     def test_baseline_and_treatment_keep_the_72_hour_product_warranty(self):
         with tempfile.TemporaryDirectory() as td, contextlib.ExitStack() as stack:

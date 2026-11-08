@@ -404,7 +404,22 @@ class Seller(AgentExecutor):
         self.stock.on_paid, self.stock.on_unpaid = self.paid, self.unpaid
         self.acp = acp
         self.margin_blocked = set()  # never reuse an aborted/unconfirmed prepared quote
+        self._task_turns = {}  # same-task producers share a gate, including waiters
         self.open = {}  # task id -> {"id", "name", "reserve", "ask", "rounds", "history"}, plus "unit" from Round 3
+
+    @contextlib.asynccontextmanager
+    async def _task_turn(self, task_id):
+        # SDK requests have distinct producers/updaters. Count waiters before any
+        # await so cleanup cannot replace a gate while another producer awaits it.
+        entry = self._task_turns.setdefault(task_id, [asyncio.Lock(), 0])
+        entry[1] += 1
+        try:
+            async with entry[0]:
+                yield
+        finally:
+            entry[1] -= 1
+            if not entry[1]:
+                del self._task_turns[task_id]
 
     def free(self, task_id, deal):
         """Let a talk's unit go, unless another talk holds it by now (this one's hold ran out)."""
@@ -674,6 +689,10 @@ class Seller(AgentExecutor):
         if task is None:
             task = new_task_from_user_message(context.message)
             await event_queue.enqueue_event(task)
+        async with self._task_turn(task.id):
+            await self._execute_turn(task, context, event_queue)
+
+    async def _execute_turn(self, task, context, event_queue):
         up = TaskUpdater(event_queue=event_queue, task_id=task.id, context_id=task.context_id)
         say = lambda text, ask=None: up.new_agent_message(parts=[new_text_part(text)],
                                                           metadata={"ask": ask} if ask is not None else None)
@@ -972,6 +991,11 @@ class Seller(AgentExecutor):
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         task = context.current_task
+        with DRAIN.turn():
+            async with self._task_turn(task.id):
+                await self._cancel_turn(task, event_queue)
+
+    async def _cancel_turn(self, task, event_queue):
         deal = self.open.pop(task.id, None)
         if deal is not None:
             self.remember(task.id, deal, "canceled")
