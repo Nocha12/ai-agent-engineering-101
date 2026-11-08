@@ -92,6 +92,12 @@ class BestQuoteTest(unittest.TestCase):
         self.assertEqual(self.run_bq(order), "b")                          # .9 x .36 > .2 x .40; c does not fit
         self.assertEqual((order["_rank_pg"]["plain"], order["_rank_pg"]["picked"]), ("a", "b"))
 
+    def test_on_with_a_broken_cache_keeps_the_current_order(self):
+        for stats in ({"pool": {}, "shops": {"a|goods": 1}}, {"pool": [], "shops": None}, {"pool": {"goods": {"p": "x"}}}):
+            order = {"kind": "goods", "_rank_pg": {"stats": stats}}
+            self.assertEqual(self.run_bq(order), "a")
+            self.assertEqual(order["_rank_pg"]["picked"], "a")
+
     def test_on_without_stats_for_the_kind_keeps_the_current_order(self):
         order = {"kind": "goods", "_rank_pg": {"stats": {"pool": {}, "shops": {}}}}
         self.assertEqual(self.run_bq(order), "a")

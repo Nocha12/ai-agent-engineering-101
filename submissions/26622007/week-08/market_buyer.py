@@ -1358,12 +1358,16 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
                 return lambda p: buyer_short_warranty.expected(p, h, b if b is not None else buyer_short_warranty.FALLBACK_BREAK)
             return lambda p: (1 - (b or 0)) * (1 - p)
         elapsed = time.time() - STARTED
-        pg = {s["name"]: buyer_rank_pg.score(rk, s["name"], order.get("kind"), got[s["name"]]["ask"], s["_offer"]["list_price"],
-                                             g_of(s), elapsed, rival_deny.penalty(s["name"], rival)) for _, _, s in scored}
         rk["plain"] = best["name"]
-        if all(v is not None for v in pg.values()):
-            best = max(scored, key=lambda x: (fits(x[2]), pg[x[2]["name"]], meta(x[2]), -x[1]))[2]
-            rk["scores"] = {k: round(v, 6) for k, v in pg.items()}
+        try:
+            pg = {s["name"]: buyer_rank_pg.score(rk, s["name"], order.get("kind"), got[s["name"]]["ask"],
+                                                 s["_offer"]["list_price"], g_of(s), elapsed,
+                                                 rival_deny.penalty(s["name"], rival)) for _, _, s in scored}
+            if all(v is not None for v in pg.values()):
+                best = max(scored, key=lambda x: (fits(x[2]), pg[x[2]["name"]], meta(x[2]), -x[1]))[2]
+                rk["scores"] = {k: round(v, 6) for k, v in pg.items()}
+        except Exception as e:  # noqa: BLE001 - a bad cache never stops an order: the current order
+            rk["error"] = f"{type(e).__name__}"
         rk["picked"] = best["name"]
     keep = best["name"] if best else chosen["name"] if resumable(got.get(chosen["name"])) else None
     with ctl.get("lock") or contextlib.nullcontext():
