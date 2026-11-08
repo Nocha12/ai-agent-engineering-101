@@ -180,6 +180,9 @@ class BuyerBundleTrial(unittest.TestCase):
         scores, audit = trial.payment_scores(trades, [], 'goods', now=40000, payments=payments, orders=orders)
         self.assertNotIn(('fixture:good', 'G1'), scores)
         self.assertEqual(audit['unknown'], 6)
+        scores, audit = trial.payment_scores(trades, settled, 'goods', now=40000, payments=payments)
+        self.assertEqual(scores, {})
+        self.assertEqual(audit['category_unmapped'], 9)
 
     def test_payment_schedule_preserves_sku_rival_and_exploration_partitions(self):
         import buyer_bundle_trial as trial

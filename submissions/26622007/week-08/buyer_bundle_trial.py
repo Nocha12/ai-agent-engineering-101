@@ -171,7 +171,7 @@ def payment_scores(trades, settled, category, *, now, payments=(), orders=()):
     for row in orders:
         order_index[row.get('order')].append(row)
     groups = collections.defaultdict(lambda: [0, 0, []])
-    audit = dict(attempts=0, resolved=0, unknown=0, paid_settled=0, mature_quality=0)
+    audit = dict(attempts=0, resolved=0, unknown=0, paid_settled=0, mature_quality=0, category_unmapped=0)
     for trade in trades:
         try:
             at = time.mktime(time.strptime(trade['time'], '%Y-%m-%dT%H:%M:%S'))
@@ -185,8 +185,11 @@ def payment_scores(trades, settled, category, *, now, payments=(), orders=()):
         # Memory.category is the display request; measure.category is the
         # canonical category from the official order. Never compare the two.
         requested = order_index[oid]
-        if (len(requested) != 1 or requested[0].get('category') != category or
+        if (len(requested) != 1 or not isinstance(requested[0].get('category'), str) or
                 requested[0].get('shop') != shop or requested[0].get('sku') != sku):
+            audit['category_unmapped'] += 1
+            continue
+        if requested[0]['category'] != category:
             continue
         audit['attempts'] += 1
         pay = paid_index[oid]

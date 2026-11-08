@@ -42,6 +42,14 @@ thread start, history offer attempt, RPC, acknowledgement, paid and official
 settlement are distinct. Missing/pending/refund/LLM attribution remain unknown.
 The shared Players board is descriptive, not an arm-level causal estimate.
 
+The observer joins official payment and settlement URL/SKU/amount, separates
+assigned-order followup from the END cutoff, and reports the local review-record
+clock as a proxy rather than an exact official settlement timestamp. Initial
+settlement values do not establish final refund/value after warranty: the
+mature-only final S/g remain unknown with that source, even after the reported
+warranty (at least six hours) has elapsed. Unmapped historical categories are
+counted separately and retain the common prior.
+
 No operating result is implied by local replay. The suggested evaluation bars
 remain +2 percentage points mature saved, no more than 10% lower settlement rate,
 and 200 official settlements per arm with goods maturity. A short window below
