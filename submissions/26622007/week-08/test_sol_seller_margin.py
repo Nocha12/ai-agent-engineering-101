@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import tempfile
 import time
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 import unittest
 import uuid
 import selectors
@@ -53,6 +53,71 @@ def offline_await(coroutine, before=None):
         return function(*args, **kwargs)
     with mock.patch.object(asyncio, 'to_thread', inline):
         return real_loop(coroutine)
+
+class SourceEntryTest(unittest.TestCase):
+    def test_main_alias_retains_entry_identity_code_and_mutation_checks(self):
+        for case in ('main_alias', 'foreign_alias', 'unknown_alias', 'replaced_entry',
+                     'changed_entry_disk', 'changed_entry_code', 'stale_bootstrap',
+                     'preimported_local', 'preimported_foreign'):
+            with self.subTest(case=case):
+                self.entry_case(case)
+
+    def test_local_pyc_cannot_replace_frozen_dependency_source(self):
+        self.entry_case('stale_dependency_pyc')
+
+    def entry_case(self, case):
+        source=Path(margin.sol_source_load.__file__).read_bytes()
+        with tempfile.TemporaryDirectory() as td, mock.patch.dict(sys.modules), \
+                mock.patch.object(sys,'meta_path',list(sys.meta_path)), \
+                mock.patch.object(sys,'path',[td,*sys.path]):
+            root=Path(td)
+            boot_path=root/'sol_source_load.py'
+            boot_path.write_bytes(source+(b'\nSTALE_DISK_FIXTURE=True\n' if case=='stale_bootstrap' else b''))
+            entry=root/'entry_fixture.py'
+            body=b'import sys, sol_source_load\nsol_source_load.install(sys._getframe().f_code,__name__)\nimport entry_dep\n'
+            entry.write_bytes(body)
+            dep=root/'entry_dep.py'
+            dep.write_text("REVISION='new'\n")
+            sys.modules.pop('__mp_main__',None)
+            sys.modules.pop('entry_dep',None)
+            boot=ModuleType('sol_source_load')
+            boot.__file__=str(boot_path)
+            sys.modules['sol_source_load']=boot
+            exec(compile(source,str(boot_path),'exec',dont_inherit=True),boot.__dict__)
+            if case in ('preimported_local','preimported_foreign'):
+                old=ModuleType('entry_dep')
+                old.__file__=str(dep if case=='preimported_local' else root/'foreign/entry_dep.py')
+                old.REVISION='old'
+                sys.modules['entry_dep']=old
+            if case=='stale_dependency_pyc':
+                from importlib._bootstrap_external import _code_to_timestamp_pyc
+                cache=Path(importlib.util.cache_from_source(str(dep)))
+                cache.parent.mkdir()
+                cache.write_bytes(_code_to_timestamp_pyc(compile("REVISION='old'\n",str(dep),'exec'),
+                    int(dep.stat().st_mtime),dep.stat().st_size))
+            main=ModuleType('__main__')
+            main.__file__=str(entry)
+            sys.modules['__main__']=main
+            code=body+(b'\nUNTRUSTED_ENTRY=True\n' if case=='changed_entry_code' else b'')
+            exec(compile(code,str(entry),'exec',dont_inherit=True),main.__dict__)
+            sys.modules['__mp_main__']=main
+            if case=='foreign_alias':
+                foreign=ModuleType('__mp_main__'); foreign.__file__=str(entry)
+                sys.modules['__mp_main__']=foreign
+            elif case=='unknown_alias':
+                sys.modules['untracked_main_alias']=main
+            elif case=='replaced_entry':
+                other=ModuleType('__main__'); other.__file__=str(entry)
+                sys.modules['__main__']=other
+            elif case=='changed_entry_disk':
+                entry.write_bytes(body+b'\nCHANGED_AFTER_ENTRY=True\n')
+            expected=case in ('main_alias','stale_dependency_pyc')
+            self.assertEqual(boot.proof()['valid'],expected)
+            if expected:
+                self.assertIs(boot._context.instances['__main__'],main)
+                self.assertIn('__main__',boot._context.codes)
+                self.assertEqual(main.entry_dep.REVISION,'new')
+
 
 class MarginTest(unittest.TestCase):
     def setUp(self):

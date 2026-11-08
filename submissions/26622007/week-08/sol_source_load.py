@@ -74,7 +74,11 @@ class Bundle(importlib.abc.MetaPathFinder):
                 continue
             if name+'.py' not in self.frozen and not self.local(module):
                 continue
-            if self.instances.get(name) is not module or name not in self.codes:
+            # multiprocessing (imported by uvicorn) aliases the already verified
+            # CLI entry. Only that exact instance may reuse its entry code record.
+            tracked = ('__main__' if name == '__mp_main__'
+                       and module is self.instances.get('__main__') else name)
+            if self.instances.get(tracked) is not module or tracked not in self.codes:
                 return False  # preimport/cache or a replacement module was not captured
         for filename, digest in self.codes.values():
             path = self.root/filename
