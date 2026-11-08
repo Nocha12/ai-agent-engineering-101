@@ -201,7 +201,7 @@ def payment_scores(trades, settled, category, *, now, payments=(), orders=()):
         if repeated[oid] != 1 or not (paid is False or success):
             audit['unknown'] += 1
             continue
-        counts = groups[(shop, sku)]
+        counts = groups[(pay[0]['shop'], sku)]
         counts[0] += 1
         counts[1] += int(success)
         audit['resolved'] += 1
@@ -232,7 +232,7 @@ def decide(context, baseline, fits, rivals, skus, scores, audit, *, k, code_elig
     plan = dict(protocol='goods-bundle-v1', baseline=names, treatment=treatment, k=k,
                 first_baseline=names[:batch], first_treatment=treatment[:batch],
                 slot_eligible=set(names[:batch]) != set(treatment[:batch]),
-                counter_eligible=bool(code_eligible), eligible=bool(code_eligible or names[:batch] != treatment[:batch]),
+                counter_eligible=bool(code_eligible), eligible=bool(code_eligible or set(names[:batch]) != set(treatment[:batch])),
                 inputs=[dict(name=s['name'], usable=[dict(sku=skus[s['name']])]) for s in baseline],
                 history_audit=audit)
     row = dict(schema=1, event='decision', order=context['order'], study=STUDY, arm=context['arm'],

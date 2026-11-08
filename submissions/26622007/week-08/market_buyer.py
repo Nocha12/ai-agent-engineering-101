@@ -1166,8 +1166,8 @@ def prefetch_pool(left, memory, md, category, k, rival=frozenset(), kind=None, o
             buyer_bundle_trial.settlements(SETTLED), category, now=time.time(),
             payments=buyer_bundle_trial.settlements(os.path.join(md, "payments.jsonl")),
             orders=buyer_bundle_trial.settlements(os.path.join(md, records.DIR, "orders.jsonl")))
-        scores = {s["name"]: scores[(s["name"], selected_offer(s, budget)["sku"])] for s in others
-                  if (s["name"], selected_offer(s, budget)["sku"]) in scores}
+        scores = {s["name"]: scores[(s["url"], selected_offer(s, budget)["sku"])] for s in others
+                  if (s["url"], selected_offer(s, budget)["sku"]) in scores}
         cfg = buyer_cfg()
         order["_bundle_inputs"] = (list(others), fits, rival, k, scores, audit,
                                   oneshot.enabled(cfg) and oneshot.steps(cfg) == (.9,))

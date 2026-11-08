@@ -16,7 +16,10 @@ B combines two changes; their individual effects cannot be identified:
 * Within fitted exploitation candidates, rank recent known payment outcomes for
   the same category and prospective SKU. One matching official payment joins one
   settlement by order, URL, SKU and amount. The memory's display name is not a
-  settlement URL. Unknown outcomes are excluded from this historical ranking and
+  settlement URL. Scores are keyed by the official URL and SKU, and queried using
+  the current candidate's URL; a reused name or a changed URL cannot inherit a
+  different URL's history. Canonical category comes from the recorded official
+  order, not the memory's request display label. Unknown outcomes are excluded from this historical ranking and
   reported, rather than treated as failed payments. At least three resolved
   observations are required. Payment probability has a common Beta(1,1) prior;
   mature saved quality has two prior observations at .25. The score is payment
@@ -33,7 +36,8 @@ B combines two changes; their individual effects cannot be identified:
 
 Only the existing filesystem observer is extended with an explicit bundle event
 root/protocol. Common eligibility means a pretreatment code-counter opportunity
-or a different first fitted batch, rather than fresh-slot eligibility. Quote
+or a different set of first fitted batch members, rather than order alone or
+fresh-slot eligibility. Quote
 thread start, history offer attempt, RPC, acknowledgement, paid and official
 settlement are distinct. Missing/pending/refund/LLM attribution remain unknown.
 The shared Players board is descriptive, not an arm-level causal estimate.

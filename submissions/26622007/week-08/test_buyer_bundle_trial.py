@@ -26,6 +26,18 @@ class BuyerBundleTrial(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
 
+    def test_same_first_batch_reordering_is_ineligible_when_counter_disabled(self):
+        import buyer_bundle_trial as trial
+        with tempfile.TemporaryDirectory() as directory, patch.multiple(
+                trial, ENABLED=True, START=1000, END=2800, STUDY='bundle-set-fixture'):
+            order = dict(order='o-0123456789ab', kind='goods', _buyer_started_at=1001)
+            ctx = trial.reserve(directory, order, rule_engine=True, now=1002)
+            _, plan = trial.decide(ctx, [dict(name='a'), dict(name='b')], dict(a=1,b=1), set(),
+                                  dict(a='G1',b='G1'), dict(a=.1,b=.8), {}, k=3,
+                                  code_eligible=False, rule_engine=True, now=1003)
+            self.assertFalse(plan['slot_eligible'])
+            self.assertFalse(plan['eligible'])
+
     def test_actual_buyer_talk_replays_both_arms_without_backend(self):
         import buyer
         import buyer_bundle_trial as trial
@@ -100,12 +112,12 @@ class BuyerBundleTrial(unittest.TestCase):
             trades = [dict(order=n+str(i), shop=n, item='G1', category='goods', time=stamp,
                            paid=(n == 'good'), price=70, list_price=100)
                       for n in ('weak', 'good') for i in range(3)]
-            rows = [dict(order='good'+str(i), shop='good', sku='G1', time=now-30000,
+            rows = [dict(order='good'+str(i), shop='fixture:good', sku='G1', time=now-30000,
                          price=70, warranty_hours=6, claim_honest=True) for i in range(3)]
             ledger = Path(directory)/'settled.jsonl'
             ledger.write_text(''.join(json.dumps(r)+'\n' for r in rows))
             (Path(directory)/'payments.jsonl').write_text(''.join(json.dumps(dict(
-                order=t['order'], shop=t['shop'], item='G1', price=70, paid=t['paid']))+'\n' for t in trades))
+                order=t['order'], shop='fixture:'+t['shop'], item='G1', price=70, paid=t['paid']))+'\n' for t in trades))
             (Path(directory)/'measure').mkdir()
             (Path(directory)/'measure/orders.jsonl').write_text(''.join(json.dumps(dict(
                 order=t['order'], category='goods', shop=t['shop'], sku='G1'))+'\n' for t in trades))
@@ -158,13 +170,15 @@ class BuyerBundleTrial(unittest.TestCase):
                 payments.append(dict(order=oid, shop='fixture:' + shop, item='G1', price=70, paid=paid))
         scores, audit = trial.payment_scores(trades, settled, 'goods', now=40000, payments=payments, orders=orders)
         # Three successes: pay posterior 4/5; quality (3*.30 + .50)/5 = .28.
-        self.assertAlmostEqual(scores[('good', 'G1')], .512)
-        self.assertLess(scores[('unpaid', 'G1')], scores[('good', 'G1')])
-        self.assertNotIn(('unknown', 'G1'), scores)
+        self.assertAlmostEqual(scores[('fixture:good', 'G1')], .512)
+        self.assertLess(scores[('fixture:unpaid', 'G1')], scores[('fixture:good', 'G1')])
+        self.assertNotIn(('fixture:unknown', 'G1'), scores)
+        self.assertNotIn(('good', 'G1'), scores)  # display name is never an identity
+        self.assertEqual(scores.get(('fixture:replacement-url', 'G1'), .3125), .3125)
         self.assertEqual(audit['unknown'], 3)
         # A paid receipt without one matching official settlement is unresolved.
         scores, audit = trial.payment_scores(trades, [], 'goods', now=40000, payments=payments, orders=orders)
-        self.assertNotIn(('good', 'G1'), scores)
+        self.assertNotIn(('fixture:good', 'G1'), scores)
         self.assertEqual(audit['unknown'], 6)
 
     def test_payment_schedule_preserves_sku_rival_and_exploration_partitions(self):
