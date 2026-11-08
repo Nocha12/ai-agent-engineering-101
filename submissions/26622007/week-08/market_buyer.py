@@ -63,6 +63,7 @@ import buyer_stock_evidence
 import buyer_firm_trial
 import buyer_first95_trial
 import buyer_cap95_trial
+import buyer_b3b1
 import rival_deny
 
 # Revenue rivals of my shop asked last (rival_deny): off from 11/07 00:30. With best_quote stopping at QUOTE_ENOUGH asks they
@@ -1019,13 +1020,15 @@ def recent_quote_yields(md, category, now=None, hours=RECENT_FIT_HOURS):
     return {name: (shares[name] + .175) / (n + 2) for name, n in attempts.items() if n >= 3}
 
 
-def quote_order(others, fits, k, yields=None):
+def quote_order(others, fits, k, yields=None, rates=None):
     """The shops quoted after the chosen one: fitters by optional food yield then reviews; one slot of the first batch
     goes to a shop that has not, so a cheaper shop can still be found (sorting on the fit count alone let one shop with 52
-    fits take every first batch, and a shop never asked never gets a fit)."""
+    fits take every first batch, and a shop never asked never gets a fit). rates (buyer_b3b1.paid_rates, B1): the yield
+    times the shop's recent paid share."""
     by_reviews = lambda s: -len(s.get("reviews") or [])
+    paid = (lambda n: rates[0].get(n, rates[1])) if rates and rates[1] is not None else (lambda n: 1)
     fitted = sorted((s for s in others if fits[s["name"]] > 0),
-                    key=lambda s: (-(yields or {}).get(s["name"], .0875), by_reviews(s)))
+                    key=lambda s: (-(yields or {}).get(s["name"], .0875) * paid(s["name"]), by_reviews(s)))
     fresh = sorted((s for s in others if fits[s["name"]] <= 0), key=by_reviews)
     head = max(0, k - 2)          # the first batch: the chosen shop, k - 2 that fitted, one that has not
     return fitted[:head] + fresh[:1] + fitted[head:] + fresh[1:]
@@ -1085,7 +1088,11 @@ def prefetch_pool(left, memory, md, category, k, rival=frozenset(), kind=None, o
     active = quote_yield_arm(order_id) if yield_arm is None else yield_arm
     yields = recent_quote_yields(md, category) if kind == "food" and active else None
     fits = recent_fits(md, category)
-    others = rival_deny.others_first(quote_order(others, fits, k, yields), rival)
+    rates = buyer_b3b1.paid_rates(md) if buyer_b3b1.enabled(md) else None
+    if rates is not None and order is not None:
+        plain = [s["name"] for s in quote_order(others, fits, k, yields)]
+        order["_b1"] = {"on": True, "prior": rates[1], "reordered": plain != [s["name"] for s in quote_order(others, fits, k, yields, rates)]}
+    others = rival_deny.others_first(quote_order(others, fits, k, yields, rates), rival)
     if kind == "goods" and order is not None and budget is not None:
         def current(at):
             latest_fits = recent_fits(md, category, now=at)
@@ -1100,7 +1107,7 @@ def prefetch_pool(left, memory, md, category, k, rival=frozenset(), kind=None, o
                 current_left = [{**s, **current_by_name[s["name"]]} for s in left]
             current_rival = rival_deny.rivals(md, now=at) if RIVAL_DENY else rival
             current_others = [s for s in current_left if not caught_cheating(my_history(memory, s["name"]))]
-            current_others = rival_deny.others_first(quote_order(current_others, latest_fits, k), current_rival)
+            current_others = rival_deny.others_first(quote_order(current_others, latest_fits, k, rates=rates), current_rival)
             return buyer_stock_evidence.plan(md, current_others, latest_fits, current_rival,
                 {s["name"]: selected_offer(s, budget)["sku"] for s in current_others}, k=k, now=at)
         decision = buyer_stock_evidence.plan(md, others, fits, rival,
@@ -1543,6 +1550,8 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "firm_trial": buyer_firm_trial.measurement(order, out),
         "first95_trial": buyer_first95_trial.measurement(order, out),
         "cap95_trial": buyer_cap95_trial.measurement(order, out),
+        "b3": order.get("_b3"),
+        "b1": order.get("_b1"),
         "food_sku_trial": order.get("_food_sku_trial"),
         "turns": dict(out.get("turns") or {}),
         "goods_extra_quote_started": order.get("_goods_extra_quote_started"),
@@ -1786,6 +1795,8 @@ def main():
             goods_first_arm = buyer_goods_first_one.reserve(md, order, shop["name"], key)
         order["_goods_first_one_probe"] = goods_first_arm
 
+        order["_b3"] = {"applied": False} if buyer_b3b1.enabled(md) else None    # B3 on for this order (read in the ladder)
+
         def price_ladder(meta, text, history):
             d = (buyer_opening_discount.turn if discount_arm else opening_probe_turn)(
                 meta, text, history, limit, steps, q.get("ask") if resume else None,
@@ -1802,11 +1813,17 @@ def main():
                     goods_first_arm or order.get("_one_won_default") or
                     order.get("_goods_extra_quote_probe") or order.get("_quote_alignment") or
                     order.get("_food_quote_yield")), now=time.time(), log=log)
-            return buyer_cap95_trial.turn(result, history, limit, steps, order=order,
+            result = buyer_cap95_trial.turn(result, history, limit, steps, order=order,
                 shop=shop["name"], sku=key, probe=bool(not r3 or discount_arm or probe_arm or
                     goods_first_arm or order.get("_one_won_default") or
                     order.get("_goods_extra_quote_probe") or order.get("_quote_alignment") or
                     order.get("_food_quote_yield")), now=time.time(), log=log)
+            if order.get("_b3") is not None:
+                result, note = buyer_b3b1.b3_turn(result, history, limit)
+                if note:
+                    order["_b3"] = note
+                    log(f"[b3] {shop['name']}: counter {note['baseline']} over {buyer_b3b1.ACCEPT_SHARE} of {note['first']}, offer {note['price']}")
+            return result
 
         if steps:
             log(f"[offer] oneshot: {', '.join(f'{s:.2f}' for s in steps)} of the first ask, then the counter, priced by code")
