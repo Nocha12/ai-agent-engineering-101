@@ -16,6 +16,8 @@ import unicodedata
 
 _LOCK = threading.Lock()
 _CONFIG = Path(__file__).with_suffix(".json")
+_MAX_CONFIG_BYTES = 64 * 1024
+_MAX_RECORD_BYTES = 64 * 1024  # excludes the terminating newline
 _SEPARATORS = "-‐‑‒–—−./"
 _STEMS = ("warrant", "guarant", "cover", "refund", "moneyback", "return", "replace",
           "repair", "break", "broke", "defect", "fault", "insur", "protect", "assur", "hr", "hour",
@@ -46,7 +48,12 @@ def _number(value):
 def _config(now):
     try:
         path = Path(os.environ.get("SELLER_WARRANTY_TRIAL_CONFIG") or _CONFIG)
-        cfg = json.loads(path.read_text(encoding="utf-8"))
+        # Bound the read itself, including when a file grows after opening.
+        with path.open("rb") as stream:
+            data = stream.read(_MAX_CONFIG_BYTES + 1)
+        if len(data) > _MAX_CONFIG_BYTES:
+            return {}, "invalid_config"
+        cfg = json.loads(data.decode("utf-8"))
         if not isinstance(cfg, dict):
             return {}, "invalid_config"
         valid = (all(isinstance(cfg.get(k), str) and cfg[k].strip() for k in ("study", "salt"))
@@ -157,19 +164,19 @@ class Trial:
                         stream.seek(-1, os.SEEK_END)
                         if stream.read(1) != b"\n":
                             raise OSError("incomplete measurement tail")
-                        # Validate just the last record, including tails which
-                        # have a newline but contain corrupt JSON or UTF-8.
-                        offset = stream.tell() - 1
-                        parts = []
-                        while offset:
-                            size = min(offset, 4096)
-                            offset -= size
-                            stream.seek(offset)
-                            chunk = stream.read(size)
-                            parts.append(chunk.rsplit(b"\n", 1)[-1])
-                            if b"\n" in chunk:
-                                break
-                        json.loads(b"".join(reversed(parts)))
+                        # Read at most one bounded tail window. The extra byte
+                        # distinguishes an exact-limit record from a longer one,
+                        # even when all earlier records form a very large file.
+                        end = stream.tell() - 1
+                        size = min(end, _MAX_RECORD_BYTES + 1)
+                        stream.seek(end - size)
+                        window = stream.read(size)
+                        if len(window) != size:
+                            raise OSError("short measurement read")
+                        tail = window.rsplit(b"\n", 1)[-1]
+                        if len(tail) > _MAX_RECORD_BYTES:
+                            raise OSError("measurement tail exceeds byte limit")
+                        json.loads(tail)
                         stream.seek(0, os.SEEK_END)
                     if stream.write(data) != len(data):
                         raise OSError("short measurement write")

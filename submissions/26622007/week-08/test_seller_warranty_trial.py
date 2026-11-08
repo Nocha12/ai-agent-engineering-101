@@ -5,6 +5,7 @@ Run with python -m unittest test_seller_warranty_trial in an offline source/stat
 import copy
 import asyncio
 import concurrent.futures
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -17,6 +18,8 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+import httpx
+import fast_classify
 import seller
 import harness
 import shop_memory
@@ -41,6 +44,32 @@ class DiscardingMemoryWriter:
     def shutdown(self, wait=True):
         if wait and self.futures:
             concurrent.futures.wait(self.futures)
+
+
+@contextmanager
+def measured_reads(target):
+    """Count real file reads, so corrupt data cannot pass by failing eventually."""
+    reads = []
+    original_open = Path.open
+
+    def tracked_open(path, *args, **kwargs):
+        stream = original_open(path, *args, **kwargs)
+        if path != target:
+            return stream
+        tracked = mock.MagicMock(wraps=stream)
+        tracked.__enter__.return_value = tracked
+        tracked.__exit__.side_effect = stream.__exit__
+
+        def read(size=-1):
+            data = stream.read(size)
+            reads.append((size, len(data)))
+            return data
+
+        tracked.read.side_effect = read
+        return tracked
+
+    with mock.patch.object(Path, "open", tracked_open):
+        yield reads
 
 
 # Inventory contract: unit/sku/grade strings, integer list_price/cost,
@@ -90,7 +119,18 @@ class WarrantyTrialTest(unittest.TestCase):
         # Guard both the imported alias and the harness entry point: a swallowed
         # exception must still fail cleanup's zero-call assertion.
         self.external_guards = []
-        for target, name in ((seller, "ask"), (harness, "ask"), (subprocess, "Popen")):
+        http_methods = ("request", "send", "stream", "get", "post", "put", "patch", "delete", "head", "options")
+        # Patch methods as well as constructors: Jev pools may have captured a
+        # Client factory before setUp, or may already own a client instance.
+        boundaries = [(client, name) for client in (httpx.Client, httpx.AsyncClient)
+                      for name in http_methods]
+        boundaries += [(httpx, name) for name in http_methods if name != "send"]
+        boundaries += [(httpx, "Client"), (httpx, "AsyncClient"),
+                       (httpx.HTTPTransport, "handle_request"),
+                       (httpx.AsyncHTTPTransport, "handle_async_request"),
+                       (fast_classify, "jev_offer"),
+                       (seller, "ask"), (harness, "ask"), (subprocess, "Popen")]
+        for target, name in boundaries:
             blocked = mock.Mock(side_effect=AssertionError(
                 f"warranty tests must not call {target.__name__}.{name}"))
             patch = mock.patch.object(target, name, blocked)
@@ -98,6 +138,12 @@ class WarrantyTrialTest(unittest.TestCase):
             self.addCleanup(patch.stop)
             self.addCleanup(blocked.assert_not_called)
             self.external_guards.append(blocked)
+        # Environment changes alone cannot undo flags cached during import.
+        for target, name, value in ((harness, "BACKEND", "offline-warranty"),
+                                    (fast_classify, "JEV_ON", False)):
+            patch = mock.patch.object(target, name, value)
+            patch.start()
+            self.addCleanup(patch.stop)
         before = protected_state()
         self.addCleanup(lambda: self.assertEqual(protected_state(), before))
         failures = list(seller.MEMORY_FAILURES)
@@ -125,7 +171,10 @@ class WarrantyTrialTest(unittest.TestCase):
         self.pricing = self.root / "pricing.json"
         self.pricing.write_text(json.dumps({"warranty_hours": 72}))
         env = mock.patch.dict(os.environ, MARKET_DIR=str(self.market),
-                              SELLER_WARRANTY_TRIAL_CONFIG=str(self.config))
+                              SELLER_WARRANTY_TRIAL_CONFIG=str(self.config),
+                              HARNESS="offline-warranty", FAST_JEV="0",
+                              OPENROUTER_API_KEY="fixture-no-network",
+                              OPENROUTER_ENV_FILE=str(self.root / "missing-credentials"))
         env.start()
         self.addCleanup(env.stop)
         pricing = mock.patch.object(shop_memory, "PRICING", str(self.pricing))
@@ -172,6 +221,21 @@ class WarrantyTrialTest(unittest.TestCase):
                      "GRADE_PREFERENCE", "FOOD_OPENING", "AT_FLOOR_EXACT", "DEEP_LOWBALL", "QUOTE_HOLD"):
             with self.subTest(controller=name):
                 self.assertTrue(getattr(seller, name).root.is_relative_to(self.root))
+
+    def test_jev_followup_is_offline_even_with_hostile_ambient_model_settings(self):
+        # The isolated runner imports with HARNESS=openrouter, FAST_JEV=1 and
+        # a synthetic key. Keep the real Reader/fast-classify followup path.
+        deal, _ = self.opening("G00000001")
+        with mock.patch.object(seller, "decide_turn", return_value=dict(
+                buyer_offer=0, action="counter", price=0, message="Fixture reply.")):
+            self.followup("I need 6 hrs refund if broken")
+        self.assertEqual(deal["warranty"], 72)
+        self.assertEqual(os.environ["HARNESS"], "offline-warranty")
+        self.assertEqual(os.environ["FAST_JEV"], "0")
+        self.assertEqual(harness.BACKEND, "offline-warranty")
+        self.assertFalse(fast_classify.JEV_ON)
+        for blocked in self.external_guards:
+            blocked.assert_not_called()
 
     def test_accept_never_submits_to_original_writer_or_records_memory(self):
         from google.protobuf.json_format import MessageToDict
@@ -285,6 +349,38 @@ class WarrantyTrialTest(unittest.TestCase):
         deal = self.deal(kind="food")
         self.assertIsNone(self.quote(deal))
         self.assertNotIn("warranty_hours", self.shop.stock_receipt("task-fixture", deal, 9000))
+
+    def test_config_read_is_byte_bounded_and_oversized_config_is_off(self):
+        limit = 64 * 1024
+        valid = json.dumps(self.cfg).encode("utf-8")
+        cases = (valid + b" " * (limit - len(valid)),
+                 valid + b" " * (limit + 1 - len(valid)),
+                 valid + b" " * (4 * 1024 * 1024),
+                 b"x" * (4 * 1024 * 1024),
+                 json.dumps({**self.cfg, "salt": "가" * 22000}, ensure_ascii=False).encode("utf-8"))
+        for payload in cases:
+            for followup in (False, True):
+                with self.subTest(bytes=len(payload), followup=followup):
+                    self.write_config()
+                    deal = self.deal()
+                    if followup:
+                        self.quote(deal)
+                    self.config.write_bytes(payload)
+                    before = self.rows() if self.market.exists() else []
+                    with measured_reads(self.config) as reads:
+                        note = self.quote(deal)
+                    self.assertTrue(reads)
+                    self.assertTrue(all(0 < requested <= limit + 1 for requested, _ in reads), reads)
+                    self.assertLessEqual(sum(size for _, size in reads), limit + 1)
+                    self.assertEqual(self.config.read_bytes(), payload)
+                    if len(payload) <= limit:
+                        self.assertIn("without a warranty", note)
+                        self.assertEqual(self.rows()[-1]["arm"], "treatment")
+                    else:
+                        self.assertIn("72 h warranty", note)
+                        self.assertNotIn("warranty_trial", deal)
+                        self.assertEqual(self.shop.stock_receipt("task-fixture", deal, 9000)["warranty_hours"], 72)
+                        self.assertEqual(self.rows() if self.market.exists() else [], before)
 
     def test_refund_breakage_and_hour_variants_exclude_first_and_followup_quotes(self):
         requests = ("full refund if it breaks within 6 hrs.", "warrant", "guarantee", "refund",
@@ -417,6 +513,41 @@ class WarrantyTrialTest(unittest.TestCase):
                     self.assertIn("72 h warranty", self.quote(deal))
                     self.assertEqual(path.read_bytes(), before)
                     self.assertEqual(self.shop.stock_receipt("task-fixture", deal, 9000)["warranty_hours"], 72)
+
+    def test_last_measurement_record_has_a_byte_budget_and_accepts_boundary(self):
+        limit = 64 * 1024
+        path = self.market / "measure" / "seller_warranty_trial.jsonl"
+        cases = ((b'"' + b"x" * (limit - 2) + b'"', True),
+                 (b'"' + b"x" * (limit - 1) + b'"', False),
+                 (b'"' + b"x" * (4 * 1024 * 1024) + b'"', False),
+                 (b"x" * (4 * 1024 * 1024), False),
+                 (b'{"ok":true}', True))
+        for record, allowed in cases:
+            for prefix in (b"", b'{"old":true}\n' * 10000):
+                for followup in (False, True):
+                    with self.subTest(bytes=len(record), prefix=bool(prefix), followup=followup):
+                        path.unlink(missing_ok=True)
+                        deal = self.deal()
+                        if followup:
+                            self.quote(deal)
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        before = prefix + record + b"\n"
+                        path.write_bytes(before)
+                        with measured_reads(path) as reads:
+                            note = self.quote(deal)
+                        self.assertTrue(reads)
+                        self.assertTrue(all(0 < requested <= limit + 1 for requested, _ in reads), reads)
+                        # One terminal-newline byte plus a bounded tail window.
+                        self.assertLessEqual(sum(size for _, size in reads), limit + 2)
+                        if allowed:
+                            self.assertIn("without a warranty", note)
+                            self.assertTrue(path.read_bytes().startswith(before))
+                            self.assertEqual(self.rows()[-1]["arm"], "treatment")
+                        else:
+                            self.assertIn("72 h warranty", note)
+                            self.assertEqual(path.read_bytes(), before)
+                            self.assertEqual(deal["warranty_trial"]["reason"], "measurement_failed")
+                            self.assertEqual(self.shop.stock_receipt("task-fixture", deal, 9000)["warranty_hours"], 72)
 
     def test_dynamic_toggle_applies_to_new_talks(self):
         self.write_config(enabled=False)
@@ -558,20 +689,17 @@ class WarrantyTrialTest(unittest.TestCase):
 
     def test_quote_and_followup_warranty_io_finish_on_event_loop(self):
         main_thread = threading.get_ident()
-        read_text, path_open = Path.read_text, Path.open
+        path_open = Path.open
         calls = []
 
-        def checked_read(path, *args, **kwargs):
-            if path == self.config:
-                calls.append(("config", threading.get_ident()))
-            return read_text(path, *args, **kwargs)
-
         def checked_open(path, *args, **kwargs):
+            if path == self.config and args and args[0] == "rb":
+                calls.append(("config", threading.get_ident()))
             if path.name == "seller_warranty_trial.jsonl" and args and args[0] == "a+b":
                 calls.append(("journal", threading.get_ident()))
             return path_open(path, *args, **kwargs)
 
-        with mock.patch.object(Path, "read_text", checked_read), mock.patch.object(Path, "open", checked_open):
+        with mock.patch.object(Path, "open", checked_open):
             deal, _ = self.opening("G00000001")
             self.assertNotIn("warranty_hours", self.shop.stock_receipt("task-fixture", deal, deal["ask"]))
             self.followup("x" * 510 + " full refund if broken within 6 hrs")
@@ -656,17 +784,17 @@ class WarrantyTrialTest(unittest.TestCase):
 
     def test_slow_warranty_io_keeps_unit_held_and_journal_precedes_public_quote(self):
         entered, release = threading.Event(), threading.Event()
-        read_text = Path.read_text
+        path_open = Path.open
         messages = []
         testcase = self
         first_id, second_id = "first-task", "second-task"
 
-        def slow_read(path, *args, **kwargs):
-            if path == self.config and not entered.is_set():
+        def slow_open(path, *args, **kwargs):
+            if path == self.config and args and args[0] == "rb" and not entered.is_set():
                 entered.set()
                 if not release.wait(2):
                     raise TimeoutError("test did not release measurement worker")
-            return read_text(path, *args, **kwargs)
+            return path_open(path, *args, **kwargs)
 
         class Updates:
             def __init__(self, task):
@@ -715,7 +843,7 @@ class WarrantyTrialTest(unittest.TestCase):
             self.assertNotIn(second_id, self.shop.open)
             self.assertEqual(self.rows()[-1]["arm"], "treatment")
 
-        with mock.patch.object(Path, "read_text", slow_read):
+        with mock.patch.object(Path, "open", slow_open):
             asyncio.run(run())
 
     def test_followup_control_terms_and_receipts_equal_bounded_3de0399(self):
