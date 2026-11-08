@@ -24,6 +24,9 @@ import sol_source_load
 class StudyError(RuntimeError):
     """No public quote may consume an uncommitted or conflicting assignment."""
 
+class BaselineChanged(StudyError):
+    """Final-gate pause; the caller must journal the unknown outcome off-loop."""
+
 VERSION = 2
 COMMON_ADOPTED = {'seller_late_concession', 'at_floor_exact_trial', 'exact_counter_trial', 'exact_accept_trial'}
 SOURCE_FILES = ('sol_source_load.py', 'sol_seller_margin.py', 'seller.py', 'profit_price.py', 'hard_limits.py',
@@ -96,8 +99,8 @@ class Admission:
             return self._consume_locked()
 
     def _consume_locked(self):
-        self.study.event(self.task, self.assignment, 'consume_intent')
-        # DB waits/fsync precede this final check. OFF writers use this same lock.
+        # Intent is already durable from ready() on a worker. No SQLite here,
+        # including baseline rejection. OFF writers use this same lock.
         cfg = self.study.config()
         at = time.time()
         if (cfg != self.cfg or not cfg or not cfg['start'] <= at < cfg['end']
@@ -105,7 +108,7 @@ class Admission:
             raise StudyError('admission revoked or expired')
         if self.assignment['eligible']:
             pricing = self.loader() if self.loader is not None else self.pricing
-            self.study.verify_baseline(self.task, cfg, pricing, self.peers)
+            self.study.verify_baseline(self.task, cfg, pricing, self.peers, journal=False)
         # Baseline/source reads also precede the linearization point.
         at = time.time()
         if not cfg['start'] <= at < cfg['end']:
@@ -312,9 +315,11 @@ class MarginStudy:
         if c:
             self.event(task, dict(study_id=c['study_id'], epoch=c['epoch']), 'selection_miss', now=now)
 
-    def verify_baseline(self, task, cfg, pricing, others):
+    def verify_baseline(self, task, cfg, pricing, others, *, journal=True):
         if (not sol_source_load.verifies(Path(__file__).parent, cfg, DISK_SNAPSHOT) or source_manifest() != DISK_SNAPSHOT or
                 digest(baseline_snapshot(pricing, others)) != cfg['baseline_sha256']):
+            if not journal:
+                raise BaselineChanged('baseline changed; paused unknown')
             try:
                 self.event(task, cfg, 'paused', reason='baseline_changed', economic_status='unknown')
             except StudyError:
@@ -355,6 +360,10 @@ class MarginStudy:
                    warranty=deal.get('warranty'), actual_treatment=actual,
                    untreated_reason=None if actual else (
                        'downstream_clipped' if assignment['prepared_treatment'] else assignment['reason']))
+        # Durable preparation to attempt admission, never evidence of consumption
+        # or publication. Final source/baseline/OFF/clock checks still run under
+        # the producer lock immediately before transport on the seller loop.
+        self.event(task, assignment, 'consume_intent')
         return c
 
     def event(self, task, assignment, event, now=None, **data):
