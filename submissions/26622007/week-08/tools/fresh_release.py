@@ -59,11 +59,17 @@ p=argparse.ArgumentParser()
 p.add_argument('--release',required=True)
 p.add_argument('--sha256',required=True)
 p.add_argument('--live-dir',required=True)
+p.add_argument('--publisher-uid',required=True,type=int)
 p.add_argument('args',nargs=argparse.REMAINDER)
 a=p.parse_args()
+if Path(a.release).lstat().st_uid!=a.publisher_uid:
+    raise SystemExit('release publisher mismatch')
 commit=verify(a.release,a.sha256)
 root=Path(a.release).absolute()
 os.environ['AGENT_TOOLS']=str(root/'tools')
+os.environ['AGENT_RELEASE_LIVE_DIR']=str(Path(a.live_dir).absolute())
+if os.environ.get('SHOP_MARKET_NAME'):
+    os.environ.setdefault('AGENT_MEMORY_DIR',str(Path(a.live_dir).absolute()/'memory'/'agent'))
 os.environ.setdefault('OPENROUTER_ENV_FILE',str(Path(a.live_dir).absolute().parent/'.env'))
 sys.path.insert(0,str(root))
 args=a.args[1:] if a.args[:1]==['--'] else a.args
@@ -137,4 +143,5 @@ def command(root, digest, python=sys.executable, *, live_dir=None):
         raise ValueError('trusted absolute interpreter and digest required')
     return shlex.join([str(python), '-I', '-B', '-c', BOOTSTRAP,
                        '--release', str(Path(root).absolute()), '--sha256', digest,
+                       '--publisher-uid', str(Path(root).stat().st_uid),
                        '--live-dir', str(Path(live_dir or Path.cwd()).absolute()), '--'])

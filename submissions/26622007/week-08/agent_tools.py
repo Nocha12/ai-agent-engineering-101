@@ -21,6 +21,7 @@ import time
 import hard_limits
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+RUNTIME_HERE = os.environ.get("AGENT_RELEASE_LIVE_DIR") or HERE
 TOOLS = os.environ.get("AGENT_TOOLS") or os.path.join(HERE, "tools")
 TOOL_TIMEOUT = 30
 MAX_RESULT = 8000     # characters of a tool's answer that reach the prompt
@@ -156,7 +157,7 @@ def boxed(cmd, md, work):
     home = os.path.realpath(os.path.expanduser("~"))
     real = lambda p: os.path.realpath(p)
     repo = real(os.path.join(HERE, "..", "..", ".."))
-    reads = {repo, real(HERE), real(md), real(work), real(sys.prefix), real(sys.base_prefix), real(tempfile.gettempdir()),
+    reads = {repo, real(HERE), real(RUNTIME_HERE), real(md), real(work), real(sys.prefix), real(sys.base_prefix), real(tempfile.gettempdir()),
              real(os.path.dirname(real(sys.executable)))}
     if os.environ.get("AGENT_MEMORY_DIR"):
         reads.add(real(os.environ["AGENT_MEMORY_DIR"]))
@@ -178,7 +179,7 @@ def execute(name, args, md, folder=None):
         if cmd is None:
             return {"error": "no sandbox-exec here: tools do not run without the sandbox"}
         try:
-            p = subprocess.run(cmd, input=json.dumps(args), text=True, capture_output=True, timeout=TOOL_TIMEOUT, env=env, cwd=HERE)
+            p = subprocess.run(cmd, input=json.dumps(args), text=True, capture_output=True, timeout=TOOL_TIMEOUT, env=env, cwd=RUNTIME_HERE)
             return json.loads(p.stdout) if p.returncode == 0 else {"error": f"exit {p.returncode}: {p.stderr[-500:]}"}
         except subprocess.TimeoutExpired:
             return {"error": f"no answer within {TOOL_TIMEOUT} s"}

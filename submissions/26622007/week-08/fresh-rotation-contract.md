@@ -152,3 +152,45 @@ by its working directory. A directory's mode, serial checks, flock or an
 entry installation still has the noncooperating-writer race and must not be
 described as closed by these opt-in tests. No operating transition is authorized
 or performed by this preparation.
+# Full buyer release preparation
+
+`tools/fresh_release.py` prepares a separate publisher-owned source tree for the
+complete baseline buyer, including `tools/<name>/*.py` and each manifest. It
+keeps the versioned fresh helper/code/settings binding from `fresh_snapshot`,
+but does not apply the older rule-prefetch-only AST guards. Thus a baseline
+singleton, missing prefetch, hurry first step or agent decision can execute the
+pinned baseline implementation instead of exiting 78. Non-rule experiment
+admission/dispatch remains denied by the actual buyer/helper code.
+
+The trusted command contains its bootstrap, full manifest digest, publisher UID,
+absolute interpreter and release path. It verifies the complete read-only tree
+before entry. Existing or incomplete publication destinations are never reused;
+failed publication can leave an inaccessible incomplete directory, and must use
+a new destination on retry. This is a publisher/consumer ownership contract,
+not filesystem compare-and-swap or a defense against a publisher mutating its
+own release. Retain every command generation and its complete tree for held
+readers and rollback.
+
+The physical tree must retain the repository layout under a dedicated managed
+root (`repo/submissions/26622007/week-08`), because the existing tool sandbox
+derives its repository read boundary from that layout. The interpreter, standard
+library and installed packages must also be publisher managed and accessible to
+the actual consumer. A manifest source hash alone does not authenticate them.
+Verify ownership and consumer read/execute/no-write access for the tree and its
+ancestors before use. Source packaging alone is not an operating receipt.
+
+The opt-in `AGENT_RELEASE_LIVE_DIR` set by this command lets the existing
+`agent_tools` sandbox keep the original runtime data cwd/read boundary while
+its code, manifests, tool paths and `PYTHONPATH` use the release. Ordinary
+execution without this variable preserves the previous cwd. The buyer cwd stays
+live; the existing credential fallback location and live agent notebook path
+are preserved without copying keys into the release. Live JSON/ledger/notebook
+data remain mutable inputs, not immutable executable code.
+
+The existing kit still captures `agent.json` once, and the existing supervisor
+still passes its own source directory to official `join --dir`. This addition
+does not implement or prove a persistent managed selector, actual consumer
+access, kit transition, full first-choice replay, real A/B or economic results.
+Those conditions require separate review and operating evidence. Do not deploy
+the old guarded command as a replacement for all-order baseline availability.
+
