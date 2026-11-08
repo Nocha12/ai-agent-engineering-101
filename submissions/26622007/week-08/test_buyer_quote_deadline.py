@@ -126,11 +126,26 @@ class BestQuoteDeadline(unittest.TestCase):
         self.assertEqual(sorted(asked), ["b", "c"])       # a (chosen, not prefetched) never asked
         self.assertIn(best["name"], ("b", "c"))
 
-    def test_no_prefetch_and_past_the_deadline_keeps_the_old_wait(self):
+    def test_no_prefetch_and_past_the_deadline_asks_no_shop(self):
         order = {"kind": "goods", "_quote_deadline": {"at": time.time() - 1, "seconds": 13, "cut": False}}
-        best, got, took = self.run_quotes(order)
-        self.assertEqual(best["name"], "b")
+        at = order["_quote_deadline"]["at"]
+        chosen, other = shop("a"), shop("b")
+        with mock.patch.object(market_buyer, "quote") as quote, \
+                mock.patch.object(market_buyer, "buyer_rpc") as rpc, \
+                mock.patch.object(market_buyer, "log"), \
+                mock.patch.object(market_buyer, "STARTED", time.time()):
+            started = time.monotonic()
+            best, got = market_buyer.best_quote(chosen, [other], order, {}, 20000, lambda x: None,
+                                                {"quote_shops": 2}, rounds=2)
+            took = time.monotonic() - started
+        quote.assert_not_called()
+        rpc.assert_not_called()
+        self.assertLess(took, 0.5)
+        self.assertIs(best, chosen)
+        self.assertEqual(got, {})
+        self.assertEqual(order["_quote_deadline"]["at"], at)
         self.assertEqual(order["_quote_deadline"]["skipped"], "past at the start")
+        json.dumps(order)
 
 
 if __name__ == "__main__":

@@ -1310,8 +1310,9 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
     if order.get("_quote_deadline") is not None and buyer_quote_deadline.passed(order, time.time()):
         if pre:     # past the goods quote deadline already: the prefetched asks are read, no new shop is asked
             late = True
-        else:       # no prefetch to read: the old wait (Codex review 11/08 21:5x)
-            order["_quote_deadline"] = dict(order["_quote_deadline"], at=None, skipped="past at the start")
+        else:       # no prefetch to read: keep the deadline and ask no new shop
+            order["_quote_deadline"]["skipped"] = "past at the start"
+            return chosen, {}
     if late:
         rest, rounds = [s for s in rest if s["name"] in asked], 1
 
