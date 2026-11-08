@@ -130,6 +130,82 @@ class AssignmentJournal(unittest.TestCase):
             self.assertEqual(out["inputs"]["journal"]["malformed_lines"], 0)
             self.assertEqual(out["treatment"]["untreated"], 24)
 
+    def test_failed_partial_write_does_not_erase_next_pre_cache_assignment(self):
+        write = os.write
+        for failure in (OSError('disk write failed'), SystemExit(9), 0):
+            with self.subTest(failure=type(failure).__name__), tempfile.TemporaryDirectory() as md:
+                self.switch(md)
+                journal = Path(md, rp.JOURNAL)
+                calls = 0
+
+                def interrupted_write(fd, data):
+                    nonlocal calls
+                    calls += 1
+                    if calls == 1:
+                        return write(fd, data[:17])
+                    if isinstance(failure, BaseException):
+                        raise failure
+                    return failure
+
+                with mock.patch.object(rp, 'stats', return_value=None), \
+                     mock.patch.object(os, 'write', side_effect=interrupted_write):
+                    if isinstance(failure, SystemExit):
+                        with self.assertRaises(SystemExit):
+                            rp.state(md, {'order': 'o-interrupted'}, now=NOW)
+                    else:
+                        first = rp.state(md, {'order': 'o-interrupted'}, now=NOW)
+                        self.assertTrue(first['journal_error'])
+                partial = journal.read_bytes()
+                self.assertEqual(len(partial), 17)
+                self.assertFalse(partial.endswith(b'\n'))
+
+                appended = []
+                journal_append = rp._journal
+
+                def capture_append(*args):
+                    result = journal_append(*args)
+                    appended.append(result)
+                    return result
+
+                with mock.patch.object(rp, 'stats', side_effect=SystemExit(10)), \
+                     mock.patch.object(rp, '_journal', side_effect=capture_append) as append:
+                    with self.assertRaises(SystemExit):
+                        rp.state(md, {'order': 'o-next'}, now=NOW)
+                    self.assertEqual(append.call_count, 1)
+                self.assertEqual(appended, [True])
+                out = rp.reconcile_itt(md, 'fixture', NOW-100, NOW+1)
+                self.assertEqual(out['total'], 1)
+                self.assertEqual(out['orders'][0]['order'], 'o-next')
+                self.assertEqual(out['orders'][0]['event'], 'assignment')
+                self.assertFalse(out['orders'][0]['has_order'])
+                self.assertEqual(out['assignment']['unknown'], 0)
+                self.assertEqual(out['treatment']['unknown'], 1)
+                self.assertEqual(out['inputs']['journal']['malformed_lines'], 1)
+                self.assertFalse(out['coverage_certified'])
+                self.assertFalse(out['all_observed_rows_linked'])
+                self.assertTrue(journal.read_bytes().startswith(partial + b'\n'))
+                self.assertFalse(Path(md, 'measure/orders.jsonl').exists())
+
+    def test_tail_separator_write_failure_is_retryable_without_truncation(self):
+        with tempfile.TemporaryDirectory() as md:
+            self.switch(md)
+            journal = Path(md, rp.JOURNAL)
+            partial = b'{"assignment":'
+            journal.write_bytes(partial)
+            with mock.patch.object(os, 'write', side_effect=OSError('separator failed')), \
+                 mock.patch.object(rp, 'stats', return_value=None):
+                failed = rp.state(md, {'order': 'o-separator-failed'}, now=NOW)
+            self.assertTrue(failed['journal_error'])
+            self.assertFalse(failed['nofit'])
+            self.assertEqual(journal.read_bytes(), partial)
+            with mock.patch.object(rp, 'stats', side_effect=SystemExit(10)):
+                with self.assertRaises(SystemExit):
+                    rp.state(md, {'order': 'o-retry'}, now=NOW)
+            out = rp.reconcile_itt(md, 'fixture', NOW-100, NOW+1)
+            self.assertEqual([r['order'] for r in out['orders']], ['o-retry'])
+            self.assertEqual(out['inputs']['journal']['malformed_lines'], 1)
+            self.assertTrue(journal.read_bytes().startswith(partial + b'\n'))
+
     def test_main_no_stock_and_exception_before_quotes_are_journaled(self):
         import market_buyer as mb
         for crash in (False, True):

@@ -327,14 +327,20 @@ def _experiment(sw, now):
 
 
 def _journal(rk, event):
-    """One locked append + fsync; partial writes stay under the same writer lock."""
+    """Locked append + fsync; preserve and isolate any interrupted prior tail."""
     row = {k: v for k, v in metadata(rk).items() if k not in ('error', 'nofit_scores', 'scores')}
     row.update(event=event, ts=rk.get("_at", time.time()))
     path = os.path.join(rk['_journal_md'], JOURNAL)
     data = (json.dumps(row, sort_keys=True, ensure_ascii=True) + '\n').encode('utf-8')
     try:
-        with open(path, 'ab', buffering=0) as f:
+        with open(path, 'a+b', buffering=0) as f:
             fcntl.flock(f, fcntl.LOCK_EX)
+            if f.seek(0, os.SEEK_END):
+                f.seek(-1, os.SEEK_END)
+                if f.read(1) != b'\n':
+                    # Never truncate or classify incomplete evidence. A failed or
+                    # killed writer must not join its tail to this assignment.
+                    data = b'\n' + data
             view = memoryview(data)
             while view:
                 n = os.write(f.fileno(), view)
