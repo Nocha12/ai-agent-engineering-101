@@ -3,6 +3,9 @@ import unittest
 import tempfile
 import time
 import json
+import ast
+import inspect
+from types import SimpleNamespace
 from pathlib import Path
 import socket
 import subprocess
@@ -22,6 +25,43 @@ class BuyerBundleTrial(unittest.TestCase):
             p = patch(target[0], side_effect=target[1])
             p.start()
             self.addCleanup(p.stop)
+
+    def test_actual_buyer_talk_replays_both_arms_without_backend(self):
+        import buyer
+        import buyer_bundle_trial as trial
+        import market_buyer as mb
+        callback = next(n for n in ast.walk(ast.parse(inspect.getsource(mb.main)))
+                        if isinstance(n, ast.FunctionDef) and n.name == 'price_ladder')
+        now = int(time.time())
+        def task(state, ask=None):
+            msg = {'parts': [{'text': 'Counteroffer: ' + str(ask) + '.'}]}
+            if ask is not None:
+                msg['metadata'] = {'ask': ask}
+            return {'id': 'fixture-task', 'status': {'state': state, 'message': msg}}
+        with tempfile.TemporaryDirectory() as directory, patch.multiple(
+                trial, ENABLED=True, START=now-1, END=now+1799, STUDY='bundle-talk-fixture'):
+            for arm, expected in [('A', ['9000', '9500']), ('B', ['9000', '9200'])]:
+                oid = next('o-' + f'{i:012x}' for i in range(100)
+                           if trial.allocation('o-' + f'{i:012x}')[1] == arm)
+                order = dict(order=oid, kind='goods', _buyer_started_at=now)
+                order['_buyer_bundle'] = trial.reserve(directory, order, rule_engine=True)
+                scope = {**vars(mb), 'discount_arm': None, 'probe_arm': None, 'goods_first_arm': None,
+                         'limit': 9800, 'steps': (.9,), 'q': {'ask': 10000}, 'resume': True,
+                         'order': order, 'args': SimpleNamespace(budget=12000), 'shop': {'name': 'fixture'},
+                         'key': 'G1', 'r3': True, 'rule_engine': True}
+                exec(compile(ast.Module(body=[callback], type_ignores=[]), '<actual bundle ladder>', 'exec'), scope)
+                sent = []
+                def send(url, text, *args):
+                    sent.append(text)
+                    return task('TASK_STATE_INPUT_REQUIRED', 9500) if len(sent) == 1 else task('TASK_STATE_CANCELED')
+                out = dict(history=[], agreed=None, receipt=None, holds=0)
+                with patch.object(buyer, 'send', side_effect=send), patch.object(
+                        buyer, 'decide', side_effect=AssertionError('backend forbidden')):
+                    buyer.talk('fixture', task('TASK_STATE_INPUT_REQUIRED', 10000), 'goods', 9800,
+                               '', out, ladder=scope['price_ladder'])
+                self.assertEqual(sent, expected)
+                if arm == 'B':
+                    self.assertEqual(trial.measurement(order, out)['counter_decisions'][0]['history_offer_attempt'], 9200)
 
     def test_turn_revalidates_engine_and_keeps_unparsed_harness_baseline(self):
         import buyer_bundle_trial as trial
@@ -64,6 +104,8 @@ class BuyerBundleTrial(unittest.TestCase):
                          price=70, warranty_hours=6, claim_honest=True) for i in range(3)]
             ledger = Path(directory)/'settled.jsonl'
             ledger.write_text(''.join(json.dumps(r)+'\n' for r in rows))
+            (Path(directory)/'payments.jsonl').write_text(''.join(json.dumps(dict(
+                order=t['order'], shop=t['shop'], item='G1', price=70, paid=t['paid']))+'\n' for t in trades))
             sent = []
             with patch.object(mb, 'recent_fits', return_value=collections.Counter(weak=5, good=4)), \
                     patch.object(mb, 'SETTLED', str(ledger)), patch.object(mb, 'quote', side_effect=lambda s,*a: sent.append(s['name'])):
@@ -101,22 +143,23 @@ class BuyerBundleTrial(unittest.TestCase):
     def test_scores_require_matching_official_payment_and_settlement(self):
         import buyer_bundle_trial as trial
         stamp = time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime(10000))
-        trades, settled = [], []
+        trades, settled, payments = [], [], []
         for shop, paid in [('good', True), ('unpaid', False), ('unknown', None)]:
             for i in range(3):
                 oid = shop + str(i)
                 trades.append(dict(order=oid, shop=shop, item='G1', category='goods',
                                    time=stamp, paid=paid, price=70, list_price=100))
-                settled.append(dict(order=oid, shop=shop, sku='G1', time=10000,
+                settled.append(dict(order=oid, shop='fixture:' + shop, sku='G1', time=10000,
                                     price=70, warranty_hours=6, claim_honest=True))
-        scores, audit = trial.payment_scores(trades, settled, 'goods', now=40000)
+                payments.append(dict(order=oid, shop='fixture:' + shop, item='G1', price=70, paid=paid))
+        scores, audit = trial.payment_scores(trades, settled, 'goods', now=40000, payments=payments)
         # Three successes: pay posterior 4/5; quality (3*.30 + .50)/5 = .28.
         self.assertAlmostEqual(scores[('good', 'G1')], .512)
         self.assertLess(scores[('unpaid', 'G1')], scores[('good', 'G1')])
         self.assertNotIn(('unknown', 'G1'), scores)
         self.assertEqual(audit['unknown'], 3)
         # A paid receipt without one matching official settlement is unresolved.
-        scores, audit = trial.payment_scores(trades, [], 'goods', now=40000)
+        scores, audit = trial.payment_scores(trades, [], 'goods', now=40000, payments=payments)
         self.assertNotIn(('good', 'G1'), scores)
         self.assertEqual(audit['unknown'], 6)
 

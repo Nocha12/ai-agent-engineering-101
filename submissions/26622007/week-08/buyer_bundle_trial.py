@@ -151,7 +151,7 @@ def settlements(path):
         return []  # unknown ledger keeps every shop at the common prior
 
 
-def payment_scores(trades, settled, category, *, now):
+def payment_scores(trades, settled, category, *, now, payments=()):
     """Recent known outcomes, with unresolved payments explicitly excluded.
 
     Payment fields come from sync_payments' official kit log. Success additionally
@@ -164,6 +164,9 @@ def payment_scores(trades, settled, category, *, now):
     index = collections.defaultdict(list)
     for row in settled:
         index[row.get('order')].append(row)
+    paid_index = collections.defaultdict(list)
+    for row in payments:
+        paid_index[row.get('order')].append(row)
     groups = collections.defaultdict(lambda: [0, 0, []])
     audit = dict(attempts=0, resolved=0, unknown=0, paid_settled=0, mature_quality=0)
     for trade in trades:
@@ -177,9 +180,13 @@ def payment_scores(trades, settled, category, *, now):
         if not all(isinstance(x, str) and x for x in (shop, sku, oid)):
             continue
         audit['attempts'] += 1
-        paid = trade.get('paid')
+        pay = paid_index[oid]
+        payment_matches = (len(pay) == 1 and pay[0].get('item') == sku
+                           and pay[0].get('price') == trade.get('price')
+                           and isinstance(pay[0].get('shop'), str) and bool(pay[0]['shop']))
+        paid = pay[0].get('paid') if payment_matches else None
         matching = index[oid]
-        success = (paid is True and len(matching) == 1 and matching[0].get('shop') == shop
+        success = (paid is True and len(matching) == 1 and matching[0].get('shop') == pay[0]['shop']
                    and matching[0].get('sku') == sku and matching[0].get('price') == trade.get('price')
                    and _number(matching[0].get('time')) and at <= matching[0]['time'] <= now)
         if repeated[oid] != 1 or not (paid is False or success):
