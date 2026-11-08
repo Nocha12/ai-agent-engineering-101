@@ -170,9 +170,9 @@ def percent(md, shop, base, list_price, chance, limit, env=None, now=None, cap=N
     SAVED_FLOOR of list in expectation and the deal stays within cap (market_buyer.value_limit: budget, max_price_share,
     max_spend_per_deal). Never under base; plan A off (base None) is off here too. buyer_accept_band.ceiling keeps it
     under the budget."""
-    if base is None or not enabled(md, env):
-        return base
     try:
+        if base is None or not enabled(md, env):
+            return base
         pct = profiles(md, now).get(shop)
     except Exception:   # noqa: BLE001 - a profile never stops an order
         return base
