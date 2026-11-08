@@ -77,3 +77,23 @@ def counter(baseline, ask, history, limit, steps):
     if len(offers) == 1 and offers[-1] < cap:
         return {**baseline, 'price': cap}
     return {**baseline, 'action': 'walk_away', 'price': 0}
+
+
+def schedule(baseline, fits, rivals, skus, scores):
+    """Reorder fitted exploitation only, within the same requested SKU/rival class.
+
+    Unseen shops keep their exploration positions. Missing history has the same
+    prior for every shop; stable sorting preserves the original preference ties.
+    """
+    result = list(baseline)
+    groups = {}
+    for i, shop in enumerate(baseline):
+        name = shop['name']
+        if fits.get(name, 0) > 0 and skus.get(name):
+            groups.setdefault((skus[name], name in rivals), []).append(i)
+    for positions in groups.values():
+        ordered = sorted((baseline[i] for i in positions),
+                         key=lambda s: -scores.get(s['name'], .3125))
+        for i, shop in zip(positions, ordered):
+            result[i] = shop
+    return result

@@ -7,6 +7,16 @@ import oneshot
 
 
 class BuyerBundleTrial(unittest.TestCase):
+    def test_payment_schedule_preserves_sku_rival_and_exploration_partitions(self):
+        import buyer_bundle_trial as trial
+        shops = [{'name': n} for n in ['weak', 'fresh', 'good', 'other', 'rival']]
+        fits = dict(weak=4, fresh=0, good=3, other=9, rival=5)
+        skus = dict(weak='G1', fresh='G1', good='G1', other='G2', rival='G1')
+        scores = dict(weak=.1, good=.8, other=1., rival=1.)
+        reordered = trial.schedule(shops, fits, {'rival'}, skus, scores)
+        self.assertEqual([s['name'] for s in reordered], ['good', 'fresh', 'weak', 'other', 'rival'])
+        self.assertEqual([s['name'] for s in shops], ['weak', 'fresh', 'good', 'other', 'rival'])
+
     def test_assignment_survives_retry_and_refuses_agent_or_expired_context(self):
         import buyer_bundle_trial as trial
         order = {'order': 'o-0123456789ab', 'kind': 'goods', '_buyer_started_at': 1001}
