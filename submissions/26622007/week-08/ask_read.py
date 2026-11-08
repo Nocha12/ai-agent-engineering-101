@@ -202,6 +202,21 @@ def no_warranty(text):
     return bool(hours) and max(hours) < GOODS_WARRANTY_HOURS
 
 
+def short_warranty_hours(text):
+    """The hours of a short warranty in goods text: 0 when it says none or 0 h anywhere (even beside a longer one, the
+    stricter reading), else the largest named when under 6 h; None when it names nothing short (buyer_short_warranty
+    prices the deal at those hours)."""
+    t = SAFE_RE.sub(_keep_stop, text or "")
+    hours = []
+    for m in WARRANTY_HOURS.finditer(t):
+        n, u = (m["n"], m["u"]) if m["n"] else (m["n2"], m["u2"])
+        v = WORD_N.get(n.lower()) if n.lower() in WORD_N else float(n)
+        hours.append(v * 24 if u.lower().startswith("day") else v)
+    if NO_WARRANTY.search(t):
+        return 0.0
+    return float(max(hours)) if hours and max(hours) < GOODS_WARRANTY_HOURS else None
+
+
 def _alt_bad(name):
     """The alternative's name holds a clause (; :), a SKU id, or a number of 3+ digits with no unit after it."""
     return bool(re.search(r"[;:]|\bG[0-9a-f]{8}\b|(?<![\d.])[0-9]{3,}(?![0-9.]*(?:[a-z가-힣×]))", name, re.I))
