@@ -206,6 +206,7 @@ def publish_join(root, configured, aliases):
         (root / name).chmod(0o444)
     for name, target in aliases.items():
         (root / name).symlink_to(target)
+        os.chmod(root / name, 0o755, follow_symlinks=False)
     root.chmod(0o555)
     return hashlib.sha256(raw).hexdigest()
 
@@ -229,6 +230,7 @@ def select_join(store, generation):
     try:
         temporary.symlink_to(generation)
         created = True
+        os.chmod(temporary, 0o755, follow_symlinks=False)
         os.replace(temporary, selector)
         fd = os.open(store, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:

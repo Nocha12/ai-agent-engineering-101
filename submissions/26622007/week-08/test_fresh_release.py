@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import shlex
 import select
+import stat
 import subprocess
 import sys
 import tempfile
@@ -40,7 +41,14 @@ class FreshRelease(unittest.TestCase):
             (live/'runtime.json').write_text('{"fixture":true}')
             first, rollback = parent/'candidate', parent/'rollback'
             first_config = {'market_buyer':{'cmd':'candidate fixture'}}
-            digest = fresh_release.publish_join(first,first_config,{'runtime.json':live/'runtime.json'})
+            target_mode=stat.S_IMODE((live/'runtime.json').stat().st_mode)
+            previous_mask=os.umask(0o077)
+            try:
+                digest = fresh_release.publish_join(first,first_config,{'runtime.json':live/'runtime.json'})
+            finally:
+                os.umask(previous_mask)
+            self.assertEqual(stat.S_IMODE((first/'runtime.json').lstat().st_mode)&0o055,0o055)
+            self.assertEqual(stat.S_IMODE((live/'runtime.json').stat().st_mode),target_mode)
             self.assertEqual(digest,__import__('hashlib').sha256((first/'agent.json').read_bytes()).hexdigest())
             fresh_release.select_join(store,first)
             cached = json.loads((store/'current-join/agent.json').read_text())
