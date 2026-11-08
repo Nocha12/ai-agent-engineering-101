@@ -18,6 +18,23 @@ REPO = Path(__file__).resolve().parents[3]
 
 
 class FreshRelease(unittest.TestCase):
+    def test_bundle_code_and_window_are_bound_to_literal_versioned_import(self):
+        pin = '6aedfc31077b2e242f7c98d753119473c16baadf'  # source-OFF bundle commit
+        settings = dict(ENABLED=True, START=1000, END=2800, STUDY='bundle-release-fixture')
+        files = fresh_release.files_from_git(REPO, pin, bundle_settings=settings)
+        names = [n for n in files if n.startswith('buyer_bundle_trial_')]
+        self.assertEqual(len(names), 1)
+        name = names[0]
+        self.assertNotIn('buyer_bundle_trial.py', files)
+        self.assertIn(('import '+name[:-3]+' as buyer_bundle_trial').encode(), files['market_buyer.py'])
+        self.assertEqual(__import__('hashlib').sha256(files[name]).hexdigest(), name[:-3].rsplit('_', 1)[1])
+        self.assertIn(b'ENABLED = True', files[name])
+        other = fresh_release.files_from_git(REPO, pin, bundle_settings={**settings, 'START': 2800, 'END': 4600})
+        self.assertNotIn(name, other)
+        for invalid in ({**settings, 'END': 2799}, {**settings, 'ENABLED': 1}, {'ENABLED': True}):
+            with self.assertRaises(ValueError):
+                fresh_release.files_from_git(REPO, pin, bundle_settings=invalid)
+
     def test_managed_join_keeps_roles_environment_and_kit_placeholders(self):
         original = {'market_buyer': {'cmd': 'HARNESS=fixture BUYER_CHOOSE_ENGINE=rule python market_buyer.py --shops {shops} --item {item} --budget {budget} --order {order}'},
                     'seller': {'cmd': 'python seller.py --port {port}'}, 'harness': 'fixture policy'}

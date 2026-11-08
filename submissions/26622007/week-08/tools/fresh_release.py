@@ -1,5 +1,6 @@
 """Publisher-owned full buyer code release; leaves the live checkout untouched."""
 import hashlib
+import ast
 import copy
 import json
 import os
@@ -122,12 +123,41 @@ def publish(root, files, commit):
     return digest
 
 
-def files_from_git(repo, commit, *, settings=None):
+def files_from_git(repo, commit, *, settings=None, bundle_settings=None):
     from .fresh_snapshot import snapshot_from_git
     from .quote_owner_executor import git, repository, revision
     repo, commit = repository(repo), revision(commit)
     raw, _ = snapshot_from_git(repo, commit, settings=settings)
     files = {name: text.encode() for name, text in json.loads(raw)['files'].items()}
+    if bundle_settings is not None:
+        required = {'ENABLED', 'START', 'END', 'STUDY'}
+        if (set(bundle_settings) != required or type(bundle_settings['ENABLED']) is not bool or
+                type(bundle_settings['START']) is not int or type(bundle_settings['END']) is not int or
+                not 0 < bundle_settings['START'] < bundle_settings['END'] == bundle_settings['START'] + 1800 or
+                not isinstance(bundle_settings['STUDY'], str) or
+                not re.fullmatch('[A-Za-z0-9_-]{1,64}', bundle_settings['STUDY'])):
+            raise ValueError('strict bundle flag and complete thirty-minute window required')
+        helper = files.pop('buyer_bundle_trial.py').decode()
+        lines = helper.splitlines(keepends=True)
+        found = set()
+        for node in ast.parse(helper).body:
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+                key = node.targets[0].id
+                if key in required:
+                    if key in found or node.lineno != node.end_lineno:
+                        raise ValueError('one literal bundle scalar required')
+                    ast.literal_eval(node.value)
+                    lines[node.lineno - 1] = key + ' = ' + repr(bundle_settings[key]) + '\n'
+                    found.add(key)
+        if found != required:
+            raise ValueError('missing bundle scalar')
+        helper = ''.join(lines).encode()
+        name = 'buyer_bundle_trial_' + hashlib.sha256(helper).hexdigest()
+        entry, count = re.subn(rb'^import buyer_bundle_trial$',
+            ('import ' + name + ' as buyer_bundle_trial').encode(), files['market_buyer.py'], flags=re.M)
+        if count != 1:
+            raise ValueError('one literal bundle import required')
+        files['market_buyer.py'], files[name + '.py'] = entry, helper
     prefix = 'submissions/26622007/week-08/'
     for row in git(repo, 'ls-tree', '-r', commit, '--', prefix + 'tools/').decode().splitlines():
         info, path = row.split('\t', 1)
