@@ -1244,8 +1244,9 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
     later = [s for s in others if s["name"] not in asked and s["name"] != chosen["name"]]
     rest = [chosen] + early + later
     preference = {}
-    if order.get("_fresh_inputs") and (choose_by_rule() if rule_engine is None else rule_engine) is True:
-        baseline, _, _, baseline_k, _ = order["_fresh_inputs"]
+    canonical_inputs = order.get("_fresh_inputs") or order.get("_bundle_inputs")
+    if canonical_inputs and (choose_by_rule() if rule_engine is None else rule_engine) is True:
+        baseline, baseline_k = canonical_inputs[0], canonical_inputs[3]
         baseline_asked = {s["name"] for s in baseline[:max(0, baseline_k - 1)]}
         candidates = [s for s in baseline if s["name"] != chosen["name"]]
         ranked = [chosen] + [s for s in candidates if s["name"] in baseline_asked] + \

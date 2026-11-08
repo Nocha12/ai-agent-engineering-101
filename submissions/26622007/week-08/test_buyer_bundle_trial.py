@@ -26,6 +26,25 @@ class BuyerBundleTrial(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
 
+    def test_actual_best_quote_ties_keep_baseline_preference_after_changed_prefetch(self):
+        import market_buyer as mb
+        shops = [dict(name=n, url='fixture:'+n, usable=[dict(sku='G1', name='goods', list_price=100)])
+                 for n in ['weak', 'fresh', 'chosen']]
+        for shop in shops:
+            shop['_offer'], shop['_b'] = shop['usable'][0], 0
+        chosen = shops[-1]
+        order = dict(kind='goods', order='o-0123456789ab', _stock_phase='best_quote', _bundle_dispatched=True,
+                     _bundle_inputs=(list(shops), {}, set(), 3, {}, {}, True))
+        got = dict(chosen=dict(ask=None, refused='fixture no stock'), fresh=dict(ask=70, ask_src='meta'))
+        pre = dict(got=got, ctl=mb.quote_ctl(), threads={n:SimpleNamespace(is_alive=lambda:False) for n in ('chosen','fresh')})
+        def quote(shop, item, sku, order, got, ctl):
+            got[shop['name']] = dict(ask=70, ask_src='meta')
+        with patch.object(mb, 'STARTED', time.time()), patch.object(mb, 'quote', side_effect=quote), \
+                patch.object(mb, 'cancel_quietly'):
+            winner, _ = mb.best_quote(chosen, shops[:2], order, {}, 100, lambda _:0,
+                                     dict(quote_shops=3), pre=pre, rule_engine=True)
+        self.assertEqual(winner['name'], 'weak')
+
     def test_same_first_batch_reordering_is_ineligible_when_counter_disabled(self):
         import buyer_bundle_trial as trial
         with tempfile.TemporaryDirectory() as directory, patch.multiple(
