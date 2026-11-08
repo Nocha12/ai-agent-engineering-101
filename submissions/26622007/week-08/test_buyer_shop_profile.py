@@ -99,5 +99,23 @@ class PercentTest(unittest.TestCase):
             self.assertEqual(sp.percent(md, 'H', 105, 1000, 0, 680, env={}, now=NOW + 7200), 105)
 
 
+class MarketBuyerTest(unittest.TestCase):
+    """market_buyer.accept_percent: plan A's percent, raised for a profiled shop only when this switch is on."""
+
+    def test_plan_a_then_the_shop(self):
+        import buyer_accept_band
+        import market_buyer as mb
+        offer = {'list_price': 1000}
+        with tempfile.TemporaryDirectory() as md:
+            market_dir(md, holder('H', [1.08] * 20))
+            os.remove(os.path.join(md, sp.SWITCH))
+            self.assertEqual(mb.accept_percent(md, 'H', offer, 0, 680, now=NOW), (None, None))
+            write(md, buyer_accept_band.SWITCH, {'enabled': True})
+            self.assertEqual(mb.accept_percent(md, 'H', offer, 0, 680, now=NOW), (105, 105))
+            write(md, sp.SWITCH, {'enabled': True})
+            self.assertEqual(mb.accept_percent(md, 'H', offer, 0, 680, now=NOW), (105, 108))
+            self.assertEqual(mb.accept_percent(md, 'X', offer, 0, 680, now=NOW), (105, 105))
+
+
 if __name__ == '__main__':
     unittest.main()

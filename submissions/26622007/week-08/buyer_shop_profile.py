@@ -53,8 +53,9 @@ def profile_from_rows(rows, paid, now):
         holds = sorted(min(r['asks']) / r['asks'][0] for r in rs)
         if holds[len(holds) // 2] < HOLDS:
             continue
-        deal = [r for r in rs if r.get('state') == 'TASK_STATE_COMPLETED' and r.get('price') is not None]
-        fails = [min(r['asks']) / r['limit'] for r in rs if r not in deal]
+        done = [r.get('state') == 'TASK_STATE_COMPLETED' and r.get('price') is not None for r in rs]
+        deal = [r for r, d in zip(rs, done) if d]
+        fails = [min(r['asks']) / r['limit'] for r, d in zip(rs, done) if not d]
         pays = [paid[r['order']] for r in deal if r.get('passed_to_kit') is True and r.get('order') in paid]
         if len(pays) >= PAID_MIN and sum(pays) / len(pays) < PAID_SHARE:
             continue
