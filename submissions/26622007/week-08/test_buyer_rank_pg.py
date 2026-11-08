@@ -49,6 +49,8 @@ class ScoreTest(unittest.TestCase):
         self.assertAlmostEqual(rp.score(self.RK, "z", "goods", 8000, 10000, g, 5.0), 0.5 * 0.9 * 0.2)
         self.assertIsNone(rp.score(self.RK, "a", "food", 8000, 10000, g, 5.0))     # no pool for the kind
         self.assertIsNone(rp.score(self.RK, "a", "goods", None, 10000, g, 5.0))
+        # nothing kept: g alone, so a likelier or quicker shop is not ranked lower for it
+        self.assertAlmostEqual(rp.score(self.RK, "a", "goods", 12000, 10000, g, 5.0), 0.9 * (1 - 1.08))
 
     def test_switch(self):
         with tempfile.TemporaryDirectory() as d:
@@ -97,6 +99,11 @@ class BestQuoteTest(unittest.TestCase):
             order = {"kind": "goods", "_rank_pg": {"stats": stats}}
             self.assertEqual(self.run_bq(order), "a")
             self.assertEqual(order["_rank_pg"]["picked"], "a")
+
+    def test_on_with_no_deals_in_the_pool_ties_go_to_the_cheaper_ask(self):
+        stats = {"pool": {"goods": {"p": 0.0, "ratio": 1.0, "talk": 10.0}}, "shops": {}}
+        self.ASKS = {"a": 6400, "b": 6000, "c": 9900}
+        self.assertEqual(self.run_bq({"kind": "goods", "_rank_pg": {"stats": stats}}), "b")
 
     def test_on_without_stats_for_the_kind_keeps_the_current_order(self):
         order = {"kind": "goods", "_rank_pg": {"stats": {"pool": {}, "shops": {}}}}

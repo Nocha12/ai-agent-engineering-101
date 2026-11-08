@@ -1364,7 +1364,9 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
                                                  s["_offer"]["list_price"], g_of(s), elapsed,
                                                  rival_deny.penalty(s["name"], rival)) for _, _, s in scored}
             if all(v is not None for v in pg.values()):
-                best = max(scored, key=lambda x: (fits(x[2]), pg[x[2]["name"]], meta(x[2]), -x[1]))[2]
+                # ties (e.g. P 0 for all): the ask's share as before
+                best = max(scored, key=lambda x: (fits(x[2]), pg[x[2]["name"]],
+                                                  x[0] - rival_deny.penalty(x[2]["name"], rival), meta(x[2]), -x[1]))[2]
                 rk["scores"] = {k: round(v, 6) for k, v in pg.items()}
         except Exception as e:  # noqa: BLE001 - a bad cache never stops an order: the current order
             rk["error"] = f"{type(e).__name__}"

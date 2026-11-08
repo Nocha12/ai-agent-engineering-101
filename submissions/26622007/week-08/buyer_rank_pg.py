@@ -193,6 +193,8 @@ def score(rk, shop, kind, ask, list_price, g_of, quote_seconds, penalty=0.0):
     if P is None:
         return None
     g = g_of(ask * ratio / list_price) - penalty
+    if g <= 0:          # a deal that keeps nothing: ranked by g alone (P and T would flip it), under any that keeps some
+        return g
     if talk is None:
         return P * g
     return P * g / (max(0.0, quote_seconds or 0.0) + talk + NEXT_ORDER_SECONDS)
