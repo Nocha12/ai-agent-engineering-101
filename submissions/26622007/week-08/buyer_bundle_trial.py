@@ -6,6 +6,8 @@ oneshot accepts a counter within its value limit. This treatment instead offers
 Unparsed turns retain the existing harness path.
 """
 import hashlib
+import collections
+import json
 import os
 import re
 import time
@@ -97,3 +99,73 @@ def schedule(baseline, fits, rivals, skus, scores):
         for i, shop in zip(positions, ordered):
             result[i] = shop
     return result
+
+
+def settlements(path):
+    """Bounded local review ledger tail; no market/model/API calls."""
+    try:
+        with open(path, 'rb') as stream:
+            size = stream.seek(0, 2)
+            stream.seek(max(0, size - (8 << 20)))
+            lines = stream.read().splitlines()
+        if size > (8 << 20):
+            lines = lines[1:]
+        rows = [json.loads(line) for line in lines]
+        return rows if len(rows) <= 20000 and all(isinstance(r, dict) for r in rows) else []
+    except (OSError, ValueError):
+        return []  # unknown ledger keeps every shop at the common prior
+
+
+def payment_scores(trades, settled, category, *, now):
+    """Recent known outcomes, with unresolved payments explicitly excluded.
+
+    Payment fields come from sync_payments' official kit log. Success additionally
+    needs exactly one matching official settlement. Saved quality is counted only
+    after the reported warranty (at least 6 h); observed breaks contribute zero.
+    This is historical ranking evidence, not verified refund completion.
+    """
+    trades = trades[-10000:]
+    repeated = collections.Counter(t.get('order') for t in trades)
+    index = collections.defaultdict(list)
+    for row in settled:
+        index[row.get('order')].append(row)
+    groups = collections.defaultdict(lambda: [0, 0, []])
+    audit = dict(attempts=0, resolved=0, unknown=0, paid_settled=0, mature_quality=0)
+    for trade in trades:
+        try:
+            at = time.mktime(time.strptime(trade['time'], '%Y-%m-%dT%H:%M:%S'))
+        except (KeyError, ValueError, TypeError, OverflowError):
+            continue
+        if trade.get('category') != category or not 0 <= now - at <= 86400:
+            continue
+        shop, sku, oid = trade.get('shop'), trade.get('item'), trade.get('order')
+        if not all(isinstance(x, str) and x for x in (shop, sku, oid)):
+            continue
+        audit['attempts'] += 1
+        paid = trade.get('paid')
+        matching = index[oid]
+        success = (paid is True and len(matching) == 1 and matching[0].get('shop') == shop
+                   and matching[0].get('sku') == sku and matching[0].get('price') == trade.get('price')
+                   and _number(matching[0].get('time')) and at <= matching[0]['time'] <= now)
+        if repeated[oid] != 1 or not (paid is False or success):
+            audit['unknown'] += 1
+            continue
+        counts = groups[(shop, sku)]
+        counts[0] += 1
+        counts[1] += int(success)
+        audit['resolved'] += 1
+        audit['paid_settled'] += int(success)
+        if success:
+            row, lp, price = matching[0], trade.get('list_price'), trade.get('price')
+            hours = row.get('warranty_hours')
+            if (_number(hours) and hours >= 6 and now - row['time'] >= hours * 3600
+                    and _number(lp) and _number(price) and 0 < price <= lp):
+                quality = (1 - price / lp) if row.get('claim_honest') is True and not trade.get('broke') else 0
+                counts[2].append(quality)
+                audit['mature_quality'] += 1
+    scores = {}
+    for key, (n, paid, qualities) in groups.items():
+        if n >= 3:
+            quality = (sum(qualities) + .5) / (len(qualities) + 2)
+            scores[key] = (paid + 1) / (n + 2) * (.5 + .5 * quality)
+    return scores, audit

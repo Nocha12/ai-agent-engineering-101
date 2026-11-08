@@ -1,12 +1,35 @@
 """Instruction 68: extra goods counter plus settled-payment scheduling, default OFF."""
 import unittest
 import tempfile
+import time
 from unittest.mock import patch
 
 import oneshot
 
 
 class BuyerBundleTrial(unittest.TestCase):
+    def test_scores_require_matching_official_payment_and_settlement(self):
+        import buyer_bundle_trial as trial
+        stamp = time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime(10000))
+        trades, settled = [], []
+        for shop, paid in [('good', True), ('unpaid', False), ('unknown', None)]:
+            for i in range(3):
+                oid = shop + str(i)
+                trades.append(dict(order=oid, shop=shop, item='G1', category='goods',
+                                   time=stamp, paid=paid, price=70, list_price=100))
+                settled.append(dict(order=oid, shop=shop, sku='G1', time=10000,
+                                    price=70, warranty_hours=6, claim_honest=True))
+        scores, audit = trial.payment_scores(trades, settled, 'goods', now=40000)
+        # Three successes: pay posterior 4/5; quality (3*.30 + .50)/5 = .28.
+        self.assertAlmostEqual(scores[('good', 'G1')], .512)
+        self.assertLess(scores[('unpaid', 'G1')], scores[('good', 'G1')])
+        self.assertNotIn(('unknown', 'G1'), scores)
+        self.assertEqual(audit['unknown'], 3)
+        # A paid receipt without one matching official settlement is unresolved.
+        scores, audit = trial.payment_scores(trades, [], 'goods', now=40000)
+        self.assertNotIn(('good', 'G1'), scores)
+        self.assertEqual(audit['unknown'], 6)
+
     def test_payment_schedule_preserves_sku_rival_and_exploration_partitions(self):
         import buyer_bundle_trial as trial
         shops = [{'name': n} for n in ['weak', 'fresh', 'good', 'other', 'rival']]
