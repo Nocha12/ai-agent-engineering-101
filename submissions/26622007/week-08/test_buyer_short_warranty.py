@@ -272,6 +272,16 @@ class MainTest(unittest.TestCase):
         self.assertAlmostEqual(s["p_max"], sw.p_max(0, s["b"], 0.3), places=4)
         self.assertTrue(o["passed_to_kit"])
 
+    def test_on_prices_at_the_cheapest_acceptable_sku(self):
+        # G2 (list 7,000) is acceptable too: the kit may ship it at the agreed 6,000, 85.7% of its list
+        self.CATALOG = dict(self.CATALOG, G2={"kind": "goods", "category": "가전>컵", "list_price": 7000})
+        self.ORDER = dict(self.ORDER, acceptable=["G1", "G2"])
+        out, calls, o = self.run_main({"enabled": True}, 6000, 0)
+        self.assertIsNone(out["receipt"])
+        self.assertEqual((o["short_warranty_buy"]["list"], o["short_warranty_buy"]["ok"]), (7000, False))
+        out, calls, o = self.run_main({"enabled": True}, 4300, 0)      # 61.4% of 7,000: under p_max(0) at b .0837
+        self.assertIsNotNone(out["receipt"])
+
     def test_on_refuses_a_0h_receipt_over_p_max(self):
         out, calls, o = self.run_main({"enabled": True}, 6900, 0)     # 69% of list: under the 6 h cap 70%, over p_max(0)
         self.assertIsNone(out["receipt"])

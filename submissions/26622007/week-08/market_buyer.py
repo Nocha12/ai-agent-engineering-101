@@ -721,8 +721,9 @@ def short_warranty_receipt(rec, order, md, catalog, key, chance, short, shop=Non
     """buyer_short_warranty on: None when this short-warranty receipt is within p_max(h) of its SKU and the hour's
     exposure (order["_sw_buy"] then says so), else short with the reason added. Fails closed."""
     try:
-        # the kit pays a checkout for any acceptable SKU at the agreed price: the worst one this shop can ship counts
-        skus = {rec.get("item") or key} | {o.get("sku") for o in (shop or {}).get("usable") or [] if o.get("sku")}
+        # the kit pays a checkout for any of the order's acceptable SKUs at the agreed price: the worst of them counts
+        skus = {rec.get("item") or key} | {o.get("sku") for o in (shop or {}).get("usable") or [] if o.get("sku")} \
+            | {s for s in order.get("acceptable") or [] if isinstance(s, str)}
         stats = ledger_breaks(md, catalog)
         lp, _ = buyer_short_warranty.worst([(catalog.get(s) or {}).get("list_price") for s in skus], [])
         w = rec.get("warranty_hours")
