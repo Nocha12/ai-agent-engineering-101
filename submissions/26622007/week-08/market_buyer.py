@@ -1386,11 +1386,16 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
     # an ask read from the text ranks after a metadata ask of the same fit and share (a misread or made-up text ask
     # must not take the trade from a shop that stated its price in data; independent review 11/06 13:30)
     meta = lambda s: (got.get(s["name"]) or {}).get("ask_src") != "text"
+    # buyer_short_warranty on: a shop expected to give a 6 h warranty goes before one priced as a short one, as when
+    # skip_short_warranty left those out (11/08 20:15-21:2x: 69 of 93 goods orders went to a short one, 4 deals; the
+    # other 24, 13; review/W-20261108-1915-AX전부적용/rank-cause.md). Off: every shop is normal, the order as before.
+    normal = lambda s: buyer_short_warranty.hours_for(order.get("_sw"), s["name"], got.get(s["name"])) is None
     # a revenue rival of my shop ranks as if it kept rival_deny.MARGIN less of the list price (within my limit either way)
-    best = max(scored, key=lambda x: (fits(x[2]), x[0] - rival_deny.penalty(x[2]["name"], rival), meta(x[2]), -x[1]))[2] \
-        if scored else None
+    best = max(scored, key=lambda x: (normal(x[2]), fits(x[2]), x[0] - rival_deny.penalty(x[2]["name"], rival), meta(x[2]),
+                                      -x[1]))[2] if scored else None
     rk = order.get("_rank_pg")
-    if rk is not None and scored and not any(fits(s) for _, _, s in scored):
+    tier = [s for _, _, s in scored if normal(s)] or [s for _, _, s in scored]    # the shops best can come from
+    if rk is not None and scored and not any(fits(s) for s in tier):
         # nothing within my limit: the order before rank_pg (11/08 19:43-20:03 P x g took asks 15-33% over the limit, 8 of
         # 11 changed picks ended with no talk; review/W-20261108-1915-AX전부적용/rank-cause.md)
         rk["plain"] = rk["picked"] = best["name"]
@@ -1412,7 +1417,7 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
                                                  rival_deny.penalty(s["name"], rival)) for _, _, s in scored}
             if all(v is not None for v in pg.values()):
                 # ties (e.g. P 0 for all): the ask's share as before
-                best = max(scored, key=lambda x: (fits(x[2]), pg[x[2]["name"]],
+                best = max(scored, key=lambda x: (normal(x[2]), fits(x[2]), pg[x[2]["name"]],
                                                   x[0] - rival_deny.penalty(x[2]["name"], rival), meta(x[2]), -x[1]))[2]
                 rk["scores"] = {k: round(v, 6) for k, v in pg.items()}
         except Exception as e:  # noqa: BLE001 - a bad cache never stops an order: the current order
