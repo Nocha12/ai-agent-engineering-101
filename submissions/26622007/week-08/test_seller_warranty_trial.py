@@ -1,6 +1,6 @@
 """Grade warranty experiment through Seller's quote/receipt and measurement seams.
 
-Run with logs/sol-warranty-0438/run_checks.py to isolate all external state.
+Run with python -m unittest test_seller_warranty_trial in an offline source/state copy.
 """
 import copy
 import asyncio
@@ -239,7 +239,7 @@ class WarrantyTrialTest(unittest.TestCase):
     def test_collected_settle_fixture_and_no_warranty_receipt_join_by_string_unit(self):
         # Actual captured settle schema, anonymized without changing field types.
         # This is a join-contract check, not a claim that a live settlement ran.
-        fixture = json.loads((Path(__file__).parent / "logs" / "sol-warranty-0438" / "settle_fixture.json").read_text())
+        fixture = json.loads((Path(__file__).parent / "testdata" / "seller_warranty_trial_settle.json").read_text())
         compact = seller.market_model.compact(fixture)
         deal = self.deal()
         self.quote(deal)
