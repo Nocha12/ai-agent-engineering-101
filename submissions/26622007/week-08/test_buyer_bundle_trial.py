@@ -2,12 +2,37 @@
 import unittest
 import tempfile
 import time
+import json
+from pathlib import Path
+import socket
+import subprocess
 from unittest.mock import patch
 
 import oneshot
 
 
 class BuyerBundleTrial(unittest.TestCase):
+    def test_actual_main_assigns_before_empty_stock_without_external_calls(self):
+        import buyer_bundle_trial as trial
+        import market_buyer as mb
+        import httpx
+        now = int(time.time())
+        with tempfile.TemporaryDirectory() as directory, patch.multiple(
+                trial, ENABLED=True, START=now - 1, END=now + 1799, STUDY='bundle-main-fixture'):
+            root = Path(directory)
+            shops, order = root/'test-shops.json', root/'order.json'
+            shops.write_text('[]')
+            order.write_text(json.dumps(dict(order='o-0123456789ab', kind='goods', acceptable=['G1'])))
+            argv = ['buyer', '--shops', str(shops), '--order', str(order), '--item', 'goods', '--budget', '100']
+            blocked = AssertionError('fixture external boundary blocked')
+            with patch('sys.argv', argv), patch.dict('os.environ', {'BUYER_CHOOSE_ENGINE': 'rule'}), \
+                    patch.object(mb, 'warm_ledger'), patch.object(mb, 'ask', side_effect=blocked), \
+                    patch.object(socket.socket, 'connect', side_effect=blocked), \
+                    patch.object(httpx.Client, 'send', side_effect=blocked), \
+                    patch.object(subprocess, 'Popen', side_effect=blocked):
+                self.assertEqual(mb.main(), 0)
+            self.assertEqual(len(list((root/trial.ROOT).glob('*/assignment.json'))), 1)
+
     def test_scores_require_matching_official_payment_and_settlement(self):
         import buyer_bundle_trial as trial
         stamp = time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime(10000))

@@ -61,6 +61,7 @@ import buyer_goods_first_one
 import buyer_quote_alignment
 import buyer_stock_evidence
 import buyer_fresh_rotation
+import buyer_bundle_trial
 import buyer_firm_trial
 import buyer_first95_trial
 import buyer_cap95_trial
@@ -1657,6 +1658,9 @@ def main():
         order["_fresh_rotation"] = buyer_fresh_rotation.reserve(md, order,
             rule_engine=rule_engine,
             conflict=bool(overlapping or order.get("_quote_alignment") or order.get("_goods_extra_quote_probe")))
+        order["_buyer_bundle"] = buyer_bundle_trial.reserve(md, order,
+            rule_engine=rule_engine, conflict=bool(overlapping or order.get("_fresh_rotation") or
+                order.get("_quote_alignment") or order.get("_goods_extra_quote_probe")))
     catalog = load_json(os.path.join(md, "catalog.json"), {}) if r3 else {}
     if r3:
         warm_ledger(md)      # food reads the rows only before its talk (shop_pattern): read them while the quotes run
@@ -1672,6 +1676,8 @@ def main():
         log("[choose] no shops with this order in stock" if r3 else "[choose] no shops in the list")
         if r3:
             buyer_fresh_rotation.event(order.get("_fresh_rotation"), "terminal",
+                                       state="NO_SHOP_IN_STOCK", passed_to_kit=False)
+            buyer_fresh_rotation.event(order.get("_buyer_bundle"), "terminal",
                                        state="NO_SHOP_IN_STOCK", passed_to_kit=False)
             order["_stock_terminal_written"] = buyer_stock_evidence.terminal(
                 order.get("_stock_evidence"), state="NO_SHOP_IN_STOCK", passed_to_kit=False)
