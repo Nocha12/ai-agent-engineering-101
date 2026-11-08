@@ -60,8 +60,6 @@ import buyer_goods_quote_probe
 import buyer_goods_first_one
 import buyer_quote_alignment
 import buyer_stock_evidence
-import buyer_fresh_rotation
-import buyer_bundle_trial
 import buyer_firm_trial
 import buyer_first95_trial
 import buyer_cap95_trial
@@ -1046,7 +1044,7 @@ def close_prefetch(pre):
         cancel_quietly(dict(q, closed=False), n)
 
 
-def start_quotes(shops, order, budget, chance_of, got, ctl, *, rule_engine=None):
+def start_quotes(shops, order, budget, chance_of, got, ctl):
     """Starts one quote thread per shop now, into got; returns {name: thread} for best_quote(pre=...).
     The market hands a buyer one open order at a time and the next one 20 s after the last at the earliest (ledger
     11/06 13:23-15:50: 49 buyers, no buyer with two open orders, the busiest 15 at 20.0-20.6 s between orders, us at 54.6 s).
@@ -1064,57 +1062,13 @@ def start_quotes(shops, order, budget, chance_of, got, ctl, *, rule_engine=None)
         order["_stock_quotable"][:] = [by_name[n] for n in names]
         shops[:] = order["_stock_quotable"][:max(0, order["_stock_k"] - 1)]
         order["_stock_dispatched"] = True
-    # Resolve on direct calls too; persisted order fields cannot authorize B.
-    rule_engine = choose_by_rule() if rule_engine is None else rule_engine
-    bundle_ctx = order.get("_buyer_bundle") if rule_engine is True else None
-    if (bundle_ctx and order.get("_stock_phase") == "prefetch" and
-            not order.get("_bundle_dispatched") and order.get("_bundle_inputs")):
-        baseline, fits, rivals, k, scores, audit, code_eligible = order["_bundle_inputs"]
-        skus = {s["name"]: selected_offer(s, budget)["sku"] for s in baseline}
-        names, plan = buyer_bundle_trial.decide(bundle_ctx, baseline, fits, rivals, skus, scores, audit,
-            k=k, code_eligible=code_eligible, rule_engine=rule_engine)
-        order["_bundle_selection_asked"] = {s["name"] for s in baseline[:max(0, k - 1)]}
-        by_name = {s["name"]: s for s in baseline}
-        shops[:] = [by_name[n] for n in names[:max(0, k - 1)]]
-        order["_bundle_plan"], order["_bundle_dispatched"] = plan, True
-    fresh_ctx = order.get("_fresh_rotation") if rule_engine is True else None
-    if (fresh_ctx and order.get("_stock_phase") == "prefetch"
-            and not order.get("_fresh_dispatched") and order.get("_fresh_inputs")):
-        baseline, fits, rival, k, _ = order["_fresh_inputs"]
-        # Selection sees the canonical baseline, never the actual dispatch set.
-        # Keep quotable in baseline preference order for subsequent batches.
-        order["_fresh_selection_asked"] = {s["name"] for s in baseline[:max(0, k - 1)]}
-        p = buyer_fresh_rotation.plan(baseline, fits, rival, k=k, order_id=order.get("order"))
-        names = buyer_fresh_rotation.decide(fresh_ctx, p, rule_engine=rule_engine)
-        names = names if names is not None else [s["name"] for s in baseline]
-        by_name = {s["name"]: s for s in baseline}
-        shops[:] = [by_name[n] for n in names[:max(0, k - 1)]]
-        order["_fresh_dispatched"] = True
-        order["_fresh_plan"] = p
     threads = {}
     for s in shops:
         o = selected_offer(s, budget)
         s["_offer"], s["_b"] = o, chance_of(o["sku"]) or 0
         s["_quote_attempted"] = True  # published before the thread: failed or still pending calls must be counted
-        try:
-            th = threading.Thread(target=quote, args=(s, o["name"], o["sku"], order, got, ctl), daemon=True)
-            th.start()
-        except Exception:
-            s.pop("_quote_attempted", None)
-            buyer_fresh_rotation.event(fresh_ctx, "start_failure", shop=s["name"], sku=o["sku"])
-            buyer_fresh_rotation.event(bundle_ctx, "start_failure", shop=s["name"], sku=o["sku"])
-            raise
-        started_at = time.time()
-        if fresh_ctx:
-            if not buyer_fresh_rotation.event(fresh_ctx, "attempt", shop=s["name"], sku=o["sku"],
-                    thread_started_at=started_at, boundary="quote_thread_started",
-                    phase=order.get("_stock_phase", "quotes")):
-                order["_fresh_witness_failures"] = order.get("_fresh_witness_failures", 0) + 1
-        if bundle_ctx:
-            if not buyer_fresh_rotation.event(bundle_ctx, "attempt", shop=s["name"], sku=o["sku"],
-                    thread_started_at=started_at, boundary="quote_thread_started",
-                    phase=order.get("_stock_phase", "quotes")):
-                order["_bundle_witness_failures"] = order.get("_bundle_witness_failures", 0) + 1
+        th = threading.Thread(target=quote, args=(s, o["name"], o["sku"], order, got, ctl), daemon=True)
+        th.start()
         if order.get("_stock_evidence") and not buyer_stock_evidence.attempt(
                 order["_stock_evidence"], s["name"], o["sku"], phase=order.get("_stock_phase", "quotes"),
                 intended_reorder=order.get("_stock_reordered", False)):
@@ -1159,18 +1113,6 @@ def prefetch_pool(left, memory, md, category, k, rival=frozenset(), kind=None, o
             by_name = {s["name"]: s for s in others}
             others = [by_name[n] for n in scheduled]
         order["_stock_quotable"] = others
-    if order is not None and order.get("_fresh_rotation"):
-        order["_fresh_inputs"] = (list(others), fits, rival, k, others)
-    if order is not None and order.get("_buyer_bundle"):
-        scores, audit = buyer_bundle_trial.payment_scores(memory.get("trades") or [],
-            buyer_bundle_trial.settlements(SETTLED), category, now=time.time(),
-            payments=buyer_bundle_trial.settlements(os.path.join(md, "payments.jsonl")),
-            orders=buyer_bundle_trial.settlements(os.path.join(md, records.DIR, "orders.jsonl")))
-        scores = {s["name"]: scores[(s["url"], selected_offer(s, budget)["sku"])] for s in others
-                  if (s["url"], selected_offer(s, budget)["sku"]) in scores}
-        cfg = buyer_cfg()
-        order["_bundle_inputs"] = (list(others), fits, rival, k, scores, audit,
-                                  oneshot.enabled(cfg) and oneshot.steps(cfg) == (.9,))
     return others[:max(0, k - 1)], others
 
 
@@ -1182,14 +1124,13 @@ def hurried(pre):
         return False
 
 
-def choose_racing(pick, memory, item, budget, pre, *, rule_engine=None):
+def choose_racing(pick, memory, item, budget, pre):
     """choose() runs in a thread; when the prefetched quotes are enough (QUOTE_ENOUGH asks, one within my limit) before it
     answers, the quotes decide and the agent's answer is not waited for (HarnessError: the most reviewed shop goes first and
     best_quote picks by price). 11/07 02:00: fitting orders spent a median 7.5 s choosing though the quote, not the agent,
     picked the shop in 74% of orders; the run's exit ends the abandoned thread (daemon)."""
-    rule_engine = choose_by_rule() if rule_engine is None else rule_engine
-    if pre is not None and rule_engine is True:
-        return rule_choose(pick, memory, item, pre.get("selection_asked", pre.get("asked")) or (), budget=budget)
+    if pre is not None and choose_by_rule():
+        return rule_choose(pick, memory, item, pre.get("asked") or (), budget=budget)
     if not (pre and pre.get("enough")):
         return choose(pick, memory, item, budget)
     if hurried(pre):          # already clear: no agent call at all (its first step is never cut short)
@@ -1227,7 +1168,7 @@ def quotes_enough(shops, got, budget, cfg):
 
 
 def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOTE_WAIT, rounds=QUOTE_ROUNDS, pre=None,
-               rival=frozenset(), rule_engine=None):
+               rival=frozenset()):
     """(shop, quotes): of the chosen shop and up to quote_shops - 1 others, the one whose opening ask leaves the most
     expected surplus (list price, less the chance of breaking, less the ask). Quotes run at once, each in its own thread.
     When no shop of a batch asks a price within my limit (all out of stock, held by other buyers' talks, or asking too
@@ -1243,15 +1184,6 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
     early = [s for s in others if s["name"] in asked and s["name"] != chosen["name"]]
     later = [s for s in others if s["name"] not in asked and s["name"] != chosen["name"]]
     rest = [chosen] + early + later
-    preference = {}
-    canonical_inputs = order.get("_fresh_inputs") or order.get("_bundle_inputs")
-    if canonical_inputs and (choose_by_rule() if rule_engine is None else rule_engine) is True:
-        baseline, baseline_k = canonical_inputs[0], canonical_inputs[3]
-        baseline_asked = {s["name"] for s in baseline[:max(0, baseline_k - 1)]}
-        candidates = [s for s in baseline if s["name"] != chosen["name"]]
-        ranked = [chosen] + [s for s in candidates if s["name"] in baseline_asked] + \
-            [s for s in candidates if s["name"] not in baseline_asked]
-        preference = {s["name"]: i for i, s in enumerate(ranked)}
     first = max(k, 1 + len(early))
     # a slow choice: the quotes already asked are read (until QUOTE_UNTIL), no new shop is asked (377c7da quoted none past 60 s)
     late = bool(pre) and time.time() - STARTED > QUOTE_LATE     # without pre, main() calls this only before 60 s
@@ -1315,7 +1247,7 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
             if not rest or time.time() - STARTED >= buyer_goods_quote_probe.EARLY_SECONDS or any(th.is_alive() for th in threads):
                 break
             # Snapshot only: later negotiation/stock response is not a counterfactual settled outcome.
-            first_scores = [(surplus(s), preference.get(s["name"], i), s) for i, s in enumerate(pool) if surplus(s) is not None]
+            first_scores = [(surplus(s), i, s) for i, s in enumerate(pool) if surplus(s) is not None]
             if first_scores:
                 picked = max(first_scores, key=lambda x: (fits(x[2]), x[0] - rival_deny.penalty(x[2]["name"], rival),
                              (got.get(x[2]["name"]) or {}).get("ask_src") != "text", -x[1]))[2]
@@ -1325,7 +1257,7 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
                     "ask": q["ask"], "limit": cap, "would_skip_at_snapshot": q["ask"] > cap * (1 + TALK_OVER_SHARE)}
             else:
                 order["_goods_extra_quote_baseline"] = {"shop": chosen["name"], "would_skip_at_snapshot": None}
-    scored = [(surplus(s), preference.get(s["name"], i), s) for i, s in enumerate(pool) if surplus(s) is not None]
+    scored = [(surplus(s), i, s) for i, s in enumerate(pool) if surplus(s) is not None]
     # an ask read from the text ranks after a metadata ask of the same fit and share (a misread or made-up text ask
     # must not take the trade from a shop that stated its price in data; independent review 11/06 13:30)
     meta = lambda s: (got.get(s["name"]) or {}).get("ask_src") != "text"
@@ -1608,14 +1540,9 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "goods_extra_quote_probe": order.get("_goods_extra_quote_probe"),
         "quote_alignment_arm": (order.get("_quote_alignment") or {}).get("arm"),
         "stock_evidence": buyer_stock_evidence.measurement(order),
-        "fresh_rotation": {"study": (order.get("_fresh_rotation") or {}).get("study"),
-                           "arm": (order.get("_fresh_rotation") or {}).get("arm"),
-                           "eligible": (order.get("_fresh_plan") or {}).get("eligible"),
-                           "witness_failures": order.get("_fresh_witness_failures", 0)},
         "firm_trial": buyer_firm_trial.measurement(order, out),
         "first95_trial": buyer_first95_trial.measurement(order, out),
         "cap95_trial": buyer_cap95_trial.measurement(order, out),
-        "buyer_bundle": buyer_bundle_trial.measurement(order, out),
         "food_sku_trial": order.get("_food_sku_trial"),
         "turns": dict(out.get("turns") or {}),
         "goods_extra_quote_started": order.get("_goods_extra_quote_started"),
@@ -1651,10 +1578,6 @@ def main():
     ap.add_argument("--order", help="order.json from the kit; Round 3 orders carry the acceptable SKUs")
     args = ap.parse_args()
 
-    # One actual engine for admission, first dispatch, selection and ACP retry.
-    # Never restore this decision from an order/context loaded on restart.
-    rule_engine = choose_by_rule()
-
     global MEMORY
     if not MEMORY:
         test = os.path.basename(args.shops).startswith("test-shops")
@@ -1679,17 +1602,6 @@ def main():
         order["_quote_alignment"] = buyer_quote_alignment.reserve(md, order, now=order["_buyer_started_at"])
         order["_goods_extra_quote_probe"] = buyer_goods_quote_probe.reserve(
             md, order, now=order["_buyer_started_at"])
-        # Reserve ITT before catalog/product selection, only for new normal orders.
-        at = time.time()
-        overlapping = any(m.ENABLED and m.START <= at < m.END for m in (
-            buyer_stock_evidence, buyer_goods_first_one, buyer_goods_quote_probe,
-            buyer_firm_trial, buyer_first95_trial, buyer_cap95_trial))
-        order["_fresh_rotation"] = buyer_fresh_rotation.reserve(md, order,
-            rule_engine=rule_engine,
-            conflict=bool(overlapping or order.get("_quote_alignment") or order.get("_goods_extra_quote_probe")))
-        order["_buyer_bundle"] = buyer_bundle_trial.reserve(md, order,
-            rule_engine=rule_engine, conflict=bool(overlapping or order.get("_fresh_rotation") or
-                order.get("_quote_alignment") or order.get("_goods_extra_quote_probe")))
     catalog = load_json(os.path.join(md, "catalog.json"), {}) if r3 else {}
     if r3:
         warm_ledger(md)      # food reads the rows only before its talk (shop_pattern): read them while the quotes run
@@ -1704,10 +1616,6 @@ def main():
     if not shops:
         log("[choose] no shops with this order in stock" if r3 else "[choose] no shops in the list")
         if r3:
-            buyer_fresh_rotation.event(order.get("_fresh_rotation"), "terminal",
-                                       state="NO_SHOP_IN_STOCK", passed_to_kit=False)
-            buyer_fresh_rotation.event(order.get("_buyer_bundle"), "terminal",
-                                       state="NO_SHOP_IN_STOCK", passed_to_kit=False)
             order["_stock_terminal_written"] = buyer_stock_evidence.terminal(
                 order.get("_stock_evidence"), state="NO_SHOP_IN_STOCK", passed_to_kit=False)
             records.write(md, "orders", {"order": order.get("order"), "category": order.get("category"), "kind": order.get("kind"),
@@ -1761,13 +1669,8 @@ def main():
         if PREFETCH_QUOTES and not gave_up and k >= 2 and early:
             order["_stock_phase"] = "prefetch"
             pre = {"got": {}, "ctl": quote_ctl(), "asked": {s["name"] for s in early}}
-            pre["threads"] = start_quotes(early, order, args.budget, chance_of, pre["got"], pre["ctl"],
-                                          rule_engine=rule_engine)
+            pre["threads"] = start_quotes(early, order, args.budget, chance_of, pre["got"], pre["ctl"])
             pre["asked"] = set(pre["threads"])  # final validated batch, including a baseline fallback
-            if "_fresh_selection_asked" in order:
-                pre["selection_asked"] = order["_fresh_selection_asked"]
-            if "_bundle_selection_asked" in order:
-                pre["selection_asked"] = order["_bundle_selection_asked"]
             pre["enough"] = lambda: quotes_enough(early, pre["got"], args.budget, buyer_cfg())
             log(f"[quote] asking {', '.join(s['name'] for s in early)} while choosing")
     if gave_up:       # no talk follows, so the harness is not asked to choose either (it took a median 13.4 s)
@@ -1778,9 +1681,9 @@ def main():
             pick = [s for s in left if s["name"] not in rival] or left     # the harness chooses among non-rivals when any
             for attempt in range(ACP_TRIES):
                 try:
-                    if attempt and hurried(pre) and not rule_engine:   # a retry after a shop with no ACP: the quotes decide, no new agent run
+                    if attempt and hurried(pre) and not choose_by_rule():   # a retry after a shop with no ACP: the quotes decide, no new agent run
                         raise HarnessError("the quotes are in")
-                    shop, reason = choose_racing(pick, memory, args.item, args.budget, pre, rule_engine=rule_engine)
+                    shop, reason = choose_racing(pick, memory, args.item, args.budget, pre)
                 except HarnessError as e:
                     unknown = [s for s in pick if not caught_cheating(my_history(memory, s["name"]))] or pick
                     shop, reason = max(unknown, key=lambda s: len(s.get("reviews") or [])), f"harness failed ({e}); most reviewed"
@@ -1802,7 +1705,7 @@ def main():
         try:
             order["_stock_phase"] = "best_quote"
             best, quotes = best_quote(shop, others, order, catalog, args.budget, chance_of, buyer_cfg(), pre=pre, rival=rival,
-                                      rounds=quote_rounds(order), rule_engine=rule_engine) \
+                                      rounds=quote_rounds(order)) \
                 if (pre or time.time() - STARTED < 60) and not gave_up else (shop, {})
         except BaseException:
             close_prefetch(pre)
@@ -1899,13 +1802,11 @@ def main():
                     goods_first_arm or order.get("_one_won_default") or
                     order.get("_goods_extra_quote_probe") or order.get("_quote_alignment") or
                     order.get("_food_quote_yield")), now=time.time(), log=log)
-            result = buyer_cap95_trial.turn(result, history, limit, steps, order=order,
+            return buyer_cap95_trial.turn(result, history, limit, steps, order=order,
                 shop=shop["name"], sku=key, probe=bool(not r3 or discount_arm or probe_arm or
                     goods_first_arm or order.get("_one_won_default") or
                     order.get("_goods_extra_quote_probe") or order.get("_quote_alignment") or
                     order.get("_food_quote_yield")), now=time.time(), log=log)
-            return buyer_bundle_trial.turn(result, meta, text, history, limit, steps,
-                order=order, rule_engine=rule_engine, quoted=q.get("ask") if resume else None)
 
         if steps:
             log(f"[offer] oneshot: {', '.join(f'{s:.2f}' for s in steps)} of the first ask, then the counter, priced by code")
@@ -1980,10 +1881,6 @@ def main():
             buyer_stock_evidence.observe(md, shop, key, ask=asks[-1], snapshot_at=order.get("_stock_snapshot_at"))
         order["_stock_terminal_written"] = buyer_stock_evidence.terminal(
             order.get("_stock_evidence"), state=out.get("state"), passed_to_kit=result.get("receipt") is not None)
-        buyer_fresh_rotation.event(order.get("_fresh_rotation"), "terminal",
-                                   state=out.get("state"), passed_to_kit=result.get("receipt") is not None)
-        buyer_fresh_rotation.event(order.get("_buyer_bundle"), "terminal",
-                                   state=out.get("state"), passed_to_kit=result.get("receipt") is not None)
         try:
             records.write(md, "orders", {**order_record(order, args, shops, quotes, first_choice, first_reason, shop, reason, offer,
                                                         limit, chance, out, rec, result, problems, warnings, short, why, stages,
