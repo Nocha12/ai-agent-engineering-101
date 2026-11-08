@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 import threading
 import time
@@ -17,6 +18,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 import seller
+import harness
 import shop_memory
 from shop_stock import StockBook
 
@@ -85,6 +87,17 @@ def protected_state():
 
 class WarrantyTrialTest(unittest.TestCase):
     def setUp(self):
+        # Guard both the imported alias and the harness entry point: a swallowed
+        # exception must still fail cleanup's zero-call assertion.
+        self.external_guards = []
+        for target, name in ((seller, "ask"), (harness, "ask"), (subprocess, "Popen")):
+            blocked = mock.Mock(side_effect=AssertionError(
+                f"warranty tests must not call {target.__name__}.{name}"))
+            patch = mock.patch.object(target, name, blocked)
+            patch.start()
+            self.addCleanup(patch.stop)
+            self.addCleanup(blocked.assert_not_called)
+            self.external_guards.append(blocked)
         before = protected_state()
         self.addCleanup(lambda: self.assertEqual(protected_state(), before))
         failures = list(seller.MEMORY_FAILURES)
@@ -292,6 +305,12 @@ class WarrantyTrialTest(unittest.TestCase):
     def test_request_variants_keep_72h_through_first_or_followup_acceptance(self):
         from google.protobuf.json_format import MessageToDict
 
+        # A free-text request has no price offer. Stub only the model decision;
+        # keep request detection, the numeric acceptance and receipt creation real.
+        decision = mock.patch.object(seller, "decide_turn", return_value=dict(
+            buyer_offer=0, action="counter", price=0, message="Fixture reply."))
+        decision.start()
+        self.addCleanup(decision.stop)
         self.pricing.write_text(json.dumps({"warranty_hours": 0}))
         for request in WARRANTY_REQUESTS:
             for followup in (False, True):
@@ -317,6 +336,8 @@ class WarrantyTrialTest(unittest.TestCase):
                     receipt = MessageToDict(up.add_artifact.call_args.kwargs["parts"][0].data)
                     self.assertEqual(receipt["warranty_hours"], 72)
                     self.assertEqual(self.rows()[-1]["arm"], "control")
+                    for blocked in self.external_guards:
+                        blocked.assert_not_called()
 
     def test_unit_assignment_is_deterministic_across_tasks_and_share_endpoints(self):
         self.write_config(share=0.5)
