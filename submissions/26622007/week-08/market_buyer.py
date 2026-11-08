@@ -718,20 +718,26 @@ def warranty_short(rec, order):
     return None if w >= need else f"warranty {w} h, I buy goods only with {need} h"
 
 
+def short_terms(order, md, catalog, key, shop=None):
+    """(list price, {grade: b}) a short-warranty deal is checked at: the kit pays a checkout for any of the order's
+    acceptable SKUs at the agreed price, so the cheapest list of them counts, and the shop picks the unit, so each grade
+    at the worst of those SKUs' chance. The receipt check and the talk's cap (short_cap) both use this."""
+    skus = {key} | {o.get("sku") for o in (shop or {}).get("usable") or [] if o.get("sku")} \
+        | {s for s in (order or {}).get("acceptable") or [] if isinstance(s, str)}
+    stats = ledger_breaks(md, catalog)
+    lp, _ = buyer_short_warranty.worst([(catalog.get(s) or {}).get("list_price") for s in skus], [])
+    by_grade = {g: buyer_short_warranty.worst([], [market_model.unit_break_chance(stats, s, g) if stats else None
+                                                    for s in skus])[1] for g in buyer_short_warranty.GRADES}
+    return lp, by_grade
+
+
 def short_warranty_receipt(rec, order, md, catalog, key, chance, short, shop=None):
     """buyer_short_warranty on: None when this short-warranty receipt is within p_max(h) of its SKU and the hour's
     exposure (order["_sw_buy"] then says so), else short with the reason added. Fails closed."""
     try:
-        # the kit pays a checkout for any of the order's acceptable SKUs at the agreed price: the worst of them counts
-        skus = {rec.get("item") or key} | {o.get("sku") for o in (shop or {}).get("usable") or [] if o.get("sku")} \
-            | {s for s in order.get("acceptable") or [] if isinstance(s, str)}
-        stats = ledger_breaks(md, catalog)
-        lp, _ = buyer_short_warranty.worst([(catalog.get(s) or {}).get("list_price") for s in skus], [])
+        lp, by_grade = short_terms(order, md, catalog, rec.get("item") or key, shop)
         w = rec.get("warranty_hours")
         h = w if hard_limits.number(w) and w > 0 else 0
-        # the shop picks the unit: each grade at the worst of its SKUs' chance; only grades that keep S are accepted
-        by_grade = {g: buyer_short_warranty.worst([], [market_model.unit_break_chance(stats, s, g) if stats else None
-                                                        for s in skus])[1] for g in buyer_short_warranty.GRADES}
         grades, b = buyer_short_warranty.grades_ok(rec.get("price"), lp, h, order["_sw"]["S"], by_grade)
         if not grades:
             b = max(by_grade.values())
@@ -751,11 +757,24 @@ def short_warranty_receipt(rec, order, md, catalog, key, chance, short, shop=Non
 TEXT_ASK_MIN_SHARE = 0.05   # a text ask under 5% of list is taken for a misread (a cut "list price 28900"), not a price
 
 
+LOWEST_PRICE = re.compile(r"Our lowest price for this unit: ([1-9][0-9]{0,11})\. Reply ok to take it\.")
+
+
+def lowest_price_said(text):
+    """The ask of a quote that is only "Our lowest price for this unit: N. Reply ok to take it." (ggari-shop): 55 quotes
+    in 6 h to 11/08 20:31 had no ask, 36 within my limit, in 16 unpaid orders (GPT Pro 19:53 §2.3). That one sentence
+    only, whole; any other text is left to buyer.text_ask."""
+    m = LOWEST_PRICE.fullmatch((text or "").strip())
+    return int(m.group(1)) if m else None
+
+
 def text_ask_checked(text, shop):
     """buyer.text_ask, kept only when it is a believable price for the SKU quoted (5% to 100% of its list price, and no
     other SKU named in the text). 214 of 214 quotes with both a metadata ask and one text ask agreed (GPT Pro 13:30). The talk
     still reads the shop's price from its text, and the receipt price is what is paid, so a wrong number only misranks."""
     v = buyer_text_ask(text)
+    if v is None:
+        v = lowest_price_said(text)
     o = shop.get("_offer") or {}
     lp = o.get("list_price")
     if v is None or not isinstance(lp, (int, float)) or lp <= 0:
@@ -1223,11 +1242,34 @@ def choose_racing(pick, memory, item, budget, pre):
     return box["r"]
 
 
-def short_cap(o, b, order, name, q):
-    """buyer_short_warranty's cap for a shop expected to give a short warranty on this order, else None."""
+_SW_CTX = {}     # {"md", "catalog"} of this run, set by main() when buyer_short_warranty is on
+
+
+def short_cap(o, b, order, name, q, shop=None):
+    """buyer_short_warranty's cap for a shop expected to give a short warranty on this order, else None: the highest
+    price the receipt check passes (short_terms; the grade of least chance, as grades_ok takes any grade that keeps S).
+    11/08 19:32-20:00 the cap was p_max of the quoted SKU's list and chance, and 12 of 21 ddolcom orders agreed grade C
+    units at 60% of list that the receipt check then refused. A check that fails gives 0: nothing fits."""
     sw = (order or {}).get("_sw")
     h = buyer_short_warranty.hours_for(sw, name, q)
-    return None if h is None else buyer_short_warranty.cap(o["list_price"], h, b, sw["S"])
+    if h is None:
+        return None
+    if not _SW_CTX.get("catalog"):
+        return buyer_short_warranty.cap(o["list_price"], h, b, sw["S"])
+    try:
+        lp, by_grade = short_terms(order, _SW_CTX.get("md"), _SW_CTX["catalog"], o["sku"], shop)
+        bs = {g: min(c, 1.0) if hard_limits.number(c) and c >= 0 else buyer_short_warranty.FALLBACK_BREAK
+              for g, c in by_grade.items()}
+        # one grade the quote names (ddolcom "Grade C (refurbished)", oneshot "grade C") is the unit offered: its chance;
+        # none or several ("we also have a cheaper (grade C) one"): the least, as grades_ok takes any grade that keeps S
+        # (the kit then checks the unit's grade against accept.grades). quote() keeps 300 characters of the text.
+        said = {g.upper() for g in re.findall(r"(?i)\bgrade ([abc])\b", (q or {}).get("text") or "")}
+        b_cap = bs[next(iter(said))] if len(said) == 1 and next(iter(said)) in bs \
+            else min(bs.values(), default=buyer_short_warranty.FALLBACK_BREAK)
+        return buyer_short_warranty.cap(lp, h, b_cap, sw["S"])
+    except Exception as e:  # noqa: BLE001 - fails closed
+        log(f"[short-warranty] cap for {name} failed: {type(e).__name__}: {e}")
+        return 0
 
 
 def quotes_enough(shops, got, budget, cfg, order=None):
@@ -1239,7 +1281,7 @@ def quotes_enough(shops, got, budget, cfg, order=None):
             continue
         asks += 1
         b = s.get("_b") or 0
-        sc = short_cap(o, s.get("_b"), order, s["name"], q)
+        sc = short_cap(o, s.get("_b"), order, s["name"], q, s)
         fit = fit or q["ask"] <= min(value_limit(o, budget, b, cfg), saved_cap(o, b), *([sc] if sc is not None else []))
     return asks >= QUOTE_ENOUGH and fit
 
@@ -1285,7 +1327,7 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
         """The opening ask is within what I would pay that shop: it can close now, so it goes before any ask above it."""
         o = s["_offer"]
         b = chance_of(o["sku"]) or 0
-        sc = short_cap(o, chance_of(o["sku"]), order, s["name"], got[s["name"]])
+        sc = short_cap(o, chance_of(o["sku"]), order, s["name"], got[s["name"]], s)
         return got[s["name"]]["ask"] <= min(value_limit(o, budget, b, cfg), saved_cap(o, b), *([sc] if sc is not None else []))
     extra = order.get("kind") == "goods" and order.get("_goods_extra_quote_probe") == "B" and rounds == 1 and not late
     for r in range(rounds + int(extra)):
@@ -1648,6 +1690,8 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         o = s.get("_offer") or {}
         ask_ = q.get("ask")
         lim = min(value_limit(o, args.budget, 0, buyer_cfg()), saved_cap(o, s.get("_b", 0))) if o.get("list_price") else None
+        sc = short_cap(o, s.get("_b"), order, s["name"], q, s) if lim is not None else None
+        lim = lim if sc is None else min(lim, sc)     # the quote is recorded against the cap the choice used
         lost = None if s["name"] == best else (
             "refused: " + q["refused"] if q.get("refused") else "no ask (no free unit or no answer)" if not isinstance(ask_, (int, float))
             else "over my limit (budget / share / deal cap)" if lim is not None and ask_ > lim
@@ -1780,8 +1824,10 @@ def main():
     except Exception as e:  # noqa: BLE001 - the switch never ends the run: off
         log(f"[short-warranty] switch read failed: {type(e).__name__}: {e}")
         sw = None
+    _SW_CTX.clear()
     if sw is not None:
         order["_sw"] = sw
+        _SW_CTX.update(md=md, catalog=catalog)
         log(f"[short-warranty] on: S {order['_sw']['S']:.4f}, goods with a short warranty priced at p_max(h)")
     rk = buyer_rank_pg.state(md, order) if r3 else None
     if rk is not None:
@@ -1876,10 +1922,10 @@ def main():
     band_base, band_pct = accept_percent(md, shop["name"], offer, chance, limit, args.budget) if r3 else (None, None)
     sw_h = buyer_short_warranty.hours_for(order.get("_sw"), shop["name"], quotes.get(shop["name"])) if r3 else None
     if sw_h is not None:      # a short warranty expected: p_max(h) is the ceiling, no accept band (owner 7955)
-        limit = min(limit, buyer_short_warranty.cap(offer["list_price"], sw_h, chance, order["_sw"]["S"]))
+        limit = min(limit, short_cap(offer, chance, order, shop["name"], quotes.get(shop["name"]), shop))
         band_base, band_pct = None, None
         order["_sw_h_est"] = sw_h
-        log(f"[short-warranty] {shop['name']} expected {sw_h:g} h: limit {limit}")
+        log(f"[short-warranty] {shop['name']} expected {sw_h:g} h: limit {limit} (the receipt check's list and grade chance)")
     top = buyer_accept_band.ceiling(limit, args.budget, band_pct, value_limit(offer, args.budget, chance, buyer_cfg())) \
         if r3 else limit
     mine = my_history(memory, shop["name"])
