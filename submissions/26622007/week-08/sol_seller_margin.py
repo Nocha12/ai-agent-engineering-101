@@ -12,15 +12,50 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import sys
 import time
 
 import profit_price
+import hard_limits
 
-VERSION = 1
+VERSION = 2
+COMMON_ADOPTED = {'seller_late_concession', 'at_floor_exact_trial', 'exact_counter_trial', 'exact_accept_trial'}
+SOURCE_FILES = ('sol_seller_margin.py', 'seller.py', 'profit_price.py', 'hard_limits.py',
+                'shop_stock.py', 'shop_memory.py', 'seller_opening_default.py',
+                'seller_concession_trial.py', 'seller_reader_trial.py', 'seller_late_concession.py',
+                'at_floor_exact_trial.py', 'exact_counter_trial.py', 'exact_accept_trial.py',
+                'seller_opening_cue.py', 'seller_late_speed.py', 'seller_jev_transport.py',
+                'shelf_life_reply.py', 'seller_grade_preference.py', 'food_opening_trial.py',
+                'deep_lowball_trial.py', 'quote_hold.py', 'negotiate.py', 'fast_classify.py')
+
+
+def digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
+
+
+def source_manifest():
+    return {name: hashlib.sha256((Path(__file__).parent/name).read_bytes()).hexdigest() for name in SOURCE_FILES}
+
+
+LOADED_SOURCES = source_manifest()
 # Capture at import, never claim a long-running process loaded edited disk code.
-SOURCE_BINDING = hashlib.sha256(b''.join(
-    (Path(__file__).parent/name).read_bytes()
-    for name in ('sol_seller_margin.py', 'seller.py', 'profit_price.py'))).hexdigest()
+SOURCE_BINDING = digest(LOADED_SOURCES)
+
+
+def baseline_snapshot(pricing, others=()):
+    effective = dict(pricing or {})
+    effective['price'] = profit_price.cfg_of(pricing)
+    effective['warranty'] = hard_limits.clamp_cfg('warranty', {
+        **hard_limits.SAFE['warranty'], **(effective.get('warranty') or {})})
+    effective['markdown'] = hard_limits.clamp_cfg('markdown', effective.get('markdown') or {})
+    policies = {}
+    for peer in others:
+        name = type(peer).__module__+'.'+type(peer).__name__
+        policies[name] = dict(adopted=(peer.root/'adopted').is_file(),
+                              disabled=(peer.root/'disabled').exists(),
+                              version='adopted-v1',
+                              opening_disabled=(peer.root/'seller_opening_default.disabled').exists())
+    return dict(pricing=effective, policies=policies, sources=LOADED_SOURCES)
 
 
 class StudyError(RuntimeError):
@@ -33,8 +68,9 @@ def number(v):
 
 class MarginStudy:
     def __init__(self, root=None):
+        self.observation_unknown = 0
         self.root = Path(root) if root is not None else Path(
-            os.environ.get('MARKET_DIR') or Path(__file__).parent/'.market')/'sol_seller_margin_v1'
+            os.environ.get('MARKET_DIR') or Path(__file__).parent/'.market')/'sol_seller_margin_v2'
 
     def config(self, now=None):
         now = time.time() if now is None else now
@@ -49,7 +85,8 @@ class MarginStudy:
                 raise ValueError('enabled')
             if c['enabled'] is False:
                 return None
-            if set(c) != {'enabled', 'version', 'study_id', 'epoch', 'start', 'end', 'salt', 'source_sha256'}:
+            if set(c) != {'enabled', 'version', 'study_id', 'epoch', 'start', 'end', 'salt', 'source_sha256',
+                          'baseline', 'baseline_sha256'}:
                 raise ValueError('schema')
             if type(c['version']) is not int or c['version'] != VERSION:
                 raise ValueError('version')
@@ -62,6 +99,8 @@ class MarginStudy:
                 raise ValueError('window')
             if c['source_sha256'] != SOURCE_BINDING:
                 raise ValueError('source_binding')
+            if not isinstance(c['baseline'], dict) or digest(c['baseline']) != c['baseline_sha256']:
+                raise ValueError('baseline_signature')
             return c if c['start'] <= now < c['end'] else None
         except (OSError, ValueError, TypeError, KeyError) as exc:
             raise StudyError('margin controller invalid') from exc
@@ -70,9 +109,10 @@ class MarginStudy:
     def peer_active(controller, now):
         if (controller.root/'disabled').exists():
             return False
-        # Adopted interventions other than the common opening default also conflict.
         if (controller.root/'adopted').is_file():
-            return True
+            return type(controller).__module__ not in COMMON_ADOPTED
+        if type(controller).__module__ == 'seller_opening_default':
+            return False
         cfg = controller.config()
         if not cfg or cfg.get('stop'):
             return False
@@ -98,7 +138,7 @@ class MarginStudy:
         db.execute('CREATE TABLE IF NOT EXISTS events (task TEXT, event TEXT, at REAL, data TEXT)')
         return db
 
-    def quote(self, task, unit, median, measured, paid, pricing, now=None):
+    def quote(self, task, unit, median, measured, paid, pricing, now=None, others=()):
         """Real price seam; A retains round(), B changes only high_median_up.factor.
 
         The caller supplies the same ledger median/risk/history to both policies.
@@ -120,18 +160,20 @@ class MarginStudy:
             if not isinstance(task, str) or not task or len(task) > 128:
                 raise StudyError('invalid task')
             cluster = [unit.get('sku'), unit.get('grade')]
-            if not all(isinstance(v, str) and v for v in cluster):
-                raise StudyError('missing assignment unit')
+            known_grade = unit.get('grade') in ('A', 'B', 'C')
             scarce_asks = profit_price.cfg_of(pricing).get('scarce_asks')
             scarce = scarce_asks.get(unit.get('sku')) if isinstance(scarce_asks, dict) else None
             scarce_fixed = number(scarce) and scarce > 0
             # Record excluded selections, but compare only non-scarce high goods.
             high_goods = unit.get('kind') == 'goods' and (unit.get('list_price') or 0) >= 300000
-            eligible = high_goods and not scarce_fixed
+            eligible = high_goods and not scarce_fixed and known_grade
+            if eligible:
+                self.verify_baseline(task, c, pricing, others)
             arm = 'B' if hashlib.sha256(json.dumps(
                 [c['salt'], *cluster], separators=(',', ':')).encode()).digest()[0] < 128 else 'A'
             candidate = q
-            reason = 'scarce_fixed_ask' if high_goods and scarce_fixed else 'outside_target'
+            reason = ('outside_target' if not high_goods else 'scarce_fixed_ask' if scarce_fixed
+                      else 'grade_unknown' if not known_grade else 'outside_target')
             if eligible:
                 reason = 'no_median'
                 if number(median) and median > 0:
@@ -146,6 +188,7 @@ class MarginStudy:
                        unit=unit.get('unit'), sku=unit.get('sku'), grade=unit.get('grade'),
                        cost=unit.get('cost'), list_price=unit.get('list_price'), kind=unit.get('kind'),
                        median=median, floor=q['floor'], b=q['b'], eligible=eligible, arm=arm,
+                       baseline_sha256=c['baseline_sha256'],
                        baseline=q['open'], candidate=candidate['open'], selected=chosen['open'],
                        prepared_treatment=changed, reason=reason)
             encoded = json.dumps(rec, sort_keys=True, allow_nan=False)
@@ -158,11 +201,10 @@ class MarginStudy:
                 db.execute('INSERT OR IGNORE INTO study VALUES (?,?)', (c['study_id'], config))
                 old = db.execute('SELECT data FROM observations WHERE task=?', (task,)).fetchone()
                 if old:
-                    prior = json.loads(old[0])
-                    # Idempotence only for the identical input and cohort. No repricing retry.
-                    if {k:v for k,v in prior.items() if k != 'at'} != {k:v for k,v in rec.items() if k != 'at'}:
-                        raise StudyError('task snapshot changed')
-                    rec = prior
+                    # A restarted process cannot know that an earlier prepared quote
+                    # was published. Existing public talks stay in Seller.open; a
+                    # second first-quote call must never reconsume this task's B.
+                    raise StudyError('task already prepared; publication not resumed')
                 else:
                     db.execute('INSERT INTO observations VALUES (?,?)', (task, encoded))
             return chosen, rec
@@ -179,7 +221,16 @@ class MarginStudy:
         if c:
             self.event(task, dict(study_id=c['study_id'], epoch=c['epoch']), 'selection_miss', now=now)
 
-    def ready(self, task, assignment, deal, keep, others=(), now=None):
+    def verify_baseline(self, task, cfg, pricing, others):
+        if (source_manifest() != LOADED_SOURCES or
+                digest(baseline_snapshot(pricing, others)) != cfg['baseline_sha256']):
+            try:
+                self.event(task, cfg, 'paused', reason='baseline_changed', economic_status='unknown')
+            except StudyError:
+                print('SOL_MARGIN paused unknown journal_unavailable', file=sys.stderr)
+            raise StudyError('baseline changed; paused unknown')
+
+    def ready(self, task, assignment, deal, keep, others=(), now=None, pricing=None, pricing_loader=None):
         """Durable final price before publication; common markdown/opening stay common."""
         if not assignment:
             return
@@ -188,6 +239,12 @@ class MarginStudy:
         if (not c or any(c[k] != assignment[k] for k in ('study_id', 'epoch', 'salt', 'source_sha256'))
                 or not self.pre_pick_ok(others, now)):
             raise StudyError('study changed before quote consumption')
+        if assignment['eligible']:
+            if pricing_loader is not None:
+                pricing = pricing_loader()
+            self.verify_baseline(task, c, pricing, others)
+            if assignment['baseline_sha256'] != c['baseline_sha256']:
+                raise StudyError('assignment baseline changed')
         baseline = assignment['baseline']
         if keep < 1:
             baseline = max(deal['reserve'], round(baseline*keep))
@@ -217,16 +274,53 @@ class MarginStudy:
         path = self.root/'journal.sqlite3'
         if not path.exists():
             return []
-        with closing(sqlite3.connect(path.resolve().as_uri()+'?mode=ro', uri=True)) as db:
+        with closing(self._read_snapshot(path)) as db:
             return [json.loads(row[0]) for row in db.execute('SELECT data FROM observations ORDER BY task')]
+
+    def observe_event(self, task, assignment, event, now=None, **data):
+        """Post-publication observation failure never blocks common trade persistence."""
+        try:
+            self.event(task, assignment, event, now, **data)
+            return True
+        except Exception:
+            self.observation_unknown += 1
+            print('SOL_MARGIN observation unknown journal_unavailable', file=sys.stderr)
+            return False
 
     def events(self):
         path = self.root/'journal.sqlite3'
         if not path.exists():
             return []
-        with closing(sqlite3.connect(path.resolve().as_uri()+'?mode=ro', uri=True)) as db:
+        with closing(self._read_snapshot(path)) as db:
             return [dict(task=task, event=event, at=at, **json.loads(data))
                     for task,event,at,data in db.execute('SELECT task,event,at,data FROM events ORDER BY rowid')]
+
+    def _read_snapshot(self, path):
+        """Read an existing stable journal into a query-only in-memory database.
+
+        No URI interpretation, file creation or writable connection to the journal.
+        A moving/incomplete snapshot fails explicitly instead of returning counts.
+        """
+        if self.root.is_symlink() or path.is_symlink():
+            raise StudyError('reader symlink')
+        sidecars = [Path(str(path)+suffix) for suffix in ('-journal', '-wal', '-shm')]
+        if any(p.exists() or p.is_symlink() for p in sidecars):
+            raise StudyError('reader transaction state unknown')
+        before = path.stat()
+        data = path.read_bytes()
+        after = path.stat()
+        if (before.st_ino, before.st_mtime_ns, before.st_size) != (after.st_ino, after.st_mtime_ns, after.st_size):
+            raise StudyError('reader snapshot changed')
+        if any(p.exists() or p.is_symlink() for p in sidecars):
+            raise StudyError('reader transaction state unknown')
+        db = sqlite3.connect(':memory:')
+        try:
+            db.deserialize(data)
+            db.execute('PRAGMA query_only=ON')
+            return db
+        except Exception:
+            db.close()
+            raise
 
 
 def exact_outcome(task, payments, ledger, shop):
@@ -236,17 +330,47 @@ def exact_outcome(task, payments, ledger, shop):
     Result.receipt.task joins seller task to order; no fuzzy unit/time matching.
     Missing buyer payment evidence stays unknown, even with a settle row.
     """
-    if not isinstance(shop, str) or not shop or not isinstance(payments, list):
-        return dict(status='unknown', reason='input_schema')
-    rows = []
+    # Identity is trusted caller input, never derived from a buyer message/result.
+    # The parent must verify this alias/URL mapping against existing authoritative
+    # registration/source evidence and retain that evidence under its digest.
+    identity_sha = None
+    alias = shop
+    if isinstance(shop, dict):
+        binding = shop
+        shop, alias = binding.get('ledger_url'), binding.get('receipt_alias')
+        identity_sha = binding.get('evidence_sha256')
+        if (binding.get('provenance') != 'parent-verified-shop-binding'
+                or not isinstance(alias, str) or not alias or not isinstance(identity_sha, str)
+                or not re.fullmatch('[0-9a-f]{64}', identity_sha)):
+            return dict(status='unknown', reason='shop_binding_unverified')
+    if not isinstance(shop, str) or not shop or not isinstance(payments, list) or not isinstance(ledger, (list, tuple)):
+        return dict(status='unknown', reason='input_schema', valid_rows=0)
+    rows, errors, seen = [], 0, set()
     for r in ledger:
         if not isinstance(r, dict):
-            return dict(status='unknown', reason='ledger_schema')
-        if isinstance(r.get('data'), dict) and 'kind' in r:
-            if 'seq' not in r or 'ts' not in r:
-                return dict(status='unknown', reason='ledger_schema')
+            errors += 1
+            continue
+        if 'kind' in r:
+            if not isinstance(r.get('data'), dict) or 'seq' not in r or 'ts' not in r:
+                errors += 1
+                continue
             r = dict(r['data'], k=r['kind'], seq=r['seq'], ts=r['ts'])
+        seq = r.get('seq')
+        if type(seq) is not int or seq <= 0 or not number(r.get('ts')) or seq in seen:
+            errors += 1
+            continue
+        seen.add(seq)
+        if r.get('k') in ('result', 'settle', 'broken') and any(
+                not isinstance(r.get(k), str) or not r[k] for k in ('order', 'buyer', 'shop')):
+            errors += 1
+            continue
+        if r.get('k') == 'result' and not isinstance(r.get('receipt'), dict):
+            errors += 1
+            continue
         rows.append(r)
+    if errors:
+        # Preserve later valid rows for audit; never certify economics with corrupt coverage.
+        return dict(status='unknown', reason='ledger_schema_or_duplicate', valid_rows=len(rows), schema_errors=errors)
     results = [r for r in rows if r.get('k') == 'result' and r.get('shop') == shop
                and isinstance(r.get('receipt'), dict) and r['receipt'].get('task') == task]
     keys = {(r.get('order'), r.get('buyer')) for r in results}
@@ -255,25 +379,40 @@ def exact_outcome(task, payments, ledger, shop):
     order, buyer = next(iter(keys))
     if not isinstance(order, str) or not isinstance(buyer, str):
         return dict(status='unknown', reason='identity_missing')
+    receipt = results[0]['receipt']
+    official = dict(status='unknown', reason='verified_unique_settle_missing')
+    matched = [r for r in rows if r.get('k') == 'settle'
+               and all(r.get(k) == v for k, v in dict(order=order, buyer=buyer, shop=shop).items())]
+    if (all(r.get('verified') is True and r['receipt'].get('shop') == alias
+            and r['receipt'].get('price') == receipt.get('price') for r in results)
+            and number(receipt.get('price')) and receipt['price'] > 0 and len(matched) == 1
+            and number(matched[0].get('amount')) and matched[0]['amount'] == receipt['price']):
+        official = dict(status='observed', seq=matched[0]['seq'], amount=matched[0]['amount'],
+                        at=matched[0]['ts'], identity_evidence_sha256=identity_sha)
+
+    def outcome(**fields):
+        return dict(fields, official_settle=official)
+
     if any(not isinstance(p, dict) for p in payments):
-        return dict(status='unknown', reason='payment_schema')
+        return outcome(status='unknown', reason='payment_schema')
     ps = [p for p in payments if p.get('order') == order]
     p = ps[-1] if ps else {}
     if p.get('paid') is False:
-        return dict(status='refused', order=order)
+        return outcome(status='refused', order=order)
     seq = p.get('ledger')
     if isinstance(seq, str) and seq.isdigit():
         seq = int(seq)
     settles = [r for r in rows if r.get('k') == 'settle' and type(r.get('seq')) is int and r['seq'] == seq]
     if (p.get('paid') is not True or type(seq) is not int or len(settles) != 1
             or not number(p.get('price')) or p['price'] <= 0):
-        return dict(status='unknown', reason='payment_or_settle_missing')
+        return outcome(status='unknown', reason='payment_or_settle_missing')
     s = settles[0]
-    if any(r.get('verified') is not True or r['receipt'].get('shop') != shop
+    if any(r.get('verified') is not True or r['receipt'].get('shop') != alias
            or r['receipt'].get('price') != p['price'] for r in results):
-        return dict(status='unknown', reason='result_receipt_unverified_or_mismatch')
+        return outcome(status='unknown', reason='result_receipt_unverified_or_mismatch')
     if not number(s.get('amount')) or any(s.get(k) != v for k,v in dict(order=order, buyer=buyer, shop=shop, amount=p['price']).items()):
-        return dict(status='unknown', reason='settle_mismatch')
-    return dict(status='confirmed', order=order, seq=seq, price=p['price'], at=s.get('ts'),
+        return outcome(status='unknown', reason='settle_mismatch')
+    return outcome(status='confirmed', order=order, seq=seq, price=p['price'], at=s.get('ts'),
+                identity_evidence_sha256=identity_sha,
                 broken=[r['seq'] for r in rows if r.get('k') == 'broken' and r.get('order') == order
                         and r.get('buyer') == buyer and r.get('shop') == shop])

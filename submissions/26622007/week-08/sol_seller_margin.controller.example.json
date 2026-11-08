@@ -1,10 +1,12 @@
 {
   "enabled": false,
-  "version": 1,
+  "version": 2,
   "study_id": "REPLACE_WITH_FRESH_STUDY_ID",
   "epoch": null,
   "start": null,
   "end": null,
   "salt": "REPLACE_WITH_FRESH_RANDOM_SALT",
-  "source_sha256": "REPLACE_WITH_LOADED_SELLER_BINDING"
+  "source_sha256": "REPLACE_WITH_LOADED_SELLER_BINDING",
+  "baseline": {},
+  "baseline_sha256": "REPLACE_WITH_EFFECTIVE_BASELINE_DIGEST"
 }

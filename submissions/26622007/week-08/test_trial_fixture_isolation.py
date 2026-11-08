@@ -44,16 +44,18 @@ class FixtureIsolation(unittest.TestCase):
                      end=now+1790, seed=7)))
             margin = controls['MARGIN_STUDY']
             margin.root.mkdir(parents=True, exist_ok=True)
+            pricing = dict(price=dict(high_median_up=dict(min_list=300000, factor=.97),
+                                      high_price_trial=dict(share=0)))
+            baseline = seller.sol_seller_margin.baseline_snapshot(pricing)
             (margin.root/'controller.json').write_text(json.dumps(dict(
-                enabled=True, version=1, study_id='ambient-margin-regression',
+                enabled=True, version=seller.sol_seller_margin.VERSION, study_id='ambient-margin-regression',
                 epoch=now-10, start=now-10, end=now+43190,
                 salt='ambient-margin-regression-salt',
-                source_sha256=seller.sol_seller_margin.SOURCE_BINDING)))
+                source_sha256=seller.sol_seller_margin.SOURCE_BINDING,
+                baseline=baseline, baseline_sha256=seller.sol_seller_margin.digest(baseline))))
             margin.quote('ambient-fixture-task', dict(unit='u-anonymous', sku='G00000000',
                          grade='A', kind='goods', cost=100000, list_price=500000),
-                         300000, .04, (), dict(price=dict(
-                             high_median_up=dict(min_list=300000, factor=.97),
-                             high_price_trial=dict(share=0))), now=now)
+                         300000, .04, (), pricing, now=now)
             for name, value in controls.items():
                 stack.enter_context(patch.object(seller, name, value))
             before = manifest(outside)
