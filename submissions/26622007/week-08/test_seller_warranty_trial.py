@@ -4,10 +4,13 @@ Run with python -m unittest test_seller_warranty_trial in an offline source/stat
 """
 import copy
 import asyncio
+import hashlib
 import json
 import os
 from pathlib import Path
 import tempfile
+import threading
+import time
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -25,11 +28,41 @@ UNIT = dict(unit="unit-fixture-c", sku="G00000001", name="fixture box",
             cert={"cert": {"unit": "unit-fixture-c", "grade": "C"}, "sig": "fixture"})
 
 
+def protected_state():
+    """Hash only: tests must leave the imported seller's real state untouched."""
+    base = Path(seller.__file__).parent
+    paths = {base / ".market", base / "memory", Path(shop_memory.MEMORY), Path(shop_memory.MEMORY_R3)}
+    paths.update(controller.root for controller in vars(seller).values()
+                 if hasattr(controller, "root") and isinstance(controller.root, Path))
+    result = []
+    for root in sorted(paths):
+        entries = sorted(root.rglob("*")) if root.is_dir() else [root]
+        result.append((str(root), root.exists()))
+        for path in entries:
+            if path.is_file():
+                data = path.read_bytes()
+                result.append((str(path), hashlib.sha256(data).hexdigest(), data.count(b"\n")))
+    return result
+
+
 class WarrantyTrialTest(unittest.TestCase):
     def setUp(self):
+        before = protected_state()
+        self.addCleanup(lambda: self.assertEqual(protected_state(), before))
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
+        for name in ("READER_TRIAL", "CONCESSION_TRIAL", "LATE_CONCESSION",
+                     "OPENING_DEFAULT", "DRAIN", "OPENING_CUE", "LATE_SPEED",
+                     "JEV_TRANSPORT", "SHELF_REPLY", "EXACT_ACCEPT", "EXACT_COUNTER",
+                     "GRADE_PREFERENCE", "FOOD_OPENING", "AT_FLOOR_EXACT", "DEEP_LOWBALL", "QUOTE_HOLD"):
+            patch = mock.patch.object(seller, name, type(getattr(seller, name))(root=self.root / "controllers"))
+            patch.start()
+            self.addCleanup(patch.stop)
+        for name in ("MEMORY", "MEMORY_R3"):
+            patch = mock.patch.object(shop_memory, name, str(self.root / (name + ".json")))
+            patch.start()
+            self.addCleanup(patch.stop)
         self.config = self.root / "seller_warranty_trial.json"
         self.market = self.root / "market"
         self.pricing = self.root / "pricing.json"
@@ -68,6 +101,14 @@ class WarrantyTrialTest(unittest.TestCase):
         path = self.market / "measure" / "seller_warranty_trial.jsonl"
         return [json.loads(line) for line in path.read_text().splitlines()]
 
+    def test_all_controller_roots_are_temporary_before_opening(self):
+        for name in ("READER_TRIAL", "CONCESSION_TRIAL", "LATE_CONCESSION",
+                     "OPENING_DEFAULT", "DRAIN", "OPENING_CUE", "LATE_SPEED",
+                     "JEV_TRANSPORT", "SHELF_REPLY", "EXACT_ACCEPT", "EXACT_COUNTER",
+                     "GRADE_PREFERENCE", "FOOD_OPENING", "AT_FLOOR_EXACT", "DEEP_LOWBALL", "QUOTE_HOLD"):
+            with self.subTest(controller=name):
+                self.assertTrue(getattr(seller, name).root.is_relative_to(self.root))
+
     def test_treatment_discloses_as_is_and_receipt_omits_warranty_even_with_pricing_fallback(self):
         deal = self.deal()
         prices = {key: copy.deepcopy(deal[key]) for key in deal}
@@ -80,7 +121,6 @@ class WarrantyTrialTest(unittest.TestCase):
     def test_later_turn_keeps_terms_then_warranty_request_permanently_restores_control(self):
         deal = self.deal()
         self.quote(deal)
-        self.write_config(enabled=False)
         self.shop.warranty_terms(deal, "I offer 9000", task_id="task-fixture")
         self.assertNotIn("warranty_hours", self.shop.stock_receipt("task-fixture", deal, 9000))
         note = self.shop.warranty_terms(deal, "Please give a 6 hours warranty", task_id="task-fixture")
@@ -112,7 +152,8 @@ class WarrantyTrialTest(unittest.TestCase):
                 deal = self.deal()
                 self.assertIn("72 h warranty", self.quote(deal))
                 self.assertEqual(self.shop.stock_receipt("task-fixture", deal, 9000)["warranty_hours"], 72)
-                self.assertEqual(self.rows()[-1]["arm"], "control")
+                self.assertNotIn("warranty_trial", deal)
+                self.assertFalse(self.market.exists())
 
     def test_other_grades_requests_existing_terms_and_unknowns_keep_baseline(self):
         for grade in ("A", "B", None, "Q"):
@@ -141,6 +182,22 @@ class WarrantyTrialTest(unittest.TestCase):
         deal = self.deal(kind="food")
         self.assertIsNone(self.quote(deal))
         self.assertNotIn("warranty_hours", self.shop.stock_receipt("task-fixture", deal, 9000))
+
+    def test_refund_breakage_and_hour_variants_exclude_first_and_followup_quotes(self):
+        requests = ("full refund if it breaks within 6 hrs.", "warrant", "guarantee", "refund",
+                    "break", "broke", "broken", "defect", "6 hr", "6 hour", "6 h", "6H",
+                    "보증", "보장", "환불", "고장", "교환", "2시간")
+        for request in requests:
+            for followup in (False, True):
+                with self.subTest(request=request, followup=followup):
+                    deal = self.deal()
+                    if followup:
+                        self.quote(deal)
+                    # Both first and later quotes inspect text past the prompt limit.
+                    note = self.quote(deal, "G00000001 " + "x" * 510 + " " + request)
+                    self.assertIn("72 h warranty", note)
+                    self.assertEqual(self.shop.stock_receipt("task-fixture", deal, 9000)["warranty_hours"], 72)
+                    self.assertEqual(self.rows()[-1]["arm"], "control")
 
     def test_unit_assignment_is_deterministic_across_tasks_and_share_endpoints(self):
         self.write_config(share=0.5)
@@ -182,6 +239,28 @@ class WarrantyTrialTest(unittest.TestCase):
         self.assertEqual(self.shop.stock_receipt("task-fixture", deal, 9000)["warranty_hours"], 72)
         self.assertEqual(deal["warranty_trial"]["arm"], "control")
 
+    def test_partial_measurement_tail_forces_control_without_appending(self):
+        path = self.market / "measure" / "seller_warranty_trial.jsonl"
+        for followup in (False, True):
+            with self.subTest(followup=followup):
+                path.unlink(missing_ok=True)
+                deal = self.deal()
+                if followup:
+                    self.quote(deal)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b'{"partial":')
+                with mock.patch.object(seller, "log") as logged:
+                    self.assertIn("72 h warranty", self.quote(deal))
+                self.assertEqual(path.read_bytes(), b'{"partial":')
+                self.assertEqual(self.shop.stock_receipt("task-fixture", deal, 9000)["warranty_hours"], 72)
+                self.assertTrue(any("measurement failed" in c.args[0] for c in logged.call_args_list))
+
+    def test_complete_measurement_tail_accepts_parseable_jsonl(self):
+        self.quote(self.deal(), task="first-task")
+        self.quote(self.deal(), task="second-task")
+        self.assertEqual([row["task"] for row in self.rows()], ["first-task", "second-task"])
+        self.assertTrue(all(row["arm"] == "treatment" for row in self.rows()))
+
     def test_dynamic_toggle_applies_to_new_talks(self):
         self.write_config(enabled=False)
         first = self.deal()
@@ -195,13 +274,171 @@ class WarrantyTrialTest(unittest.TestCase):
         self.quote(third)
         self.assertEqual(third["warranty"], 72)
 
-    def opening(self, text, task="00000000-0000-0000-0000-000000000043"):
+    def test_disabling_an_open_treatment_restores_baseline_without_scan_or_journal(self):
+        deal = self.deal()
+        self.quote(deal)
+        path = self.market / "measure" / "seller_warranty_trial.jsonl"
+        before = path.read_bytes()
+        self.write_config(enabled=False)
+        with mock.patch.object(seller.seller_warranty_trial, "requested", side_effect=AssertionError("OFF detection")):
+            self.assertIn("72 h warranty", self.quote(deal, "refund please"))
+        self.assertEqual(path.read_bytes(), before)
+        self.assertNotIn("warranty_trial", deal)
+        self.assertEqual(self.shop.stock_receipt("task-fixture", deal, 9000)["warranty_hours"], 72)
+
+    def followup(self, text, task="00000000-0000-0000-0000-000000000043"):
+        from a2a.types import Message
+        up = SimpleNamespace(new_agent_message=lambda **kwargs: kwargs,
+                             requires_input=mock.AsyncMock(), reject=mock.AsyncMock(), failed=mock.AsyncMock())
+        context = SimpleNamespace(current_task=SimpleNamespace(id=task, context_id="fixture-context"),
+                                  message=Message(role="ROLE_USER", parts=[seller.new_text_part(text)], message_id="fixture-message"))
+        with mock.patch.object(seller, "TaskUpdater", return_value=up):
+            asyncio.run(self.shop._execute(context, None))
+        self.assertFalse(up.reject.called)
+        self.assertFalse(up.failed.called)
+        return up
+
+    def test_async_quote_and_followup_file_io_run_outside_event_loop(self):
+        main_thread = threading.get_ident()
+        read_text, path_open = Path.read_text, Path.open
+        calls = []
+
+        def checked_read(path, *args, **kwargs):
+            if path == self.config:
+                calls.append(("config", threading.get_ident()))
+            return read_text(path, *args, **kwargs)
+
+        def checked_open(path, *args, **kwargs):
+            if path.name == "seller_warranty_trial.jsonl" and args and args[0] == "a+b":
+                calls.append(("journal", threading.get_ident()))
+            return path_open(path, *args, **kwargs)
+
+        with mock.patch.object(Path, "read_text", checked_read), mock.patch.object(Path, "open", checked_open):
+            deal, _ = self.opening("G00000001")
+            self.assertNotIn("warranty_hours", self.shop.stock_receipt("task-fixture", deal, deal["ask"]))
+            self.followup("x" * 510 + " full refund if broken within 6 hrs")
+            self.assertEqual(self.rows()[-1]["arm"], "control")
+            self.assertEqual(self.shop.stock_receipt("task-fixture", deal, deal["ask"])["warranty_hours"], 72)
+        self.assertEqual([name for name, _ in calls], ["config", "journal", "config", "journal"])
+        self.assertTrue(all(thread != main_thread for _, thread in calls), calls)
+
+    def test_slow_warranty_io_keeps_unit_held_and_journal_precedes_public_quote(self):
+        entered, release = threading.Event(), threading.Event()
+        read_text = Path.read_text
+        messages = []
+        testcase = self
+        first_id, second_id = "first-task", "second-task"
+
+        def slow_read(path, *args, **kwargs):
+            if path == self.config and not entered.is_set():
+                entered.set()
+                if not release.wait(2):
+                    raise TimeoutError("test did not release measurement worker")
+            return read_text(path, *args, **kwargs)
+
+        class Updates:
+            def __init__(self, task):
+                self.task = task
+
+            async def requires_input(self, text):
+                testcase.assertEqual(testcase.rows()[-1]["task"], self.task)
+                messages.append((self.task, "quote"))
+
+            async def reject(self, text):
+                messages.append((self.task, "reject"))
+
+        async def run():
+            first = asyncio.create_task(self.shop.open_from_stock(SimpleNamespace(id=first_id), "G00000001",
+                                        Updates(first_id), lambda text, ask=None: text))
+            try:
+                self.assertTrue(await asyncio.to_thread(entered.wait, 1))
+                self.assertEqual(self.stock.holder(self.unit["unit"]), first_id)
+                self.assertEqual(messages, [])
+                self.assertFalse((self.market / "measure" / "seller_warranty_trial.jsonl").exists())
+                await self.shop.open_from_stock(SimpleNamespace(id=second_id), "G00000001",
+                                               Updates(second_id), lambda text, ask=None: text)
+                self.assertEqual(messages, [(second_id, "reject")])
+            finally:
+                release.set()
+                await first
+            self.assertEqual(messages, [(second_id, "reject"), (first_id, "quote")])
+            self.assertNotIn(second_id, self.shop.open)
+            self.assertEqual(self.rows()[-1]["arm"], "treatment")
+
+        with mock.patch.object(Path, "read_text", slow_read):
+            asyncio.run(run())
+
+    def test_followup_control_terms_and_receipts_equal_bounded_3de0399(self):
+        from testdata import seller_warranty_baseline_3de0399 as baseline
+        task = "00000000-0000-0000-0000-000000000043"
+        self.pricing.write_text(json.dumps({"warranty_hours": 0}))
+        for mode in ("off", "control", "ineligible"):
+            with self.subTest(mode=mode):
+                self.write_config(enabled=mode != "off", share=0 if mode == "control" else 1)
+                self.unit["grade"] = "A" if mode == "ineligible" else "C"
+                original = self.deal()
+                expected = copy.deepcopy(original)
+                text = "x" * 510 + " without warranty"
+                baseline.warranty_terms(self.shop, expected, text[:seller.MAX_TEXT])
+                self.shop.open[task] = original
+                self.stock.hold(self.unit["unit"], task)
+                self.followup(text)
+                self.assertEqual(original["warranty"], expected["warranty"])
+                self.assertEqual(self.shop.stock_receipt(task, original, 9000),
+                                 baseline.stock_receipt(self.shop, task, expected, 9000))
+                self.shop.free(task, original)
+                self.shop.open.clear()
+
+    def test_off_is_inert_and_oversized_numeric_input_keeps_control_quickly(self):
+        variants = (None, "{", {**self.cfg, "enabled": False}, {**self.cfg, "start_at": 151},
+                    {**self.cfg, "stop_at": 150})
+        for cfg in variants:
+            with self.subTest(config=cfg):
+                if cfg is None:
+                    self.config.unlink(missing_ok=True)
+                else:
+                    self.config.write_text(cfg if isinstance(cfg, str) else json.dumps(cfg))
+                # Detector and journal are forbidden work when the switch is OFF.
+                with mock.patch.object(seller.seller_warranty_trial, "requested", side_effect=AssertionError("OFF detection")):
+                    deal = self.deal()
+                    self.assertIn("72 h warranty", self.quote(deal, "9" * 100_000))
+                self.assertNotIn("warranty_trial", deal)
+                self.assertFalse(self.market.exists())
+        self.write_config(enabled=True)
+        for size in (8001, 100_000, 1_000_000):
+            started = time.perf_counter()
+            deal = self.deal()
+            self.assertIn("72 h warranty", self.quote(deal, "9" * size))
+            elapsed = time.perf_counter() - started
+            self.assertLess(elapsed, 0.5, f"numeric input size={size}, seconds={elapsed}")
+            self.assertEqual(self.rows()[-1]["reason"], "buyer_requested")
+
+    def test_deep_or_unexpected_config_failure_is_inert_baseline(self):
+        self.config.write_text("[" * 2000 + "0" + "]" * 2000)
+        deal, text = self.opening("G00000001", measured=False)
+        self.assertIn("72 h warranty", text)
+        self.assertEqual(self.shop.stock_receipt("task-fixture", deal, deal["ask"])["warranty_hours"], 72)
+        self.assertNotIn("warranty_trial", deal)
+        read_text = Path.read_text
+        for error in (RuntimeError("unexpected read failure"), RecursionError("nested config"), UnicodeError("bad encoding")):
+            def broken(path, *args, **kwargs):
+                if path == self.config:
+                    raise error
+                return read_text(path, *args, **kwargs)
+            with self.subTest(error=type(error).__name__), mock.patch.object(Path, "read_text", broken):
+                deal = self.deal()
+                self.assertIn("72 h warranty", self.quote(deal))
+                self.assertNotIn("warranty_trial", deal)
+        self.assertFalse(self.market.exists())
+
+    def opening(self, text, task="00000000-0000-0000-0000-000000000043", *, measured=True):
         messages = []
         testcase = self
 
         class Updates:
             async def requires_input(self, message):
-                testcase.assertTrue(testcase.rows())
+                if measured:
+                    testcase.assertTrue(testcase.rows())
                 messages.append(message)
 
             async def reject(self, message):
@@ -209,6 +446,29 @@ class WarrantyTrialTest(unittest.TestCase):
 
         asyncio.run(self.shop.open_from_stock(SimpleNamespace(id=task), text, Updates(), lambda text, ask=None: text))
         return self.shop.open[task], messages[0]
+
+    def test_off_control_ineligible_opening_and_receipt_equal_3de0399(self):
+        from testdata import seller_warranty_baseline_3de0399 as baseline
+        task = "00000000-0000-0000-0000-000000000043"
+        self.pricing.write_text(json.dumps({"warranty_hours": 0}))
+        for mode in ("off", "control", "ineligible"):
+            for text in ("G00000001 " + "x" * 510 + " without warranty",
+                         "G00000001 without warranty", "G00000001 6 hrs refund if broken"):
+                with self.subTest(mode=mode, text=text[-32:]):
+                    self.write_config(enabled=mode != "off", share=0 if mode == "control" else 1)
+                    self.unit["grade"] = "A" if mode == "ineligible" else "C"
+                    with mock.patch.object(seller.Seller, "warranty_terms",
+                                           lambda shop, deal, text, **kw: baseline.warranty_terms(shop, deal, text[:seller.MAX_TEXT])):
+                        expected, expected_text = self.opening(text, measured=False)
+                    expected_receipt = baseline.stock_receipt(self.shop, task, expected, expected["ask"])
+                    self.shop.free(task, expected)
+                    self.shop.open.clear()
+                    actual, actual_text = self.opening(text, measured=False)
+                    self.assertEqual({k: v for k, v in actual.items() if k != "warranty_trial"}, expected)
+                    self.assertEqual(actual_text, expected_text)
+                    self.assertEqual(self.shop.stock_receipt(task, actual, actual["ask"]), expected_receipt)
+                    self.shop.free(task, actual)
+                    self.shop.open.clear()
 
     def test_full_opening_keeps_price_claim_and_cert_and_measurement_precedes_quote(self):
         control, control_text = None, None

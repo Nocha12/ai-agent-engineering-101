@@ -489,7 +489,9 @@ class Seller(AgentExecutor):
             # accepts as well as the SKU. Such a buyer (q00) rated every receipt naming a SKU 1 star, "SCAM ... Never buy
             # here" (62 of 62 in the Round 3 ledger), and that review then stands among the 10 every buyer is shown.
             deal["receipt_item"] = (u.get("category") or "").split(">")[-1].strip() or u["sku"]
-        note = self.warranty_terms(deal, text if warranty_text is None else warranty_text, task_id=task.id, unit=u)
+        # The unit is already held; finish journaling before publishing its terms.
+        note = await asyncio.to_thread(self.warranty_terms, deal, text,
+                                       task_id=task.id, unit=u, trial_text=warranty_text)
         deal["reader_trial_grade"] = u.get("grade")
         deal["reader_trial_policy_sha"] = hashlib.sha256(json.dumps(pricing, sort_keys=True).encode()).hexdigest()
         deal["reader_trial"] = await asyncio.to_thread(READER_TRIAL.assign, task.id, deal)
@@ -527,14 +529,15 @@ class Seller(AgentExecutor):
     def warranty_cfg():
         return hard_limits.clamp_cfg("warranty", {**WARRANTY, **(shop_memory.load_pricing().get("warranty") or {})})
 
-    def warranty_terms(self, deal, text, *, task_id=None, unit=None):
+    def warranty_terms(self, deal, text, *, task_id=None, unit=None, trial_text=None):
         """Goods: a warranty of hard_limits.SELLER_GOODS_WARRANTY_HOURS (buyers' kits refuse to pay without one, the kit's
         example asks for 6 h), or longer if asked. The break chance is already in the reserve (profit_price floor), and
         goods that break too often were refused at the first message. Returns the sentence for the buyer, or None (food,
         already set, not wanted)."""
+        full_text = text if trial_text is None else trial_text
+        text = (text or "")[:MAX_TEXT]
         if task_id is not None and WARRANTY_TRIAL.quote(
-                task_id, deal, unit, requested=bool(WARRANTY_WORDS.search(text or "")
-                                                  or WARRANTY_HOURS.search(text or "")), log=log):
+                task_id, deal, unit, text=full_text, log=log):
             return f"This grade {deal['warranty_trial']['grade']} unit is sold as is, without a warranty."
         if deal.get("kind") != "goods" or "warranty" in deal \
                 or re.search(r"\b(no|without) (a )?(warranty|guarantee)|보증\s*(없이|필요\s*없)", text or "", re.I):
@@ -673,7 +676,7 @@ class Seller(AgentExecutor):
                 del self.open[task.id]
                 return
             self.stock.hold(deal["unit"], task.id)      # each message renews the promise
-        note = self.warranty_terms(deal, full_text, task_id=task.id)
+        note = await asyncio.to_thread(self.warranty_terms, deal, text, task_id=task.id, trial_text=full_text)
         if note:
             plain = say
             say = lambda text, ask=None: plain(f"{note} {text}", ask)

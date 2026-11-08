@@ -1,12 +1,13 @@
 """Default-off, unit-randomized grade warranty experiment. No market calls.
 
-Configuration is read for each new quote. Existing talks retain the advertised
-terms; an explicit later request can only restore the normal warranty.
+Configuration is read for each quote. While enabled, talks retain their arm;
+a later request or an OFF configuration restores the normal warranty path.
 """
 import hashlib
 import json
 import math
 import os
+import re
 from pathlib import Path
 import threading
 import time
@@ -14,6 +15,17 @@ import time
 
 _LOCK = threading.Lock()
 _CONFIG = Path(__file__).with_suffix(".json")
+
+
+def requested(text):
+    """Ambiguous refund, breakage or duration language keeps the normal terms."""
+    if len(text or "") > 8000:
+        return True
+    text = (text or "").lower()
+    return (any(word in text for word in ("warrant", "guarantee", "refund", "break", "broke",
+                                          "broken", "defect", "hrs", "hr", "hour", "보증", "보장",
+                                          "환불", "고장", "교환", "시간"))
+            or bool(re.search(r"\d\s*h\b", text)))
 
 
 def _number(value):
@@ -46,13 +58,13 @@ def _config(now):
         if not cfg["start_at"] <= now < cfg["stop_at"]:
             return cfg, "outside_window"
         return cfg, None
-    except (OSError, ValueError, TypeError):
+    except Exception:
         return {}, "config_unavailable"
 
 
 class Trial:
-    def _assignment(self, task, deal, unit, requested, now):
-        cfg, reason = _config(now)
+    def _assignment(self, task, deal, unit, requested, now, cfg):
+        reason = None
         unit = unit or {}
         if reason is None:
             if deal.get("kind") != "goods" or unit.get("kind") != "goods":
@@ -85,27 +97,40 @@ class Trial:
         row["assigned_arm"] = arm
         return row
 
-    def quote(self, task, deal, unit, *, requested, log, now=None):
+    def quote(self, task, deal, unit, *, text, log, now=None):
         """Journal before returning permission to omit the receipt's warranty.
 
         Tasks are repeated observations, not independent samples. Randomization
         uses only unit within a fixed study/version/salt, across different tasks.
         """
         now = time.time() if now is None else now
+        cfg, reason = _config(now)
+        if reason is not None:
+            # OFF is the original seller path, including on a later turn. Do not
+            # scan input, create directories or append an observational record.
+            deal.pop("warranty_trial", None)
+            return False
+        wants_warranty = requested(text)
         previous = deal.get("warranty_trial") or {}
         if previous and previous.get("task") == task and previous.get("unit") == deal.get("unit"):
             row = {**previous, "ts": now}
-            if row["arm"] == "treatment" and (requested or "warranty" in deal):
+            if row["arm"] == "treatment" and (wants_warranty or "warranty" in deal):
                 row.update(arm="control", offered_hours=72,
-                           reason="followup_warranty_request" if requested else "existing_warranty")
+                           reason="followup_warranty_request" if wants_warranty else "existing_warranty")
         else:
-            row = self._assignment(task, deal, unit, requested, now)
+            row = self._assignment(task, deal, unit, wants_warranty, now, cfg)
         try:
             path = Path(os.environ.get("MARKET_DIR") or ".market") / "measure" / "seller_warranty_trial.jsonl"
+            data = (json.dumps(row, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
             with _LOCK:
                 path.parent.mkdir(parents=True, exist_ok=True)
-                with path.open("a", encoding="utf-8") as stream:
-                    stream.write(json.dumps(row, ensure_ascii=False, allow_nan=False) + "\n")
+                with path.open("a+b") as stream:
+                    if stream.tell():
+                        stream.seek(-1, os.SEEK_END)
+                        if stream.read(1) != b"\n":
+                            raise OSError("incomplete measurement tail")
+                    if stream.write(data) != len(data):
+                        raise OSError("short measurement write")
         except (OSError, ValueError, TypeError):
             log("WARRANTY_TRIAL measurement failed; control warranty applies")
             row.update(arm="control", offered_hours=72, reason="measurement_failed")
