@@ -44,7 +44,10 @@ class ScoreTest(unittest.TestCase):
     def test_p_times_the_final_share_of_list_per_second(self):
         g = lambda p: 0.9 * (1 - p)
         # E[final] = 8,000 x .9 = 7,200 of 10,000: g = .9 x .28; T = 5 + 15 + 20
-        self.assertAlmostEqual(rp.score(self.RK, "a", "goods", 8000, 10000, g, 5.0), 0.8 * 0.9 * 0.28 / 40)
+        rk = dict(self.RK, per_time=True)
+        self.assertAlmostEqual(rp.score(rk, "a", "goods", 8000, 10000, g, 5.0), 0.8 * 0.9 * 0.28 / 40)
+        # per_time off (the default, 7977 보정 19:22): P x g, no ÷T even with talk seconds
+        self.assertAlmostEqual(rp.score(self.RK, "a", "goods", 8000, 10000, g, 5.0), 0.8 * 0.9 * 0.28)
         # an unknown shop: the kind's pool, no talk seconds, so no ÷T
         self.assertAlmostEqual(rp.score(self.RK, "z", "goods", 8000, 10000, g, 5.0), 0.5 * 0.9 * 0.2)
         self.assertIsNone(rp.score(self.RK, "a", "food", 8000, 10000, g, 5.0))     # no pool for the kind
@@ -62,6 +65,12 @@ class ScoreTest(unittest.TestCase):
             with open(os.path.join(d, rp.SWITCH), "w") as f:
                 f.write('{"enabled": true}')
             self.assertIsNotNone(rp.state(d, {}, env={}))
+            self.assertFalse(rp.state(d, {}, env={})["per_time"])
+            for body, want in (('{"enabled": true, "per_time": true}', True), ('{"enabled": true, "per_time": false}', False),
+                               ('{"enabled": true, "per_time": "yes"}', False)):
+                with open(os.path.join(d, rp.SWITCH), "w") as f:
+                    f.write(body)
+                self.assertIs(rp.state(d, {}, env={})["per_time"], want)
             self.assertIsNone(rp.state(d, {}, env={"BUYER_RANK_PG": "0"}))
             with open(os.path.join(d, rp.CACHE)) as f:
                 self.assertIn("stats", json.load(f))                     # computed once and cached

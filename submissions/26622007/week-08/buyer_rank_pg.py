@@ -1,4 +1,4 @@
-"""Quotes ranked by the chance of a deal times the share of list it keeps, per second (owner 11/08, telegram 7959-7963,
+"""Quotes ranked by the chance of a deal times the share of list it keeps (÷ seconds only with "per_time": true; owner 11/08, telegram 7959-7963,
 7977; review/W-20261108-1655-AX가게별바이어/shop-profiles.md 5-6: replayed on 11/07 19:09 - 11/08 19:09, P x price took
 +3% deals and +11-14% buyer ALL/h over the current order, ÷T within 1% of it).
 
@@ -11,6 +11,9 @@ one with the most
 expected talk seconds + NEXT_ORDER_SECONDS. The share is of the final price against the list price (7961), never the cut
 from the ask. P, E[final / first ask] and the talk seconds come from the last HOURS of measure/orders.jsonl, per shop and
 kind, shrunk to the kind's pool: (k + SHRINK p) / (n + SHRINK). No talk seconds known: no ÷T.
+
+The ÷T is only with "per_time": true in the switch; without it the key is P x g (main 11/08 19:22: the final replay,
+shop-profiles.md 6, gave P x price +12% ALL/h and ÷T +9%).
 
 Switch: .market/buyer_rank_pg.json {"enabled": true}; missing, unreadable or anything else is off, and off is the
 current order exactly. BUYER_RANK_PG=0 in the environment is off too. Read at every order, so no restart either way.
@@ -34,16 +37,21 @@ def _num(x):
     return type(x) in (int, float) and x == x
 
 
-def enabled(md, env=None):
+def _switch(md, env=None):
+    """The switch's dict when it is on, else None."""
     env = os.environ if env is None else env
     if str(env.get("BUYER_RANK_PG") or "").strip().lower() in ("0", "false", "no", "off"):
-        return False
+        return None
     try:
         with open(os.path.join(md, SWITCH), encoding="utf-8") as f:
             d = json.load(f)
     except (OSError, ValueError, TypeError):
-        return False
-    return isinstance(d, dict) and d.get("enabled") is True
+        return None
+    return d if isinstance(d, dict) and d.get("enabled") is True else None
+
+
+def enabled(md, env=None):
+    return _switch(md, env) is not None
 
 
 def _first_ask(r):
@@ -165,12 +173,13 @@ def stats(md, now=None):
 def state(md, order, env=None, now=None):
     """{"stats": ...} kept on the order when the switch is on and stats can be read; else None (the current order)."""
     try:
-        if not enabled(md, env):
+        sw = _switch(md, env)
+        if sw is None:
             return None
         st = stats(md, now)
     except Exception:   # noqa: BLE001 - the ranking never stops an order
         return None
-    return {"stats": st} if isinstance(st, dict) else None
+    return {"stats": st, "per_time": sw.get("per_time") is True} if isinstance(st, dict) else None
 
 
 def cell(rk, shop, kind):
@@ -195,6 +204,6 @@ def score(rk, shop, kind, ask, list_price, g_of, quote_seconds, penalty=0.0):
     g = g_of(ask * ratio / list_price) - penalty
     if g <= 0:          # a deal that keeps nothing: ranked by g alone (P and T would flip it), under any that keeps some
         return g
-    if talk is None:
+    if talk is None or (rk or {}).get("per_time") is not True:
         return P * g
     return P * g / (max(0.0, quote_seconds or 0.0) + talk + NEXT_ORDER_SECONDS)
