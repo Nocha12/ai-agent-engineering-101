@@ -113,7 +113,7 @@ def measurement(order, out):
     return dict(study=context['study'], arm=context['arm'],
                 eligible=(order.get('_bundle_plan') or {}).get('eligible'),
                 slot_eligible=(order.get('_bundle_plan') or {}).get('slot_eligible'),
-                counter_decisions=decisions)
+                counter_decisions=decisions, witness_failures=order.get('_bundle_witness_failures', 0))
 
 
 def schedule(baseline, fits, rivals, skus, scores):
@@ -159,7 +159,7 @@ def payment_scores(trades, settled, category, *, now, payments=()):
     after the reported warranty (at least 6 h); observed breaks contribute zero.
     This is historical ranking evidence, not verified refund completion.
     """
-    trades = trades[-10000:]
+    trades = [t for t in trades[-10000:] if isinstance(t, dict)]
     repeated = collections.Counter(t.get('order') for t in trades)
     index = collections.defaultdict(list)
     for row in settled:

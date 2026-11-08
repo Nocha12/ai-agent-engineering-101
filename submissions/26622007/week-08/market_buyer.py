@@ -1102,6 +1102,7 @@ def start_quotes(shops, order, budget, chance_of, got, ctl, *, rule_engine=None)
         except Exception:
             s.pop("_quote_attempted", None)
             buyer_fresh_rotation.event(fresh_ctx, "start_failure", shop=s["name"], sku=o["sku"])
+            buyer_fresh_rotation.event(bundle_ctx, "start_failure", shop=s["name"], sku=o["sku"])
             raise
         started_at = time.time()
         if fresh_ctx:
@@ -1110,9 +1111,10 @@ def start_quotes(shops, order, budget, chance_of, got, ctl, *, rule_engine=None)
                     phase=order.get("_stock_phase", "quotes")):
                 order["_fresh_witness_failures"] = order.get("_fresh_witness_failures", 0) + 1
         if bundle_ctx:
-            buyer_fresh_rotation.event(bundle_ctx, "attempt", shop=s["name"], sku=o["sku"],
-                thread_started_at=started_at, boundary="quote_thread_started",
-                phase=order.get("_stock_phase", "quotes"))
+            if not buyer_fresh_rotation.event(bundle_ctx, "attempt", shop=s["name"], sku=o["sku"],
+                    thread_started_at=started_at, boundary="quote_thread_started",
+                    phase=order.get("_stock_phase", "quotes")):
+                order["_bundle_witness_failures"] = order.get("_bundle_witness_failures", 0) + 1
         if order.get("_stock_evidence") and not buyer_stock_evidence.attempt(
                 order["_stock_evidence"], s["name"], o["sku"], phase=order.get("_stock_phase", "quotes"),
                 intended_reorder=order.get("_stock_reordered", False)):
