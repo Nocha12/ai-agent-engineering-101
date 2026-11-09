@@ -183,7 +183,7 @@ class EndToEnd(unittest.TestCase):
         for name in ("READER_TRIAL", "CONCESSION_TRIAL", "LATE_CONCESSION",
                      "OPENING_DEFAULT", "DRAIN", "OPENING_CUE", "LATE_SPEED",
                      "JEV_TRANSPORT", "SHELF_REPLY", "EXACT_ACCEPT", "EXACT_COUNTER",
-                     "GRADE_PREFERENCE", "FOOD_OPENING", "AT_FLOOR_EXACT", "DEEP_LOWBALL", "QUOTE_HOLD", "SHELF_JEV", "SHELF_FACT", "WARRANTY_FACT",
+                     "GRADE_PREFERENCE", "FOOD_OPENING", "AT_FLOOR_EXACT", "DEEP_LOWBALL", "QUOTE_HOLD", "SHELF_JEV", "SHELF_FACT", "WARRANTY_FACT", "GRADE_READ",
                      "MARGIN_STUDY"):
             patches.append(mock.patch.object(seller, name,
                                             type(getattr(seller, name))(root=fixture_root)))

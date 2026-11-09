@@ -37,7 +37,7 @@ SOURCE_FILES = ('sol_source_load.py', 'sol_seller_margin.py', 'seller.py', 'prof
                 'shelf_life_reply.py', 'seller_grade_preference.py', 'food_opening_trial.py',
                 'deep_lowball_trial.py', 'quote_hold.py', 'negotiate.py', 'fast_classify.py',
                 'seller_warranty_trial.py', 'shelf_jev_skip.py', 'shelf_fact.py',
-                'warranty_fact.py')
+                'warranty_fact.py', 'grade_read.py')
 # Factorial peer: the grade warranty study (unit hash, own salt/namespace) may
 # run in the same epoch. Its source is attested above; its controller is not in
 # the baseline, so its ON/OFF never pauses this study. Each quote records the

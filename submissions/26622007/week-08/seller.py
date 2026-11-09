@@ -76,6 +76,7 @@ import shelf_life_reply
 import shelf_jev_skip
 import shelf_fact
 import warranty_fact
+import grade_read
 import exact_accept_trial
 import exact_counter_trial
 import seller_grade_preference
@@ -97,6 +98,7 @@ SHELF_REPLY = shelf_life_reply.ShelfLifeTrial()
 SHELF_JEV = shelf_jev_skip.Trial()
 SHELF_FACT = shelf_fact.Trial(r1=SHELF_JEV)     # S-shelf A/B (11/10), never answers while an R1 trial (ab) is on
 WARRANTY_FACT = warranty_fact.Trial()          # W-fact A/B (11/10): goods warranty question; S-shelf is food only
+GRADE_READ = grade_read.Trial()              # G-read A/B (11/10): the grade C/B opening read with its B
 EXACT_ACCEPT = exact_accept_trial.ExactAcceptTrial()
 EXACT_COUNTER = exact_counter_trial.ExactCounterTrial()
 GRADE_PREFERENCE = seller_grade_preference.GradePreferenceTrial()
@@ -526,7 +528,9 @@ class Seller(AgentExecutor):
         grade_assignment = await asyncio.to_thread(GRADE_PREFERENCE.enroll, task.id, text)
         grade_selection = {}
         grade_kwargs = dict(allow_grade_preference=True, selection=grade_selection) if GRADE_PREFERENCE.arm(grade_assignment) == "B" else {}
-        u, miss = self.stock.pick(text, rank=lambda x: floor_rank(x, ranked), **grade_kwargs)
+        grade_read_assignment, grade_add = await asyncio.to_thread(GRADE_READ.assign, task.id, text)
+        u, miss = self.stock.pick(text, rank=lambda x: floor_rank(x, ranked), add_grades=grade_add, **grade_kwargs)
+        await asyncio.to_thread(GRADE_READ.selected, task.id, grade_read_assignment, u, miss)
         GRADE_PREFERENCE.selected(task.id, grade_assignment, u, miss, grade_selection)
         if u is None:
             await asyncio.to_thread(MARGIN_STUDY.selection_miss, task.id)
@@ -596,6 +600,8 @@ class Seller(AgentExecutor):
             deal["floor_margin"] = floor_margin
         if food_margin:
             deal["food_margin"] = food_margin
+        if grade_read_assignment is not None:
+            deal["grade_read"] = grade_read_assignment
         if margin_assignment is not None:
             deal['sol_margin'] = margin_assignment
             deal['sol_margin_publication'] = 'prepared'
@@ -1058,6 +1064,7 @@ class Seller(AgentExecutor):
         SHELF_JEV.event(task_id, deal, result, price, observed_at)   # never raises
         SHELF_FACT.event(task_id, deal, result, price, observed_at)  # never raises
         WARRANTY_FACT.event(task_id, deal, result, price, observed_at)  # never raises
+        GRADE_READ.event(task_id, deal, result, price, observed_at)  # never raises
         try:
             shop_memory.record({"task": task_id, "item": deal.get("key") or deal["name"], "sku": deal["id"],
                                 "unit": deal.get("unit"), "cost": deal.get("cost"), "reserve": deal["reserve"],
