@@ -307,11 +307,13 @@ json.dump({"changed": True, "hypothesis": "h", "change_summary": "변경 요약"
 
 
 class HarnessCycleTest(unittest.TestCase):
+    SUB = ""            # ROOT under the repository's top, as submissions/26622007/week-08 on the Mac mini
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.outer = self.tmp.name
-        self.root = os.path.join(self.outer, "repo")
+        self.root = os.path.normpath(os.path.join(self.outer, "repo", self.SUB))
         os.makedirs(os.path.join(self.root, "logs"))
         os.makedirs(os.path.join(self.root, "meta"))
         with open(os.path.join(self.root, "logs", "market-kit.log"), "w") as f:
@@ -323,13 +325,13 @@ class HarnessCycleTest(unittest.TestCase):
             f.write("__pycache__/\n.market/\n")
         with open(os.path.join(self.root, "test_ok.py"), "w") as f:
             f.write("import unittest\nclass T(unittest.TestCase):\n    def test(self):\n        pass\n")
-        with open(os.path.join(self.outer, ".env"), "w") as f:
+        with open(os.path.join(os.path.dirname(self.root), ".env"), "w") as f:
             f.write("KITLOG_TOKEN=value-from-env-file-1234\n")
         fake = os.path.join(self.outer, "fake-codex")
         with open(fake, "w") as f:
             f.write(FAKE)
         os.chmod(fake, os.stat(fake).st_mode | stat.S_IEXEC)
-        self.git("init", "-q")
+        self.git("init", "-q", os.path.join(self.outer, "repo"))
         self.git("config", "user.email", "t@example.com")
         self.git("config", "user.name", "t")
         self.git("add", "-A")
@@ -728,7 +730,7 @@ class HarnessCycleTest(unittest.TestCase):
 
     def gbt_now(self, rev=None):
         if rev:
-            return json.loads(self.git("show", f"{rev}:pricing.json"))["price"].get("grade_break_trial")
+            return json.loads(self.git("show", f"{rev}:./pricing.json"))["price"].get("grade_break_trial")
         with open(os.path.join(self.root, "pricing.json"), encoding="utf-8") as f:
             return json.load(f)["price"].get("grade_break_trial")
 
@@ -750,8 +752,53 @@ class HarnessCycleTest(unittest.TestCase):
     def person(self, trial):
         """A journal line as gbt-switch writes it after the switch, `trial` left (None: off)."""
         v = mh.hard_limits._ABSENT if trial is None else trial
-        return {"key": "price.grade_break_trial", "before": "x", "after": mh.hard_limits.trial_hash(v), "by": "person",
-                "status": "done"}
+        return {"key": "price.grade_break_trial", "before": "x", "after": mh.hard_limits.trial_hash(v), "value": trial,
+                "by": "person", "status": "done"}
+
+    def test_a_stale_rewrite_does_not_undo_a_persons_switch_made_meanwhile(self):
+        self.gbt_start(self.GBT)                    # the person switched OFF; the model wrote back the file it had read
+        rec = self.gbt_cycle(self.gbt_pricing(self.GBT, goods_break=0.06), "good", [self.person(None)])
+        self.assertEqual(rec["status"], "rejected")
+        self.assertIn("grade_break_trial", " ".join(rec["problems"]))
+        self.assertIsNone(self.gbt_now())
+        with open(os.path.join(self.root, "pricing.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["price"]["goods_break"], 0.05)
+
+    def test_a_trial_set_between_cycles_is_nobodys(self):
+        self.gbt_start(self.GBT)
+        moved = dict(self.GBT, start_at=self.GBT["start_at"] + 7200, stop_at=self.GBT["stop_at"] + 7200)
+        with open(os.path.join(self.root, "pricing.json"), "w") as f:   # left by something out of band, no journal
+            f.write(self.gbt_pricing(moved))
+        rec = self.gbt_cycle(None, "good")
+        self.assertEqual(rec["status"], "rejected")
+        self.assertEqual(self.gbt_now(), self.GBT)
+        self.assertEqual(self.gbt_now("HEAD"), self.GBT)
+        with open(self.journal, "a") as f:                                 # a person's earlier, journaled switch
+            f.write(json.dumps(dict(self.person(self.GBT2), t=time.time() - 100)) + "\n")
+        with open(os.path.join(self.root, "pricing.json"), "w") as f:
+            f.write(self.gbt_pricing(self.GBT2))
+        rec = self.gbt_cycle(None, "good")
+        self.assertEqual(rec["status"], "running", rec.get("problems"))
+        self.assertEqual(self.gbt_now(), self.GBT2)
+        self.assertEqual(self.gbt_now("HEAD"), self.GBT)
+
+    def test_the_discarded_secret_keeps_a_persons_switch(self):
+        self.gbt_start(self.GBT)
+        rec = self.gbt_cycle(self.gbt_pricing(), "secret", [self.person(None)])
+        self.assertEqual(rec["status"], "discarded_secret")
+        self.assertIsNone(self.gbt_now())
+        self.assertEqual(self.gbt_now("HEAD"), self.GBT)
+
+    def test_a_switch_under_way_is_waited_for(self):
+        import threading
+        self.gbt_start(self.GBT)
+        done = threading.Timer(2.0, lambda: open(self.journal, "a").write(
+            json.dumps(dict(self.person(None), t=time.time())) + "\n"))
+        self.addCleanup(done.cancel)
+        with mock.patch.object(mh, "PENDING_WAIT", 10):
+            done.start()
+            rec = self.gbt_cycle(self.gbt_pricing(), "nothing", [dict(self.person(None), status="intent")])
+        self.assertIsNone(self.gbt_now(), rec)
 
     def gbt_cycle(self, side, mode="good", lines=()):
         env = {"FAKE_SIDE": json.dumps({"pricing.json": side}) if side is not None else "{}",
@@ -790,7 +837,7 @@ class HarnessCycleTest(unittest.TestCase):
                              [self.person(None), self.person(self.GBT2)])
         self.assertEqual(rec["status"], "rejected")
         self.assertEqual(self.gbt_now(), self.GBT2)                      # the undo took pricing.json back; the switch stays
-        self.assertIn("put back", " ".join(rec.get("person_trial") or []))
+        self.assertIn("set back", rec.get("person_trial") or "")
         with open(os.path.join(self.root, "pricing.json"), encoding="utf-8") as f:
             self.assertEqual(json.load(f)["price"]["goods_break"], 0.05)
 
@@ -825,9 +872,10 @@ class HarnessCycleTest(unittest.TestCase):
         moved = dict(self.GBT2, salt="other")
         rec = self.gbt_cycle(self.gbt_pricing(moved), "nothing", [self.person(self.GBT2)])
         self.assertEqual(rec["status"], "rejected")                       # the journal said GBT2, the file holds another
-        self.assertEqual(self.gbt_now(), self.GBT)
+        self.assertEqual(self.gbt_now(), self.GBT2)                       # set to what the person's switch left
+        self.assertIn("set back", rec["person_trial"])
         rec = self.gbt_cycle(self.gbt_pricing(), "nothing", [self.person(self.GBT2), self.person(None),
-                                                            dict(self.person(self.GBT2), status="intent")])
+                                                            dict(self.person(self.GBT2), status="failed")])
         self.assertEqual(rec["status"], "no_change", rec.get("problems"))  # the latest done one counts
         self.assertIsNone(self.gbt_now())
 
@@ -839,11 +887,13 @@ class HarnessCycleTest(unittest.TestCase):
 
     def test_an_uncommitted_person_switch_does_not_refuse_other_pricing_cycles(self):
         self.gbt_start(None)
-        with open(os.path.join(self.root, "pricing.json"), "w") as f:   # switched ON before the cycle, not committed
+        with open(os.path.join(self.root, "pricing.json"), "w") as f:   # gbt-switch ON before the cycle, not committed
             f.write(self.gbt_pricing(self.GBT))
+        with open(self.journal, "a") as f:
+            f.write(json.dumps(dict(self.person(self.GBT), t=time.time() - 60)) + "\n")
         rec = self.gbt_cycle(self.gbt_pricing(self.GBT, goods_break=0.06), "good")
         self.assertEqual(rec["status"], "running", rec.get("problems"))
-        head = json.loads(self.git("show", "HEAD:pricing.json"))["price"]
+        head = json.loads(self.git("show", "HEAD:./pricing.json"))["price"]
         self.assertEqual(head, {"goods_break": 0.06})                    # the cycle's edit, without the person's trial
         self.assertEqual(self.gbt_now(), self.GBT)
         rec = self.gbt_cycle(self.gbt_pricing(None, goods_break=0.07), "good")
@@ -852,7 +902,7 @@ class HarnessCycleTest(unittest.TestCase):
 
     def test_a_price_that_is_not_an_object_is_nobodys_off(self):
         self.gbt_start(self.GBT)
-        rec = self.gbt_cycle('{"seller": {}, "price": []}\n', "nothing", [self.person(None)])
+        rec = self.gbt_cycle('{"seller": {}, "price": []}\n', "nothing")
         self.assertEqual(rec["status"], "rejected")
         self.assertEqual(self.gbt_now(), self.GBT)
         self.assertEqual(mh.trial_of({"price": []}), mh.UNKNOWN)
@@ -873,7 +923,7 @@ class HarnessCycleTest(unittest.TestCase):
                 mock.patch.object(mh.hard_limits, "_me", lambda: os.getuid() + 1000):
             rec = self.gbt_cycle(self.gbt_pricing(self.GBT2), "broken", [self.person(None), self.person(self.GBT2)])
         self.assertEqual(rec["status"], "rejected")
-        self.assertIn("could not put back", " ".join(rec.get("person_trial") or []))
+        self.assertIn("could not set it back", rec.get("person_trial") or "")
         self.assertIn("could not be kept out of the commit", " ".join(rec["problems"]))
 
     def test_a_persons_switch_during_the_watch_survives_its_undo(self):
@@ -891,7 +941,7 @@ class HarnessCycleTest(unittest.TestCase):
         with open(os.path.join(self.root, "pricing.json"), encoding="utf-8") as f:
             self.assertEqual(json.load(f)["price"]["goods_break"], 0.05)     # the cycle's own edit is undone
         self.assertEqual(self.gbt_now("HEAD"), self.GBT)
-        self.assertIn("put back", " ".join(rec["person_trial"]))
+        self.assertIn("set back", rec["person_trial"])
 
     def test_the_schedule_survives_a_restart(self):
         grades = os.path.join(self.root, "meta", "grades.jsonl")
@@ -1173,6 +1223,18 @@ class HarnessCycleTest(unittest.TestCase):
                 f.write("more")
         with mock.patch.object(mh, "ROOT", inner):
             self.assertEqual(mh.stage(), ["pricing.json"])
+
+
+class HarnessCycleSubfolderTest(HarnessCycleTest):
+    """The grade_break_trial cycles with ROOT below the repository's top, as on the Mac mini: git takes --cacheinfo
+    paths from the top (independent review 763b3f8 C1: the person's trial went into the wrong path and an undo did
+    nothing). The other cycles' tests read paths from the top of a repo that is ROOT, so they run once, above."""
+    SUB = os.path.join("submissions", "26622007", "week-08")
+
+    def setUp(self):
+        if not re.search(r"person|journal|window|stale|trial|price_that|switch_that|under_way", self._testMethodName):
+            self.skipTest("repo-top shape only")
+        super().setUp()
 
 
 class ForumTest(unittest.TestCase):

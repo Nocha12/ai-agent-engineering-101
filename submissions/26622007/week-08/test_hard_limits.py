@@ -455,8 +455,8 @@ class PersonJournalTest(unittest.TestCase):
         self.folder = os.path.join(self.tmp, "gbt-switch")
         os.mkdir(self.folder, 0o755)
         self.path = os.path.join(self.folder, "journal.jsonl")
-        self.write([{"t": 100, "key": "price.grade_break_trial", "after": hl.trial_hash(self.T), "by": "person",
-                     "status": "done"}])
+        self.write([{"t": 100, "key": "price.grade_break_trial", "after": hl.trial_hash(self.T), "value": self.T,
+                     "by": "person", "status": "done"}])
         os.chmod(self.path, 0o644)
         other = mock.patch.object(hl, "_me", lambda: os.getuid() + 1000)
         other.start()
@@ -474,8 +474,8 @@ class PersonJournalTest(unittest.TestCase):
         self.assertFalse(hl.person_left("price.grade_break_trial", hl._ABSENT, 0, self.path))
 
     def test_only_the_latest_done_person_line_counts(self):
-        self.write(["not json", {"t": 101, "key": "price.grade_break_trial", "after": "off", "by": "person",
-                                 "status": "done"},
+        self.write(["not json", {"t": 101, "key": "price.grade_break_trial", "after": "off", "value": None,
+                                 "by": "person", "status": "done"},
                     {"t": 102, "key": "price.grade_break_trial", "after": hl.trial_hash(self.T), "by": "person",
                      "status": "intent"},
                     {"t": 103, "key": "price.grade_break_trial", "after": hl.trial_hash(self.T), "by": "meta",
@@ -483,6 +483,21 @@ class PersonJournalTest(unittest.TestCase):
                     {"t": 104, "key": "price.other", "after": hl.trial_hash(self.T), "by": "person", "status": "done"}])
         self.assertTrue(hl.person_left("price.grade_break_trial", hl._ABSENT, 0, self.path))
         self.assertFalse(hl.person_left("price.grade_break_trial", self.T, 0, self.path))
+        self.assertIs(hl.person_value("price.grade_break_trial", 0, self.path), hl._ABSENT)
+        self.assertTrue(hl.person_pending("price.grade_break_trial", 0, self.path))          # the intent at 102
+        self.assertFalse(hl.person_pending("price.grade_break_trial", 0, self.path + "x"))
+
+    def test_the_value_must_give_the_lines_hash(self):
+        self.write([{"t": 101, "key": "price.grade_break_trial", "after": hl.trial_hash(self.T),
+                     "value": dict(self.T, salt="x"), "by": "person", "status": "done"}])
+        self.assertIs(hl.person_value("price.grade_break_trial", 0, self.path), hl.UNPROVED)
+        self.write([{"t": 102, "key": "price.grade_break_trial", "after": hl.trial_hash(self.T), "by": "person",
+                     "status": "done"}])                                  # no value: proves nothing
+        self.assertIs(hl.person_value("price.grade_break_trial", 0, self.path), hl.UNPROVED)
+        self.write([{"t": 103, "key": "price.grade_break_trial", "after": "off", "value": None, "by": "person",
+                     "status": "failed"}])
+        self.assertIs(hl.person_value("price.grade_break_trial", 0, self.path), hl.UNPROVED)
+        self.assertFalse(hl.person_pending("price.grade_break_trial", 0, self.path))
 
     def test_a_journal_the_reader_could_write_proves_nothing(self):
         ok = lambda: hl.person_left("price.grade_break_trial", self.T, 0, self.path)
