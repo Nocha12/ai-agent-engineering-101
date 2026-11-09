@@ -74,6 +74,7 @@ import seller_late_speed
 import seller_jev_transport
 import shelf_life_reply
 import shelf_jev_skip
+import shelf_fact
 import exact_accept_trial
 import exact_counter_trial
 import seller_grade_preference
@@ -93,6 +94,7 @@ LATE_SPEED = seller_late_speed.LateSpeed()
 JEV_TRANSPORT = seller_jev_transport.JevTransport()
 SHELF_REPLY = shelf_life_reply.ShelfLifeTrial()
 SHELF_JEV = shelf_jev_skip.Trial()
+SHELF_FACT = shelf_fact.Trial(r1=SHELF_JEV)     # S-shelf A/B (11/10), never answers while R1 is on
 EXACT_ACCEPT = exact_accept_trial.ExactAcceptTrial()
 EXACT_COUNTER = exact_counter_trial.ExactCounterTrial()
 GRADE_PREFERENCE = seller_grade_preference.GradePreferenceTrial()
@@ -839,6 +841,8 @@ class Seller(AgentExecutor):
         deal["reader_trial_floor"] = floor_now
         jev = reader if fast_classify.JEV_ON or reader.arm == "B" else None   # lazy, one call a turn
         shelf_text = SHELF_REPLY.reply(text, deal)
+        if shelf_text is None:
+            shelf_text = SHELF_FACT.answer(task.id, text, deal)
         # R1 A/B: the exact shelf-life question has only hours in it, never an offer; only turns that would call Jev
         deal.pop("shelf_jev_turn", None)    # this turn's row only, even after a turn that stopped before its decision
         if (jev is not None and reader.jev is not None and shelf_text is None
@@ -1045,6 +1049,7 @@ class Seller(AgentExecutor):
             MEMORY_FAILURES.append(True)
             raise
         SHELF_JEV.event(task_id, deal, result, price, observed_at)   # never raises
+        SHELF_FACT.event(task_id, deal, result, price, observed_at)  # never raises
         try:
             shop_memory.record({"task": task_id, "item": deal.get("key") or deal["name"], "sku": deal["id"],
                                 "unit": deal.get("unit"), "cost": deal.get("cost"), "reserve": deal["reserve"],
