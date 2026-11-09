@@ -198,6 +198,26 @@ class TrialUnit(unittest.TestCase):
         self.assertEqual((out["event"], out["price"], out["arm"]), ("deal", c["ask"], "B"))
         self.assertIn("sol_margin", out["others"])
 
+    def test_fifo_config_or_journal_never_blocks(self):
+        os.mkfifo(self.t.root / "config.json")
+        c = CASES[0]
+        self.assertIsNone(self.t.config(now=2000))
+        os.unlink(self.t.root / "config.json")
+        self.write(share=1.0)
+        os.mkfifo(self.t.root / "events.jsonl")
+        d = deal_of(c)
+        self.assertFalse(self.t.skip("t", c["text"], d, c["floor"], now=2000))
+        self.assertNotIn("shelf_jev", d)
+
+    def test_one_decision_row_per_turn(self):
+        self.write(share=1.0)
+        c = CASES[0]
+        d = deal_of(c)
+        self.t.skip("t", c["text"], d, c["floor"], now=2000)
+        self.t.decided("t", d, None, None)
+        self.t.decided("t", d, None, None)                # a later turn without skip(): no stale row
+        self.assertEqual([r["event"] for r in self.rows()], ["turn", "decision"])
+
     def test_env_config_path(self):
         p = Path(self.td.name) / "elsewhere.json"
         p.write_text(json.dumps(config(share=1.0)))
@@ -230,7 +250,7 @@ class Capture:
  async def failed(self,message):raise AssertionError('failed')
 shop=seller.Seller(None,'fixture',stock=StockBook(lambda:dict(round=3,units=[])))
 out=[]
-async def turn(c,text,timeout=False):
+async def turn(c,text,timeout=False,shelf=None):
  cap=Capture();task=SimpleNamespace(id=str(uuid.uuid4()),context_id='ctx')
  d=dict(id=c['sku'],name=c['sku'],kind='food',unit=None,reserve=c['floor'],ask=c['ask'],open=c['history'][0][1],
         rounds=c['rounds']-1,history=[tuple(h) for h in c['history']])
@@ -244,7 +264,7 @@ async def turn(c,text,timeout=False):
  with patch.object(seller,'TaskUpdater',return_value=cap),patch.object(seller,'get_message_text',return_value=text),\
       patch.object(seller,'new_text_part',side_effect=lambda t:t),patch.object(seller,'turn_floor',return_value=c['floor']),\
       patch.object(seller.fast_classify,'JEV_ON',True),patch.object(fast_classify,'jev_offer',side_effect=fake_jev),\
-      patch.object(seller,'decide_turn',side_effect=fake_harness):
+      patch.object(seller,'decide_turn',side_effect=fake_harness),patch.object(seller.SHELF_REPLY,'reply',return_value=shelf):
   await shop._execute(SimpleNamespace(current_task=task,message=None),None)
  out.append(dict(source=c['source'],text=text,timeout=timeout,jev=len(jev),harness=len(harness),
   harness_text=harness[0] if harness else None,reply=cap.message['parts'][0],ask_meta=(cap.message.get('metadata') or {}).get('ask'),
@@ -257,6 +277,7 @@ async def run():
  await turn(c,c['text'],timeout=True)                                   # every real case also under a timeout
  for text in ('I can offer 20000. '+Q.format(85),Q.format(85)+' Grade A only.','85. '+Q.format(85),Q.format(26615)):
   await turn(c,text)
+ await turn(c,c['text'],shelf='The unit has 120 hours of shelf life left. My price: %d.'%c['ask'])   # shelf_life_reply answered: no Jev either way
 with patch.object(seller,'ask',side_effect=AssertionError('unexpected external harness')):
  asyncio.run(run())
 seller.MEMORY_WRITER.shutdown(wait=True)
@@ -295,7 +316,14 @@ class SellerSeam(unittest.TestCase):
 
     def real(self, mode):
         n = len(CASES)
-        return self.run_mode(mode)["turns"][:n], self.run_mode(mode)["turns"][n], self.run_mode(mode)["turns"][n + 1:]
+        turns = self.run_mode(mode)["turns"]
+        return turns[:n], turns[n], turns[n + 1:-1]
+
+    def test_shelf_reply_turn_is_not_counted(self):
+        for mode in ("off", "A", "B", "adopted"):
+            t = self.run_mode(mode)["turns"][-1]
+            self.assertEqual((t["jev"], t["harness"]), (0, 0), mode)
+            self.assertTrue(t["reply"].startswith("The unit has 120 hours"), mode)
 
     def test_control_paths_unchanged(self):
         for mode in ("off", "A"):
@@ -334,7 +362,10 @@ class SellerSeam(unittest.TestCase):
             self.assertEqual(sum(r["jev_skipped"] for r in turns), len(CASES) + 1)
             self.assertEqual([r["reason"] for r in turns if not r["eligible"]], ["number_at_or_above_floor"])
             decisions = [r for r in rows if r["event"] == "decision"]
-            self.assertTrue(all(r["jev_calls"] == 0 and r["harness_used"] for r in decisions if r["jev_skipped"]))
+            self.assertEqual(len(decisions), len(turns))                          # one decision row per turn row
+            self.assertEqual(sum(r["jev_skipped"] for r in decisions), len(CASES) + 1)
+            self.assertTrue(all(r["jev_calls"] == 0 and r["harness_used"] and not r["jev_held"]
+                                for r in decisions if r["jev_skipped"]))
             self.assertEqual(sum(r["event"] == "deal" for r in rows), len(turns))
 
 

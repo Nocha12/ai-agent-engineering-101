@@ -7,20 +7,24 @@ All 71 answered the buyer the same line: "Please tell me the price you offer. My
 in 11:25-11:55 (review/W-20261106-2225-AX극단상향/source-1225-followup/report.md).
 
 Treatment (arm B, or every eligible turn once adopted): this turn's Jev reader is None; the harness and every price guard
-run as before. Two differences from control, which the A/B measures: a Jev timeout no longer holds the ask (the harness
-answers), and a Jev read of the hours as an offer could no longer reach the jevrule counter (0 of 71 seen).
+run as before. Differences from control, which the A/B measures: a Jev timeout no longer holds the ask (the harness
+answers), so the talk keeps negotiate's once-a-talk hold (deal["jev_held"]) for a later turn; and a Jev read of the
+hours as an offer could no longer reach the jevrule counter (0 of 71 seen). seller.py asks only on turns that would call
+Jev (a real Jev reader, no shelf-life answer from shelf_life_reply).
 
 Eligible: the message is the whole QUESTION and every number in it is under max(floor, reserve), so no number in it can
 be an offer the code would take. Randomization is per task (sha256 of salt|study|version|task), sticky for the talk while
 the configuration keeps the same study and version. The turn row is journaled before the skip is allowed; a failed write
 keeps the control path. Configuration: MARKET_DIR/shelf_jev_skip/config.json (SHELF_JEV_SKIP_CONFIG overrides), absent,
-invalid, disabled or outside [start_at, stop_at): the original path, no journal. mode "adopted": every eligible turn skips.
+invalid, disabled or outside [start_at, stop_at): the original path and no turn rows; a talk assigned earlier still gets
+its outcome row. mode "adopted": every eligible turn skips. Config and journal must be regular files (no FIFO waits).
 """
 import hashlib
 import json
 import math
 import os
 from pathlib import Path
+import stat
 import threading
 import time
 
@@ -93,6 +97,8 @@ class Trial:
         try:
             path = self._path()
             st = path.stat()
+            if not stat.S_ISREG(st.st_mode):
+                return None
             key = (str(path), st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
             with self._lock:
                 if self._cache is None or self._cache[0] != key:
@@ -118,8 +124,10 @@ class Trial:
         if len(data) > MAX_RECORD_BYTES:
             raise ValueError("record too large")
         self.root.mkdir(parents=True, exist_ok=True)
-        fd = os.open(self.root / "events.jsonl", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        fd = os.open(self.root / "events.jsonl", os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NONBLOCK | os.O_NOFOLLOW, 0o600)
         try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise OSError("journal is not a regular file")
             if os.write(fd, data) != len(data):
                 raise OSError("short write")
         finally:
@@ -168,7 +176,7 @@ class Trial:
 
     def decided(self, task, deal, fast, reader):
         """After the turn's decision: whether the harness answered and how many Jev calls the turn made."""
-        t = deal.get("shelf_jev_turn") or {}
+        t = deal.pop("shelf_jev_turn", None) or {}     # one decision row per skip() row, never a stale one
         a = deal.get("shelf_jev") or {}
         if "at" not in t or not a:
             return
@@ -176,7 +184,7 @@ class Trial:
             self._write(dict(event="decision", ts=time.time(), task=task, study=a["study"], version=a["version"],
                              arm=a["arm"], mode=a["mode"], jev_skipped=t["skipped"], harness_used=fast is None,
                              fast_why=(fast or {}).get("why"), jev_calls=getattr(reader, "jev_calls", None),
-                             reader_source=getattr(reader, "source", None)))
+                             reader_source=getattr(reader, "source", None), jev_held=bool(deal.get("jev_held"))))
         except Exception:
             pass
 

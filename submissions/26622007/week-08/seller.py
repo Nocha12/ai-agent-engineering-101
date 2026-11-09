@@ -808,9 +808,11 @@ class Seller(AgentExecutor):
                                             READER_TRIAL.arm(deal.get("reader_trial") or {}))
         deal["reader_trial_floor"] = floor_now
         jev = reader if fast_classify.JEV_ON or reader.arm == "B" else None   # lazy, one call a turn
-        if jev is not None and SHELF_JEV.skip(task.id, text, deal, floor_now):   # R1 A/B: hours only, never an offer
-            jev = None
         shelf_text = SHELF_REPLY.reply(text, deal)
+        # R1 A/B: the exact shelf-life question has only hours in it, never an offer; only turns that would call Jev
+        if (jev is not None and reader.jev is not None and shelf_text is None
+                and SHELF_JEV.skip(task.id, text, deal, floor_now)):
+            jev = None
         exact_decision = EXACT_ACCEPT.decide(text, deal, floor_now)
         counter_decision = EXACT_COUNTER.decide(text, deal, floor_now, MAX_ROUNDS)
         floor_exact_decision = AT_FLOOR_EXACT.decide(text, deal, floor_now, MAX_ROUNDS,
