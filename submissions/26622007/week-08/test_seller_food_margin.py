@@ -1,0 +1,186 @@
+"""seller_food_margin: food reserve with a margin over cost, arms by unit (W-20261109-2040-AX셀러전략)."""
+import json
+import os
+import tempfile
+import unittest
+from pathlib import Path
+
+import profit_price
+import seller_food_margin as fd
+
+ON = 1794229200.0          # 11/09 23:20 KST
+
+
+def unit(**kw):
+    # units_in.jsonl 11/09 17:04: grade A 포기김치 10kg, cost .790 of list; our A food sold at .736 of list against
+    # .790 at other shops on the same SKU x grade (ledger 11/08 23:40-11/09 22:13)
+    return {"sku": "G200e39a3", "unit": "u-e9e1c5b1e5f1", "kind": "food", "grade": "A", "cost": 29924,
+            "list_price": 37900, "expires_at": 1794677634.0, **kw}
+
+
+PRICING = {"price": {"min_profit": 1, "min_profit_share": 0.0, "goods_break": 0.035, "median_up": 1.0,
+                     "grade_break": {"A": 0.03, "B": 0.122, "C": 0.344}}}
+
+
+class SellerFoodMarginTest(unittest.TestCase):
+    def setUp(self):
+        self.md = tempfile.TemporaryDirectory()
+        self.addCleanup(self.md.cleanup)
+
+    def on(self, **kw):
+        d = {"enabled": True, "study": "food-margin-t", "salt": "s1", "share": 0.05, "start_at": ON - 60,
+             "stop_at": ON + 3600, **kw}
+        Path(self.md.name, fd.SWITCH).write_text(json.dumps(d))
+
+    def salt_for(self, want, u=None):
+        u = u or unit()
+        return next(f"s{i}" for i in range(200) if fd.arm({"salt": f"s{i}"}, u["unit"]) == want)
+
+    def q(self, u, median=29000):
+        return profit_price.quote(u, median=median, pricing=PRICING)
+
+    def run_(self, u, q, keep=1, margin=None, pricing=PRICING, env=None, now=ON):
+        return fd.decide(u, q, reserve=q.get("floor"), ask=q.get("open"), keep=keep, margin_assignment=margin,
+                         pricing=pricing, md=self.md.name, env=env or {}, now=now)
+
+    def test_today_food_reserve_is_cost(self):
+        u = unit()
+        q = self.q(u)
+        self.assertEqual(q["floor"], 30000)                 # ceil(29924 x 1.0025 + 1): 0.25% over cost
+        self.assertEqual(q["open"], 30000)                  # the SKU median is under it: the first ask is the floor
+
+    def test_off_is_todays_price(self):
+        u = unit()
+        q = self.q(u)
+        same = (q["floor"], q["open"], None)
+        self.assertEqual(self.run_(u, q), same)
+        self.on(enabled=False)
+        self.assertEqual(self.run_(u, q), same)
+        self.on(salt=self.salt_for("B"))
+        self.assertEqual(self.run_(u, q, env={"SELLER_FOOD_MARGIN": "0"}), same)
+
+    def test_arm_b_raises_reserve_and_ask_to_cost_plus_share(self):
+        u = unit()
+        q = self.q(u)
+        self.on(salt=self.salt_for("B"))
+        reserve, ask, rec = self.run_(u, q)
+        self.assertEqual(reserve, 31421)                    # ceil(29924 x 1.05)
+        self.assertEqual(ask, 31421)
+        self.assertEqual({k: rec[k] for k in ("study", "arm", "share", "usual_reserve", "usual_ask", "reserve", "ask",
+                                               "list", "cost", "sku", "grade", "unit")},
+                         {"study": "food-margin-t", "arm": "B", "share": 0.05, "usual_reserve": 30000,
+                          "usual_ask": 30000, "reserve": 31421, "ask": 31421, "list": 37900, "cost": 29924,
+                          "sku": "G200e39a3", "grade": "A", "unit": "u-e9e1c5b1e5f1"})
+
+    def test_arm_a_keeps_todays_price_and_is_recorded(self):
+        u = unit()
+        q = self.q(u)
+        self.on(salt=self.salt_for("A"))
+        reserve, ask, rec = self.run_(u, q)
+        self.assertEqual((reserve, ask, rec["arm"], rec["reserve"], rec["ask"]), (30000, 30000, "A", 30000, 30000))
+
+    def test_never_lowers_and_never_over_list(self):
+        u = unit(cost=10000)                                # B-like cost: the usual ask is already over cost x 1.05
+        q = self.q(u, median=25000)
+        self.on(salt=self.salt_for("B"))
+        reserve, ask, rec = self.run_(u, q)
+        self.assertEqual((reserve, ask), (10500, q["open"]))
+        u = unit(cost=37000)                                # cost x 1.05 over list: list caps it, never under today's
+        q = self.q(u)
+        reserve, ask, _ = self.run_(u, q)
+        self.assertEqual(reserve, max(q["floor"], 37900))
+        self.assertLessEqual(reserve, max(q["floor"], u["list_price"]))
+
+    def test_ineligible_talks_untouched(self):
+        self.on(salt=self.salt_for("B"))
+        u = unit()
+        q = self.q(u)
+        same = (q["floor"], q["open"], None)
+        self.assertEqual(self.run_(u, q, keep=0.8), same)                   # markdown: near its date, clearance
+        self.assertEqual(self.run_(u, q, margin={"arm": "x"}), same)         # margin study talk
+        self.assertEqual(self.run_(unit(kind="goods"), q), same)
+        self.assertEqual(self.run_(unit(list_price=None), q), same)
+        self.assertEqual(self.run_(unit(cost=0), q), same)
+        self.assertEqual(self.run_(u, {**q, "why": "scarce ask 31000"}), same)
+        self.assertEqual(self.run_(u, {**q, "why": "ask cap 30500 for grade A (was 31000)"}), same)
+        capped = {"price": {**PRICING["price"], "ask_caps": {"G200e39a3": {"A": 30500}}}}
+        self.assertEqual(self.run_(u, q, pricing=capped), same)
+
+    def test_seller_guards_hold_the_raised_reserve(self):
+        import seller
+        deal = {"reserve": 31421, "ask": 31421, "open": 31421, "rounds": 1, "kind": "food",
+                "history": [("you asked", 31421), ("buyer offered", 30000)]}
+        self.assertEqual(seller.price_guards(deal, "accept", 30000, 30000, 31421), ("counter", 31421))
+
+    def test_arm_is_per_unit_and_about_half(self):
+        cfg = {"salt": "x"}
+        self.assertEqual(fd.arm(cfg, "u1"), fd.arm(cfg, "u1"))
+        b = sum(fd.arm(cfg, f"u-{i:012x}") == "B" for i in range(2000))
+        self.assertTrue(900 < b < 1100, b)
+        self.assertIsNone(fd.arm(cfg, ""))
+        self.assertIsNone(fd.arm(None, "u1"))
+
+    def test_bad_settings_are_off(self):
+        u = unit()
+        q = self.q(u)
+        same = (q["floor"], q["open"], None)
+        for bad in (0.01, 0.2, True, "0.05", float("nan"), None):
+            self.on(salt=self.salt_for("B"), share=bad)
+            self.assertEqual(self.run_(u, q), same, bad)
+        for k, v in (("study", ""), ("salt", None), ("start_at", None), ("stop_at", float("inf")),
+                     ("stop_at", ON - 60), ("stop_at", ON - 60 + fd.MAX_WINDOW_HOURS * 3600 + 1)):
+            self.on(**{"salt": self.salt_for("B"), k: v})
+            self.assertEqual(self.run_(u, q), same, (k, v))
+        Path(self.md.name, fd.SWITCH).write_text('{"enabled": true, "start_at": NaN')
+        self.assertEqual(self.run_(u, q), same)
+
+    def test_window_boundaries(self):
+        u = unit()
+        q = self.q(u)
+        self.on(salt=self.salt_for("B"), start_at=ON, stop_at=ON + 3600)
+        self.assertIsNone(self.run_(u, q, now=ON - 0.001)[2])
+        self.assertEqual(self.run_(u, q, now=ON)[2]["arm"], "B")
+        self.assertIsNone(self.run_(u, q, now=ON + 3600)[2])
+
+    def test_never_raises(self):
+        self.on(salt=self.salt_for("B"))
+        u = unit()
+        q = self.q(u)
+        real = fd.math.ceil
+        def boom(*a, **k):
+            raise RuntimeError("x")
+        fd.math.ceil = boom
+        try:
+            self.assertEqual(self.run_(u, q), (q["floor"], q["open"], None))
+        finally:
+            fd.math.ceil = real
+        self.assertEqual(fd.decide(None, {}, reserve=4, ask=5, keep=1, margin_assignment=None, md=self.md.name,
+                                   env={}, now=ON), (4, 5, None))
+        self.assertEqual(fd.decide(unit(), None, reserve=4, ask=5, keep=1, margin_assignment=None, md=self.md.name,
+                                   env={}, now=ON), (4, 5, None))
+
+    def test_producer_writes_a_finite_window(self):
+        d = fd.switch_on(self.md.name, study="food-margin-t", salt="s1", start_at=ON, hours=12)
+        self.assertEqual((d["start_at"], d["stop_at"], d["share"]), (ON, ON + 12 * 3600, fd.SHARE))
+        self.assertIsNotNone(fd.config(self.md.name, env={}, now=ON + 1))
+        self.assertIsNone(fd.config(self.md.name, env={}, now=ON + 12 * 3600))
+        self.assertEqual(os.stat(os.path.join(self.md.name, fd.SWITCH)).st_mode & 0o777, 0o600)
+        for hours in (0, -1, fd.MAX_WINDOW_HOURS + 0.01, float("nan"), True):
+            with self.assertRaises(ValueError):
+                fd.switch_on(self.md.name, study="food-margin-t", salt="s1", start_at=ON, hours=hours)
+        self.assertIsNotNone(fd.config(self.md.name, env={}, now=ON + 1))
+
+    def test_seller_calls_it_after_floor_margin_and_records_it(self):
+        src = Path(__file__).with_name("seller.py").read_text(encoding="utf-8")
+        f, d = src.index("seller_floor_margin.decide("), src.index("seller_food_margin.decide(")
+        self.assertLess(f, d)
+        self.assertLess(d, src.index('deal = self.open[task.id] = {"id": u["sku"]'))
+        self.assertIn('**({"food_margin": deal["food_margin"]} if deal.get("food_margin") else {})', src)
+
+    def test_meta_harness_watches_the_switch(self):
+        import meta_harness
+        self.assertIn(".market/" + fd.SWITCH, meta_harness.SWITCHES)
+
+
+if __name__ == "__main__":
+    unittest.main()

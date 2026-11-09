@@ -69,6 +69,7 @@ import seller_drain
 import seller_opening_cue
 import seller_a_open
 import seller_floor_margin
+import seller_food_margin
 import seller_late_speed
 import seller_jev_transport
 import shelf_life_reply
@@ -574,6 +575,13 @@ class Seller(AgentExecutor):
             if floor_margin:
                 log(f"FLOOR_MARGIN {u['sku']} unit {u['unit']} arm {floor_margin['arm']}: reserve {reserve} ask {ask_price}"
                     f" (usual {floor_margin['usual_reserve']} / {floor_margin['usual_ask']})")
+        food_margin = None
+        if keep >= 1:         # food reserve margin A/B (seller_food_margin, default off): never a markdown talk
+            reserve, ask_price, food_margin = seller_food_margin.decide(
+                u, q, reserve=reserve, ask=ask_price, keep=keep, margin_assignment=margin_assignment, pricing=pricing)
+            if food_margin:
+                log(f"FOOD_MARGIN {u['sku']} unit {u['unit']} arm {food_margin['arm']}: reserve {reserve} ask {ask_price}"
+                    f" (usual {food_margin['usual_reserve']} / {food_margin['usual_ask']})")
         deal = self.open[task.id] = {"id": u["sku"], "name": u["name"], "key": key, "unit": u["unit"], "kind": u.get("kind"),
                                      "cost": cost, "reserve": reserve, "ask": ask_price, "open": ask_price, "arm": arm,
                                      "break": q["b"], "expires_at": u.get("expires_at"),
@@ -582,6 +590,8 @@ class Seller(AgentExecutor):
             deal["a_open"] = a_open
         if floor_margin:
             deal["floor_margin"] = floor_margin
+        if food_margin:
+            deal["food_margin"] = food_margin
         if margin_assignment is not None:
             deal['sol_margin'] = margin_assignment
             deal['sol_margin_publication'] = 'prepared'
@@ -1043,7 +1053,8 @@ class Seller(AgentExecutor):
                                 "offers": [p for who, p in deal["history"] if who == "buyer offered"],
                                 "warranty": deal.get("warranty"), "result": result, "price": price,
                                 **({"a_open": deal["a_open"]} if deal.get("a_open") else {}),
-                                **({"floor_margin": deal["floor_margin"]} if deal.get("floor_margin") else {})})
+                                **({"floor_margin": deal["floor_margin"]} if deal.get("floor_margin") else {}),
+                                **({"food_margin": deal["food_margin"]} if deal.get("food_margin") else {})})
         except Exception as e:  # noqa: BLE001 - in the writer thread nobody else would see it
             MEMORY_FAILURES.append(True)
             log(f"memory write failed: {type(e).__name__}: {e}")
