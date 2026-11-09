@@ -243,6 +243,9 @@ a = sys.argv
 out = a[a.index("-o") + 1]
 os.chdir(a[a.index("-C") + 1])
 mode = os.environ["FAKE_MODE"]
+for p, text in json.loads(os.environ.get("FAKE_SIDE") or "{}").items():   # another job writes while the model runs
+    os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
+    open(p, "w").write(text)
 if mode == "refused":
     print("The 'gpt-6.1-terra' model is not supported", file=sys.stderr)
     sys.exit(1)
@@ -450,6 +453,16 @@ class HarnessCycleTest(unittest.TestCase):
         dropped = {**gap, "missing": "원가 누락 1건", "measurement": "unit cost"}
         self.assertIn("no longer listed", mh.gap_problems({"evidence_gap": dropped, "evidence": meta_quote}, [], carried)[0])
         self.assertEqual(mh.gap_problems({"evidence_gap": dropped, "evidence": log_quote}, [], carried), [])
+        # independent review 0738-meta I2: the meta/ test was on the ref's text; ./meta/ or an absolute path passed it
+        with open(os.path.join(self.root, "meta", "grades.jsonl"), "w") as f:
+            f.write("x\nG8ec51935의 원가 누락 1건\n")
+        for ref in ("./meta/grades.jsonl:2", os.path.join(self.root, "meta", "grades.jsonl") + ":2",
+                    "logs/../meta/grades.jsonl:2", "meta//grades.jsonl:2"):
+            quote = [{"ref": ref, "excerpt": "G8ec51935의 원가 누락 1건"}]
+            self.assertTrue(mh.gap_problems({"evidence_gap": gap, "evidence": quote}, [], carried), ref)
+            self.assertTrue(mh.gap_problems({"evidence_gap": dropped, "evidence": quote}, [], carried), ref)
+        abs_log = [{"ref": os.path.join(self.root, "logs", "market-kit.log") + ":3", "excerpt": log_quote[0]["excerpt"]}]
+        self.assertEqual(mh.gap_problems({"evidence_gap": gap, "evidence": abs_log}, [], carried), [])
 
     def test_another_jobs_staged_secret_or_pricing_edit_is_not_the_cycles(self):
         # independent review 0738 I1/I2: a cycle that changed nothing read the whole index and pricing.json against HEAD
@@ -468,6 +481,50 @@ class HarnessCycleTest(unittest.TestCase):
         rec = self.go("good")
         self.assertEqual((rec["status"], rec["files"], rec["settings"]), ("running", ["changed.py"], []), rec.get("problems"))
         self.assertIn("pricing.json", self.git("status", "--porcelain"))
+
+    def test_a_runtime_switch_flipped_during_the_cycle_is_never_committed_or_undone(self):
+        # independent review 0738-meta I1: 14d7cee (terra-1109-085220, rejected) committed seller_warranty_trial.json,
+        # which the warranty A/B turned on while the model ran; a code cycle's undo would have turned the study off
+        sw = os.path.join(self.root, "seller_warranty_trial.json")
+        with open(sw, "w") as f:
+            f.write('{"enabled": false}\n')
+        self.git("add", "seller_warranty_trial.json")
+        self.git("commit", "-qm", "switch off")
+        start = self.git("rev-parse", "HEAD")
+        on = {"seller_warranty_trial.json": '{"enabled": true}\n', ".market/buyer_food_shelf.json": '{"enabled": true}\n'}
+        for mode, status in (("broken", "rejected"), ("nothing", "no_change"), ("good", "running")):
+            with mock.patch.dict(os.environ, {"FAKE_SIDE": json.dumps(on)}):
+                rec = self.go(mode)
+            self.assertEqual(rec["status"], status, rec.get("problems"))
+            self.assertEqual(open(sw).read(), '{"enabled": true}\n', mode)      # the study stays on
+            self.assertEqual(self.git("log", "--format=%H", f"{start}..", "--", "seller_warranty_trial.json"), "", mode)
+        self.assertEqual(rec["files"], ["changed.py"])
+        self.assertIn("seller_warranty_trial.json", self.git("status", "--porcelain"))
+        self.assertEqual(open(os.path.join(self.root, ".market", "buyer_food_shelf.json")).read(), '{"enabled": true}\n')
+
+    def test_an_undo_puts_pricing_back_as_the_cycle_found_it_not_as_head(self):
+        # independent review 0738-meta I1: undo checked out the commit's parent, dropping another job's pricing.json edit
+        # that was there before the cycle wrote over it
+        pj = os.path.join(self.root, "pricing.json")
+        with open(pj, "w") as f:
+            f.write('{"seller": {}, "a": 1}\n')
+        self.git("add", "pricing.json")
+        self.git("commit", "-qm", "pricing")
+        found = '{"seller": {}, "a": 2}\n'
+        with open(pj, "w") as f:
+            f.write(found)                                                     # another job's edit, left uncommitted
+        with mock.patch.dict(os.environ, {"FAKE_SIDE": json.dumps({"pricing.json": '{"seller": {}, "a": 3}\n'})}):
+            rec = self.go("broken")
+        self.assertEqual(rec["status"], "rejected", rec.get("problems"))
+        self.assertIn("revert(week-08)", self.git("log", "--format=%s"))
+        self.assertEqual(open(pj).read(), found)
+        self.assertFalse(self.exists())
+        with open(pj, "w") as f:
+            f.write('{"seller": {}, "a": 1}\n')                               # clean at the start: back to HEAD, as before
+        with mock.patch.dict(os.environ, {"FAKE_SIDE": json.dumps({"pricing.json": '{"seller": {}, "a": 3}\n'})}):
+            self.assertEqual(self.go("broken")["status"], "rejected")
+        self.assertEqual(open(pj).read(), '{"seller": {}, "a": 1}\n')
+        self.assertEqual(self.git("status", "--porcelain", "--", "pricing.json"), "")
 
     def test_the_schedule_survives_a_restart(self):
         grades = os.path.join(self.root, "meta", "grades.jsonl")

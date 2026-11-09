@@ -49,6 +49,17 @@ TRIED = os.path.join(ROOT, ".market", "meta_tried.json")   # when each kind last
 NOT_CODE = ("meta/evidence/", "meta/changes.jsonl", "meta/grades.jsonl", "meta/state.json", "meta/last-",
             "meta/experiments_log.jsonl")
 LIVE = ("logs", "memory")         # what the kit and the shop keep writing: never staged by the harness (.gitignore too)
+# Runtime switches other jobs turn on and off while a cycle runs (A/B studies): never a cycle's change, never staged, never
+# undone. 14d7cee (terra-1109-085220) committed seller_warranty_trial.json, which the warranty A/B had just turned on, and
+# a code cycle's undo would have turned the study off (independent review 0738-meta I1). .market/ is ignored as well.
+RUNTIME = ("seller_warranty_trial.json", ".market/")
+
+
+def runtime(p):
+    return p in RUNTIME or p.startswith(tuple(r for r in RUNTIME if r.endswith("/")))
+
+
+RESTORE = ("pricing.json",)      # Terra's own file that another job may also edit: an undo puts back the cycle's start
 SELLER_FILES = ("seller.py", "shop_memory.py", "shop_stock.py", "harness.py", "catalog.py", "pricing.json", "acp_shop.py")
 EVIDENCE = {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["ref", "excerpt", "meaning"],
                                        "properties": {k: {"type": "string"} for k in ("ref", "excerpt", "meaning")}}}
@@ -131,6 +142,16 @@ def cited_file(ref, root):
     if not path.startswith(os.path.realpath(root) + os.sep) or not os.path.isfile(path):
         return None
     return path, int(m.group(2))
+
+
+def outside_meta(ref, root=None):
+    """The ref names a file here that is not under meta/, judged on the resolved path (cited_file), not the ref's text:
+    ./meta/, logs/../meta/ or an absolute path passed a startswith("meta/") test (independent review 0738-meta I2)."""
+    root = root or ROOT
+    found = cited_file(str(ref or ""), root)
+    if not found:
+        return False
+    return os.path.relpath(found[0], os.path.realpath(root)).split(os.sep)[0] != "meta"
 
 
 def anchor_evidence(items, root=None):
@@ -219,7 +240,7 @@ def dirty_paths():
     names += git("diff", "--cached", "--name-only", "-z", "--relative", check=False).split("\0")
     out = {}
     for p in names:
-        if not p or p.split("/", 1)[0] in LIVE:
+        if not p or p.split("/", 1)[0] in LIVE or runtime(p):
             continue
         full = os.path.join(ROOT, p)
         try:
@@ -246,6 +267,9 @@ def stage(before=None):
     # which failed every Terra cycle from 11/04 11:07 (f0a8917) and left its change staged, uncommitted
     git("add", "-A", "--", ".")
     git("reset", "-q", "--", *LIVE, check=False)      # tracked evidence there stays as committed; no HEAD yet: nothing to undo
+    switches = [p for p in git("diff", "--cached", "--name-only", "--relative").splitlines() if runtime(p)]
+    if switches:
+        git("reset", "-q", "--", *switches, check=False)
     paths = git("diff", "--cached", "--name-only", "--relative").splitlines()
     live = [p for p in paths if p.split("/", 1)[0] in LIVE]
     if live:
@@ -424,11 +448,13 @@ def commit(message, paths=None):
     return git("rev-parse", "HEAD")
 
 
-def undo(sha, why):
+def undo(sha, why, found=None):
     """Puts back what `sha` changed except logs/ and memory/. Astra's commit carries those and the kit keeps writing them,
-    so `git revert` refused (11/04 09:29, "local changes would be overwritten") and the cycle went unrecorded."""
+    so `git revert` refused (11/04 09:29, "local changes would be overwritten") and the cycle went unrecorded.
+    A runtime switch is never put back (RUNTIME). `found` ({path: bytes}, start_contents()) is a file as the cycle found
+    it: written back after the revert, so another job's uncommitted edit there is kept, not dropped for the parent's."""
     paths = [p for p in git("diff-tree", "--no-commit-id", "--name-only", "-r", "--relative", sha).splitlines()
-             if p and not p.startswith(("logs/", "memory/"))]
+             if p and not p.startswith(("logs/", "memory/")) and not runtime(p)]
     try:
         for p in paths:
             if git("ls-tree", "--name-only", f"{sha}^", "--", p):
@@ -445,14 +471,38 @@ def undo(sha, why):
             elif os.path.exists(os.path.join(ROOT, p)):
                 os.remove(os.path.join(ROOT, p))
         raise
+    put_back(found, paths)
     log(f"undid {sha[:8]}: {why}")
 
 
-def try_undo(cid, sha, why):
+def start_contents(before):
+    """{path: bytes} of each RESTORE file another job had left edited at the cycle's start (`before`, dirty_paths())."""
+    out = {}
+    for p in RESTORE:
+        if before.get(p):
+            try:
+                with open(os.path.join(ROOT, p), "rb") as f:
+                    out[p] = f.read()
+            except OSError:
+                pass
+    return out
+
+
+def put_back(found, paths):
+    """Writes each of `paths` held in `found` back as the cycle found it, atomically (the seller may read it meanwhile)."""
+    for p in paths:
+        if p in (found or {}):
+            full = os.path.join(ROOT, p)
+            with open(full + ".meta-undo", "wb") as f:
+                f.write(found[p])
+            os.replace(full + ".meta-undo", full)
+
+
+def try_undo(cid, sha, why, found=None):
     """undo(), or why it could not (the change then stays as committed). The cycle is recorded either way: an Astra
     cycle missing from meta/grades.jsonl runs again on the loop's next start."""
     try:
-        undo(sha, why)
+        undo(sha, why, found)
         return None
     except RuntimeError as e:
         log(f"{cid}: could not undo {sha[:8]}, it stays: {e}")
@@ -677,7 +727,7 @@ def gap_problems(answer, code, carried=None):
                 "expires, undo) was set (meta/terra.md 'When evidence is short')"]
     out = []
     quoted = " ".join(str(e.get("excerpt") or "") for e in answer.get("evidence") or []
-                      if isinstance(e, dict) and not str(e.get("ref") or "").startswith("meta/"))
+                      if isinstance(e, dict) and outside_meta(e.get("ref")))
     still = gap_ids(gap.get("missing"))
     for i in sorted(carried or {}):
         if i in still and (i not in (gap.get("measurement") or "") or i not in quoted):
@@ -884,6 +934,7 @@ def refresh_scorecard():
 def cycle(kind):
     before = dirty_paths()        # what the folder already held: not this cycle's change
     FOUND["pricing"] = pricing_now() if "pricing.json" in before else None
+    found = start_contents(before)
     cid = f"{kind}-{time.strftime('%m%d-%H%M%S')}"
     os.makedirs(os.path.join(ROOT, "meta", "evidence"), exist_ok=True)
     pack = os.path.join(ROOT, "meta", "evidence", f"{cid}.json")
@@ -909,6 +960,7 @@ def cycle(kind):
         for p in code:
             if os.path.exists(os.path.join(ROOT, p)) and git("ls-files", "--", p, check=False) == "":
                 os.remove(os.path.join(ROOT, p))
+        put_back(found, code)
         rec.update(status="discarded_secret", reason="a secret was about to be committed")
         log(f"{cid}: DISCARDED, a secret was in the change")
         record(rec, before)
@@ -951,7 +1003,7 @@ def cycle(kind):
     title = (answer or {}).get("change_summary") or err or "변경"
     if problems:
         sha = commit(f"wip(week-08): [{cid}] 실패 - {title} / {problems[0]}"[:300], paths)
-        failed = try_undo(cid, sha, f"{cid} 검증 실패: {problems[0]}")
+        failed = try_undo(cid, sha, f"{cid} 검증 실패: {problems[0]}", found)
         rec.update(status="rejected_kept" if failed else "rejected", problems=problems + ([failed] if failed else []),
                    commit=sha)
         record(rec, before)
@@ -973,7 +1025,7 @@ def cycle(kind):
     bad = canary()
     if bad:
         log(f"{cid}: failed the watch: {'; '.join(bad)}")
-        failed = try_undo(cid, sha, f"{cid} 10분 점검 실패: {'; '.join(bad)}")
+        failed = try_undo(cid, sha, f"{cid} 10분 점검 실패: {'; '.join(bad)}", found)
         if failed:
             rec.update(status="canary_failed_kept", problems=bad + [failed])
         else:
