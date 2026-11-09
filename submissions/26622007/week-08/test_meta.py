@@ -339,6 +339,7 @@ class HarnessCycleTest(unittest.TestCase):
         # cycle() reloads scorecard (79df539), which put the real board() back over the fake one below: the tests read the
         # live board, and its board_drift alert 11/06 18:2x-19:30 failed every no-code cycle. Keep the loaded module.
         patches = [mock.patch.object(mh, "ROOT", self.root), mock.patch.object(mh, "KIT_PATTERN", ""),
+                   mock.patch.object(mh, "LAST", {"target": None}),      # a new loop: no previous cycle's trial
                    mock.patch.object(mh, "refresh_scorecard", lambda: mh.scorecard),
                    mock.patch.object(mh, "CANARY_SECONDS", 0), mock.patch.dict(os.environ, {"META_CODEX": fake}),
                    mock.patch.object(mh.scorecard, "board", lambda *a, **k: {"round": 3}),
@@ -745,7 +746,7 @@ class HarnessCycleTest(unittest.TestCase):
         open(self.journal, "a").close()
         os.chmod(self.journal, 0o644)
         for p in [mock.patch.object(mh.hard_limits, "PERSON_JOURNAL", self.journal),
-                  mock.patch.object(mh, "LAST", {"target": None}, create=True)] + (
+                  mock.patch.object(mh, "LAST", {"target": None})] + (                # a new loop on this HEAD
                 [mock.patch.object(mh.hard_limits, "_me", lambda: os.getuid() + 1000)] if journal else []):
             p.start()                  # journal=False: the journal is this account's own, so it proves nothing
             self.addCleanup(p.stop)
@@ -811,6 +812,14 @@ class HarnessCycleTest(unittest.TestCase):
         self.assertEqual(self.gbt_now(), self.GBT)
         rec = self.gbt_cycle(None, "nothing")
         self.assertEqual(self.gbt_now(), self.GBT, rec)                  # HEAD's window is the model's, not a start
+        mh.LAST["target"] = None                                          # the loop restarted: HEAD without the wip
+        moved2 = dict(moved, salt="m2")
+        with mock.patch.object(mh, "undo", side_effect=RuntimeError("index.lock")):
+            self.gbt_cycle(self.gbt_pricing(moved2, goods_break=0.07), "broken")
+        self.assertEqual(self.gbt_now("HEAD"), moved2)
+        mh.LAST["target"] = None
+        rec = self.gbt_cycle(None, "nothing")
+        self.assertEqual(self.gbt_now(), self.GBT, rec)
 
     def test_the_journal_comes_before_head_when_the_folder_is_set_back_to_head(self):
         self.gbt_start(self.GBT)
@@ -900,10 +909,13 @@ class HarnessCycleTest(unittest.TestCase):
 
     def test_a_journal_line_proves_nothing_from_before_the_cycle_for_another_value_or_from_this_account(self):
         self.gbt_start(self.GBT)
-        with open(self.journal, "a") as f:                                 # written before the cycle began
+        with open(self.journal, "a") as f:     # before the cycle: the person's latest switch is where the cycle starts
             f.write(json.dumps(dict(self.person(None), t=time.time() - 5)) + "\n")
-        self.assertEqual(self.gbt_cycle(self.gbt_pricing(), "nothing")["status"], "rejected")
-        self.assertEqual(self.gbt_now(), self.GBT)
+        self.assertEqual(self.gbt_cycle(self.gbt_pricing(), "nothing")["status"], "no_change")
+        self.assertIsNone(self.gbt_now())
+        rec = self.gbt_cycle(self.gbt_pricing(self.GBT), "nothing")          # but no switch during a cycle by itself
+        self.assertIn("grade_break_trial", " ".join(rec.get("problems") or []), rec)
+        self.assertIsNone(self.gbt_now())
         moved = dict(self.GBT2, salt="other")
         rec = self.gbt_cycle(self.gbt_pricing(moved), "nothing", [self.person(self.GBT2)])
         self.assertEqual(rec["status"], "rejected")                       # the journal said GBT2, the file holds another

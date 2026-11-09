@@ -662,14 +662,19 @@ def same_trial(a, b):
     return a is not UNKNOWN and b is not UNKNOWN and hard_limits._same(a, b)
 
 
+LAST = {"target": None}     # trial_target() as the loop's previous cycle ended (kept in memory, None at the loop's start)
+
+
 def trusted_start():
-    """The trial a cycle may start from: the folder's when it is HEAD's or the person's latest journaled one; else that
-    journaled one, else HEAD's. A trial set out of band between cycles (the model may leave a process behind) is nobody's."""
-    start, head = trial_of(START["pricing"]), START["head"]
+    """The trial a cycle may start from: the person's latest journaled one; with no journal, the one the loop's previous
+    cycle ended on; on the loop's first cycle, HEAD's without the harness's own refused changes (head_trial). Never the folder's as such: a trial set out of band between cycles
+    (the model may leave a process behind), or HEAD's after a refused change whose undo failed, is nobody's
+    (independent review afbcc0b I1)."""
     ever = hard_limits.person_value(TRIAL)
-    if start is not UNKNOWN and (same_trial(start, head) or (ever is not hard_limits.UNPROVED and same_trial(start, ever))):
-        return start
-    return ever if ever is not hard_limits.UNPROVED else head
+    if ever is not hard_limits.UNPROVED:
+        return ever
+    last = LAST["target"]
+    return last if last is not None and last is not UNKNOWN else head_trial()
 
 
 def trial_target():
@@ -758,9 +763,11 @@ def try_undo(cid, sha, why, found=None):
 def record(rec, before=None):
     if rec.get("cycle") and rec["cycle"] == START["cid"]:       # every way out of a cycle, the discarded secret too
         wait_for_person()
-        note = keep_trial(rec["cycle"], trial_target())
+        target = trial_target()
+        note = keep_trial(rec["cycle"], target)
         if note:
             rec["person_trial"] = note
+        LAST["target"] = target
     grade_log(rec)
     with open(os.path.join(ROOT, "meta", "changes.jsonl"), "a", encoding="utf-8") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
@@ -772,11 +779,32 @@ def record(rec, before=None):
         commit(f"chore(week-08): 메타 하네스 기록 {rec['cycle']} - {rec['status']}"[:200])
 
 
-def pricing_at_head():
+def pricing_at(rev):
     try:
-        return json.loads(git("show", "HEAD:./pricing.json"))
+        return json.loads(git("show", f"{rev}:./pricing.json"))
     except (RuntimeError, ValueError):
         return {}
+
+
+def pricing_at_head():
+    return pricing_at("HEAD")
+
+
+def head_trial():
+    """HEAD's trial as of the last commit that changed it and was not the harness's own refused change (a wip commit
+    kept when its undo failed, status rejected_kept): the loop's first cycle starts there, so a restart does not adopt
+    a window the guard refused (independent review afbcc0b I1)."""
+    trial = trial_of(pricing_at("HEAD"))
+    for line in git("log", "-200", "--format=%H %s", "--", "pricing.json", check=False).splitlines():
+        sha, _, subject = line.partition(" ")
+        was = trial_of(pricing_at(f"{sha}^"))
+        now = trial_of(pricing_at(sha))
+        if (now is UNKNOWN and was is UNKNOWN) or same_trial(now, was):
+            continue
+        if not subject.startswith("wip(week-08):"):
+            break
+        trial = was
+    return trial
 
 
 def pricing_now():
@@ -1211,7 +1239,15 @@ def cycle(kind):
     if flipped:
         rec["switches_changed"] = flipped
         log(f"{cid}: study switches changed while the model ran, left as they are: {flipped}")
+    wait_for_person()                  # a switch under way is the person's, not the cycle's: let its done line land
     paths = stage(before)
+    if STAGED["problem"] and "pricing.json" in paths:      # the person's trial could not be kept out: none of it goes in
+        git("reset", "-q", "--", "pricing.json", check=False)
+        if "pricing.json" in found:
+            put_back(found, ["pricing.json"])
+        else:
+            git("checkout", "HEAD", "--", "pricing.json", check=False)
+        paths.remove("pricing.json")
     code = [p for p in paths if not p.startswith(NOT_CODE) and not p.startswith(("logs/", "memory/"))]
 
     if paths and secrets_in_stage(paths):      # nothing goes into history, the attempt included
