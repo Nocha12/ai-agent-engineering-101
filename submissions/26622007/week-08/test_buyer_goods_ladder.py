@@ -76,7 +76,8 @@ class SwitchTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as md:
             o = order_in("B")
             for bad in ({k: v for k, v in ON.items() if k != "end"}, {k: v for k, v in ON.items() if k != "start"},
-                        dict(ON, end="02:16"), dict(ON, start=True), dict(ON, start=end, end=start)):
+                        dict(ON, end="02:16"), dict(ON, start=True), dict(ON, end=float("inf")),
+                        dict(ON, start=end, end=start)):
                 switch(md, bad)
                 self.assertEqual(gl.config(md, {}, now=start + 60), None, bad)
             switch(md, dict(ON, start=start, end=end))

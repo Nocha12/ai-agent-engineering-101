@@ -32,6 +32,7 @@ at every order, so no restart either way. Arms: sha256(salt:order id), first byt
 """
 import hashlib
 import json
+import math
 import os
 import re
 import time
@@ -47,7 +48,7 @@ _HIDDEN = {"orders": frozenset()}           # order ids hide_unmarked set for th
 
 
 def _epoch(x):
-    return x if isinstance(x, (int, float)) and not isinstance(x, bool) else None
+    return x if isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) else None   # Infinity: no stop
 
 
 def _switch(md):

@@ -238,7 +238,8 @@ class Window(unittest.TestCase):
         with tempfile.TemporaryDirectory() as md:
             b = order_in("B")
             for bad in ({k: v for k, v in ON.items() if k != "end"}, {k: v for k, v in ON.items() if k != "start"},
-                        dict(ON, start="13:52"), dict(ON, end=False), dict(ON, start=self.END, end=self.START)):
+                        dict(ON, start="13:52"), dict(ON, start=True), dict(ON, end=False), dict(ON, end=float("inf")),
+                        dict(ON, start=float("nan")), dict(ON, start=self.END, end=self.START)):
                 switch(md, bad)
                 self.assertIsNone(gg.config(md, {}, now=self.START + 60), bad)
             switch(md, dict(ON, start=self.START, end=self.END))
