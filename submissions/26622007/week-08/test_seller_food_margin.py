@@ -3,6 +3,7 @@ import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import profit_price
@@ -90,6 +91,12 @@ class SellerFoodMarginTest(unittest.TestCase):
         reserve, ask, _ = self.run_(u, q)
         self.assertEqual(reserve, max(q["floor"], 37900))
         self.assertLessEqual(reserve, max(q["floor"], u["list_price"]))
+        u = unit(cost=38000, list_price=37900.0)            # today's reserve already over a float list: kept as it is
+        q = self.q(u)
+        self.assertGreater(q["floor"], 37900)
+        reserve, ask, rec = self.run_(u, q)
+        self.assertEqual((reserve, ask, rec["arm"]), (q["floor"], q["open"], "B"))
+        self.assertIs(type(reserve), int)
 
     def test_ineligible_talks_untouched(self):
         self.on(salt=self.salt_for("B"))
@@ -103,6 +110,7 @@ class SellerFoodMarginTest(unittest.TestCase):
         self.assertEqual(self.run_(unit(cost=0), q), same)
         self.assertEqual(self.run_(u, {**q, "why": "scarce ask 31000"}), same)
         self.assertEqual(self.run_(u, {**q, "why": "ask cap 30500 for grade A (was 31000)"}), same)
+        self.assertEqual(self.run_(u, {**q, "why": "trial 0.9 x median 29000 (was 31000, x)"}), same)
         capped = {"price": {**PRICING["price"], "ask_caps": {"G200e39a3": {"A": 30500}}}}
         self.assertEqual(self.run_(u, q, pricing=capped), same)
 
@@ -146,14 +154,8 @@ class SellerFoodMarginTest(unittest.TestCase):
         self.on(salt=self.salt_for("B"))
         u = unit()
         q = self.q(u)
-        real = fd.math.ceil
-        def boom(*a, **k):
-            raise RuntimeError("x")
-        fd.math.ceil = boom
-        try:
+        with mock.patch.object(fd.profit_price, "ask_cap", side_effect=RuntimeError("x")):
             self.assertEqual(self.run_(u, q), (q["floor"], q["open"], None))
-        finally:
-            fd.math.ceil = real
         self.assertEqual(fd.decide(None, {}, reserve=4, ask=5, keep=1, margin_assignment=None, md=self.md.name,
                                    env={}, now=ON), (4, 5, None))
         self.assertEqual(fd.decide(unit(), None, reserve=4, ask=5, keep=1, margin_assignment=None, md=self.md.name,

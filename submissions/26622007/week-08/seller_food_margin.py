@@ -8,9 +8,16 @@ third of our deals and no running study prices it (food_opening is disabled sinc
 
 Arm B raises the reserve to ceil(cost x (1 + share)) (0.05 by default, 0.02-0.10), never over list unless today's
 reserve already is, never under today's; the ask rises to the new reserve when it is under it. Arm A keeps today's price.
-Arms by unit, sha256("food-margin|salt|unit"), first byte odd is B: food is 4 SKUs per grade, too few for SKU arms, and
-each unit ends sold, marked down or expired, so the verdict is per unit supplied in the window (net of real cost, with
-markdown sales and expiry losses in it). Both arms are recorded (deal["food_margin"] -> shop_memory).
+Arms by unit, sha256("food-margin|salt|unit"), first byte odd is B: 4 SKUs carry 98% of our food deals (11/09 00-22 h,
+3,098 of 3,173), so SKU arms would be two SKUs against two. Each unit ends sold, marked down or expired, so the verdict
+is per unit supplied in the window, net of real cost with markdown sales and expiry losses in it; a markdown talk has
+no record (it is never treated), so the verdict recomputes the unit's arm from salt and unit. Unit arms share a SKU:
+a buyer turned away by a B unit can come back to an A unit, and B's higher prices feed the SKU's median and our paid
+prices (profit_price.opening) that A's first ask reads. Both push B - A towards zero or below, so a keep from this
+design is conservative; the shop-level food net per hour before and during the window is reported next to it. The
+first ask rises with the reserve when it is under it, so the treatment is the two together. Talks are recorded in both
+arms (deal["food_margin"] -> shop_memory); the other seller studies' rows join it by task.
+The margin study (sol_seller_margin, which hashes seller.py) is off since 11/09 17:46 (controller enabled false).
 
 Eligible: food with a list price and a cost, no markdown (keep 1: near its date or the round's end the usual clearance
 price holds, so a unit arm B did not sell is still cleared), not an ask-cap / scarce-ask / trial talk, not in the margin
