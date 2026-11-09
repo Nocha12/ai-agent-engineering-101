@@ -181,5 +181,19 @@ class RealLadderTest(unittest.TestCase):
         self.assertNotIn("_accept_band", off)
         self.assertEqual(self.ladder({"kind": "goods"}, 10500)(10510, "", history)["action"], "walk_away")   # 105.1%
 
+    def test_a_final_price_text_read_by_code_walks_as_the_harness_did(self):
+        """"Four offers left. Final price: N." went to the harness, which the band never moves, until 040e364 read it by
+        code: the band leaves that turn alone, so each talk ends as before (3 of 31 logged talks 11/10 had N within 105%,
+        and sf2w-band-1110-0242-v1 turns the band off in one arm). A metadata ask keeps the band."""
+        history = [("shop asked", 11000), ("you offered", 9900), ("shop asked", 10500), ("you offered", 10000)]
+        on = {"kind": "goods"}
+        d = self.ladder(on, 10500)(None, "Four offers left. Final price: 10500. ", history)
+        self.assertEqual(d, {"shop_price": 10500, "action": "walk_away", "price": 0})
+        self.assertNotIn("_accept_band", on)
+        self.assertEqual(self.ladder({"kind": "goods"}, 10500)(None, "Final price: 10500.", history)["action"], "walk_away")
+        self.assertTrue(self.ladder({"kind": "goods"}, 10500)(10500, "Final price: 10500.", history)["accept_band"])
+        self.assertEqual(self.ladder({"kind": "goods"}, 10500)(None, "Final price: 10000.", history),
+                         {"shop_price": 10000, "action": "offer", "price": 10000})   # within my limit: taken
+
 if __name__ == "__main__":
     unittest.main()

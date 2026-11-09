@@ -12,7 +12,7 @@ not move buyer.oneshot (hard_limits.FIXED).
 
 An ask in the message metadata is priced by code. Only 80 of 1,419 asks logged came that way; an ask written in text is
 priced by code when the whole text is one of the shop templates in TEMPLATE ("Counteroffer: 13049.", "11300 is too low.
-Counteroffer price: 13049.") or ask_read reads it by rule: one ask word and number, every other number placed (name, SKU,
+Counteroffer price: 13049.", "Five offers left. Final price: 108635.") or ask_read reads it by rule: one ask word and number, every other number placed (name, SKU,
 hours, list price, my offer named back), no word that can change it (was, now, minus, other, each, ...). Four independent
 reviews (11/07) broke readings of free text by word lists ("Was asking 20000, now just 12000", "asking 19000 minus 2000",
 "Others ask 19000, I accept your offer"); ask_read leaves each of those to the harness. The first turn's text (the quote)
@@ -38,6 +38,13 @@ TEMPLATE = re.compile(
     r"(?:\s*Includes a [0-9]{1,3}-hour warranty: market-enforced full refund if the goods break during warranty; "
     r"the quote includes the warranty surcharge\.)?)?"
     r"(?:\s*Reply ok to take it\.)?\s*")
+FINAL = re.compile(r"\s*(?:" + LEFT + r")?Final price:\s*[0-9]{1,12}\.?\s*")
+
+
+def final_text(text):
+    """The whole text is a "Final price" template: the harness read it until 040e364, so market_buyer keeps the accept
+    band off that turn and each such talk ends as before (independent review 040e364 I1)."""
+    return bool(FINAL.fullmatch(text or ""))
 
 
 def enabled(cfg, env=None):

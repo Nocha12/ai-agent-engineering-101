@@ -142,6 +142,8 @@ class InTalk(unittest.TestCase):
         self.assertEqual(h.call_count, 1)
         self.assertEqual(sent, ["65000", "94145"])
         self.assertEqual(out["turns"], {"harness": 1, "code": 2})
+        self.assertNotEqual(out.get("state"), "TASK_STATE_COMPLETED")
+        self.assertIsNone(out.get("receipt"))
 
     def test_final_price_within_my_limit_is_taken_by_code(self):
         sent = []
@@ -245,6 +247,13 @@ class TextPrice(unittest.TestCase):
         self.assertEqual(oneshot.text_price("One offer left. Final price: 18500.", self.H), 18500)
         self.assertEqual(oneshot.text_price("2 offers left. Final price: 18500.", self.H), 18500)
         self.assertEqual(oneshot.text_price("Final price: 18500. ", self.H), 18500)
+
+    def test_final_text_is_the_whole_template_only(self):
+        for text in ("Five offers left. Final price: 108635. ", "Final price: 9115.", "2 offers left. Final price: 7"):
+            self.assertTrue(oneshot.final_text(text), text)
+        for text in ("Counteroffer: 18500.", "Final price: 19000 (17000 if paid now)", "Not my final price: 19000.",
+                     "Final price: 18,500.", "", None):
+            self.assertFalse(oneshot.final_text(text), text)
 
     def test_final_price_keeps_the_ask_bounds(self):
         self.assertIsNone(oneshot.text_price("Final price: 20400.", self.H))      # over the shop's last ask
