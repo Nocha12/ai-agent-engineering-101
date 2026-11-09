@@ -1,0 +1,13 @@
+F
+======================================================================
+FAIL: test_seed_tools_run (test_meta.AgentLoopTest.test_seed_tools_run)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_meta.py", line 128, in test_seed_tools_run
+    self.assertFalse(isinstance(out, dict) and "error" in out, (name, out))
+AssertionError: True is not false : ('auto_market_research_pack', {'error': 'exit 1: 622007/week-08/tools/auto_market_research_pack/tool.py", line 33, in main\n    forum=rows(read(\'forum.json\'))\n               ^^^^^^^^^^^^^^^^^^\n  File "/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/tools/auto_market_research_pack/tool.py", line 17, in read\n    with open(os.path.join(md,name), encoding=\'utf-8\') as f: return json.load(f)\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nFileNotFoundError: [Errno 2] No such file or directory: \'/tmp/tmptw_x_vng/forum.json\'\n'})
+
+----------------------------------------------------------------------
+Ran 1 test in 0.393s
+
+FAILED (failures=1)
