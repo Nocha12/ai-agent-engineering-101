@@ -11,10 +11,13 @@ reserve already is, never under today's; the ask rises to the new reserve when i
 Arms by unit, sha256("food-margin|salt|unit"), first byte odd is B: 4 SKUs carry 98% of our food deals (11/09 00-22 h,
 3,098 of 3,173), so SKU arms would be two SKUs against two. Each unit ends sold, marked down or expired, so the verdict
 is per unit supplied in the window, net of real cost with markdown sales and expiry losses in it; a markdown talk has
-no record (it is never treated), so the verdict recomputes the unit's arm from salt and unit. Unit arms share a SKU:
-a buyer turned away by a B unit can come back to an A unit, and B's higher prices feed the SKU's median and our paid
-prices (profit_price.opening) that A's first ask reads. Both push B - A towards zero or below, so a keep from this
-design is conservative; the shop-level food net per hour before and during the window is reported next to it. The
+no record (it is never treated), so the verdict recomputes the unit's arm from salt and unit. Unit arms share a SKU, and the
+bias has no fixed sign: a buyer turned away by a B unit can come back to an A unit (B looks worse), while B's higher
+prices feed the SKU median and our paid prices that A's first ask reads (B - A shrinks towards zero), and when the cheap
+A units are gone B units meet the buyers who would pay more, and B's leftovers share the clearance demand with half as
+many units as a full rollout (B looks better). So a keep needs both: B - A per unit supplied above zero (cluster
+interval), and no harm at shop level, food net per hour in the window not under the same hours before it. The verdict
+also counts, per arm, B sales made while the SKU x grade had no A unit in stock and units cleared by markdown. The
 first ask rises with the reserve when it is under it, so the treatment is the two together. Talks are recorded in both
 arms (deal["food_margin"] -> shop_memory); the other seller studies' rows join it by task.
 The margin study (sol_seller_margin, which hashes seller.py) is off since 11/09 17:46 (controller enabled false).
