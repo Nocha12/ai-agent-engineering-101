@@ -907,9 +907,23 @@ def quote_row(name, o, q, lim, best):
             "text": (q.get("text") or "")[:120]}
 
 
+ALSO_IN_STOCK = re.compile(r"(?:(?!\bG[0-9a-f]{8}\b)[^\n])+ \((G[0-9a-f]{8})\), (?:(?!\bG[0-9a-f]{8}\b|\basking\b)[^\n])+, market "
+                           r"certificate attached\. Also in stock in this category: (G[0-9a-f]{8}(?:, G[0-9a-f]{8}){0,19})\. Send "
+                           r"your offer as a number, or reply 'accept' to buy now\. Asking: [1-9][0-9]{0,11}\.", re.I)
+
+
+def also_in_stock_only(text, sku):
+    """Whether the only other SKUs a text names are moss-and-oak's "Also in stock in this category: G.., G.." list, in its
+    whole quote: "<name> (<SKU asked>), <grade, warranty>, market certificate attached. Also in stock in this category:
+    <SKUs>. Send your offer as a number, or reply 'accept' to buy now. Asking: N." (its 507 quotes in 24 h to 11/10 01:47
+    were dropped for that list, 115 of them within my limit; GPT Pro 11/10 02:2x, W-20261109-2225-AXPro주기)."""
+    m = ALSO_IN_STOCK.fullmatch((text or "").strip())
+    return bool(m) and m.group(1) == sku and sku not in m.group(2).split(", ")
+
+
 def text_ask_checked(text, shop):
     """buyer.text_ask, kept only when it is a believable price for the SKU quoted (5% to 100% of its list price, and no
-    other SKU named in the text). 214 of 214 quotes with both a metadata ask and one text ask agreed (GPT Pro 13:30). The talk
+    other SKU named in the text but in moss-and-oak's whole "Also in stock" quote, also_in_stock_only). 214 of 214 quotes with both a metadata ask and one text ask agreed (GPT Pro 13:30). The talk
     still reads the shop's price from its text, and the receipt price under my limit is what is paid; a wrong number ranks the
     quote, can end the order before the talk (TALK_OVER_SHARE), and counts in recent_asks."""
     v = buyer_text_ask(text)
@@ -922,7 +936,7 @@ def text_ask_checked(text, shop):
     if v is None or not isinstance(lp, (int, float)) or lp <= 0:
         return None
     named = set(re.findall(r"\bG[0-9a-f]{8}\b", text or ""))
-    if named - {o.get("sku")}:
+    if named - {o.get("sku")} and not also_in_stock_only(text, o.get("sku")):
         return None               # the price of another SKU: a mattress asked for, a soup's price answered (GPT Pro 13:30)
     return v if TEXT_ASK_MIN_SHARE * lp <= v <= lp else None
 

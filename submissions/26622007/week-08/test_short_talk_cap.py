@@ -291,6 +291,53 @@ class OurAskStudyTest(unittest.TestCase):
         self.assertEqual(outs[0], ({}, {}))
 
 
+class AlsoInStockSentenceTest(unittest.TestCase):
+    """moss-and-oak quotes "<name> (<SKU>), <grade, warranty or shelf life>, market certificate attached. Also in stock in
+    this category: G.., G... Send your offer as a number, or reply 'accept' to buy now. Asking: N." The ask was read and then
+    dropped for the other SKUs named: 507 such quotes in 24 h to 11/10 01:47, 115 within my limit, 57 of those orders passed
+    nothing to the kit (o-c1c442e41657: 99,625 under a limit of 124,702 dropped, mjforge at 147,993 chosen and cancelled;
+    GPT Pro 11/10 02:2x, W-20261109-2225-AXPro주기)."""
+    G = ("안내를 요청해 주셔서 반갑습니다, 고객님—항상 신뢰할 수 있는 품질과 정직한 인증으로 모십니다. 사이즈오브체어 프로 사무용 의자 "
+         "(G4a74caa4), grade A, 12-hour warranty included (full refund if it breaks), market certificate attached. Also in stock in "
+         "this category: G00327e80, G04ee8423, G0c3a9365, G0e4deffc, G10693924. Send your offer as a number, or reply 'accept' "
+         "to buy now. Asking: 518149. ")
+    F = ("안녕하세요, 신선한 과일을 신중히 준비해 드리겠습니다. 맛있는 햇 부사 사과 가정용(흠과) 중대과 10kg (Gef4d3036), grade on the "
+         "certificate, 22 hours of shelf life left, market certificate attached. Also in stock in this category: G022ce883, "
+         "G74e686be, Gad3b73f8, Gd6fb41c7, Gfccde080. Send your offer as a number, or reply 'accept' to buy now. Asking: 18946.")
+    SG = {"_offer": {"sku": "G4a74caa4", "list_price": 700000}}
+    SF = {"_offer": {"sku": "Gef4d3036", "list_price": 30000}}
+
+    def test_read(self):
+        self.assertEqual(market_buyer.text_ask_checked(self.G, self.SG), 518149)
+        self.assertEqual(market_buyer.text_ask_checked(self.F, self.SF), 18946)
+        self.assertEqual(market_buyer.text_ask_checked(self.G.replace(": G00327e80, G04ee8423, G0c3a9365, G0e4deffc, G10693924",
+                                                                      ": G00327e80"), self.SG), 518149)
+
+    def test_only_that_template_for_the_sku_quoted(self):
+        for t in (self.G.replace("(G4a74caa4)", "(G24f5f979)"),                          # another SKU quoted first
+                  self.G.replace("Also in stock in this category: G00327e80", "Also in stock in this category: G4a74caa4"),
+                  self.G.replace("grade A,", "grade A (G11111111),"),                      # another SKU outside the list
+                  self.G.replace("G10693924.", "G10693924 at 300000."),                    # a price in the list
+                  self.G.replace("G10693924.", "G10693924, and more."),
+                  self.G.replace("Asking: 518149.", "Asking: 518149 for G00327e80."),
+                  self.G.replace("Asking: 518149.", "Asking: 518149. Or G00327e80 asking 300000."),
+                  self.G.replace("in this category", "in other categories"),
+                  self.G.replace("Asking: 518149", "Asking: 800000"),                      # over list
+                  self.G.replace("Asking: 518149", "Asking: 20000"),                       # under 5% of list
+                  "(G4a74caa4) Also in stock in this category: G00327e80. Send your offer as a number, or reply 'accept' "
+                  "to buy now. Asking: 518149.",                                           # no product sentence
+                  self.G.replace(" (G4a74caa4),", " (G4a74caa4), (G4a74caa4),")):
+            self.assertIsNone(market_buyer.text_ask_checked(t, self.SG), t)
+        self.assertIsNone(market_buyer.text_ask_checked(self.G, {"_offer": {"sku": "G00327e80", "list_price": 700000}}))
+        self.assertIsNone(market_buyer.text_ask_checked(self.G, {"_offer": {"sku": "G4a74caa4"}}))
+
+    def test_other_sku_texts_still_dropped(self):
+        t = "[매트리스] (G1111aaaa) asking 300000. Also [국] (G2222bbbb) asking 9000."
+        self.assertIsNone(market_buyer.text_ask_checked(t, {"_offer": {"sku": "G1111aaaa", "list_price": 400000}}))
+        t = "(G1111aaaa) grade A. Also in stock in this category: G2222bbbb. Asking: 300000."   # not the whole template
+        self.assertIsNone(market_buyer.text_ask_checked(t, {"_offer": {"sku": "G1111aaaa", "list_price": 400000}}))
+
+
 class ListPriceAskSentenceTest(unittest.TestCase):
     """nkjunbc quotes "<name> (<SKU>), unit <unit>: list price L, ask A. Grade G, H h of shelf life left, market certificate
     attached. Send your offer as a number." (logs/market-kit.log, 26 quotes from 11/09 17:55): no "asking", so buyer.text_ask
