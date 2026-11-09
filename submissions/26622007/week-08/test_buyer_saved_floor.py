@@ -148,6 +148,17 @@ class Learning(unittest.TestCase):
         self.assertEqual(sf.trade_arm({"_saved_floor": {"arm": "B"}}), "B")
         self.assertIsNone(sf.trade_arm({}))
 
+    def test_recent_asks_skip_arm_b_talk_asks_and_prices(self):   # review 4f28644 I1: hopeless() reads it
+        now = time.time()
+        rows = [{"ts": now - 60, "sku": "G1", "asks": [9000], "price": 8800, "saved_floor": {"arm": "B"},
+                 "quotes": [{"shop": "s", "sku": "G1", "ask": 9500, "lost": None}]},
+                {"ts": now - 60, "sku": "G1", "asks": [9900], "price": 9700, "saved_floor": {"arm": "A"}, "quotes": []}]
+        with tempfile.TemporaryDirectory() as md:
+            os.makedirs(os.path.join(md, "measure"))
+            with open(os.path.join(md, "measure", "orders.jsonl"), "w") as f:
+                f.writelines(json.dumps(r) + "\n" for r in rows)
+            self.assertEqual(sorted(mb.recent_asks(md, now=now)["G1"]), [9500, 9700, 9900])
+
     def test_learners_skip_arm_b_rows(self):
         import buyer_rank_pg, buyer_shop_profile
         for mod in (buyer_rank_pg, buyer_shop_profile):
