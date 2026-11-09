@@ -710,6 +710,52 @@ class HarnessCycleTest(unittest.TestCase):
         self.assertEqual(open(pj).read(), '{"seller": {}, "a": 1}\n')
         self.assertEqual(self.git("status", "--porcelain", "--", "pricing.json"), "")
 
+    # AX 11/10 04:5x (main, 지시 12): a person's price.grade_break_trial ON/OFF made while a cycle runs stays; the guard in
+    # hard_limits (PERSON_TRIALS) refused the cycle and its undo put the trial back (independent review b81770e I1)
+    GBT = {"share": 0.5, "salt": "s", "grade_break": {"B": 0.19}, "start_at": 1794250800.0, "stop_at": 1794283200.0}
+
+    def gbt_pricing(self, trial=None):
+        line = f'    "grade_break_trial": {json.dumps(trial)},\n' if trial else ""
+        return '{\n  "seller": {},\n  "price": {\n' + line + '    "goods_break": 0.05\n  }\n}\n'
+
+    def gbt_now(self):
+        with open(os.path.join(self.root, "pricing.json"), encoding="utf-8") as f:
+            return json.load(f)["price"].get("grade_break_trial")
+
+    def gbt_start(self, trial):
+        with open(os.path.join(self.root, "pricing.json"), "w") as f:
+            f.write(self.gbt_pricing(trial))
+        self.git("add", "pricing.json")
+        self.git("commit", "-qm", "pricing", "--allow-empty")
+
+    def gbt_cycle(self, side, mode="good"):
+        with mock.patch.dict(os.environ, {"FAKE_SIDE": json.dumps({"pricing.json": side})}):
+            return self.go(mode)
+
+    def test_a_persons_trial_off_during_a_cycle_stays_off(self):
+        self.gbt_start(self.GBT)
+        rec = self.gbt_cycle(self.gbt_pricing())                     # the switch's OFF while the model runs
+        self.assertEqual(rec["status"], "rejected", rec.get("problems"))
+        self.assertIsNone(self.gbt_now())
+        self.assertFalse(self.exists())                               # the model's own change is still undone
+
+    def test_a_persons_trial_on_during_a_cycle_stays_on(self):
+        self.gbt_start(None)
+        rec = self.gbt_cycle(self.gbt_pricing(self.GBT))
+        self.assertEqual(rec["status"], "rejected", rec.get("problems"))
+        self.assertEqual(self.gbt_now(), self.GBT)
+
+    def test_a_moved_window_is_still_refused_and_put_back(self):
+        self.gbt_start(self.GBT)
+        moved = dict(self.GBT, start_at=self.GBT["start_at"] + 3600, stop_at=self.GBT["stop_at"] + 3600)
+        rec = self.gbt_cycle(self.gbt_pricing(moved), mode="nothing")
+        self.assertIn("grade_break_trial", " ".join(rec.get("problems") or []))
+        self.assertEqual(self.gbt_now(), self.GBT)
+        for bad in (dict(self.GBT, share=2), "on"):                    # an ON the switch would never write: not kept
+            self.gbt_start(None)
+            self.gbt_cycle(self.gbt_pricing(bad), mode="nothing")
+            self.assertIsNone(self.gbt_now(), bad)
+
     def test_the_schedule_survives_a_restart(self):
         grades = os.path.join(self.root, "meta", "grades.jsonl")
         t = lambda s: datetime.datetime.fromisoformat(s + "+09:00").timestamp()
