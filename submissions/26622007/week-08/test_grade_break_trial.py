@@ -97,6 +97,20 @@ class GradeBreakTrial(unittest.TestCase):
             fc = seller.floor_rank(unit(CTRL[0]), p)
         self.assertEqual(ft, fc)
 
+    def test_categories_limit_the_trial_to_their_prefixes(self):
+        c = cfg(**TRIAL, categories=["가구/침구>"])
+        bed = {**unit(TREAT[0]), "category": "가구/침구>가구>침대/매트리스"}
+        pc = {**unit(TREAT[0]), "category": "컴퓨터>노트북"}
+        self.assertEqual(profit_price.break_trial_arm(bed, c, NOW), ("trial", 0.19))
+        self.assertIsNone(profit_price.break_trial_arm(pc, c, NOW))
+        self.assertIsNone(profit_price.break_trial_arm(unit(TREAT[0]), c, NOW))   # no category: not eligible
+        self.assertEqual(profit_price.unit_break(pc, None, c, now=NOW), (0.122, None))
+
+    def test_odd_categories_turn_the_trial_off(self):
+        bed = {**unit(TREAT[0]), "category": "가구/침구>가구>소파"}
+        for bad in ([], "가구/침구>", [""], [1], None):
+            self.assertIsNone(profit_price.break_trial_arm(bed, cfg(**TRIAL, categories=bad), NOW), bad)
+
 
 if __name__ == "__main__":
     unittest.main()
