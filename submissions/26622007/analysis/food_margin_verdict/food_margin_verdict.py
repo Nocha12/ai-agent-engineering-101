@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""seller_food_margin A/B per food unit supplied in the window (W-20261109-2040-AX셀러전략, v2 11/10 00:20).
+"""seller_food_margin A/B per food unit supplied in the window (W-20261109-2040-AX셀러전략, v4 11/10 00:40).
 
 The treatment is assigned to a unit (sha256("food-margin|salt|unit"), first byte odd is B) and every food unit ends
 sold, expired or still in stock, so the verdict is intention to treat per unit supplied, not per talk: a unit counts in
@@ -15,7 +15,8 @@ main [start, cohort_end), late [cohort_end, stop), after [stop, ..); cohort_end 
 asof is a hard cut on every input and is capped at the end of each: the ledger's last row, units_in's last row and the
 memory's last talk (a sale after the memory's end would read as having no talk, a supply after units_in's end as cost
 unknown). Ledger coverage: the files' [first, last] row times, joined where the next file starts within 10 min of the
-last one's end. A unit supplied before the coverage starts is "uncovered" (its sale may be in a file not read).
+last one's end. A unit supplied outside every coverage span is "uncovered" (its sale may be in a file not read). A unit that is in
+neither units_in nor a supply row read is not seen at all, so its sales are not in the shop spans either.
 
 Status per unit (rows at or before asof only):
   sold       exactly one "settle" row of the unit and no "expire" row of ours naming it
@@ -23,7 +24,7 @@ Status per unit (rows at or before asof only):
   ambiguous  two or more settles, or a settle and an expire
   unknown    neither, and units_in's expires_at is more than EXPIRE_GRACE before asof (the expire row is missing;
              11/09 the one expire row of ours came 19.5 s after expires_at). Never read as a loss.
-  uncovered  supplied before the ledger coverage starts
+  uncovered  supplied outside the ledger coverage
   pending    neither yet
 cost = units_in's cost for the unit (None when its rows disagree or it has none); never the talk's, never the supply
 total / qty, which differs by unit within one supply (316 of 330 multi-unit food supplies mix grades). One exact
@@ -38,23 +39,30 @@ Excluded (out of numerator and denominator, counted per arm): ambiguous, unknown
 
 compare(main): B - A of net per unit supplied, stratified: within each SKU x grade with units of both arms, mean B -
 mean A, weighted by the cluster's units (units of one SKU x grade share buyers; 4 SKUs carry 98% of our food deals, and
-costs run 8k-30k, so a pooled mean would mix arm imbalance across SKUs into the effect). Three ways: pending as 0 (cash
-by asof), pending as -cost (a B unit not sold yet may never sell), and pending as 0 with every excluded unit put back at
-its arm's worst (B: the lowest net of a B unit in main) or best (A: the highest) net, the bound for outcome-dependent
-exclusion. Each gives a cluster bootstrap 90% interval (2,000 draws, fixed seed) and a t interval over the cluster
-differences with G - 1 degrees of freedom; lo = the lower of the two p05, hi = the higher of the two p95.
+costs run 8k-30k, so a pooled mean would mix arm imbalance across SKUs into the effect). Ways: pending as 0 (cash
+by asof), pending as -cost (a B unit not sold yet may never sell), and talk_cost: pending as 0 with each cost-unknown unit
+put back at the cost its shop-memory talks name (the exclusion is outcome dependent: the units with no units_in row are
+the ones sold fastest; talk cost equalled units_in cost in 83,022 of 83,022 talks 11/08-10 and no unit had two, and it
+is used here only, never as the unit's cost). Reported, not gated: "bound", pending as 0 with each excluded unit at its
+arm's unfavourable end (bound_net: a sold one at its price minus the highest (B) or lowest (A) known cost of its SKU x
+grade); in a placebo run with units supplied 11/09 13:36-18:55 (before the treatment) its interval was -972..-53 while
+the others held 0 (-161..221), so as a gate it would refuse any effect under ~500 per unit.
+Each way gives a cluster bootstrap 90% interval (2,000 draws, fixed seed) and a t interval over the cluster differences with G - 1 degrees of freedom; lo = the lower of the two p05, hi = the higher of the two p95.
 Interference between unit arms of one SKU has no fixed sign (seller_food_margin.py), so a keep also needs the shop:
 our food net per hour (known net of food sales settled in the span scaled by sales / known-cost sales, minus the expire
-rows' own cost) over [start, min(stop, asof)) not under the same clock hours a day before, and still not under it with
-the unknown-cost sales of the window at the window's lowest known net per sale and those of the day before at its
-highest (net_per_hour_low >= net_per_hour_high); both spans must be inside the ledger coverage, else no_harm is None. Reported, not gated: per arm the sales
+rows' own cost) over [start, min(stop, asof)) not under the same clock hours a day before, and not under it either with
+the unknown-cost sales at their talk cost when every one has one; both spans must be inside the ledger coverage, else
+no_harm is None. net_per_hour_low / _high (unknown-cost sales at the span's lowest / highest known net) are reported
+only: on 11/09 they spread 30-40% of the level. The span before the window (264k/h) against its day before (357k/h)
+with nothing switched on shows how noisy this gate is: it guards against harm, it does not find an effect. Reported, not gated: per arm the sales
 made while the SKU x grade had no covered unit of the other arm in stock (other_arm_in_stock False), sales whose talk
 was not treated (markdown, ask cap, trial; settle -> result row of the order -> receipt task -> shop-memory talk),
 sales at or under the usual floor (cost x 1.0025 + 1), and recorded arms that disagree with the salt's (should be 0).
 
 Verdict: wait before start + MIN_HOURS (9 h, the registry's judgeable time) at asof; keep when every gate holds: main
-per arm >= 30 units, >= 4 clusters with >= 5 units of each arm, excluded < 5% per arm, lo > 0 in all three ways, shop
-no_harm true; revert when the units, clusters and excluded gates hold and hi < 0 for pending 0 and pending -cost; else
+per arm >= 30 units, >= 4 clusters with >= 5 units of each arm, unresolved (excluded and not put back by talk_cost) < 5%
+per arm, lo > 0 for pending0, pending_cost and talk_cost, shop no_harm true; revert when the units, clusters and
+unresolved gates hold and hi < 0 for pending 0 and pending -cost; else
 hold.
 
   food_margin_verdict.py <seller_memory_r3.json> <units_in.jsonl> <ledger.jsonl>... --study ID --salt SALT
@@ -86,6 +94,12 @@ EXCLUDED = ("ambiguous", "unknown", "uncovered")
 # one-sided 95% t quantiles by degrees of freedom
 T95 = [None, 6.314, 2.920, 2.353, 2.132, 2.015, 1.943, 1.895, 1.860, 1.833, 1.812, 1.796, 1.782, 1.771, 1.761,
        1.753, 1.746, 1.740, 1.734, 1.729, 1.725, 1.721, 1.717, 1.714, 1.711, 1.708, 1.706, 1.703, 1.701, 1.699, 1.697]
+
+
+def t95(df):
+    if df < len(T95):
+        return T95[df]
+    return 1.684 if df <= 40 else 1.671 if df <= 60 else 1.658 if df <= 120 else 1.645
 
 
 def arm(salt, unit):
@@ -144,13 +158,14 @@ def classify(memory, ledger_rows, units_rows, *, study, salt, start, stop, asof,
     """ledger_rows: an iterable of ledger dicts, consumed once. ledger_end, units_in_end, memory_end: each input's
     last time (None: the largest read). coverage: [(first, last)] of the ledger read; None: file_spans (ledger_iter's list, read after the rows are
     consumed) if given, else one span from the first to the last row read."""
-    units_rows = [u for u in units_rows if _num(u.get("ts"))]
+    malformed_units = sum(1 for u in units_rows if not isinstance(u, dict))
+    units_rows = [u for u in units_rows if isinstance(u, dict) and _num(u.get("ts"))]
     maybe_ours = {u.get("unit") for u in units_rows}
     sup_rows, settle_rows, expire_rows, result_rows, broken_rows = [], [], [], [], []
     first, last, malformed = None, 0.0, 0
     for r in ledger_rows:
-        ts = r.get("ts")
-        if not _num(ts):
+        ts = r.get("ts") if isinstance(r, dict) else None
+        if not _num(ts) or not isinstance(r.get("data") or {}, dict):
             malformed += 1
             continue
         first, last = ts if first is None else min(first, ts), max(last, ts)
@@ -181,6 +196,7 @@ def classify(memory, ledger_rows, units_rows, *, study, salt, start, stop, asof,
             "units_in": units_in_end if units_in_end is not None else max((u["ts"] for u in units_rows), default=None),
             "memory": memory_end if memory_end is not None else max((t for t in talk_times if t is not None),
                                                                      default=None)}
+    requested_asof = asof
     asof = min([asof] + [e for e in ends.values() if e is not None])
     cov = [[a, min(b, asof)] for a, b in cov if a <= asof]
     cov_start = cov[0][0] if cov else None
@@ -220,12 +236,14 @@ def classify(memory, ledger_rows, units_rows, *, study, salt, start, stop, asof,
     for ts, o, task in result_rows:
         if ts <= asof and task:
             task_of[o].add(task)
-    talks = collections.defaultdict(list)
+    talks, talk_cost = collections.defaultdict(list), {}
     for n, t in zip(memory, talk_times):
         if t is None:
             malformed += 1
         elif n.get("task") and t <= asof:
             talks[n["task"]].append(n)
+            if n.get("unit") in food and _num(n.get("cost")):
+                talk_cost.setdefault(n["unit"], set()).add(n["cost"])
 
     cohort_end = min(stop, asof - COHORT_LAG)
     out_rows, mismatch = [], 0
@@ -241,12 +259,13 @@ def classify(memory, ledger_rows, units_rows, *, study, salt, start, stop, asof,
              "supply_ts": t, "part": part, "cost": i.get("cost"), "cost_source": "units_in" if u in info else None,
              "list": i.get("list_price"), "expires_at": i.get("expires_at"), "status": None, "order": None,
              "amount": None, "settle_ts": None, "end_ts": None, "refund": None, "refund_open": None, "net": None,
-             "excluded_by": None, "sale_talk": None, "recorded_arm": None, "other_arm_in_stock": None}
+             "excluded_by": None, "sale_talk": None, "recorded_arm": None, "other_arm_in_stock": None,
+             "talk_cost": next(iter(talk_cost[u])) if len(talk_cost.get(u, ())) == 1 else None}
         if u not in info and u in derived:
             r["cost"], r["cost_source"] = derived[u], "supply_residual"
         if s:
             r["settle_ts"] = s[0]["ts"]
-        if cov_start is None or t < cov_start:
+        if not any(a <= t <= b for a, b in cov):
             r["status"] = "uncovered"
         elif len(s) > 1 or (s and e) or len(e) > 1:
             r["status"] = "ambiguous"
@@ -303,8 +322,11 @@ def classify(memory, ledger_rows, units_rows, *, study, salt, start, stop, asof,
     main_from = min([r["supply_ts"] for r in main] + [start])
     if not inside(cov, min(main_from, start - DAY), asof):
         warnings.append("the ledger read does not cover the day before start through asof without a gap")
-    if malformed:
-        warnings.append(f"{malformed} malformed rows skipped")
+    if malformed or malformed_units:
+        warnings.append(f"{malformed + malformed_units} malformed rows skipped")
+    for k, e in ends.items():
+        if e is not None and e < requested_asof - 300 and e == asof:
+            warnings.append(f"asof cut {round((requested_asof - e) / 60)} min back to the {k} input's end")
     return {"study": study, "salt": salt, "start": start, "stop": stop, "asof": asof, "input_ends": ends,
             "coverage": cov, "cohort_end": cohort_end, "judgeable_at": start + MIN_HOURS * 3600,
             "arm_mismatch": mismatch, "arms": arms, "compare_main": cmp_, "shop": shop_, "gates": g,
@@ -365,20 +387,44 @@ def arm_table(rows):
     out["clusters"] = len({(r["sku"], r["grade"]) for r in rows})
     n = len(rows) - c["excluded"]
     out["net_per_unit"] = round(c["net"] / n, 2) if n else None
-    out["sold_share"] = round(c["sold"] / n, 4) if n else None
+    out["sold_share"] = round(sum(1 for r in rows if r["status"] == "sold" and not r["excluded_by"]) / n, 4) if n else None
     return out
+
+
+def talk_net(r):
+    """A cost-unknown unit's net at the cost its shop-memory talks name (None without one)."""
+    c = r.get("talk_cost")
+    if r["excluded_by"] != "cost_unknown" or not _num(c):
+        return None
+    if r["status"] == "sold":
+        return r["amount"] - c - (r["refund"] or 0)
+    return -c if r["status"] == "expired" else 0.0
+
+
+def bound_net(r, cluster_costs, arm_extreme):
+    """An excluded unit at its arm's unfavourable end: a sold unit at its price minus the highest (B) or lowest (A)
+    known cost of its SKU x grade in main; anything else at the arm's lowest (B) or highest (A) known net."""
+    if r["status"] == "sold" and _num(r.get("amount")) and cluster_costs:
+        c = max(cluster_costs) if r["arm"] == "B" else min(cluster_costs)
+        return r["amount"] - c - (r.get("refund") or 0)
+    return arm_extreme
 
 
 def _values(rows, way):
     """{cluster: {"A": [..], "B": [..]}} of unit values for one way of counting."""
     known = {a: [r["net"] for r in rows if r["arm"] == a and r["net"] is not None] for a in ("A", "B")}
     fill = {"B": min(known["B"], default=None), "A": max(known["A"], default=None)}
+    costs = collections.defaultdict(list)
+    for r in rows:
+        if r["net"] is not None:
+            costs[(r["sku"], r["grade"])].append(r["cost"])
     cl = collections.defaultdict(lambda: {"A": [], "B": []})
     for r in rows:
         if r["excluded_by"]:
-            if way != "bound" or fill[r["arm"]] is None:
+            val = (bound_net(r, costs.get((r["sku"], r["grade"])), fill[r["arm"]]) if way == "bound"
+                   else talk_net(r) if way == "talk_cost" else None)
+            if val is None:
                 continue
-            val = fill[r["arm"]]
         elif r["status"] == "pending":
             val = -r["cost"] if way == "pending_cost" else 0.0
         else:
@@ -399,7 +445,7 @@ def _strat(cl, keys):
 
 
 def _interval(cl, draws=2000, seed=20261109):
-    keys = sorted((k for k in cl if cl[k]["A"] and cl[k]["B"]), key=str)
+    keys = sorted((k for k in cl if min(len(cl[k]["A"]), len(cl[k]["B"])) >= MIN_CLUSTER_UNITS), key=str)
     point = _strat(cl, keys)
     if point is None:
         return None
@@ -417,7 +463,7 @@ def _interval(cl, draws=2000, seed=20261109):
         d = [sum(cl[k]["B"]) / len(cl[k]["B"]) - sum(cl[k]["A"]) / len(cl[k]["A"]) for k in keys]
         sw = sum(w)
         se = math.sqrt(sum((wi * (di - point)) ** 2 for wi, di in zip(w, d)) * g / (g - 1)) / sw
-        t = T95[g - 1] if g - 1 < len(T95) else 1.645
+        t = t95(g - 1)
         out.update(t_p05=round(point - t * se, 2), t_p95=round(point + t * se, 2))
         out["lo"], out["hi"] = min(out["p05"], out["t_p05"]), max(out["p95"], out["t_p95"])
     else:
@@ -433,8 +479,10 @@ def compare(rows):
     out = {"units": {a: sum(1 for r in rows if r["arm"] == a) for a in ("A", "B")},
            "clusters_both_arms": sum(1 for c in per.values() if min(c["A"], c["B"]) >= MIN_CLUSTER_UNITS),
            "excluded": {a: sum(1 for r in rows if r["arm"] == a and r["excluded_by"]) for a in ("A", "B")},
+           "unresolved": {a: sum(1 for r in rows if r["arm"] == a and r["excluded_by"] and talk_net(r) is None)
+                          for a in ("A", "B")},
            "pending": {a: sum(1 for r in rows if r["arm"] == a and r["status"] == "pending") for a in ("A", "B")}}
-    for way in ("pending0", "pending_cost", "bound"):
+    for way in ("pending0", "pending_cost", "talk_cost", "bound"):
         iv = _interval(_values(rows, way))
         if iv:
             out[f"net_{way}_b_minus_a"] = iv
@@ -454,31 +502,34 @@ def shop(rows, expire_rows, lo, hi, cov, asof):
         n_unk = len(sold) - len(known)
         nets = [r["net"] for r in known]
         net = sum(nets) * (len(sold) / len(known) if known else 0) - exp
+        talk = [talk_net(r) for r in sold if r["net"] is None]
         h = (b - a) / 3600
         per = lambda x: round(x / h, 2) if ok and h > 0 and (known or not n_unk) else None
         return {"from": a, "to": b, "covered": ok, "sales": len(sold), "unknown_cost_sales": n_unk,
                 "unknown_share": round(n_unk / len(sold), 4) if sold else 0.0, "expired_cost": exp,
                 "net_scaled": round(net, 2), "net_per_hour": per(net),
+                "net_per_hour_talk_cost": per(sum(nets) + sum(talk) - exp) if None not in talk else None,
                 "net_per_hour_low": per(sum(nets) + n_unk * min(nets, default=0) - exp),
                 "net_per_hour_high": per(sum(nets) + n_unk * max(nets, default=0) - exp)}
     w, d = span(lo, hi), span(lo - DAY, hi - DAY)
     p = span(lo - (hi - lo), lo)
     usable = all(x["net_per_hour"] is not None for x in (w, d))
+    tc = all(x["net_per_hour_talk_cost"] is not None for x in (w, d))
     return {"window": w, "day_before": d, "span_before": p,
-            "no_harm": (w["net_per_hour"] >= d["net_per_hour"] and w["net_per_hour_low"] >= d["net_per_hour_high"])
-            if usable else None}
+            "no_harm": (w["net_per_hour"] >= d["net_per_hour"]
+                        and (not tc or w["net_per_hour_talk_cost"] >= d["net_per_hour_talk_cost"])) if usable else None}
 
 
 def gates(cmp_, shop_, *, judgeable):
-    u, ex = cmp_.get("units", {}), cmp_.get("excluded", {})
+    u, ex = cmp_.get("units", {}), cmp_.get("unresolved", {})
     lo = lambda k: bool(cmp_.get(k)) and cmp_[k].get("lo") is not None and cmp_[k]["lo"] > 0
     return {"judgeable": bool(judgeable),
             "units_per_arm": all(u.get(a, 0) >= 30 for a in ("A", "B")),
             "clusters_both_arms": cmp_.get("clusters_both_arms", 0) >= 4,
-            "excluded_under_5pct": all(u.get(a, 0) and ex.get(a, 0) < .05 * u[a] for a in ("A", "B")),
+            "unresolved_under_5pct": all(u.get(a, 0) and ex.get(a, 0) < .05 * u[a] for a in ("A", "B")),
             "pending0_lo_above_0": lo("net_pending0_b_minus_a"),
             "pending_cost_lo_above_0": lo("net_pending_cost_b_minus_a"),
-            "bound_lo_above_0": lo("net_bound_b_minus_a"),
+            "talk_cost_lo_above_0": lo("net_talk_cost_b_minus_a"),
             "shop_no_harm": shop_.get("no_harm") is True}
 
 
@@ -488,7 +539,7 @@ def decide(g, cmp_):
     if all(g.values()):
         return "keep"
     hi = lambda k: bool(cmp_.get(k)) and cmp_[k].get("hi") is not None and cmp_[k]["hi"] < 0
-    if (g["units_per_arm"] and g["clusters_both_arms"] and g["excluded_under_5pct"]
+    if (g["units_per_arm"] and g["clusters_both_arms"] and g["unresolved_under_5pct"]
             and hi("net_pending0_b_minus_a") and hi("net_pending_cost_b_minus_a")):
         return "revert"
     return "hold"
@@ -511,7 +562,7 @@ def ledger_iter(paths, spans):
                 try:
                     yield json.loads(line)
                 except ValueError:
-                    continue
+                    yield None                          # counted as malformed by classify
         spans.append((first, last))
 
 
@@ -531,8 +582,13 @@ def main(argv=None):
     with open(a.memory, encoding="utf-8") as f:
         mem = json.load(f)
     mem = mem.get("negotiations", []) if isinstance(mem, dict) else mem
+    units = []
     with open(a.units_in, encoding="utf-8") as f:
-        units = [json.loads(x) for x in f if x.strip()]
+        for x in f:
+            try:
+                units.append(json.loads(x))
+            except ValueError:
+                units.append(None)                      # counted as malformed by classify
     spans = []
     rows = ledger_iter(a.ledger, spans)
     out = classify(mem, rows, units, study=a.study, salt=a.salt, start=a.start, stop=a.stop,

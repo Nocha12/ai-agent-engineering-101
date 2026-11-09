@@ -4,6 +4,7 @@ them). Every other case is one of those rows with one field changed. Run: python
 (in this folder)."""
 import copy
 import json
+import math
 import os
 import subprocess
 import sys
@@ -397,7 +398,8 @@ SIX = [(10, 50, 90, 40)] * 6
 class Compare(unittest.TestCase):
     def test_b_above_a_in_every_cluster_gives_lo_above_zero_every_way(self):
         c = v.compare(synth(SIX))
-        for k in ("net_pending0_b_minus_a", "net_pending_cost_b_minus_a", "net_bound_b_minus_a"):
+        for k in ("net_pending0_b_minus_a", "net_pending_cost_b_minus_a", "net_talk_cost_b_minus_a",
+                  "net_bound_b_minus_a"):
             self.assertGreater(c[k]["lo"], 0)
             self.assertAlmostEqual(c[k]["point"], 40)
         self.assertEqual(c["clusters_both_arms"], 6)
@@ -435,8 +437,68 @@ class Compare(unittest.TestCase):
         self.assertLess(c["net_bound_b_minus_a"]["point"], c["net_pending0_b_minus_a"]["point"])
         self.assertEqual(c["excluded"]["B"], 30)
 
+    def test_cost_unknown_units_come_back_at_their_talk_cost_only_in_that_way(self):
+        rows = synth(SIX)
+        bs = [r for r in rows if r["arm"] == "B"][::2]
+        for r in bs:
+            r.update(status="sold", amount=1000 + r["net"] + 5000, refund=0, net=None, cost=None,
+                     excluded_by="cost_unknown", talk_cost=1000)
+        c = v.compare(rows)
+        self.assertEqual(c["unresolved"]["B"], 0)
+        self.assertEqual(c["excluded"]["B"], 30)
+        self.assertAlmostEqual(c["net_talk_cost_b_minus_a"]["point"], 40 + 5000 / 2)
+        self.assertLess(c["net_pending0_b_minus_a"]["point"], 100)                 # those units left out
+        for r in bs[:3]:
+            r["talk_cost"] = None
+        self.assertEqual(v.compare(rows)["unresolved"]["B"], 3)
+
+    def test_real_talk_cost_is_read_up_to_asof_and_two_costs_are_none(self):
+        mem, led, units = real()
+        units[:] = [u for u in units if u["unit"] != B_SOLD]
+        r = unit_row(go(mem, led, units), B_SOLD)
+        self.assertEqual((r["cost"], r["talk_cost"]), (None, 30211))
+        self.assertEqual(v.talk_net(r), 31722 - 30211)
+        t = min(v.talk_ts(n) for n in mem if n["unit"] == B_SOLD)
+        self.assertIsNone(unit_row(go(mem, led, units, asof=t - 1), B_SOLD)["talk_cost"])     # talk after asof
+        mem.append(dict(next(n for n in mem if n["unit"] == B_SOLD), cost=1))
+        self.assertIsNone(unit_row(go(mem, led, units), B_SOLD)["talk_cost"])
+
     def test_clusters_count_only_with_five_units_of_each_arm(self):
         self.assertEqual(v.compare(synth([(4, 50, 90, 10)] * 6))["clusters_both_arms"], 0)
+
+    def test_t_interval_numbers(self):
+        spec = [(5, 0, d, 0) for d in (10, 20, 30, 40)]
+        iv = v.compare(synth(spec))["net_pending0_b_minus_a"]
+        se = math.sqrt(sum((10 * (d - 25)) ** 2 for d in (10, 20, 30, 40)) * 4 / 3) / 40
+        self.assertEqual((iv["point"], iv["clusters"]), (25, 4))
+        self.assertAlmostEqual(iv["t_p05"], round(25 - 2.353 * se, 2))
+        self.assertEqual(v.t95(45), 1.671)
+
+    def test_clusters_under_five_units_an_arm_are_left_out_of_the_interval(self):
+        iv = v.compare(synth(SIX + [(3, 0, 100000, 0)]))["net_pending0_b_minus_a"]
+        self.assertEqual(iv["clusters"], 6)
+        self.assertAlmostEqual(iv["point"], 40)
+
+    def test_bound_puts_a_sold_unit_at_its_price_minus_its_clusters_cost_range(self):
+        rows = synth(SIX)
+        for r in rows:
+            r["cost"] = 1000 + (r["net"] % 7)
+        b = [r for r in rows if r["arm"] == "B"][0]
+        b.update(amount=1500, refund=0, net=None, cost=None, excluded_by="cost_unknown")
+        top = max(r["cost"] for r in rows if r["sku"] == b["sku"] and r["net"] is not None)
+        self.assertEqual(v.bound_net(b, [r["cost"] for r in rows if r["sku"] == b["sku"] and r["net"] is not None],
+                                     -9999), 1500 - top)
+
+    def test_about_six_percent_cost_unknown_with_talk_cost_still_passes_the_unresolved_gate(self):
+        rows = synth(SIX)
+        for r in [r for r in rows if r["arm"] == "B"][::16] + [r for r in rows if r["arm"] == "A"][::16]:
+            r.update(status="sold", amount=1000 + r["net"], refund=0, net=None, cost=None,
+                     excluded_by="cost_unknown", talk_cost=1000)
+        c = v.compare(rows)
+        self.assertGreaterEqual(c["excluded"]["B"] / c["units"]["B"], .06)
+        g = v.gates(c, SHOP_OK, judgeable=True)
+        self.assertTrue(g["unresolved_under_5pct"])
+        self.assertEqual(v.decide(g, c), "keep")
 
     def test_one_empty_arm_gives_no_interval(self):
         rows = [r for r in synth(SIX) if r["arm"] == "A"]
@@ -462,28 +524,29 @@ class ShopAndGates(unittest.TestCase):
         self.assertEqual((s["window"]["unknown_cost_sales"], s["window"]["net_scaled"]), (1, 2 * (30683 - 30605)))
         self.assertEqual(s["window"]["net_per_hour_low"], s["window"]["net_per_hour_high"])   # one known net: 78
 
-    def test_no_harm_needs_the_window_low_bound_over_the_day_before_high_bound(self):
-        def sale(i, t, net):
-            return {"unit": f"u-s{i}", "settle_ts": t, "net": net}
+    def test_no_harm_needs_the_scaled_point_and_the_talk_cost_comparison(self):
+        def sale(i, t, net, talk=None):
+            return {"unit": f"u-s{i}", "settle_ts": t, "net": net, "status": "sold", "amount": 1000 + (talk or 0),
+                    "refund": 0, "excluded_by": None if net is not None else "cost_unknown", "talk_cost": 1000}
         lo, hi = START, START + 3600
         cov = [[START - 2 * DAY, hi]]
         day = [sale(0, lo - DAY + 10, 100), sale(1, lo - DAY + 20, 100)]
-        win = [sale(2, lo + 10, 100), sale(3, lo + 20, 300), sale(4, lo + 30, None)]
+        win = [sale(2, lo + 10, 100), sale(3, lo + 20, 300), sale(4, lo + 30, None, talk=200)]
         s = v.shop(day + win, [], lo, hi, cov, hi)
         self.assertEqual((s["window"]["net_per_hour"], s["day_before"]["net_per_hour"]), (600, 200))
+        self.assertEqual(s["window"]["net_per_hour_talk_cost"], 600)
         self.assertEqual((s["window"]["net_per_hour_low"], s["window"]["net_per_hour_high"]), (500, 700))
         self.assertIs(s["no_harm"], True)
-        day[1]["net"] = None                                    # day before: 100 known, one unknown
-        day.append(sale(5, lo - DAY + 30, 450))
+        day.append(sale(5, lo - DAY + 30, 800))                 # day before: scaled 1000
+        self.assertIs(v.shop(day + win, [], lo, hi, cov, hi)["no_harm"], False)
+        day[-1]["net"] = 300                                    # day before 500: the point passes
+        win[2].update(amount=1000 - 400)                        # the unknown sale at its talk cost: -400
         s = v.shop(day + win, [], lo, hi, cov, hi)
-        self.assertEqual((s["day_before"]["net_per_hour"], s["day_before"]["net_per_hour_high"]), (825, 1000))
-        self.assertIs(s["no_harm"], False)
-        day[2]["net"] = 360                                     # day before: scaled 690, high 820
-        win[0]["net"] = 200                                     # window: scaled 750, low 700
-        s = v.shop(day + win, [], lo, hi, cov, hi)
-        self.assertGreater(s["window"]["net_per_hour"], s["day_before"]["net_per_hour"])
-        self.assertLess(s["window"]["net_per_hour_low"], s["day_before"]["net_per_hour_high"])
-        self.assertIs(s["no_harm"], False)                      # the bound decides
+        self.assertGreaterEqual(s["window"]["net_per_hour"], s["day_before"]["net_per_hour"])
+        self.assertEqual(s["window"]["net_per_hour_talk_cost"], 0)
+        self.assertIs(s["no_harm"], False)                      # the talk-cost comparison decides
+        win[2]["talk_cost"] = None
+        self.assertIs(v.shop(day + win, [], lo, hi, cov, hi)["no_harm"], True)   # no talk cost: the point alone
 
     def test_an_ambiguous_sale_counts_as_an_unknown_cost_sale(self):
         mem, led, units = real()
@@ -526,7 +589,7 @@ class ShopAndGates(unittest.TestCase):
             r.update(net=None, excluded_by="unknown")
         ex = v.compare(rows)
         g = v.gates(ex, SHOP_OK, judgeable=True)
-        self.assertFalse(g["excluded_under_5pct"])
+        self.assertFalse(g["unresolved_under_5pct"])
         self.assertEqual(v.decide(g, ex), "hold")
 
     def test_revert_needs_hi_below_zero_and_the_sample_gates(self):
@@ -537,6 +600,26 @@ class ShopAndGates(unittest.TestCase):
             r.update(net=None, excluded_by="cost_unknown")
         ex = v.compare(rows)
         self.assertEqual(v.decide(v.gates(ex, SHOP_OK, judgeable=True), ex), "hold")
+
+
+class Malformed(unittest.TestCase):
+    def test_non_object_ledger_rows_and_bad_units_in_lines_are_counted(self):
+        mem, led, units = real()
+        led += [None, {"ts": START, "kind": "settle", "data": "x"}]
+        units.append(None)
+        out = go(mem, led, units)
+        self.assertTrue(any("3 malformed" in w for w in out["warnings"]))
+
+    def test_a_unit_supplied_in_a_gap_between_files_is_uncovered(self):
+        mem, led, units = real()
+        t = next(r for r in led if r["kind"] == "supply" and B_SOLD in r["data"]["units"])["ts"]
+        out = go(mem, led, units, coverage=[(START - 2 * DAY, t - 1000), (t + 1000, ASOF)])
+        self.assertEqual(unit_row(out, B_SOLD)["status"], "uncovered")
+
+    def test_asof_cut_back_by_an_input_end_is_warned(self):
+        mem, led, units = real()
+        out = go(mem, led, units, memory_end=ASOF - 3600)
+        self.assertTrue(any("memory input's end" in w for w in out["warnings"]))
 
 
 class Cli(unittest.TestCase):
