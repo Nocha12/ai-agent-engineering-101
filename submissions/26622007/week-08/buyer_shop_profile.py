@@ -22,6 +22,7 @@ import time
 import buyer_food_ladder
 import buyer_goods_grade
 import buyer_goods_ladder
+import buyer_saved_floor
 
 SWITCH = 'buyer_shop_profile.json'
 CACHE = 'buyer_shop_profile_cache.json'
@@ -70,6 +71,8 @@ def profile_from_rows(rows, paid, now):
         if buyer_goods_ladder.laddered(r):   # arm B's 0.8 openings say nothing of plan A's (review 459089c I2)
             continue
         if buyer_food_ladder.laddered(r):    # food-ladder arm B's 0.8 (C 0.7) openings, the same
+            continue
+        if buyer_saved_floor.floored(r):     # saved-floor arm B's floor / no band, the same (GPT Pro 1638 P1)
             continue
         talks.setdefault(shop, []).append(r)
     out = {}

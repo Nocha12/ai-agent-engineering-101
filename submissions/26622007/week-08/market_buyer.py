@@ -264,7 +264,7 @@ def priced(trades):
     """The trades whose prices both arms of a buyer study may learn from: without goods-ladder arm B's 0.8 openings,
     goods-grade arm B's lowered limits and food-ladder arm B's 0.8 (C 0.7) openings (buyer_goods_ladder.priced,
     buyer_goods_grade.priced, buyer_food_ladder.priced)."""
-    return buyer_food_ladder.priced(buyer_goods_grade.priced(buyer_goods_ladder.priced(trades)))
+    return buyer_saved_floor.priced(buyer_food_ladder.priced(buyer_goods_grade.priced(buyer_goods_ladder.priced(trades))))
 
 
 def my_history(memory, name):
@@ -2245,7 +2245,8 @@ def main():
         **({"order": order.get("order"), "category": args.item, "list_price": offer["list_price"],
             "goods_ladder": buyer_goods_ladder.trade_arm(order),
             "goods_grade": buyer_goods_grade.trade_mark(order, limit),
-            "food_ladder": buyer_food_ladder.trade_arm(order)} if r3 else {}),
+            "food_ladder": buyer_food_ladder.trade_arm(order),
+            "saved_floor": buyer_saved_floor.trade_arm(order)} if r3 else {}),
         "result": "no_warranty" if short else "over_limit" if over else "deal" if rec is not None else (out["state"] or "error").replace("TASK_STATE_", "").lower(),
         "price": rec.get("price") if rec else None,
         "asks": asks, "holds": out.get("holds", 0), "problems": problems, "warnings": warnings, "why": why,

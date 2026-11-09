@@ -110,10 +110,51 @@ class Share(unittest.TestCase):
         switch(self.md, kinds="food")                                 # not a list: off
         self.assertIsNone(sf.state(self.md, "o-1", env={}, kind="food"))
 
+    def test_band_only_keeps_base_share(self):   # GPT Pro 1638 §2.4: the first A/B is the band off alone
+        board(self.md, 0.3096)
+        switch(self.md, floor=False)
+        st = sf.state(self.md, "o-1", env={})
+        self.assertEqual((st["arm"], st["share"], st["band_off"]), ("B", mb.SAVED_MIN_SHARE, True))
+        switch(self.md, floor=False, band="keep")      # nothing would change: off
+        self.assertIsNone(sf.state(self.md, "o-1", env={}))
+        switch(self.md, floor="no")
+        self.assertIsNone(sf.state(self.md, "o-1", env={}))
+
+    def test_empty_order_id_is_off_under_ab(self):
+        board(self.md, 0.3096)
+        switch(self.md, ab={"salt": "s", "share": 0.5})
+        self.assertIsNone(sf.state(self.md, None, env={}))
+        self.assertIsNone(sf.state(self.md, "", env={}))
+
     def test_ab_bad_share_is_off(self):
         board(self.md, 0.3096)
         switch(self.md, ab={"salt": "x", "share": 2})
         self.assertIsNone(sf.state(self.md, "o-1", env={}))
+
+
+class Learning(unittest.TestCase):
+    """Arm B's trades and talks are left out of what both arms learn from (GPT Pro 1638 P1)."""
+
+    def test_priced_leaves_out_arm_b(self):
+        trades = [{"order": "1", "saved_floor": "B"}, {"order": "2", "saved_floor": "A"}, {"order": "3"},
+                  {"order": "4", "saved_floor": None}]
+        self.assertEqual([t["order"] for t in sf.priced(trades)], ["2", "3", "4"])
+        self.assertEqual([t["order"] for t in mb.priced(trades)], ["2", "3", "4"])
+
+    def test_rows_and_trade_arm(self):
+        self.assertTrue(sf.floored({"saved_floor": {"arm": "B"}}))
+        self.assertFalse(sf.floored({"saved_floor": {"arm": "A"}}))
+        self.assertFalse(sf.floored({}))
+        self.assertEqual(sf.trade_arm({"_saved_floor": {"arm": "B"}}), "B")
+        self.assertIsNone(sf.trade_arm({}))
+
+    def test_learners_skip_arm_b_rows(self):
+        import buyer_rank_pg, buyer_shop_profile
+        for mod in (buyer_rank_pg, buyer_shop_profile):
+            src = open(mod.__file__, encoding="utf-8").read()
+            self.assertIn("buyer_saved_floor.floored(r)", src, mod.__name__)
+        src = open(mb.__file__, encoding="utf-8").read()
+        self.assertIn('"saved_floor": buyer_saved_floor.trade_arm(order)', src)
 
 
 class Cap(unittest.TestCase):
