@@ -559,7 +559,8 @@ class Seller(AgentExecutor):
         log(f"PRICE {profit_price.line(u, q)}")
         a_open = None
         if keep >= 1:         # grade A dear goods A/B (seller_a_open, default off): never a markdown talk
-            ask_price, a_open = seller_a_open.decide(u, q, keep=keep, margin_assignment=margin_assignment)
+            ask_price, a_open = seller_a_open.decide(u, q, keep=keep, margin_assignment=margin_assignment,
+                                                     pricing=pricing)
             if a_open:
                 log(f"A_OPEN {u['sku']} unit {u['unit']} arm {a_open['arm']}: first ask {ask_price} (usual {a_open['usual']})")
         deal = self.open[task.id] = {"id": u["sku"], "name": u["name"], "key": key, "unit": u["unit"], "kind": u.get("kind"),

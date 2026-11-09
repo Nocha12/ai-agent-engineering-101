@@ -27,8 +27,8 @@ class SellerAOpenTest(unittest.TestCase):
                 return f"s{i}"
         raise AssertionError
 
-    def run_(self, u, q, keep=1, margin=None, env=None):
-        return ao.decide(u, q, keep=keep, margin_assignment=margin, md=self.md.name, env=env or {})
+    def run_(self, u, q, keep=1, margin=None, env=None, pricing=None):
+        return ao.decide(u, q, keep=keep, margin_assignment=margin, pricing=pricing, md=self.md.name, env=env or {})
 
     def q(self, u, median=1780000):
         return profit_price.quote(u, median=median, measured=0.03, pricing={"price": {"goods_break": 0.03, "high_median_up": {
@@ -46,17 +46,18 @@ class SellerAOpenTest(unittest.TestCase):
         q = self.q(u)
         self.on(salt=self.salt_for("B"))
         self.assertEqual(self.run_(u, q, env={"SELLER_A_OPEN": "0"}), (q["open"], None))
-        for bad in (0.6, 0.9, True, "0.74", float("nan")):
+        for bad in (0.6, 0.9, True, "0.76", float("nan")):
             self.on(salt=self.salt_for("B"), ratio=bad)
             self.assertEqual(self.run_(u, q), (q["open"], None), bad)
 
     def test_arm_b_opens_at_the_list_share_arm_a_keeps_it(self):
         u = unit()
         q = self.q(u)
-        self.assertLess(q["open"], 0.74 * u["list_price"])          # today's ask, the weakness
+        self.assertLess(q["open"], 0.76 * u["list_price"])          # today's ask, the weakness
         self.on(salt=self.salt_for("B"))
         p, rec = self.run_(u, q)
-        self.assertEqual(p, -(-74 * u["list_price"] // 100))
+        self.assertEqual(p, -(-76 * u["list_price"] // 100))
+        self.assertIs(type(p), int)
         self.assertEqual((rec["arm"], rec["usual"], rec["open"]), ("B", q["open"], p))
         self.on(salt=self.salt_for("A"))
         p, rec = self.run_(u, q)
@@ -65,13 +66,14 @@ class SellerAOpenTest(unittest.TestCase):
     def test_never_lowers_and_never_over_list(self):
         u = unit()
         self.on(salt=self.salt_for("B"))
-        q = self.q(u, median=2500000)                    # usual ask above 0.74 x list stays
+        q = self.q(u, median=2500000)                    # usual ask above 0.76 x list stays
         self.assertEqual(self.run_(u, q)[0], q["open"])
         self.on(salt=self.salt_for("B"), ratio=0.8)
-        q = dict(self.q(u), floor=2700000, open=2700000)  # a floor above list: never over list from here
+        q = dict(self.q(u), floor=2700000, open=2700000)  # a floor above list stands (F wins)
         self.assertEqual(self.run_(u, q)[0], 2700000)
         q = dict(self.q(u), open=1000)
         self.assertEqual(self.run_(u, q)[0], -(-80 * u["list_price"] // 100))
+        self.assertLess(self.run_(u, q)[0], u["list_price"])
 
     def test_ineligible_talks_untouched(self):
         self.on(salt=self.salt_for("B"))
@@ -83,6 +85,9 @@ class SellerAOpenTest(unittest.TestCase):
         q = self.q(u)
         self.assertEqual(self.run_(u, q, keep=0.9), (q["open"], None))
         self.assertEqual(self.run_(u, q, margin={"arm": "A"}), (q["open"], None))
+        for caps in ({"G24f5f979": {"A": 9000000}}, {"G24f5f979": {"*": 9000000}}):   # a cap that does not bind
+            self.assertEqual(self.run_(u, q, pricing={"price": {"ask_caps": caps}}), (q["open"], None), caps)
+        self.assertEqual(self.run_(u, q, pricing={"price": {"ask_caps": {"G24f5f979": {"B": 1}}}})[1]["arm"], "B")
         for why in ("ask cap 1800000 for grade A (was ...)", "scarce ask 1900000", "trial 0.9 x median 1"):
             self.assertEqual(self.run_(u, dict(q, why=why)), (q["open"], None), why)
 
