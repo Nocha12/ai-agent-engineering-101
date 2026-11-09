@@ -51,7 +51,7 @@ class ParseDiagnostics(unittest.TestCase):
             (envelope(CANARY), "inner_json"),
             (envelope('{"price":"'+CANARY+'"}'), "schema_validation"),
         ]
-        allowed={"stage","role","kind","pos","lineno","colno","chars","sha256","tail_kind"}
+        allowed={"stage","role","kind","pos","lineno","colno","chars","sha256","tail_kind","exc","body_keys","other_keys","error_code","choices"}
         for payload,stage in cases:
             with self.subTest(stage=stage):
                 value,error,messages,records,n=self.call([payload])
@@ -81,3 +81,45 @@ class ParseDiagnostics(unittest.TestCase):
         self.assertIsNotNone(error)
         self.assertEqual(records,[False])
         self.assertEqual(n,1)
+
+
+class OuterShape(unittest.TestCase):
+    """11/10 07:30-08:28: 45 OpenRouter answers were HTTP 200 without a usable choices[0].message.content (outer_json,
+    kind shape) and the log could not say why. The diagnostic names the body's shape, never its text."""
+    call=ParseDiagnostics.call
+
+    def meta(self,payload):
+        value,error,messages,records,n=self.call([payload])
+        self.assertIsNone(value)
+        self.assertEqual((records,n),([False],1))
+        self.assertTrue(all(CANARY not in m for m in messages))
+        meta=[json.loads(m[11:]) for m in messages if m.startswith("parse_diag ")]
+        self.assertEqual(len(meta),1)
+        self.assertEqual(meta[0]["stage"],"outer_json")
+        return meta[0]
+
+    def test_provider_error_in_a_200_names_its_code_not_its_message(self):
+        m=self.meta(json.dumps({"error":{"code":502,"message":CANARY,"metadata":{"provider_name":CANARY,"raw":CANARY}},"user_id":CANARY}).encode())
+        self.assertEqual((m["kind"],m["exc"],m["body_keys"],m["other_keys"],m["error_code"]),("shape","KeyError",["error"],1,502))
+        self.assertNotIn("choices",m)
+
+    def test_empty_choices_counts_them(self):
+        m=self.meta(b'{"id":"gen-1","choices":[]}')
+        self.assertEqual((m["exc"],m["body_keys"],m["choices"],m["other_keys"]),("IndexError",["choices","id"],0,0))
+        self.assertNotIn("error_code",m)
+
+    def test_odd_error_codes_and_unknown_keys_stay_out(self):
+        for code in ("502",True,10**6,CANARY,None):
+            with self.subTest(code=code):
+                m=self.meta(json.dumps({"error":{"code":code},CANARY:1}).encode())
+                self.assertEqual((m["body_keys"],m["other_keys"]),(["error"],1))
+                self.assertNotIn("error_code",m)
+
+    def test_a_body_that_is_not_an_object_is_only_its_kind(self):
+        m=self.meta(b'["x"]')
+        self.assertEqual((m["kind"],m["exc"]),("shape","TypeError"))
+        self.assertNotIn("body_keys",m)
+
+    def test_retry_count_and_answer_unchanged_after_a_provider_error(self):
+        value,error,messages,records,n=self.call([b'{"error":{"code":502}}',envelope(GOOD)])
+        self.assertEqual((value,error,records,n),({"price":100},None,[False,True],2))

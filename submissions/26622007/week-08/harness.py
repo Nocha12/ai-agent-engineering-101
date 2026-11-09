@@ -188,7 +188,27 @@ def _openrouter_key():
     return None
 
 
-def _parse_diagnostic(stage, error, tag):
+# Top-level OpenRouter body keys the outer_json diagnostic may name; any other key is only counted.
+BODY_KEYS = ("choices", "created", "error", "id", "model", "object", "provider", "system_fingerprint", "usage")
+
+
+def _body_shape(body):
+    """What a 200 body without choices[0].message.content looked like: its known keys, how many others, an integer
+    error code (OpenRouter sends upstream failures as {"error": {"code": 502, ...}} with HTTP 200) and the number of
+    choices. No value text: 45 such answers on 11/10 07:30-08:28 left only "shape" in the log."""
+    if not isinstance(body, dict):
+        return {}
+    shape = {"body_keys": sorted(k for k in body if k in BODY_KEYS),
+             "other_keys": sum(1 for k in body if k not in BODY_KEYS)}
+    code = body["error"].get("code") if isinstance(body.get("error"), dict) else None
+    if type(code) is int and 100 <= code <= 999:
+        shape["error_code"] = code
+    if isinstance(body.get("choices"), list):
+        shape["choices"] = len(body["choices"])
+    return shape
+
+
+def _parse_diagnostic(stage, error, tag, response=None):
     """Best-effort allowlisted metadata; never expose the answer or exception text."""
     try:
         if stage not in ("outer_json", "inner_json", "schema_validation"):
@@ -209,6 +229,12 @@ def _parse_diagnostic(stage, error, tag):
             meta.update(kind="json_decode", pos=pos, lineno=error.lineno, colno=error.colno,
                         chars=len(doc), sha256=hashlib.sha256(doc.encode("utf-8", "surrogatepass")).hexdigest(),
                         tail_kind=tail)
+        elif stage == "outer_json":
+            meta["exc"] = type(error).__name__ if type(error) in (KeyError, IndexError, TypeError) else "other"
+            try:
+                meta.update(_body_shape(response.json()) if response is not None else {})
+            except Exception:   # noqa: BLE001 - the stage and kind are still worth a line
+                pass
         log("harness", "parse_diag " + json.dumps(meta, sort_keys=True))
     except Exception:
         # Observability must not replace the existing reject/retry outcome.
@@ -277,7 +303,7 @@ def _ask_openrouter(prompt, schema, system, tag, timeout=None):
                 answer = validate(decoded, schema)
             except (KeyError, IndexError, TypeError, ValueError, HarnessError) as e:
                 last = f"invalid answer: {stage}"
-                _parse_diagnostic(stage, e, tag)
+                _parse_diagnostic(stage, e, tag, r if stage == "outer_json" else None)
                 record_call(tag, prompt, system, time.time() - started, False)
                 continue
             record_call(tag, prompt, system, time.time() - started, True, r.json().get("usage"))
