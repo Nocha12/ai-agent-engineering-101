@@ -228,7 +228,7 @@ def maybe_post(md, settled_path, memory_path, now=None):
                 return None
             mine = my_shop_skus(md)
             order = ("record", "trend") if state.get("last_kind") == "trend" else ("trend", "record")
-            line = kind = None
+            line = kind = measured = None
             for kind in order:
                 if kind == "trend":
                     try:
@@ -243,6 +243,11 @@ def maybe_post(md, settled_path, memory_path, now=None):
                     d, post = pick(read_lines(settled_path), set(state.get("posted") or []), mine, now,
                                    shop_names(memory_path))
                     if d is not None:
+                        try:
+                            import buyer_post_market      # the market-median A/B; off (or broken) is the post as it was
+                            post, measured = buyer_post_market.decorate(md, d, post, now)
+                        except Exception:  # noqa: BLE001
+                            measured = None
                         line = {"post": post, "refs": [d["ledger"]], "as": "buyer"}
                         state["posted"] = (list(state.get("posted") or []) + [d["ledger"]])[-500:]
                         break
@@ -252,6 +257,8 @@ def maybe_post(md, settled_path, memory_path, now=None):
                 f.write(json.dumps(line, ensure_ascii=False) + "\n")
             state.update({"at": now, "last_kind": kind})
             _save(path, state)
+            if measured:
+                buyer_post_market.record(md, measured)
             return line
     except Exception:  # noqa: BLE001 - a forum post never stops the review the kit waits for
         return None
