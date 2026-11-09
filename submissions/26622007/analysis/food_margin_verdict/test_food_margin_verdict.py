@@ -21,15 +21,21 @@ B_SOLD, A_SOLD = _U["('B', 'sold', True, True, True)"], _U["('A', 'sold', True, 
 B_STOCK, A_STOCK = _U["('B', 'stock')"], _U["('A', 'stock')"]
 OLD_SALE, EXPIRED = _U["untreated"], _U["expired"]
 ASOF = START + 9 * 3600 + 5                                 # 07:55:54
+DAY = 86400.0
 
 
-def real():
+def real(full=False):
+    """full: also the units_in rows of the other units of the fixture's supplies (fixture/real_units_in_rest.jsonl;
+    one unit of the 20-unit G200e39a3 supply, u-78f6fa8bfd36, has none in the real file)."""
     with open(os.path.join(FIX, "real_memory_rows.json"), encoding="utf-8") as f:
         mem = json.load(f)
     with open(os.path.join(FIX, "real_ledger_rows.jsonl"), encoding="utf-8") as f:
         led = [json.loads(x) for x in f]
     with open(os.path.join(FIX, "real_units_in.jsonl"), encoding="utf-8") as f:
         units = [json.loads(x) for x in f]
+    if full:
+        with open(os.path.join(FIX, "real_units_in_rest.jsonl"), encoding="utf-8") as f:
+            units += [json.loads(x) for x in f]
     return mem, led, units
 
 
@@ -40,6 +46,9 @@ def settle_of(led, unit):
 def go(mem, led, units, **kw):
     kw.setdefault("asof", ASOF)
     kw.setdefault("ledger_end", kw["asof"])
+    kw.setdefault("units_in_end", kw["asof"])
+    kw.setdefault("memory_end", kw["asof"])
+    kw.setdefault("coverage", [(START - 2 * DAY, kw["asof"])])
     return v.classify(mem, led, units, study=STUDY, salt=SALT, start=START, stop=STOP, **kw)
 
 
@@ -141,28 +150,37 @@ class Join(unittest.TestCase):
         self.assertEqual((r["status"], r["cost"], r["net"]), ("sold", None, None))
         self.assertEqual(r["excluded_by"], "cost_unknown")
 
-    def test_one_missing_unit_of_a_supply_takes_the_exact_residual(self):
-        mem, led, units = real()
+    def test_the_real_one_missing_unit_of_a_supply_takes_the_exact_residual(self):
+        mem, led, units = real(full=True)
         sup = next(r for r in led if r["kind"] == "supply" and B_SOLD in r["data"]["units"])
-        sup["data"].update(units=[A_SOLD, B_SOLD], qty=2, total=30605 + 30211)
+        known = sum(u["cost"] for u in units if u["unit"] in sup["data"]["units"])
+        r = unit_row(go(mem, led, units), "u-78f6fa8bfd36")
+        self.assertEqual((r["cost"], r["cost_source"]), (sup["data"]["total"] - known, "supply_residual"))
+        self.assertEqual(sup["data"]["qty"], 20)
+
+    def test_one_missing_sold_unit_gets_its_residual_and_its_net(self):
+        mem, led, units = real(full=True)
         units[:] = [u for u in units if u["unit"] != B_SOLD]
+        units.append({"ts": START + 60, "unit": "u-78f6fa8bfd36", "sku": "G200e39a3", "kind": "food", "grade": "A",
+                      "cost": 22000, "list_price": 37900, "supplied_at": 1794232827, "expires_at": None})
+        sup = next(r for r in led if r["kind"] == "supply" and B_SOLD in r["data"]["units"])
+        others = sum(u["cost"] for u in units if u["unit"] in sup["data"]["units"])
+        sup["data"]["total"] = others + 30211
         r = unit_row(go(mem, led, units), B_SOLD)
         self.assertEqual((r["cost"], r["cost_source"], r["net"]), (30211, "supply_residual", 31722 - 30211))
         self.assertEqual(r["grade"], "A")                                       # from its settle row
 
-    def test_missing_units_of_one_arm_share_the_residual_and_of_both_arms_stay_unknown(self):
-        mem, led, units = real()
+    def test_two_missing_units_of_one_arm_never_get_the_supply_average(self):
+        mem, led, units = real(full=True)
         sup = next(r for r in led if r["kind"] == "supply" and B_SOLD in r["data"]["units"])
-        b2 = ids("B", 1, prefix="u-g")[0]
-        sup["data"].update(units=[A_SOLD, B_SOLD, b2], qty=3, total=30605 + 50000)
-        units[:] = [u for u in units if u["unit"] != B_SOLD]
+        other_b = next(u for u in sup["data"]["units"] if u not in (B_SOLD, "u-78f6fa8bfd36")
+                       and v.arm(SALT, u) == "B")
+        units.append({"ts": START + 60, "unit": "u-78f6fa8bfd36", "sku": "G200e39a3", "kind": "food", "grade": "A",
+                      "cost": 22000, "list_price": 37900, "supplied_at": 1794232827, "expires_at": None})
+        units[:] = [u for u in units if u["unit"] not in (B_SOLD, other_b)]
         out = go(mem, led, units)
-        self.assertEqual((unit_row(out, B_SOLD)["cost"], unit_row(out, B_SOLD)["cost_source"]), (25000, "supply_group"))
-        self.assertEqual(unit_row(out, b2)["cost"], 25000)
-        a2 = ids("A", 1, prefix="u-g")[0]
-        sup["data"].update(units=[A_SOLD, B_SOLD, a2])
-        out = go(mem, led, units)
-        self.assertEqual((unit_row(out, B_SOLD)["cost"], unit_row(out, B_SOLD)["excluded_by"]), (None, "cost_unknown"))
+        for u in (B_SOLD, other_b):
+            self.assertEqual((unit_row(out, u)["cost"], unit_row(out, u)["excluded_by"]), (None, "cost_unknown"))
 
     def test_no_residual_when_a_known_unit_of_the_supply_has_disagreeing_rows(self):
         mem, led, units = real()
@@ -179,13 +197,12 @@ class Join(unittest.TestCase):
         units.append(u)
         self.assertIsNone(unit_row(go(mem, led, units), B_SOLD)["cost"])
 
-    def test_cost_never_comes_from_the_talk_or_the_supply_average(self):
+    def test_units_in_row_without_a_time_is_not_read(self):
         mem, led, units = real()
-        units[:] = [u for u in units if u["unit"] != A_SOLD]
-        r = unit_row(go(mem, led, units), A_SOLD)
-        self.assertIsNone(r["cost"])
-        self.assertIsNone(r["net"])
-
+        for u in units:
+            if u["unit"] == B_SOLD:
+                u.pop("ts")
+        self.assertIsNone(unit_row(go(mem, led, units), B_SOLD)["cost"])
 
 class Cut(unittest.TestCase):
     def test_settle_after_asof_is_not_read(self):
@@ -318,53 +335,163 @@ class Exposure(unittest.TestCase):
         self.assertTrue(all(r["other_arm_in_stock"] is None for r in none))
 
 
-def synth(n_a, n_b, net_a, net_b, *, clusters=6, pending_b=0, cost=1000):
+
+    def test_pending_unit_of_the_other_arm_supplied_before_the_ledger_is_not_stock(self):
+        mem, led, units = real()
+        for u in units:
+            if u["unit"] == A_SOLD:
+                u["grade"] = "C"
+        old = ids("A", 1, prefix="u-old")[0]
+        units.append({"ts": START - 3 * DAY, "unit": old, "sku": "G200e39a3", "kind": "food", "grade": "A",
+                      "cost": 30000, "list_price": 37900, "supplied_at": START - 3 * DAY, "expires_at": None})
+        out = go(mem, led, units, coverage=[(START - 2 * DAY, ASOF)])
+        self.assertEqual(unit_row(out, old)["status"], "uncovered")
+        self.assertIs(unit_row(out, B_SOLD)["other_arm_in_stock"], False)
+
+
+class Coverage(unittest.TestCase):
+    def test_files_join_within_ten_minutes_and_a_gap_breaks_them(self):
+        self.assertEqual(v.covered([(10, 100), (500, 900)]), [[10, 900]])
+        self.assertEqual(v.covered([(10, 100), (800, 900)]), [[10, 100], [800, 900]])
+
+    def test_a_day_before_not_in_the_ledger_read_gives_no_shop_verdict(self):
+        mem, led, units = real()
+        out = go(mem, led, units, coverage=[(START - 600, ASOF)])
+        self.assertIsNone(out["shop"]["day_before"]["net_per_hour"])
+        self.assertIsNone(out["shop"]["no_harm"])
+        self.assertFalse(out["gates"]["shop_no_harm"])
+        self.assertTrue(any("does not cover" in w for w in out["warnings"]))
+
+    def test_asof_is_capped_at_the_memory_and_units_in_ends(self):
+        mem, led, units = real()
+        out = go(mem, led, units, memory_end=START + 1000, units_in_end=START + 2000)
+        self.assertEqual(out["asof"], START + 1000)
+        out = go(mem, led, units, memory_end=None, units_in_end=None)
+        self.assertEqual(out["asof"], min(out["input_ends"]["memory"], out["input_ends"]["units_in"]))
+
+    def test_malformed_rows_are_skipped_and_counted(self):
+        mem, led, units = real()
+        mem.append(dict(mem[0], time="not a time"))
+        settle_of(led, B_SOLD)["data"]["amount"] = None
+        out = go(mem, led, units)
+        self.assertEqual(unit_row(out, B_SOLD)["status"], "ambiguous")
+        self.assertTrue(any("2 malformed" in w for w in out["warnings"]))
+
+
+def synth(spec, *, cost=1000):
+    """spec: [(units per arm, net A, net B, noise)] one per SKU x grade cluster. Noise is spread evenly
+    (-noise .. +noise) over the units so every cluster has a real within-arm variance."""
     rows = []
-    for arm, n, net in (("A", n_a, net_a), ("B", n_b, net_b)):
-        for i, u in enumerate(ids(arm, n, prefix=f"u-{arm}{n}")):
-            pend = arm == "B" and i < pending_b
-            rows.append({"unit": u, "arm": arm, "sku": f"G{i % clusters}", "grade": "A", "part": "main",
-                         "status": "pending" if pend else "sold", "cost": cost, "list": 2000,
-                         "net": None if pend else net, "excluded_by": None})
+    for c, (n, na, nb, noise) in enumerate(spec):
+        for a, base in (("A", na), ("B", nb)):
+            for i, u in enumerate(ids(a, n, prefix=f"u-c{c}{a}")):
+                jit = (2 * i / max(1, n - 1) - 1) * noise
+                rows.append({"unit": u, "arm": a, "sku": f"G{c}", "grade": "A", "part": "main", "status": "sold",
+                             "cost": cost, "net": base + jit, "excluded_by": None})
     return rows
 
 
+SIX = [(10, 50, 90, 40)] * 6
+
+
 class Compare(unittest.TestCase):
-    def test_b_above_a_gives_an_interval_above_zero_both_ways(self):
-        c = v.compare(synth(60, 60, 50, 80))
-        self.assertGreater(c["net_pending0_b_minus_a"]["p05"], 0)
-        self.assertGreater(c["net_pending_cost_b_minus_a"]["p05"], 0)
-        self.assertEqual(c["clusters"], {"A": 6, "B": 6})
+    def test_b_above_a_in_every_cluster_gives_lo_above_zero_every_way(self):
+        c = v.compare(synth(SIX))
+        for k in ("net_pending0_b_minus_a", "net_pending_cost_b_minus_a", "net_bound_b_minus_a"):
+            self.assertGreater(c[k]["lo"], 0)
+            self.assertAlmostEqual(c[k]["point"], 40)
+        self.assertEqual(c["clusters_both_arms"], 6)
+
+    def test_one_big_cluster_carrying_the_effect_is_not_enough(self):
+        c = v.compare(synth([(40, 0, 400, 50)] + [(10, 60, 20, 40)] * 4))
+        iv = c["net_pending0_b_minus_a"]
+        self.assertGreater(iv["point"], 0)
+        self.assertLess(iv["lo"], 0)
+
+    def test_no_effect_gives_an_interval_round_zero(self):
+        iv = v.compare(synth([(10, 50, 50 + d, 40) for d in (-30, 20, -10, 30, -20, 10)]))["net_pending0_b_minus_a"]
+        self.assertLess(iv["lo"], 0)
+        self.assertGreater(iv["hi"], 0)
+
+    def test_stratified_estimate_is_not_moved_by_arm_imbalance_across_skus(self):
+        rows = synth([(10, 100, 100, 0), (10, 5000, 5000, 0)])
+        drop = [r for r in rows if r["sku"] == "G0" and r["arm"] == "A"][:8]
+        rows = [r for r in rows if r not in drop]
+        self.assertEqual(v.compare(rows)["net_pending0_b_minus_a"]["point"], 0)
 
     def test_pending_b_units_valued_at_their_cost_can_turn_it_round(self):
-        c = v.compare(synth(60, 60, 50, 80, pending_b=10))
-        self.assertGreater(c["net_pending0_b_minus_a"]["point"], 0)
+        rows = synth(SIX)
+        for r in [r for r in rows if r["arm"] == "B"][::2]:
+            r.update(status="pending", net=None)
+        c = v.compare(rows)
         self.assertLess(c["net_pending_cost_b_minus_a"]["point"], 0)
+        self.assertGreater(c["net_pending0_b_minus_a"]["point"], c["net_pending_cost_b_minus_a"]["point"])
+
+    def test_excluded_b_units_at_the_arms_worst_lower_the_bound(self):
+        rows = synth(SIX)
+        for r in [r for r in rows if r["arm"] == "B"][::2]:
+            r.update(net=None, cost=None, excluded_by="cost_unknown")
+        c = v.compare(rows)
+        self.assertLess(c["net_bound_b_minus_a"]["point"], c["net_pending0_b_minus_a"]["point"])
+        self.assertEqual(c["excluded"]["B"], 30)
+
+    def test_clusters_count_only_with_five_units_of_each_arm(self):
+        self.assertEqual(v.compare(synth([(4, 50, 90, 10)] * 6))["clusters_both_arms"], 0)
 
     def test_one_empty_arm_gives_no_interval(self):
-        self.assertNotIn("net_pending0_b_minus_a", v.compare(synth(30, 0, 50, 80)))
+        rows = [r for r in synth(SIX) if r["arm"] == "A"]
+        self.assertNotIn("net_pending0_b_minus_a", v.compare(rows))
 
-    def test_excluded_units_leave_numerator_and_denominator(self):
-        rows = synth(40, 40, 50, 80)
-        rows.append(dict(rows[-1], unit="u-x", status="sold", cost=None, net=None, excluded_by="cost_unknown"))
-        c = v.compare(rows)
-        self.assertEqual(c["excluded"]["B"], 1)
-        self.assertAlmostEqual(c["net_pending0_b_minus_a"]["point"], 30)
+
+SHOP_OK = {"no_harm": True}
 
 
 class ShopAndGates(unittest.TestCase):
     def test_shop_food_net_per_hour_window_against_the_same_hours_a_day_before(self):
         mem, led, units = real()
-        day = 86400.0
-        before = clone(mem, led, units, A_SOLD, "u-yesterday1", shift=-day, amount=40000)
-        out = go(mem, led, units)
-        s = out["shop"]
-        self.assertEqual(s["window"]["sales"], 2)
-        self.assertEqual(s["window"]["net"], (31722 - 30211) + (30683 - 30605))
-        self.assertEqual(s["day_before"]["sales"], 1)
-        self.assertEqual(s["day_before"]["net"], 40000 - 30605)
-        self.assertFalse(s["no_harm"])
-        self.assertTrue(before)
+        clone(mem, led, units, A_SOLD, "u-yesterday1", shift=-DAY, amount=40000)
+        s = go(mem, led, units)["shop"]
+        self.assertEqual((s["window"]["sales"], s["window"]["net_scaled"]), (2, (31722 - 30211) + (30683 - 30605)))
+        self.assertEqual((s["day_before"]["sales"], s["day_before"]["net_scaled"]), (1, 40000 - 30605))
+        self.assertIs(s["no_harm"], False)
+
+    def test_unknown_cost_sales_are_scaled_and_bounded(self):
+        mem, led, units = real()
+        units[:] = [u for u in units if u["unit"] != B_SOLD]
+        s = go(mem, led, units)["shop"]
+        self.assertEqual((s["window"]["unknown_cost_sales"], s["window"]["net_scaled"]), (1, 2 * (30683 - 30605)))
+        self.assertEqual(s["window"]["net_per_hour_low"], s["window"]["net_per_hour_high"])   # one known net: 78
+
+    def test_no_harm_needs_the_window_low_bound_over_the_day_before_high_bound(self):
+        def sale(i, t, net):
+            return {"unit": f"u-s{i}", "settle_ts": t, "net": net}
+        lo, hi = START, START + 3600
+        cov = [[START - 2 * DAY, hi]]
+        day = [sale(0, lo - DAY + 10, 100), sale(1, lo - DAY + 20, 100)]
+        win = [sale(2, lo + 10, 100), sale(3, lo + 20, 300), sale(4, lo + 30, None)]
+        s = v.shop(day + win, [], lo, hi, cov, hi)
+        self.assertEqual((s["window"]["net_per_hour"], s["day_before"]["net_per_hour"]), (600, 200))
+        self.assertEqual((s["window"]["net_per_hour_low"], s["window"]["net_per_hour_high"]), (500, 700))
+        self.assertIs(s["no_harm"], True)
+        day[1]["net"] = None                                    # day before: 100 known, one unknown
+        day.append(sale(5, lo - DAY + 30, 450))
+        s = v.shop(day + win, [], lo, hi, cov, hi)
+        self.assertEqual((s["day_before"]["net_per_hour"], s["day_before"]["net_per_hour_high"]), (825, 1000))
+        self.assertIs(s["no_harm"], False)
+        day[2]["net"] = 360                                     # day before: scaled 690, high 820
+        win[0]["net"] = 200                                     # window: scaled 750, low 700
+        s = v.shop(day + win, [], lo, hi, cov, hi)
+        self.assertGreater(s["window"]["net_per_hour"], s["day_before"]["net_per_hour"])
+        self.assertLess(s["window"]["net_per_hour_low"], s["day_before"]["net_per_hour_high"])
+        self.assertIs(s["no_harm"], False)                      # the bound decides
+
+    def test_an_ambiguous_sale_counts_as_an_unknown_cost_sale(self):
+        mem, led, units = real()
+        e = copy.deepcopy(next(r for r in led if r["kind"] == "expire"))
+        e["ts"] = settle_of(led, B_SOLD)["ts"] + 5
+        e["data"]["units"] = [B_SOLD]
+        led.append(e)
+        self.assertEqual(go(mem, led, units)["shop"]["window"]["unknown_cost_sales"], 1)
 
     def test_expire_in_the_window_counts_against_the_shop(self):
         mem, led, units = real()
@@ -375,25 +502,41 @@ class ShopAndGates(unittest.TestCase):
 
     def test_no_verdict_before_nine_hours(self):
         mem, led, units = real()
-        out = go(mem, led, units, asof=START + 9 * 3600 - 60, ledger_end=START + 9 * 3600 - 60)
+        out = go(mem, led, units, asof=START + 9 * 3600 - 60)
         self.assertEqual(out["verdict"], "wait")
         self.assertFalse(out["gates"]["judgeable"])
 
     def test_small_real_sample_is_hold_not_keep(self):
-        mem, led, units = real()
-        out = go(mem, led, units)
+        out = go(*real())
         self.assertEqual(out["verdict"], "hold")
         self.assertFalse(out["gates"]["units_per_arm"])
 
     def test_keep_needs_every_gate(self):
-        c = v.compare(synth(60, 60, 50, 80))
-        shop = {"no_harm": True, "unknown_share": 0.0}
-        g = v.gates(c, shop, judgeable=True)
-        self.assertEqual(v.decide(g, c), "keep")
-        self.assertEqual(v.decide(v.gates(c, dict(shop, no_harm=False), judgeable=True), c), "hold")
-        self.assertEqual(v.decide(v.gates(c, shop, judgeable=False), c), "wait")
-        worse = v.compare(synth(60, 60, 80, 20))
-        self.assertEqual(v.decide(v.gates(worse, shop, judgeable=True), worse), "revert")
+        good = v.compare(synth(SIX))
+        self.assertEqual(v.decide(v.gates(good, SHOP_OK, judgeable=True), good), "keep")
+        for shop in ({"no_harm": False}, {"no_harm": None}):
+            self.assertEqual(v.decide(v.gates(good, shop, judgeable=True), good), "hold")
+        self.assertEqual(v.decide(v.gates(good, SHOP_OK, judgeable=False), good), "wait")
+        few = v.compare(synth([(10, 50, 90, 40)] * 3))
+        self.assertFalse(v.gates(few, SHOP_OK, judgeable=True)["clusters_both_arms"])
+        small = v.compare(synth([(4, 50, 90, 10)] * 6))
+        self.assertFalse(v.gates(small, SHOP_OK, judgeable=True)["units_per_arm"])
+        rows = synth(SIX)
+        for r in [r for r in rows if r["arm"] == "A"][:3]:
+            r.update(net=None, excluded_by="unknown")
+        ex = v.compare(rows)
+        g = v.gates(ex, SHOP_OK, judgeable=True)
+        self.assertFalse(g["excluded_under_5pct"])
+        self.assertEqual(v.decide(g, ex), "hold")
+
+    def test_revert_needs_hi_below_zero_and_the_sample_gates(self):
+        worse = v.compare(synth([(10, 90, 20, 30)] * 6))
+        self.assertEqual(v.decide(v.gates(worse, SHOP_OK, judgeable=True), worse), "revert")
+        rows = synth([(10, 90, 20, 30)] * 6)
+        for r in [r for r in rows if r["arm"] == "B"][:6]:
+            r.update(net=None, excluded_by="cost_unknown")
+        ex = v.compare(rows)
+        self.assertEqual(v.decide(v.gates(ex, SHOP_OK, judgeable=True), ex), "hold")
 
 
 class Cli(unittest.TestCase):
@@ -404,10 +547,11 @@ class Cli(unittest.TestCase):
                             "--start", str(START), "--stop", str(STOP), "--asof", str(ASOF)],
                            capture_output=True, text=True, check=True)
         out = json.loads(p.stdout)
-        last = max(r["ts"] for r in real()[1])
-        self.assertEqual((out["asof"], out["verdict"]), (last, "wait"))     # capped at the ledger's last row
-        self.assertNotIn("main", out["arms"])      # supplied after asof - 4 h: late, not main
-        self.assertEqual(out["arms"]["late"]["B"]["sold"], 1)
+        led = real()[1]
+        self.assertEqual(out["coverage"], [[min(r["ts"] for r in led), out["asof"]]])
+        self.assertEqual(out["verdict"], "wait")
+        self.assertLessEqual(out["asof"], max(r["ts"] for r in led))
+        self.assertTrue(any("does not cover" in w for w in out["warnings"]))    # one fixture file, no day before
         self.assertNotIn("units", out)
 
 
