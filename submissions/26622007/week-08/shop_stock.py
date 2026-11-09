@@ -276,13 +276,15 @@ class StockBook:
                 self._drop(unit)
         return [u for u in inv if not expired(u, now) and u["unit"] not in self.held and u["unit"] not in self.sold]
 
-    def pick(self, text, now=None, rank=None, *, allow_grade_preference=False, selection=None):
+    def pick(self, text, now=None, rank=None, *, allow_grade_preference=False, selection=None, add_grades=None):
         """(unit, None) for what the buyer asked (SKU first, then name, then category): among the units that fit the buyer's
         needs (needs()/unfit()), the one that expires first. Among units that never expire (goods), rank(u) (the seller
         passes the unit's floor) comes before the oldest: 11/06 21:2x the oldest G24f5f979 cost 0.74 of list after a
         surge, so every quote opened at its floor 0.84 while the market sold the SKU at 0.70 and four units of ours with
         floors near 0.68 were never offered. (None, why) when none does."""
         want, need = text.lower(), needs(text)
+        if add_grades and need["grades"]:      # G-read (grade_read.py, default off): a grade the words name but GRADES drops
+            need = dict(need, grades=need["grades"] | set(add_grades))
         units = self.units()
         for matches in (lambda u: u["sku"].lower() in want,
                         lambda u: (u.get("name") or "\0").lower() in want,
