@@ -322,5 +322,19 @@ class SellerWiring(unittest.TestCase):
         self.assertIn("SHELF_FACT.event(task_id, deal, result, price, observed_at)", src)
 
 
+class Attestation(unittest.TestCase):
+    # independent review d8ab283 I1/I2: R1's switch and source are watched; this module's must be too
+    def test_margin_study_attests_this_module(self):
+        import sol_seller_margin as margin
+        self.assertIn("shelf_fact.py", margin.SOURCE_FILES)
+        self.assertIn("shelf_fact.py", margin.DISK_SNAPSHOT)
+
+    def test_meta_harness_watches_the_switch(self):
+        import meta_harness
+        src = Path(shelf_fact.__file__).read_text(encoding="utf-8")
+        self.assertIn("\nSwitch: .market/shelf_fact/config.json", src)     # the line test_meta collects
+        self.assertIn(".market/shelf_fact/config.json", meta_harness.SWITCHES)
+
+
 if __name__ == "__main__":
     unittest.main()

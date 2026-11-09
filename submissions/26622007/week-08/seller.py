@@ -94,7 +94,7 @@ LATE_SPEED = seller_late_speed.LateSpeed()
 JEV_TRANSPORT = seller_jev_transport.JevTransport()
 SHELF_REPLY = shelf_life_reply.ShelfLifeTrial()
 SHELF_JEV = shelf_jev_skip.Trial()
-SHELF_FACT = shelf_fact.Trial(r1=SHELF_JEV)     # S-shelf A/B (11/10), never answers while R1 is on
+SHELF_FACT = shelf_fact.Trial(r1=SHELF_JEV)     # S-shelf A/B (11/10), never answers while an R1 trial (ab) is on
 EXACT_ACCEPT = exact_accept_trial.ExactAcceptTrial()
 EXACT_COUNTER = exact_counter_trial.ExactCounterTrial()
 GRADE_PREFERENCE = seller_grade_preference.GradePreferenceTrial()

@@ -28,8 +28,9 @@ deal["shelf_life"]) are left alone so its control arm is never answered by this 
 
 Window: start_at < stop_at and stop_at - start_at <= 20 h; outside it, or absent/invalid/disabled configuration: the
 original path. Talks assigned earlier keep their arm for later eligible turns only inside the window, and still get
-outcome rows. Switch: MARKET_DIR/shelf_fact/config.json (SHELF_FACT_CONFIG overrides), the shelf_jev_skip format
+outcome rows. The switch (SHELF_FACT_CONFIG overrides) has the shelf_jev_skip format
 {study, salt, version, epoch, enabled, mode "ab", share, start_at, stop_at}; mode "adopted" answers every eligible turn.
+Switch: .market/shelf_fact/config.json
 """
 import hashlib
 import os
