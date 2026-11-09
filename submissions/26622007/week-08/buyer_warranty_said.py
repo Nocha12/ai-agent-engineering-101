@@ -63,7 +63,7 @@ EVENTS = "buyer_warranty_said_events.jsonl"
 MAX_WINDOW_HOURS = 12
 TRIP_MIN = 4
 TRIP_SHARE = 0.25     # about twice the highest shop's 0 h share of goods sales (thisjonghoon 55/416, 13%)
-VERSION = "bw1-5"
+VERSION = "bw1-6"
 # a sentence naming the warranty with any of these is not "names only 6 h or more" (review 08b282d I1)
 WARRANTY_WORD = re.compile(r"warrant|guarantee|safe-care|보증|케어|보장", re.I)
 # any duration under 6 h anywhere ("1 h for this price", "0.5 h for grade C", "30 min"): review 2 m3
@@ -73,7 +73,10 @@ WORD_DURATION = re.compile(r"\b(" + "|".join(re.escape(w) for w in sorted(ask_re
 FEW_HOURS = re.compile(r"\b(?:an?|half an?|a half|half|a few|few|several|a couple(?: of)?|couple(?: of)?)[ \t-]+"
                        r"(?:hours?|hrs?|minutes?|mins?)\b", re.I)
 # "72 h warranty for grade A; this unit is grade C": the warranty may be another grade's (11/09 Pro 1930 3-1)
-GRADE = re.compile(r"\bgrade[ \t:]*([abc])\b|\b([abc])[ \t-]?grade\b|(?<![a-z])([abc])[ \t]?등급", re.I)
+# lists (A/B, A and C, A-C), "grade-C", "C grade" (capital only: "a grade C unit" is an article): review 6 I1/I2
+GRADE = re.compile(r"\bgrades?[ \t:-]*([abc])(?:[ \t]*(?:/|,|&|and|or|to|-)[ \t]*([abc]))?\b"
+                   r"|\b(?-i:([ABC]))[ \t]*(?:/|,|&|and|or|to|-)[ \t]*(?-i:([ABC]))[ \t-]?(?=grades?\b)"
+                   r"|\b(?-i:([ABC]))[ \t-]?(?=grades?\b)|\b([abc])-(?=grade\b)|(?<![a-z])([abc])[ \t]?등급", re.I)
 DURATION = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)[ \t-]*(h|hrs?|hours?|min|mins|minutes?|시간|분)(?![a-z])", re.I)
 # "if it breaks" is the market's own warranty wording, not a condition; a Korean hedge counts only next to the
 # warranty word (product names say "먼지없는", "색상선택": 11/09 replay, ana/bw1_said_replay.py)
@@ -194,7 +197,7 @@ def _stated_ok(text):
         v = ask_read.WORD_N[m[1].lower()]
         if (v / 60 if m[2].lower().startswith("m") else v) < ask_read.GOODS_WARRANTY_HOURS:
             return False
-    if FEW_HOURS.search(raw) or len({"".join(m.groups("")).lower() for m in GRADE.finditer(raw)}) > 1:
+    if FEW_HOURS.search(raw) or len({c.lower() for m in GRADE.finditer(raw) for c in "".join(m.groups(""))}) > 1:
         return False
     # a piece with no word in it ("-", "…") is not the next sentence (review 4 m3)
     sentences = [s for s in SENTENCE.split(raw) if re.search(r"\w", s)]

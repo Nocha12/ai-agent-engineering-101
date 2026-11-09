@@ -79,6 +79,7 @@ class HoursForTest(unittest.TestCase):
                      "72 h warranty, three hours for this price", "72 h warranty. grade C: two hours",
                      # review 4 m3, m4
                      "72 h warranty.\n-\nWithout it 9000", "72 h warranty. -. Without it 9000",
+                     "72 h warranty. … Without it 9000",
                      "72 h warranty, grade C: five minutes", "72 h warranty; this price: delivered within an hour",
                      "72 h warranty, grade C half an hour", "72 h warranty, a few hours for this price",
                      # review 5: twelve minutes is 0.2 h, not 12; a couple/half/several
@@ -86,7 +87,12 @@ class HoursForTest(unittest.TestCase):
                      "72 h warranty, grade C half-hour", "72 h warranty, several hours for grade C",
                      # Pro 1930 3-1: another grade's warranty
                      "72 h warranty for grade A; this unit is grade C.", "72 h warranty for grade A. This one is grade B.",
-                     "A등급 72시간 warranty, C등급 별도"):
+                     "A등급 72시간 warranty, C등급 별도",
+                     # review 6 I1/I2: an article, lists, plurals, grade-C
+                     "72 h warranty for grade A; this is a grade C unit.", "grade A 72 h warranty, a grade B unit",
+                     "Grade A/B mixed lot, 72 h warranty", "grades A and C, 72 h warranty",
+                     "Grade A-C mixed, 72 h warranty", "72 h warranty grade A, grade-C sold separately",
+                     "A or B grade, 72 h warranty"):
             q = quote(text)
             self.assertFalse(q["warranty_said_ok"], text)
             self.assertEqual(sw.hours_for(order_sw("B"), "thisjonghoon", q), 0, text)
@@ -96,7 +102,10 @@ class HoursForTest(unittest.TestCase):
                      "it breaks within 6 hours of delivery. Asking 23000.",
                      "레이디가구 선반 (G38a0dca5), grade B, 12-hour warranty included (full refund if it breaks)",
                      "바숨 알러지케어 먼지없는 누빔 매트리스커버 (G575cddb8), grade A, 72 h warranty",
-                     "지누스 루미 침대 프레임 색상선택 2color (Ge04f5cab), grade A, 72 h warranty, market certificate included"):
+                     "지누스 루미 침대 프레임 색상선택 2color (Ge04f5cab), grade A, 72 h warranty, market certificate included",
+                     # one grade named twice is one grade (review 6)
+                     "Grade A, 72 h warranty. A-grade unit.", "Grade A 72 h warranty, a grade A phone",
+                     "GRADE A, 72 h warranty. Grade A certified."):
             self.assertTrue(ws.stated_ok(text), text)       # a negation outside the warranty sentence is no hedge
 
     def test_a_reading_that_raises_is_not_set_aside(self):
