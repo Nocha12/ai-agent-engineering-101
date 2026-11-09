@@ -8,6 +8,12 @@ os.replace with the old file's mode. Never over a trial that is already there: r
 
   setting(salt=..., start_at=..., hours=9, ...) -> the dict, ValueError unless profit_price.trial_setting_ok passes
   switch_on(path, s, backup_dir=...) / switch_off(path, backup_dir=...) -> the backup's path
+  with_trial(raw, s=None) -> pricing.json text with the trial taken out and s (if given) put in: the same line swaps,
+    no file touched (meta_harness keeps a person's switch out of its own commits with it)
+
+A person switches through the host's gbt-switch launcher, which runs as another account and writes each switch to
+hard_limits.PERSON_JOURNAL around the call here: the meta-harness keeps a trial change only when that journal says a
+person made it (this module, which the model may edit, writes no proof of its own).
 """
 import json
 import os
@@ -75,12 +81,16 @@ def _swap(path, raw, new, backup_dir, stamp):
     return backup
 
 
-def switch_on(path, s, *, backup_dir, stamp=None):
-    """Put setting s in as price.grade_break_trial. ValueError, the file left as it was, when s is not a whole setting,
-    a trial is already there (ended or not), or the result would differ from the old settings plus s."""
+def _parse(raw):
+    d = json.loads(raw)
+    if not isinstance(d, dict) or not isinstance(d.get("price"), dict):
+        raise ValueError("grade_break_trial: pricing.json has no price object")
+    return d
+
+
+def _on_text(raw, d, s):
     if not profit_price.trial_setting_ok(s):
         raise ValueError("grade_break_trial: bad setting")
-    raw, d = _read(path)
     if KEY in d["price"]:
         raise ValueError("grade_break_trial: a trial is already in pricing.json; switch_off first")
     m = list(_PRICE_OPEN.finditer(raw))
@@ -92,13 +102,20 @@ def switch_on(path, s, *, backup_dir, stamp=None):
     new = raw[:m[0].end()] + line + after
     if json.loads(new) != {**d, "price": {**d["price"], KEY: s}}:
         raise ValueError("grade_break_trial: the new pricing.json is not the old one plus the trial")
+    return new
+
+
+def switch_on(path, s, *, backup_dir, stamp=None):
+    """Put setting s in as price.grade_break_trial. ValueError, the file left as it was, when s is not a whole setting,
+    a trial is already there (ended or not), or the result would differ from the old settings plus s."""
+    if not profit_price.trial_setting_ok(s):
+        raise ValueError("grade_break_trial: bad setting")
+    raw, d = _read(path)
+    new = _on_text(raw, d, s)
     return _swap(path, raw, new, backup_dir, stamp or time.strftime("%Y%m%d-%H%M%S"))
 
 
-def switch_off(path, *, backup_dir, stamp=None):
-    """Take price.grade_break_trial out (its one line). ValueError, the file left as it was, when there is none or it is
-    not on one line of its own (then delete the key by hand)."""
-    raw, d = _read(path)
+def _off_text(raw, d):
     if KEY not in d["price"]:
         raise ValueError("grade_break_trial: no trial in pricing.json")
     m = list(_LINE.finditer(raw))
@@ -112,4 +129,22 @@ def switch_off(path, *, backup_dir, stamp=None):
         ok = False
     if not ok:
         raise ValueError("grade_break_trial: removing the line does not give the old settings; delete it by hand")
+    return new
+
+
+def switch_off(path, *, backup_dir, stamp=None):
+    """Take price.grade_break_trial out (its one line). ValueError, the file left as it was, when there is none or it is
+    not on one line of its own (then delete the key by hand)."""
+    raw, d = _read(path)
+    new = _off_text(raw, d)
     return _swap(path, raw, new, backup_dir, stamp or time.strftime("%Y%m%d-%H%M%S"))
+
+
+def with_trial(raw, s=None):
+    """raw with price.grade_break_trial taken out (when there) and, given s, s put in: the switches' own line swaps and
+    checks, no file written. ValueError when they refuse (no price object, a trial not on a line of its own, s not whole)."""
+    d = _parse(raw)
+    if KEY in d["price"]:
+        raw = _off_text(raw, d)
+        d = _parse(raw)
+    return raw if s is None else _on_text(raw, d, s)

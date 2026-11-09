@@ -33,6 +33,7 @@ import time
 
 import httpx
 
+import grade_break_trial_switch     # loaded with the loop, not from a file the model may have just rewritten
 import hard_limits
 import scorecard
 
@@ -267,7 +268,10 @@ def dirty_paths():
     return out
 
 
-def stage(before=None):
+STAGED = {"problem": None}       # person_trial_out()'s at the last stage()
+
+
+def stage(before=None, whole=True):
     """This folder's changes without logs/ and memory/. Astra's commit eba7dd67 carried them: 64 MB of kit logs, a Round 2
     archive and the shop's memory dumps, which the kit kept writing, so the undo of that commit was refused.
     With `before` (dirty_paths() at the cycle's start) only what changed since then: other work left in the folder is
@@ -278,6 +282,12 @@ def stage(before=None):
         owned = sorted(p for p in now if p not in before or before[p] != now[p])
         if owned:
             git("add", "-A", "--", *owned)
+        if "pricing.json" in owned:
+            STAGED["problem"] = person_trial_out()
+            if STAGED["problem"] and not whole:        # the record: the person's switch stays out, so the file does
+                git("reset", "-q", "--", "pricing.json", check=False)
+            if not git("diff", "--cached", "--name-only", "--", "pricing.json"):
+                owned.remove("pricing.json")           # only a person's switch: nothing of the cycle's
         return owned
     # not `add -A -- . :!logs :!memory`: with both in .gitignore git exits 1 on those pathspecs ("paths are ignored"),
     # which failed every Terra cycle from 11/04 11:07 (f0a8917) and left its change staged, uncommitted
@@ -522,8 +532,40 @@ def commit(message, paths=None):
         paths = [p for p in paths if p in staged]
         if not paths:
             raise RuntimeError("commit: nothing of this cycle is staged")
-    git("commit", "-q", "-m", f"{message}\n\nMeta-Harness: {os.path.basename(__file__)}", *(["--", *paths] if paths else []))
+    message = f"{message}\n\nMeta-Harness: {os.path.basename(__file__)}"
+    if paths and "pricing.json" in paths and git("diff", "--name-only", "--", "pricing.json"):
+        return commit_staged(message, paths)       # a person's trial is in the folder and out of the index
+    git("commit", "-q", "-m", message, *(["--", *paths] if paths else []))
     return git("rev-parse", "HEAD")
+
+
+def commit_staged(message, paths):
+    """`git commit -- paths` as the index holds them (that command takes them from the folder): HEAD's tree with these
+    paths' staged entries, in a scratch index, so what someone else staged stays out as well."""
+    fd, scratch = tempfile.mkstemp(prefix="meta-index-")
+    os.close(fd)
+    os.remove(scratch)
+    env = dict(os.environ, GIT_INDEX_FILE=scratch)
+    run = lambda *a, **k: subprocess.run(["git", "--literal-pathspecs", *a], cwd=ROOT, capture_output=True, text=True,
+                                         check=True, **k).stdout.strip()
+    try:
+        old = git("rev-parse", "HEAD")
+        run("read-tree", "HEAD", env=env)
+        for p in paths:
+            entry = git("ls-files", "-s", "--", p).split()
+            if entry:
+                run("update-index", "--add", "--cacheinfo", f"{entry[0]},{entry[1]},{p}", env=env)
+            else:
+                run("update-index", "--force-remove", "--", p, env=env)
+        tree = run("write-tree", env=env)
+        new = run("commit-tree", tree, "-p", old, "-m", message)
+        git("update-ref", "-m", "commit (meta-harness)", "HEAD", new, old)
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"commit: {(e.stderr or '').strip()[:400]}")
+    finally:
+        if os.path.exists(scratch):
+            os.remove(scratch)
+    return new
 
 
 def undo(sha, why, found=None):
@@ -592,55 +634,98 @@ def put_back(found, paths):
             os.replace(full + ".meta-undo", full)
 
 
-TRIAL_AT_START = {"trial": None}     # price.grade_break_trial when the cycle started (trial_state)
+# price.grade_break_trial is a person's study (hard_limits.PERSON_TRIALS). A change of it is a person's only when it is as
+# the cycle found it or as the latest journaled person switch since the cycle began left it (hard_limits.person_left;
+# the journal is not the market account's to write, AX 11/10 지시 13). Anything else, the model's OFF, ON or moved
+# window over one cycle or two, is refused and undone. A person's trial stays in the folder uncommitted, as the person
+# left it: never in the harness's commits (person_trial_out).
+TRIAL = "price.grade_break_trial"
+UNKNOWN = object()                  # pricing.json unreadable or without a price object: nobody's switch
+START = {"pricing": None, "since": math.inf}     # pricing.json and the time when the cycle began
 
 
-def trial_state():
-    """("off",), ("on", setting) or None when pricing.json cannot be read."""
-    p = pricing_now()
-    if "_unreadable" in p:
+def trial_of(p):
+    if not isinstance(p, dict) or "_unreadable" in p or not isinstance(p.get("price"), dict):
+        return UNKNOWN
+    return hard_limits._at(p, TRIAL)
+
+
+def same_trial(a, b):
+    return a is not UNKNOWN and b is not UNKNOWN and hard_limits._same(a, b)
+
+
+def persons_trial(v):
+    """v (trial_of) is a person's: as the cycle found it, or left by a journaled person switch since the cycle began."""
+    return v is not UNKNOWN and (same_trial(v, trial_of(START["pricing"]))
+                                 or hard_limits.person_left(TRIAL, v, START["since"]))
+
+
+def trials_from(new):
+    """The pricing.json whose trial the guard compares the cycle's with: the person's when that is what is there now,
+    else the cycle's start (None: HEAD, when the start could not be read)."""
+    now, start = trial_of(new), trial_of(START["pricing"])
+    base = now if now is not UNKNOWN and hard_limits.person_left(TRIAL, now, START["since"]) else start
+    if base is UNKNOWN:
         return None
-    price = p.get("price")
-    if not isinstance(price, dict) or "grade_break_trial" not in price:
-        return ("off",)
-    return ("on", price["grade_break_trial"])
+    return {"price": {} if base is hard_limits._ABSENT else {"grade_break_trial": base}}
 
 
-def kept_switch(start, now):
-    """The trial a person switched while the cycle ran (grade_break_trial_switch: the whole key off, or a whole valid
-    setting on where there was none), which the undo must not take back; None for anything else. A changed value or
-    window stays the cycle's change: hard_limits.PERSON_TRIALS refuses it and the undo reverts it."""
-    import profit_price
-    if start is not None and start[0] == "on" and now == ("off",):
-        return now
-    if start == ("off",) and now is not None and now[0] == "on" and profit_price.trial_setting_ok(now[1]):
-        return now
+def person_trial_out():
+    """Stages pricing.json with the trial as HEAD has it when the trial in the folder is a person's: the rest of the
+    cycle's edit is committed, the person's switch stays uncommitted in the folder. Returns a problem when the two
+    cannot be told apart by the switch's own line swap (the file is then left staged whole, so an undo takes it all)."""
+    path = os.path.join(ROOT, "pricing.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = f.read()
+        head_raw = git("show", "HEAD:./pricing.json")
+        here, head = trial_of(json.loads(raw)), trial_of(json.loads(head_raw))
+    except (OSError, ValueError, RuntimeError):
+        return None
+    if here is UNKNOWN or head is UNKNOWN or same_trial(here, head) or not persons_trial(here):
+        return None
+    try:
+        blob = grade_break_trial_switch.with_trial(raw, None if head is hard_limits._ABSENT else head)
+        sha = subprocess.run(["git", "hash-object", "-w", "--stdin"], cwd=ROOT, input=blob, capture_output=True,
+                             text=True, check=True).stdout.strip()
+        mode = (git("ls-files", "-s", "--", "pricing.json").split() or ["100644"])[0]
+        git("update-index", "--cacheinfo", f"{mode},{sha},pricing.json")
+    except (ValueError, RuntimeError, subprocess.CalledProcessError) as e:
+        return f"pricing.json: a person's grade_break_trial could not be kept out of the commit: {e}"[:400]
     return None
 
 
 def keep_trial(cid, keep):
-    """Put a person's switch back after the undo, with the switch's own checks and backup (never anything else)."""
-    if keep is None or trial_state() == keep:
-        return
-    import grade_break_trial_switch as gbt
+    """After an undo, the person's journaled switch as they left it, with the switch's own checks and backup. Returns
+    what happened, for the record, or None when there was nothing to keep."""
+    if keep is UNKNOWN:
+        return None
+    if same_trial(trial_of(pricing_now()), keep):
+        return "grade_break_trial: the person's switch is in place"
     path, backups = os.path.join(ROOT, "pricing.json"), os.path.join(ROOT, ".market", "grade_break_trial_kept")
     try:
-        if keep == ("off",):
-            gbt.switch_off(path, backup_dir=backups, stamp=cid)
-        else:
-            gbt.switch_on(path, keep[1], backup_dir=backups, stamp=cid)
-        log(f"{cid}: kept the grade_break_trial {keep[0].upper()} a person switched while the cycle ran")
-    except (ValueError, OSError) as e:
-        log(f"{cid}: could not keep the grade_break_trial {keep[0].upper()} a person switched: {e}")
+        if hard_limits._at(pricing_now(), TRIAL) is not hard_limits._ABSENT:
+            grade_break_trial_switch.switch_off(path, backup_dir=backups, stamp=f"{cid}-off")
+        if keep is not hard_limits._ABSENT:
+            grade_break_trial_switch.switch_on(path, keep, backup_dir=backups, stamp=f"{cid}-on")
+    except Exception as e:      # the undo stands; the person is told their switch is gone
+        log(f"{cid}: could not put back the grade_break_trial a person switched: {e}")
+        return f"grade_break_trial: could not put back the person's switch, switch it again: {e}"[:400]
+    log(f"{cid}: put back the grade_break_trial a person switched while the cycle ran")
+    return "grade_break_trial: put back the person's switch"
 
 
-def try_undo(cid, sha, why, found=None):
+def try_undo(cid, sha, why, found=None, notes=None):
     """undo(), or why it could not (the change then stays as committed). The cycle is recorded either way: an Astra
-    cycle missing from meta/grades.jsonl runs again on the loop's next start."""
-    keep = kept_switch(TRIAL_AT_START["trial"], trial_state()) if TRIAL_AT_START["trial"] else None
+    cycle missing from meta/grades.jsonl runs again on the loop's next start. A journaled person switch of the trial made
+    since the cycle began is put back after it; notes (a list) gets what happened to it."""
+    here = trial_of(pricing_now())
+    keep = here if here is not UNKNOWN and hard_limits.person_left(TRIAL, here, START["since"]) else UNKNOWN
     try:
         undo(sha, why, found)
-        keep_trial(cid, keep)
+        note = keep_trial(cid, keep)
+        if note and notes is not None:
+            notes.append(note)
         return None
     except (RuntimeError, OSError) as e:      # OSError: put_back could not write the file back
         log(f"{cid}: could not undo {sha[:8]}, it stays: {e}")
@@ -651,7 +736,7 @@ def record(rec, before=None):
     grade_log(rec)
     with open(os.path.join(ROOT, "meta", "changes.jsonl"), "a", encoding="utf-8") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-    paths = stage(before)
+    paths = stage(before, whole=False)
     if before is not None:
         if paths and git("diff", "--cached", "--name-only", "--", *paths) and not secrets_in_stage(paths):
             commit(f"chore(week-08): 메타 하네스 기록 {rec['cycle']} - {rec['status']}"[:200], paths)
@@ -698,7 +783,7 @@ def limit_problems(code):
              if p.split("/")[-1] == "acp_gate.py"]
     if (head.get("seller") or {}) != (new.get("seller") or {}):
         owner.append("pricing.json seller (refuse_buyers, refuse_one_star_at, refuse_exempt) is the owner's setting (11/05)")
-    return owner + hard_limits.check_policy_change(head, new, step) + \
+    return owner + hard_limits.check_policy_change(head, new, step, trials_from=trials_from(new)) + \
         hard_limits.guard_problems(code, git("diff", "--cached", "--no-color", "--", *guarded) if guarded else "")
 
 
@@ -1072,7 +1157,8 @@ def refresh_scorecard():
 def cycle(kind):
     before = dirty_paths()        # what the folder already held: not this cycle's change
     FOUND["pricing"] = pricing_now() if "pricing.json" in before else None
-    TRIAL_AT_START["trial"] = trial_state()
+    START.update(pricing=pricing_now(), since=time.time())
+    STAGED["problem"] = None
     found = start_contents(before)
     cid = f"{kind}-{time.strftime('%m%d-%H%M%S')}"
     os.makedirs(os.path.join(ROOT, "meta", "evidence"), exist_ok=True)
@@ -1098,6 +1184,7 @@ def cycle(kind):
         log(f"{cid}: study switches changed while the model ran, left as they are: {flipped}")
     paths = stage(before)
     code = [p for p in paths if not p.startswith(NOT_CODE) and not p.startswith(("logs/", "memory/"))]
+    trial_notes = []
 
     if paths and secrets_in_stage(paths):      # nothing goes into history, the attempt included
         git("reset", "-q", "--", *paths)
@@ -1112,6 +1199,7 @@ def cycle(kind):
         return rec
 
     problems = [err] if err else []
+    problems += [STAGED["problem"]] if STAGED["problem"] else []
     problems += [f"{p} changed while the model ran: a study switch is not the model's to set (left as it is)"
                  for p in flipped]
     if answer is not None:
@@ -1150,9 +1238,9 @@ def cycle(kind):
     title = (answer or {}).get("change_summary") or err or "변경"
     if problems:
         sha = commit(f"wip(week-08): [{cid}] 실패 - {title} / {problems[0]}"[:300], paths)
-        failed = try_undo(cid, sha, f"{cid} 검증 실패: {problems[0]}", found)
+        failed = try_undo(cid, sha, f"{cid} 검증 실패: {problems[0]}", found, trial_notes)
         rec.update(status="rejected_kept" if failed else "rejected", problems=problems + ([failed] if failed else []),
-                   commit=sha)
+                   commit=sha, **({"person_trial": trial_notes} if trial_notes else {}))
         record(rec, before)
         return rec
 
@@ -1172,12 +1260,14 @@ def cycle(kind):
     bad = canary()
     if bad:
         log(f"{cid}: failed the watch: {'; '.join(bad)}")
-        failed = try_undo(cid, sha, f"{cid} 10분 점검 실패: {'; '.join(bad)}", found)
+        failed = try_undo(cid, sha, f"{cid} 10분 점검 실패: {'; '.join(bad)}", found, trial_notes)
         if failed:
             rec.update(status="canary_failed_kept", problems=bad + [failed])
         else:
             restart_seller(code)
             rec.update(status="canary_failed", problems=bad)
+        if trial_notes:
+            rec["person_trial"] = trial_notes
     else:
         note_experiment(cid, answer)    # only a change that stays: one the watch undid took its experiment step with it
         rec.update(status="running")

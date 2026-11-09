@@ -13,9 +13,12 @@ Terra and Astra from Round 3's own numbers, a bounded step at a time.
 meta_harness.py rejects a change that touches a PROTECTED file, removes a line naming this module, or moves a
 pricing.json number further than this file allows. Only a person changes this file.
 """
+import hashlib
 import json
 import math
+import os
 import re
+import stat
 import time
 
 BANKRUPT_LINE = 500000
@@ -242,6 +245,68 @@ def number(v):
 # come through check_policy_change and stays free.
 PERSON_TRIALS = ("price.grade_break_trial",)
 _ABSENT = object()
+# Proof that a person switched one (AX 11/10, main 지시 13): the person's launcher (gbt-switch on the host, run as
+# another account) appends {"t", "key", "before", "after" (trial_hash), "by": "person", "status"} here around each
+# switch. The meta-harness and its model run as the market account, which reads this file and cannot write it, so a
+# change of a PERSON_TRIALS key is a person's only when the journal's latest "done" switch since the cycle began left it.
+PERSON_JOURNAL = "/Users/Shared/ax-gbt-switch/journal.jsonl"
+
+
+def trial_hash(v):
+    """"off" for a key that is not there, else the sha256 of its JSON with sorted keys (as _same compares)."""
+    if v is _ABSENT:
+        return "off"
+    try:
+        return hashlib.sha256(json.dumps(v, sort_keys=True).encode()).hexdigest()
+    except (TypeError, ValueError):
+        return "unhashable"
+
+
+def _me():
+    return os.getuid()
+
+
+def _not_ours(st, me, sticky_ok=False):
+    """Owned by another account, no symlink, and nobody else may write it (a sticky folder such as /Users/Shared lets
+    no one rename or remove what another account owns there)."""
+    if stat.S_ISLNK(st.st_mode) or st.st_uid == me:
+        return False
+    return not st.st_mode & 0o022 or (sticky_ok and bool(st.st_mode & stat.S_ISVTX))
+
+
+def person_switches(since, path=None):
+    """The journal's "done" person switches at or after `since`, in the order written. None of them unless the journal,
+    its folder and the folder above belong to another account than this process's and are not writable by it: one the
+    model could write proves nothing."""
+    path = PERSON_JOURNAL if path is None else path
+    me, folder = _me(), os.path.dirname(path)
+    try:
+        if not (_not_ours(os.lstat(os.path.dirname(folder)), me, sticky_ok=True) and _not_ours(os.lstat(folder), me)
+                and _not_ours(os.lstat(path), me)):
+            return []
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(fd, encoding="utf-8", errors="replace") as f:
+            if not _not_ours(os.fstat(f.fileno()), me):
+                return []
+            lines = f.read().splitlines()
+    except OSError:
+        return []
+    out = []
+    for line in lines:
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(e, dict) and e.get("status") == "done" and e.get("by") == "person" and e.get("key") in PERSON_TRIALS \
+                and number(e.get("t")) and e["t"] >= since and isinstance(e.get("after"), str):
+            out.append(e)
+    return out
+
+
+def person_left(key, value, since, path=None):
+    """Whether `value` (_ABSENT: no key) is what the latest person switch of `key` since `since` left."""
+    done = [e for e in person_switches(since, path) if e["key"] == key]
+    return bool(done) and done[-1]["after"] == trial_hash(value)
 
 
 def _at(d, dotted):
@@ -262,9 +327,14 @@ def _same(a, b):
         return False
 
 
-def check_policy_change(old, new, step=MAX_STEP):
-    """Problems with moving pricing.json from old to new (dicts). None of them: the change may stand."""
-    problems, a, b = [], flat(old), flat(new)
+def check_policy_change(old, new, step=MAX_STEP, trials_from=None):
+    """Problems with moving pricing.json from old to new (dicts). None of them: the change may stand. trials_from: the
+    pricing.json the PERSON_TRIALS keys are compared with when not `old` (the meta-harness: as its cycle found them, or as
+    a journaled person switch left them). Those keys are judged by PERSON_TRIALS alone, which refuses any change."""
+    problems = []
+    mine = lambda k: any(k == t or k.startswith(t + ".") for t in PERSON_TRIALS)
+    a = {k: v for k, v in flat(old).items() if not mine(k)}
+    b = {k: v for k, v in flat(new).items() if not mine(k)}
     for key, v in b.items():
         lo, hi = BOUNDS.get(key, (-math.inf, math.inf))
         if number(v) and not lo <= v <= hi:
@@ -288,7 +358,7 @@ def check_policy_change(old, new, step=MAX_STEP):
         if key in a and key not in b:
             problems.append(f"pricing.json {key} was removed (bounded settings stay)")
     for key in PERSON_TRIALS:
-        was, now = _at(old, key), _at(new, key)
+        was, now = _at(old if trials_from is None else trials_from, key), _at(new, key)
         if not _same(was, now):
             what = "added" if was is _ABSENT else "removed" if now is _ABSENT else "changed"
             problems.append(f"pricing.json {key} {what}: a study a person switches (hard_limits.PERSON_TRIALS)")
