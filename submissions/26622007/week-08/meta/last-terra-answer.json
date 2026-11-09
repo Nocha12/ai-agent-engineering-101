@@ -1,34 +1,34 @@
 {
   "changed": false,
-  "hypothesis": "확인한 고가 SKU의 최근 공급창 판매와 목표 구속 근거만으로는 목표 수량을 확대해 현행 정책보다 Players를 높일 수 있다고 판단하기 어렵다.",
-  "change_summary": "운영 코드와 설정을 변경하지 않았다. 최근 두 완료 공급창의 단위별 판매와 호출 유형별 캐시 사용량을 조회했다.",
+  "hypothesis": "확인한 고가 SKU의 최근 두 공급창 결과는 목표 확대 조건을 충족하지 못한다. 현재 정책 대비 Players를 높일 근거가 확인되지 않아 운영 설정을 유지한다.",
+  "change_summary": "운영 코드와 설정은 변경하지 않았다. 네 SKU의 최근 두 완료 공급창을 단위 ID로 조회해 meta/evidence/terra-1109-202132-measure.txt에 기록했다.",
   "target_metric": "Players 및 수익성 있는 고가 SKU의 공급창별 판매",
-  "expected": "이번 주기 정책 변경에 따른 직접 효과는 0이다.",
+  "expected": "이번 주기 운영 변경에 따른 직접 효과는 0이다.",
   "evidence": [
     {
-      "ref": "meta/evidence/terra-1109-190948.json:46",
+      "ref": "meta/evidence/terra-1109-202132.json:46",
       "excerpt": "\"objective_matches\": true,",
       "meaning": "점수 산식이 확인된 규칙과 일치한다."
     },
     {
-      "ref": "meta/evidence/terra-1109-190948.json:24717",
-      "excerpt": "\"no_stock\": 29,",
-      "meaning": "직전 팩 이후 회전 로그 차분에 품절 29건이 있다."
+      "ref": "meta/evidence/terra-1109-202132.json:4",
+      "excerpt": "\"llm_cache: cached input share 0.084 over 78 calls in the last hour, 0.092 over 419 in the 6 h before (floor 0.1); look at what changed in the prompts, never cut calls\"",
+      "meaning": "캐시 비율이 기준 아래이나 호출 제한은 허용되지 않는다."
     },
     {
-      "ref": "meta/evidence/terra-1109-190948-measure.txt:11",
-      "excerpt": "audit G03d0199f {\"available\": true, \"sku\": \"G03d0199f\", \"windows\": [1794217298, 1794218433], \"bought_first_window\": 0, \"sold_by_second_close\": 0, \"sold_fraction\": null, \"remaining_units\": [], \"sold_units\": [], \"other_exits\": [], \"window_lines\": [[], [{\"sku\": \"G03d0199f\", \"target\": 6, \"sent\": 1, \"supplied\": 1}]], \"basis\": \"observed unit IDs; non-sale exits are not sales; remaining is not necessarily extra stock\", \"requires\": [\"guard cut reason and binding target\", \"mature cohort net > 0\", \"book >= 6h ago\", \"complete measurement coverage; absence of unit events is not proof of zero activity\"]}",
-      "meaning": "G03d0199f는 첫 창에 입고가 없어 최근 두 창의 판매율이나 두 창 모두 목표 구속을 입증하지 못한다."
+      "ref": "meta/evidence/terra-1109-202132-measure.txt:1",
+      "excerpt": "audit G03d0199f",
+      "meaning": "첫 공급창 입고가 0개이므로 두 창 판매율을 계산할 수 없다."
     },
     {
-      "ref": "meta/evidence/terra-1109-190948-measure.txt:2",
-      "excerpt": "cache hour forum-agent calls 13 prompt 68654 cached 3452 ratio 0.0503",
-      "meaning": "최근 포럼 호출의 캐시 비율은 0.0503이다."
+      "ref": "meta/evidence/terra-1109-202132-measure.txt:3",
+      "excerpt": "audit G8ec51935",
+      "meaning": "첫 창에 입고된 1개가 둘째 창 종료까지 남았으나 이것만으로 추가분 잔류를 입증하지는 못한다."
     },
     {
-      "ref": "meta/evidence/terra-1109-190948-measure.txt:7",
-      "excerpt": "cache prior6 forum-agent calls 82 prompt 438125 cached 76489 ratio 0.1746",
-      "meaning": "이전 6시간 포럼 호출의 캐시 비율은 0.1746으로 최근보다 높다."
+      "ref": "meta/evidence/terra-1109-202132.json:24857",
+      "excerpt": "\"no_stock\": 12,",
+      "meaning": "직전 팩 이후 품절 로그가 12건이다."
     }
   ],
   "evidence_gap": {
@@ -44,8 +44,8 @@
     }
   },
   "previous_verdict": "keep",
-  "previous_reason": "직전 주기는 운영 정책을 변경하지 않았다. 직전 이후 사람의 seller_a_open 유한 시간창 변경도 확인했으며, 이를 되돌릴 해당 변경의 조건이 충족됐다는 근거는 확인하지 못했다.",
-  "grade_summary": "Players는 1.648에서 1.655로 올라 66명 중 5위다. Shop ALL 0.850, Buyer ALL 0.805이며 양쪽 board_drift는 0, 선두와 Players 격차는 0.089다. 신규 패치는 없다. 직전 팩 이후 회전 로그 차분은 상점 정산 239건, 구매 결제 67건, 품절 29건, 구매 결제 거절 2건, 보증 제공 219건이다. 현재 로그 표본의 원가 미만 제안, 보증 거절, 포럼 게시·투표 거절은 각각 0건이다. Book은 281,886,805원에서 280,694,796원으로 줄었고 24시간 초과 재고는 43개·36,320,715원에서 41개·35,235,226원으로 줄었다. 보관 손실 누계는 3,777,912원, 등급 하락 152건·0원, 폐기 1건·8,113원이며 누락 도구는 없다. 환불 추정 누계에는 과거 연결 오류가 섞여 있어 SKU 축소 근거로 쓰지 않았다. alert llm_cache: 최근 65회 입력 캐시 비율 0.024는 이전 401회 0.102보다 낮다. 유형별 조회에서 포럼은 0.1746에서 0.0503, 재입고는 0.0687에서 0으로 떨어졌으나 원인은 확인되지 않았다. 호출을 줄이지 않고 다음 시간 같은 유형의 캐시 토큰과 비용을 비교한다.",
+  "previous_reason": "직전 Terra 주기는 운영 변경이 없었다. 이후 사람의 구매자 보증·순위 실험 기반 변경에 대해서도 해당 변경의 되돌림 조건이 충족됐다는 증거는 확인하지 못했다.",
+  "grade_summary": "Players는 1.655→1.657로 66명 중 5위다. Shop ALL 0.850, Buyer ALL 0.807이며 board_drift는 각각 0, 선두와의 격차는 0.088이다. 신규 패치는 없다. 직전 팩 이후 상점 정산 236건, 구매 결제 77건, 품절 12건, 구매 결제 거절 1건, 보증 제공 259건이다. 현재 로그 표본의 원가 미만 제안, 보증 거절, 포럼 게시·투표 거절은 각각 0건이다. Book은 280,694,796→283,484,199원이고 24시간 초과 재고는 41개·35,235,226원에서 40개·36,551,058원이다. 보관 손실 누계 3,829,071원, 등급 하락 157건·0원, 폐기 1건·8,113원이며 누락 도구는 없다. 환불 추정 누계 371,254,472원은 과거 연결 추정이 섞여 SKU 축소 근거로 쓰지 않는다. alert llm_cache: 최근 캐시 비율 0.084는 이전 6시간 0.092보다 낮지만 직전 시간의 0.024보다는 회복됐다. 최근 변경은 구매자 보증·순위 실험 기반이며 캐시 하락의 원인으로 확인되지 않았다. 호출을 줄이지 않고 다음 시간 유형별 캐시 토큰과 비용을 비교한다.",
   "weakest": [
     "상점 book",
     "구매자 Saved"
@@ -54,7 +54,7 @@
     "current": "인증·정직한 등급·상품 보증을 내세운 폭넓은 식품·생활용품과 검증된 고가 가구·침구 판매 및 Saved 중심 구매",
     "gap_cause": "unclear",
     "keep_or_shift": "keep",
-    "reason": "최근 6.6시간 Players 변화는 우리 +0.003, 바로 위 inextro +0.033, 선두 +0.019이고, 12.7시간은 각각 +0.006, +0.034, +0.029다. 현 속도는 격차를 벌리므로 유지는 잠정적이다. 선두 yms979는 26,782거래·39,376방문·매출 79.11억 원과 book 10.56억 원이며 인증과 정직한 등급, A·B 상품 72시간 보증을 제시한다. 다음 Saved 상대 0.3109까지 0.0006이 필요하고 통과 가치는 약 0.00847점이다. Book 상대 289,933,815원까지 9,266,155원이 필요하고 약 0.00806점이다. 최근 공급창에서 G03d0199f의 첫 창 입고는 0개이고, G1515d951은 1개 입고 후 같은 단위 1개가 남았으나 그것이 추가분이라는 증거는 없다. 목표 확대 조건과 다른 전략의 경쟁자 이동을 반영한 추가 ΔPlayers는 확인되지 않았다."
+    "reason": "최근 6.1시간 Players 변화는 우리 +0.001, 바로 위 inextro +0.027, 선두 +0.013이고 12.7시간은 각각 +0.017, +0.034, +0.028이다. 현재 속도로는 격차가 벌어져 유지는 잠정적이다. 선두 yms979는 26,986거래·39,694방문·매출 7,951,311,789원, 우리는 22,770거래·37,312방문·4,390,395,132원이며 양쪽 모두 인증과 정직한 등급을 제시한다. 다음 Saved 상대 0.3115까지 0.0007이 필요하고 통과 가치는 0.01695점이다. Book 상대 292,229,184원까지 8,753,678원이 필요하고 가치는 0.00806점이다. G03d0199f는 첫 공급창에 입고가 없고 G8ec51935는 입고 1개가 잔류했다. 조회한 SKU들에서 확대의 두 창 조건은 확인되지 않았으며 경쟁자 이동을 반영해 다른 전략이 더 큰 추가 ΔPlayers를 낸다는 근거도 부족하다."
   },
   "action_kind": "none",
   "experiment": {
