@@ -53,6 +53,9 @@ LIVE = ("logs", "memory")         # what the kit and the shop keep writing: neve
 # undone. 14d7cee (terra-1109-085220) committed seller_warranty_trial.json, which the warranty A/B had just turned on, and
 # a code cycle's undo would have turned the study off (independent review 0738-meta I1). .market/ is ignored as well.
 RUNTIME = ("seller_warranty_trial.json", ".market/")
+# The studies' on/off files: not the model's to set. One that changes while the model runs refuses the cycle, and is left
+# as it is (another job may have set it): the edit is recorded, not committed or put back (independent review I-B).
+SWITCHES = ("seller_warranty_trial.json", ".market/buyer_food_shelf.json", ".market/sol_seller_margin_v2/controller.json")
 
 
 def runtime(p):
@@ -151,7 +154,8 @@ def outside_meta(ref, root=None):
     found = cited_file(str(ref or ""), root)
     if not found:
         return False
-    return os.path.relpath(found[0], os.path.realpath(root)).split(os.sep)[0] != "meta"
+    # casefold: on the Mac's case-insensitive disk Meta/terra.md is meta/terra.md and realpath keeps the case given
+    return os.path.relpath(found[0], os.path.realpath(root)).split(os.sep)[0].casefold() != "meta"
 
 
 def anchor_evidence(items, root=None):
@@ -488,6 +492,18 @@ def start_contents(before):
     return out
 
 
+def switch_shas():
+    """{switch: sha1 of its bytes, None when missing} for SWITCHES."""
+    out = {}
+    for p in SWITCHES:
+        try:
+            with open(os.path.join(ROOT, p), "rb") as f:
+                out[p] = hashlib.sha1(f.read()).hexdigest()
+        except OSError:
+            out[p] = None
+    return out
+
+
 def put_back(found, paths):
     """Writes each of `paths` held in `found` back as the cycle found it, atomically (the seller may read it meanwhile)."""
     for p in paths:
@@ -504,7 +520,7 @@ def try_undo(cid, sha, why, found=None):
     try:
         undo(sha, why, found)
         return None
-    except RuntimeError as e:
+    except (RuntimeError, OSError) as e:      # OSError: put_back could not write the file back
         log(f"{cid}: could not undo {sha[:8]}, it stays: {e}")
         return f"undo failed: {e}"[:400]
 
@@ -949,8 +965,13 @@ def cycle(kind):
     with open(pack, "w", encoding="utf-8") as f:
         json.dump(card, f, ensure_ascii=False, indent=1, default=str)
     log(f"{cid}: asking {MODELS[kind]}")
+    switches = switch_shas()
     answer, err = call_model(kind, cid, pack)
     rec = {"cycle": cid, "model": MODELS[kind], "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "answer": answer}
+    flipped = sorted(p for p, s in switch_shas().items() if switches[p] != s)
+    if flipped:
+        rec["switches_changed"] = flipped
+        log(f"{cid}: study switches changed while the model ran, left as they are: {flipped}")
     paths = stage(before)
     code = [p for p in paths if not p.startswith(NOT_CODE) and not p.startswith(("logs/", "memory/"))]
 
@@ -967,6 +988,8 @@ def cycle(kind):
         return rec
 
     problems = [err] if err else []
+    problems += [f"{p} changed while the model ran: a study switch is not the model's to set (left as it is)"
+                 for p in flipped]
     if answer is not None:
         moved_refs = anchor_evidence(answer.get("evidence"))
         if moved_refs:

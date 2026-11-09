@@ -461,6 +461,9 @@ class HarnessCycleTest(unittest.TestCase):
             quote = [{"ref": ref, "excerpt": "G8ec51935의 원가 누락 1건"}]
             self.assertTrue(mh.gap_problems({"evidence_gap": gap, "evidence": quote}, [], carried), ref)
             self.assertTrue(mh.gap_problems({"evidence_gap": dropped, "evidence": quote}, [], carried), ref)
+        if os.path.exists(os.path.join(self.root, "META")):           # a case-insensitive disk (the Mac's): Meta/ is meta/
+            quote = [{"ref": "Meta/grades.jsonl:2", "excerpt": "G8ec51935의 원가 누락 1건"}]
+            self.assertTrue(mh.gap_problems({"evidence_gap": gap, "evidence": quote}, [], carried))
         abs_log = [{"ref": os.path.join(self.root, "logs", "market-kit.log") + ":3", "excerpt": log_quote[0]["excerpt"]}]
         self.assertEqual(mh.gap_problems({"evidence_gap": gap, "evidence": abs_log}, [], carried), [])
 
@@ -492,10 +495,19 @@ class HarnessCycleTest(unittest.TestCase):
         self.git("commit", "-qm", "switch off")
         start = self.git("rev-parse", "HEAD")
         on = {"seller_warranty_trial.json": '{"enabled": true}\n', ".market/buyer_food_shelf.json": '{"enabled": true}\n'}
-        for mode, status in (("broken", "rejected"), ("nothing", "no_change"), ("good", "running")):
+        # the first cycle sees the switches flip while the model runs: refused, its code undone, the switches left on;
+        # later cycles find them on already (FAKE_SIDE writes what is there) and run as usual
+        for i, (mode, status) in enumerate((("good", "rejected"), ("broken", "rejected"), ("nothing", "no_change"),
+                                            ("good", "running"))):
             with mock.patch.dict(os.environ, {"FAKE_SIDE": json.dumps(on)}):
                 rec = self.go(mode)
             self.assertEqual(rec["status"], status, rec.get("problems"))
+            if i == 0:
+                self.assertEqual(rec["switches_changed"], [".market/buyer_food_shelf.json", "seller_warranty_trial.json"])
+                self.assertIn("not the model's to set", rec["problems"][0])
+                self.assertFalse(self.exists())
+            else:
+                self.assertNotIn("switches_changed", rec)
             self.assertEqual(open(sw).read(), '{"enabled": true}\n', mode)      # the study stays on
             self.assertEqual(self.git("log", "--format=%H", f"{start}..", "--", "seller_warranty_trial.json"), "", mode)
         self.assertEqual(rec["files"], ["changed.py"])
