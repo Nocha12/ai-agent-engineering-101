@@ -173,6 +173,11 @@ class Switch(unittest.TestCase):
         shutil.copyfile(os.path.join(here, "pricing.json"), self.path)    # the real hand-formatted file
         os.chmod(self.path, 0o644)
         self.bak = os.path.join(self.dir, "bak")
+        import json
+        with open(self.path, encoding="utf-8") as f:
+            live = "grade_break_trial" in json.load(f)["price"]
+        if live:      # the shop's file while a trial runs (the meta harness tests there): start from it without one
+            sw.switch_off(self.path, backup_dir=self.bak, stamp="setup")
 
     def setting(self, **kw):
         return self.sw.setting(**{"salt": "grade-break-furn-b-test-v1", "start_at": NOW, "hours": 9,
