@@ -652,6 +652,26 @@ class HarnessCycleTest(unittest.TestCase):
         self.assertEqual(rec["status"], "rejected", rec.get("problems"))
         self.assertEqual(rec["switches_changed"], [".market/late_concession/adopted"])
         self.assertTrue(os.path.exists(os.path.join(self.root, ".market", "late_concession", "adopted")))
+        before = mh.switch_shas()
+        os.makedirs(os.path.join(self.root, ".market", "opening_cue", "disabled"))     # a folder stops the study too
+        self.assertEqual(mh.switch_shas()[".market/opening_cue/disabled"], "folder")
+        self.assertNotIn(".market/opening_cue/disabled", before)
+
+    def test_a_suite_over_the_time_limit_is_a_failure_even_if_its_group_is_gone(self):
+        proc = mock.Mock(pid=2 ** 22 + 7)
+        calls = iter([subprocess.TimeoutExpired("t", 900), ("", "slow")])
+        def communicate(timeout=None):
+            r = next(calls)
+            if isinstance(r, Exception):
+                raise r
+            return r
+        proc.communicate = communicate
+        real = subprocess.Popen
+        with mock.patch.object(mh.subprocess, "Popen", lambda cmd, **kw: proc if cmd[0] != "git" else real(cmd, **kw)), \
+                mock.patch.object(mh.os, "killpg", side_effect=ProcessLookupError):
+            ok, output = mh.run_tests()
+        self.assertFalse(ok)
+        self.assertIn("over 900 s", output)
 
     def test_an_undo_puts_pricing_back_as_the_cycle_found_it_not_as_head(self):
         # independent review 0738-meta I1: undo checked out the commit's parent, dropping another job's pricing.json edit

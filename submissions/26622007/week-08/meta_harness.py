@@ -363,6 +363,13 @@ def test_copy(scratch):
     return copy
 
 
+def kill_group(proc):
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):                         # already gone
+        pass
+
+
 def run_tests():
     cmd = test_command()
     if "discover" not in " ".join(cmd):     # the whole suite, never a chosen part of it
@@ -375,9 +382,15 @@ def run_tests():
         try:
             _, err = proc.communicate(timeout=900)
         except subprocess.TimeoutExpired:
-            os.killpg(proc.pid, signal.SIGKILL)                            # with any process a test started
-            _, err = proc.communicate()
+            kill_group(proc)                                               # with any process a test started
+            try:
+                _, err = proc.communicate(timeout=30)
+            except subprocess.TimeoutExpired:                              # a child left holding the pipe
+                err = ""
             return False, "ERROR: the test suite ran over 900 s\n" + (err or "")[-1200:]
+        except BaseException:
+            kill_group(proc)
+            raise
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
     failed = [ln for ln in err.splitlines() if ln.startswith(("FAIL: ", "ERROR: "))]
@@ -557,6 +570,9 @@ def switch_shas():
     out = {}
     markers = [os.path.relpath(m, ROOT) for k in SWITCH_MARKERS for m in glob.glob(os.path.join(ROOT, ".market", "*", k))]
     for p in list(SWITCHES) + sorted(markers):
+        if os.path.isdir(os.path.join(ROOT, p)):          # a study reads disabled with exists(): a folder stops it too
+            out[p] = "folder"
+            continue
         try:
             with open(os.path.join(ROOT, p), "rb") as f:
                 out[p] = hashlib.sha1(f.read()).hexdigest()
