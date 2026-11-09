@@ -239,7 +239,7 @@ class OurAskStudyTest(unittest.TestCase):
             self.switch(d)
             for o in ({}, {"order": ""}, {"order": 5}, None):
                 self.assertIsNone(oa.assign(d, o, now=1500))
-            for now in ("1500", None.__class__, float("nan"), 10 ** 400, True):     # a start time that is not a number: off
+            for now in ("1500", [1500], float("nan"), 10 ** 400, True):     # a start time that is not a number: off
                 self.assertIsNone(oa.assign(d, {"order": "o-1"}, now=now), now)
             self.assertFalse(oa.reads(dict(oa.assign(d, {"order": "o-1"}, now=1500), arm="B"), now="1500"))
             # keyed apart from the other studies' sha256(salt:order): the same salt does not give the same arms (review M2)

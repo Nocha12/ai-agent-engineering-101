@@ -4,7 +4,7 @@ The quote_alignment study (11/07, buyer_quote_alignment) reads the same text but
 "probing", which takes its orders out of the goods-ladder, first95 and cap95 trials; it stays as it is (off). This study:
 - switch .market/buyer_our_ask.json {"enabled": true, "salt": "...", "start": epoch, "end": epoch}; anything else, or a
   window that is not finite, not started, over or longer than MAX_HOURS, is off;
-- arm = sha256(salt:order)[0] % 2 (A legacy, B reads); every order started in the window is assigned (ITT);
+- arm = sha256("buyer_our_ask:" + salt + ":" + order)[0] % 2 (A legacy, B reads); every order started in the window is assigned (ITT);
 - an arm B read counts as that shop's opening ask wherever quotes are compared: the ranking (surplus, fits, rank_pg
   eligibility and score, food_shelf keep), when enough quotes fit to stop waiting or asking the next batch, and the
   TALK_OVER_SHARE skip. The talk's first turn, the harness note, the price ladder, the food arms (ask_src "text" only) and
