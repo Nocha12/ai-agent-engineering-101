@@ -67,6 +67,7 @@ import seller_late_concession
 import seller_opening_default
 import seller_drain
 import seller_opening_cue
+import seller_a_open
 import seller_late_speed
 import seller_jev_transport
 import shelf_life_reply
@@ -556,10 +557,17 @@ class Seller(AgentExecutor):
             ask_price = max(reserve, round(ask_price * keep))
             log(f"MARKDOWN {u['sku']} unit {u['unit']}: {cause}, floor {reserve} instead of {q['floor']}")
         log(f"PRICE {profit_price.line(u, q)}")
+        a_open = None
+        if keep >= 1:         # grade A dear goods A/B (seller_a_open, default off): never a markdown talk
+            ask_price, a_open = seller_a_open.decide(u, q, keep=keep, margin_assignment=margin_assignment)
+            if a_open:
+                log(f"A_OPEN {u['sku']} unit {u['unit']} arm {a_open['arm']}: first ask {ask_price} (usual {a_open['usual']})")
         deal = self.open[task.id] = {"id": u["sku"], "name": u["name"], "key": key, "unit": u["unit"], "kind": u.get("kind"),
                                      "cost": cost, "reserve": reserve, "ask": ask_price, "open": ask_price, "arm": arm,
                                      "break": q["b"], "expires_at": u.get("expires_at"),
                                      "rounds": 0, "history": [("you asked", ask_price)]}
+        if a_open:
+            deal["a_open"] = a_open
         if margin_assignment is not None:
             deal['sol_margin'] = margin_assignment
             deal['sol_margin_publication'] = 'prepared'
@@ -1012,7 +1020,8 @@ class Seller(AgentExecutor):
                                 "open": deal.get("open"), "arm": deal.get("arm"),
                                 "asks": [p for who, p in deal["history"] if who == "you asked"],
                                 "offers": [p for who, p in deal["history"] if who == "buyer offered"],
-                                "warranty": deal.get("warranty"), "result": result, "price": price})
+                                "warranty": deal.get("warranty"), "result": result, "price": price,
+                                **({"a_open": deal["a_open"]} if deal.get("a_open") else {})})
         except Exception as e:  # noqa: BLE001 - in the writer thread nobody else would see it
             MEMORY_FAILURES.append(True)
             log(f"memory write failed: {type(e).__name__}: {e}")
