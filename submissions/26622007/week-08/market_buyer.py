@@ -2377,14 +2377,15 @@ def main():
                     goods_first_arm or order.get("_one_won_default") or
                     order.get("_goods_extra_quote_probe") or order.get("_quote_alignment") or
                     order.get("_food_quote_yield")), now=time.time(), log=log)
-            if order.get("_b3") is not None:
+            # a text-only "Final price: N" was a harness turn, which neither B3 nor the band ever moved: kept so
+            final_text = meta is None and oneshot.final_text(text)
+            if order.get("_b3") is not None and not final_text:
                 result, note = buyer_b3b1.b3_turn(result, history, limit, probe=bool(
                     discount_arm or probe_arm or goods_first_arm or order.get("_one_won_default")))
                 if note:
                     order["_b3"] = note
                     log(f"[b3] {shop['name']}: counter {note['baseline']} over {buyer_b3b1.ACCEPT_SHARE} of {note['first']}, offer {note['price']}")
-            # a text-only "Final price: N" was a harness turn, which the band never moved (sf2w turns the band off in one arm)
-            if order.get("_accept_band_top") and not (meta is None and oneshot.final_text(text)):
+            if order.get("_accept_band_top") and not final_text:      # sf2w turns the band off in one arm
                 result, note = buyer_accept_band.turn(result, history, limit, order["_accept_band_top"], steps)
                 if note:
                     order["_accept_band"] = note

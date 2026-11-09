@@ -182,8 +182,8 @@ class RealLadderTest(unittest.TestCase):
         self.assertEqual(self.ladder({"kind": "goods"}, 10500)(10510, "", history)["action"], "walk_away")   # 105.1%
 
     def test_a_final_price_text_read_by_code_walks_as_the_harness_did(self):
-        """"Four offers left. Final price: N." went to the harness, which the band never moves, until 040e364 read it by
-        code: the band leaves that turn alone, so each talk ends as before (3 of 31 logged talks 11/10 had N within 105%,
+        """"Four offers left. Final price: N." went to the harness, which the band never moves, until oneshot read it by
+        code (11/10): the band leaves that turn alone, so each talk ends as before (3 of 31 logged talks 11/10 had N within 105%,
         and sf2w-band-1110-0242-v1 turns the band off in one arm). A metadata ask keeps the band."""
         history = [("shop asked", 11000), ("you offered", 9900), ("shop asked", 10500), ("you offered", 10000)]
         on = {"kind": "goods"}
@@ -191,9 +191,23 @@ class RealLadderTest(unittest.TestCase):
         self.assertEqual(d, {"shop_price": 10500, "action": "walk_away", "price": 0})
         self.assertNotIn("_accept_band", on)
         self.assertEqual(self.ladder({"kind": "goods"}, 10500)(None, "Final price: 10500.", history)["action"], "walk_away")
+        tail = "Final price: 10500. SKU G0123abcd, grade A; market certificate at checkout. Reply ok to take it."
+        self.assertEqual(self.ladder({"kind": "goods"}, 10500)(None, tail, history)["action"], "walk_away")   # re-review M1
         self.assertTrue(self.ladder({"kind": "goods"}, 10500)(10500, "Final price: 10500.", history)["accept_band"])
         self.assertEqual(self.ladder({"kind": "goods"}, 10500)(None, "Final price: 10000.", history),
                          {"shop_price": 10000, "action": "offer", "price": 10000})   # within my limit: taken
+
+    def test_b3_leaves_a_final_price_text_alone_too(self):
+        """B3 (off since 11/08 16:50) cuts the offer after my first one; a code-read "Final price" was a harness turn B3
+        never touched, so its ask within my limit is taken as the harness took it (re-review M2). A metadata ask keeps B3."""
+        history = [("shop asked", 10500), ("you offered", 9450)]
+        on = {"kind": "goods", "_b3": {"applied": False}}
+        self.assertEqual(self.ladder(on, 10000)(None, "Four offers left. Final price: 9800.", history),
+                         {"shop_price": 9800, "action": "offer", "price": 9800})
+        self.assertEqual(on["_b3"], {"applied": False})
+        meta = {"kind": "goods", "_b3": {"applied": False}}
+        self.assertEqual(self.ladder(meta, 10000)(9800, "", history)["price"], 9660)     # 0.92 of the first ask
+        self.assertTrue(meta["_b3"]["applied"])
 
 if __name__ == "__main__":
     unittest.main()

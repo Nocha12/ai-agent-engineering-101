@@ -33,18 +33,19 @@ MAX_STEPS = 5
 LEFT = r"(?:[0-9]{1,2}|One|Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten) offers? left\.\s*"
 TEMPLATE = re.compile(
     r"\s*(?:(?P<mine>[0-9]{1,12}) is too low\.\s*Counteroffer price:|(?:[0-9]{1,2} offers? left\.\s*)?Counteroffer:"
-    r"|(?:" + LEFT + r")?Final price:|Our lowest price for this unit:)\s*(?P<p>[0-9]{1,12})\.?"
+    r"|(?P<final>(?:" + LEFT + r")?Final price:)|Our lowest price for this unit:)\s*(?P<p>[0-9]{1,12})\.?"
     r"(?:\s*SKU G[0-9a-f]{8}, grade [ABC]; market certificate at checkout\."
     r"(?:\s*Includes a [0-9]{1,3}-hour warranty: market-enforced full refund if the goods break during warranty; "
     r"the quote includes the warranty surcharge\.)?)?"
     r"(?:\s*Reply ok to take it\.)?\s*")
-FINAL = re.compile(r"\s*(?:" + LEFT + r")?Final price:\s*[0-9]{1,12}\.?\s*")
 
 
 def final_text(text):
-    """The whole text is a "Final price" template: the harness read it until 040e364, so market_buyer keeps the accept
-    band off that turn and each such talk ends as before (independent review 040e364 I1)."""
-    return bool(FINAL.fullmatch(text or ""))
+    """The whole text is a TEMPLATE "Final price" text (with any of its tails): the harness read it before this module
+    read "Final price" (11/10), so market_buyer keeps the accept band off that turn and each such talk ends as before
+    (independent reviews of the change, I1 and M1)."""
+    m = TEMPLATE.fullmatch(text or "")
+    return bool(m and m.group("final"))
 
 
 def enabled(cfg, env=None):

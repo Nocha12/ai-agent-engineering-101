@@ -249,11 +249,16 @@ class TextPrice(unittest.TestCase):
         self.assertEqual(oneshot.text_price("Final price: 18500. ", self.H), 18500)
 
     def test_final_text_is_the_whole_template_only(self):
-        for text in ("Five offers left. Final price: 108635. ", "Final price: 9115.", "2 offers left. Final price: 7"):
+        for text in ("Five offers left. Final price: 108635. ", "Final price: 9115.", "2 offers left. Final price: 7",
+                     "Final price: 18500. SKU G0123abcd, grade A; market certificate at checkout.",
+                     "Three offers left. Final price: 18500. Reply ok to take it."):
             self.assertTrue(oneshot.final_text(text), text)
         for text in ("Counteroffer: 18500.", "Final price: 19000 (17000 if paid now)", "Not my final price: 19000.",
-                     "Final price: 18,500.", "", None):
+                     "Final price: 18,500.", "", None, "3 offers left. Counteroffer: 18500.",
+                     "Counteroffer: 18500. Reply ok to take it."):
             self.assertFalse(oneshot.final_text(text), text)
+        for text in ("Final price: 18500.", "Final price: 18500. SKU G0123abcd, grade A; market certificate at checkout."):
+            self.assertEqual(oneshot.final_text(text), oneshot.text_price(text, self.H) is not None, text)
 
     def test_final_price_keeps_the_ask_bounds(self):
         self.assertIsNone(oneshot.text_price("Final price: 20400.", self.H))      # over the shop's last ask
