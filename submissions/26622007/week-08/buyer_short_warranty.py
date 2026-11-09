@@ -78,7 +78,13 @@ def config(md, env=None):
 
 
 def number(v):
-    return hard_limits.number(v)
+    """hard_limits.number, and an int past float range is not a number here: math.isfinite raises OverflowError on it, and
+    a receipt's warranty_hours of -10**400 ended the order in no_warranty outside any try (no result, no trade, no row).
+    hard_limits.py itself stays as it is (seller source hashes read it)."""
+    try:
+        return hard_limits.number(v)
+    except OverflowError:
+        return False
 
 
 def outside_chance(b, h):

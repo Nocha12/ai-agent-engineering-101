@@ -151,6 +151,17 @@ class ZeroExpectedTest(unittest.TestCase):
         self.assertIsNone(sw.hours_for(s, "a", {"warranty_h": None}))
 
 
+class HugeIntTest(unittest.TestCase):
+    def test_an_int_past_float_range_is_not_a_number_and_does_not_raise(self):
+        for v in (10 ** 400, -10 ** 400, json.loads("1" + "0" * 400)):
+            self.assertFalse(sw.number(v))
+            self.assertTrue(sw.no_warranty(v))
+        for v in (6, 72, 10 ** 300, 0.5):
+            self.assertTrue(sw.number(v))
+        for v in (0, -1, None, True, float("inf"), float("nan")):
+            self.assertTrue(sw.no_warranty(v))
+
+
 class WarrantyShortTest(unittest.TestCase):
     G = {"kind": "goods"}
 
@@ -337,6 +348,16 @@ class MainZeroTest(unittest.TestCase):
             self.assertFalse(o["passed_to_kit"], w)
             self.assertEqual(reserved, [], w)
             self.assertIn("warranty 0 h, I buy goods only with 6 h", " ".join(o["warnings"]))
+
+    def test_a_huge_negative_int_receipt_is_blocked_not_a_crash(self):
+        # -10**400 is short (warranty_short keeps ints) and then no_warranty's math.isfinite raised OverflowError outside
+        # any try: main() died with no result line, no trade and no orders row
+        for w in (json.loads("-1" + "0" * 400), -10 ** 309):
+            out, calls, o, reserved = self.main(self.ON, 5800, w)
+            self.assertIsNone(out["receipt"])
+            self.assertEqual(o["short_warranty_buy"], {"h": 0, "ok": False, "blocked": "no_warranty"})
+            self.assertFalse(o["passed_to_kit"])
+            self.assertEqual(reserved, [])
 
     def test_a_huge_int_receipt_is_paid_as_before(self):
         big = json.loads("1" + "0" * 400)
