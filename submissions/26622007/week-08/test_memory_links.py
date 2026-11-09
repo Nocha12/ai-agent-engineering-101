@@ -98,6 +98,29 @@ class LinkTest(unittest.TestCase):
         e = {"kind": "settle", "seq": 1, "ts": T, "round": 3, "data": {"item": "H1", "warranty_hours": 6}}
         self.assertEqual(mm.compact(e)["warranty"], 6)
 
+    def test_a_result_keeps_its_review_stars_and_whether_it_was_verified(self):
+        # "Stars take one mean per reviewing account" (rules, Scoring): the shop's stars part needs each review's stars
+        # by account. The row kept them nowhere, so which accounts pull the mean down could not be told (AX 11/10 지시 15).
+        e = {"kind": "result", "seq": 2, "ts": T, "round": 3,
+             "data": {"buyer": "b1", "order": "o-1", "shop": "https://s", "receipt": {"shop": "nocha12"},
+                      "stars": 4, "verified": True, "review": "free text, not kept"}}
+        row = mm.compact(e)
+        self.assertEqual((row["stars"], row["verified"]), (4, True))
+        self.assertEqual((row["buyer"], row["shop"], row["seller"]), ("b1", "https://s", "nocha12"))
+        self.assertNotIn("review", row)
+        bare = mm.compact({"kind": "result", "seq": 3, "ts": T, "round": 3, "data": {"buyer": "b2", "shop": "https://s"}})
+        self.assertEqual((bare["stars"], bare["verified"]), (None, None))
+
+    def test_rows_cached_before_the_stars_still_load(self):
+        with tempfile.TemporaryDirectory() as md:
+            with open(os.path.join(md, mm.ROWS), "w", encoding="utf-8") as f:
+                f.write(json.dumps({"k": "result", "seq": 1, "ts": T, "buyer": "b", "order": "o", "shop": "https://s",
+                                    "seller": "nocha12"}) + "\n")
+                f.write(json.dumps({"k": "result", "seq": 2, "ts": T, "buyer": "b", "order": "o2", "shop": "https://s",
+                                    "seller": "nocha12", "stars": 5, "verified": True}) + "\n")
+            rows = mm.load_rows(md)
+        self.assertEqual([r.get("stars") for r in rows], [None, 5])
+
 
 class BuyerMemoryTest(unittest.TestCase):
     def setUp(self):
