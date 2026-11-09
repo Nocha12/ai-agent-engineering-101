@@ -62,7 +62,7 @@ class Share(unittest.TestCase):
 
     def test_bad_config_is_off(self):        # review I2: a broken setting never turns the floor on
         board(self.md, 0.3096)
-        for bad in ({"ab": None}, {"band": "Keep"}, {"margin": "0.01"}, {"kinds": None}, {"unknown": 1}):
+        for bad in ({"ab": None}, {"band": "Keep"}, {"margin": "0.01"}, {"kinds": None}, {"unknown": 1}, {"stop_at": 1}):
             switch(self.md, **bad)
             self.assertIsNone(sf.state(self.md, "o-1", env={}, kind="food"), bad)
 
