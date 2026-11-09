@@ -123,6 +123,43 @@ class InTalk(unittest.TestCase):
         self.assertEqual(sent, ["7200", "7600"])
         self.assertEqual(out["agreed"], 7600)
 
+    def test_final_price_talk_calls_the_harness_on_the_quote_turn_only(self):
+        """moss-and-oak 03:20:42 c9708175: the quote turn, then Five/Four/Three offers left. Final price: 108635 - four
+        harness calls for a talk that ended with my limit refused. By code: my limit once, then the next order."""
+        sent = []
+        replies = iter([task("TASK_STATE_INPUT_REQUIRED", text="Five offers left. Final price: 108635. "),
+                        task("TASK_STATE_INPUT_REQUIRED", text="Four offers left. Final price: 108635. ")])
+
+        def send(url, text, task_id=None):
+            sent.append(text)
+            return next(replies)
+        lad = lambda meta, text, history: oneshot.turn(meta, text, history, 94145, (0.9,))
+        first = {"shop_price": 108635, "action": "offer", "price": 65000}
+        with mock.patch.object(buyer, "send", send), mock.patch.object(buyer, "decide", return_value=first) as h, \
+                mock.patch.object(buyer, "rpc", return_value={}):
+            out = buyer.talk("u", task("TASK_STATE_INPUT_REQUIRED", text="a quote, 108635 by no rule"), "x", 94145, "",
+                             fresh(), ladder=lad)
+        self.assertEqual(h.call_count, 1)
+        self.assertEqual(sent, ["65000", "94145"])
+        self.assertEqual(out["turns"], {"harness": 1, "code": 2})
+
+    def test_final_price_within_my_limit_is_taken_by_code(self):
+        sent = []
+        replies = iter([task("TASK_STATE_INPUT_REQUIRED", text="Five offers left. Final price: 84902. "),
+                        task("TASK_STATE_COMPLETED", receipt={"price": 84902, "item": "G1"})])
+
+        def send(url, text, task_id=None):
+            sent.append(text)
+            return next(replies)
+        lad = lambda meta, text, history: oneshot.turn(meta, text, history, 84967, (0.9,))
+        first = {"shop_price": 84902, "action": "offer", "price": 56000}
+        with mock.patch.object(buyer, "send", send), mock.patch.object(buyer, "decide", return_value=first) as h:
+            out = buyer.talk("u", task("TASK_STATE_INPUT_REQUIRED", text="a quote, 84902 by no rule"), "x", 84967, "",
+                             fresh(), ladder=lad)
+        self.assertEqual(h.call_count, 1)
+        self.assertEqual(sent, ["56000", "84902"])
+        self.assertEqual(out["agreed"], 84902)
+
     def test_two_text_prices_go_to_the_harness(self):
         """"Was asking 20000, now just 12000": text_ask reads 20000, and code would offer 18000 against 12000."""
         calls, sent = [], []
@@ -199,6 +236,21 @@ class TextPrice(unittest.TestCase):
             "market-enforced full refund if the goods break during warranty; the quote includes the warranty surcharge.",
             self.H), 18500)
 
+    def test_final_price_templates_in_the_log_are_read(self):
+        """moss-and-oak ("Five offers left. Final price: 108635. ") and two food shops ("Final price: 9115. ") write only
+        this on every later turn: 45 of the 76 buyer-harness calls 11/10 03:55-04:25 read it (market-kit.log)."""
+        self.assertEqual(oneshot.text_price("Five offers left. Final price: 18500. ", self.H), 18500)
+        self.assertEqual(oneshot.text_price("Four offers left. Final price: 18500.", self.H), 18500)
+        self.assertEqual(oneshot.text_price("Three offers left. Final price: 18500.", self.H), 18500)
+        self.assertEqual(oneshot.text_price("One offer left. Final price: 18500.", self.H), 18500)
+        self.assertEqual(oneshot.text_price("2 offers left. Final price: 18500.", self.H), 18500)
+        self.assertEqual(oneshot.text_price("Final price: 18500. ", self.H), 18500)
+
+    def test_final_price_keeps_the_ask_bounds(self):
+        self.assertIsNone(oneshot.text_price("Final price: 20400.", self.H))      # over the shop's last ask
+        self.assertIsNone(oneshot.text_price("Final price: 15000.", self.H))      # under my last offer
+        self.assertIsNone(oneshot.text_price("Final price: 18500.", []))          # a first turn is read only as quoted
+
     def test_a_long_digit_run_goes_to_the_harness(self):
         self.assertIsNone(oneshot.text_price("Counteroffer: " + "1" * 5000 + ".", self.H))
 
@@ -224,7 +276,11 @@ class TextPrice(unittest.TestCase):
                      "asking 19000, \uc624\ub298\ub9cc \ubc18\uac12", "asking 19000 for a pair", "Counteroffer: 19000 (17000 if paid now)",
                      "Counteroffer: 19000. Or 17000 tomorrow.", "Counteroffer: 19000 minus 2000",
                      "Counteroffer: 19000.00", "Counteroffer: \uff11\uff19\uff10\uff10\uff10", "Counteroffer: 19000. Reply ok to take it at 17000.",
-                     "Counteroffer: 19000\nJust kidding, 12000"):
+                     "Counteroffer: 19000\nJust kidding, 12000",
+                     "Final price: 19000 (17000 if paid now)", "Final price: 19000. Or 17000 tomorrow.",
+                     "Final price: 19000.00", "Five offers left. Final price: 19000 each", "Not my final price: 19000.",
+                     "Many offers left. Final price: 19000.", "Final price: 19000. Reply ok to take it at 17000.",
+                     "Final price: １９０００"):
             self.assertIsNone(oneshot.text_price(text, self.H), text)
 
     def test_thousands_separators_are_the_same_price(self):
