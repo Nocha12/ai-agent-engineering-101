@@ -68,6 +68,7 @@ import buyer_accept_band
 import buyer_quote_deadline
 import buyer_food_ladder
 import buyer_goods_grade
+import buyer_goods_ladder
 import buyer_food_shelf
 import buyer_rank_pg
 import buyer_shop_profile
@@ -1800,6 +1801,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "food_shelf": buyer_food_shelf.measurement(order.get("_food_shelf"), best),
         "food_ladder": order.get("_food_ladder"),
         "goods_grade": order.get("_goods_grade"),
+        "goods_ladder": order.get("_goods_ladder"),
         "turns": dict(out.get("turns") or {}),
         "goods_extra_quote_started": order.get("_goods_extra_quote_started"),
         "goods_extra_quote_added": order.get("_goods_extra_quote_added", 0),
@@ -2111,6 +2113,14 @@ def main():
         ) if r3 else (steps, None)
         if order["_food_ladder"]:
             log(f"[food-ladder] {shop['name']}: arm {order['_food_ladder']['arm']}, grade {order['_food_ladder']['grade']}")
+        # buyer_goods_ladder arm B: a goods talk opens at 0.8 of the first ask and climbs to 0.9 (off: (.9,))
+        steps, order["_goods_ladder"] = buyer_goods_ladder.decide(
+            md, order, q, steps, resume,
+            probing=bool(goods_first_arm or order.get("_goods_extra_quote_probe") or order.get("_quote_alignment")),
+            code_priced=lambda: buyer_goods_first_one.first_decision(q, limit, steps) is not None
+        ) if r3 else (steps, None)
+        if order["_goods_ladder"]:
+            log(f"[goods-ladder] {shop['name']}: arm {order['_goods_ladder']['arm']}")
 
         def price_ladder(meta, text, history):
             d = (buyer_opening_discount.turn if discount_arm else opening_probe_turn)(

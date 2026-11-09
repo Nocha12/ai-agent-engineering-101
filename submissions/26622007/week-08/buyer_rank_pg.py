@@ -33,6 +33,7 @@ import time
 import uuid
 
 import buyer_goods_grade
+import buyer_goods_ladder
 
 SWITCH = "buyer_rank_pg.json"
 CACHE = "buyer_rank_pg_cache.json"
@@ -144,6 +145,9 @@ def stats_from_rows(rows, paid, now):
             counts['excluded_rows'] += 1
             continue
         if buyer_goods_grade.lowered(r):    # arm B's lowered limit: not learned for both arms (review 8ca80f5 I1)
+            counts['excluded_rows'] += 1
+            continue
+        if buyer_goods_ladder.laddered(r):  # arm B's 0.8 openings: not learned for both arms (review 459089c I2)
             counts['excluded_rows'] += 1
             continue
         qs = [q for q in quotes if isinstance(q, dict)] if isinstance(quotes, list) else []
