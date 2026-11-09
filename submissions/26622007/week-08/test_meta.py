@@ -260,6 +260,11 @@ mode = os.environ["FAKE_MODE"]
 for p, text in json.loads(os.environ.get("FAKE_SIDE") or "{}").items():   # another job writes while the model runs
     os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
     open(p, "w").write(text)
+if os.environ.get("FAKE_JOURNAL"):         # the person's launcher writes the switch down (hard_limits.PERSON_JOURNAL)
+    import time
+    with open(os.environ["FAKE_JOURNAL"], "a") as f:
+        for e in json.loads(os.environ.get("FAKE_JOURNAL_LINES") or "[]"):
+            f.write(json.dumps(dict(e, t=time.time())) + "\\n")
 if mode == "refused":
     print("The 'gpt-6.1-terra' model is not supported", file=sys.stderr)
     sys.exit(1)
@@ -710,51 +715,183 @@ class HarnessCycleTest(unittest.TestCase):
         self.assertEqual(open(pj).read(), '{"seller": {}, "a": 1}\n')
         self.assertEqual(self.git("status", "--porcelain", "--", "pricing.json"), "")
 
-    # AX 11/10 04:5x (main, 지시 12): a person's price.grade_break_trial ON/OFF made while a cycle runs stays; the guard in
-    # hard_limits (PERSON_TRIALS) refused the cycle and its undo put the trial back (independent review b81770e I1)
+    # AX 11/10 (main, 지시 12·13): price.grade_break_trial is a person's study. A switch the person's journal
+    # (hard_limits.PERSON_JOURNAL, not the market account's to write) shows since the cycle began stays, uncommitted and
+    # out of the harness's commits; the model's OFF, ON or moved window, over one cycle or two, is refused and undone
+    # (independent reviews of b81770e I1 and 588a26d I1-I3).
     GBT = {"share": 0.5, "salt": "s", "grade_break": {"B": 0.19}, "start_at": 1794250800.0, "stop_at": 1794283200.0}
+    GBT2 = dict(GBT, salt="s2", start_at=1794337200.0, stop_at=1794369600.0)          # the next one, a person's renewal
 
-    def gbt_pricing(self, trial=None):
+    def gbt_pricing(self, trial=None, goods_break=0.05):
         line = f'    "grade_break_trial": {json.dumps(trial)},\n' if trial else ""
-        return '{\n  "seller": {},\n  "price": {\n' + line + '    "goods_break": 0.05\n  }\n}\n'
+        return '{\n  "seller": {},\n  "price": {\n' + line + f'    "goods_break": {goods_break}\n  }}\n}}\n'
 
-    def gbt_now(self):
+    def gbt_now(self, rev=None):
+        if rev:
+            return json.loads(self.git("show", f"{rev}:pricing.json"))["price"].get("grade_break_trial")
         with open(os.path.join(self.root, "pricing.json"), encoding="utf-8") as f:
             return json.load(f)["price"].get("grade_break_trial")
 
-    def gbt_start(self, trial):
+    def gbt_start(self, trial, journal=True):
         with open(os.path.join(self.root, "pricing.json"), "w") as f:
             f.write(self.gbt_pricing(trial))
         self.git("add", "pricing.json")
         self.git("commit", "-qm", "pricing", "--allow-empty")
+        folder = os.path.join(self.outer, "gbt-switch")
+        os.makedirs(folder, mode=0o755, exist_ok=True)
+        self.journal = os.path.join(folder, "journal.jsonl")
+        open(self.journal, "a").close()
+        os.chmod(self.journal, 0o644)
+        for p in [mock.patch.object(mh.hard_limits, "PERSON_JOURNAL", self.journal)] + (
+                [mock.patch.object(mh.hard_limits, "_me", lambda: os.getuid() + 1000)] if journal else []):
+            p.start()                  # journal=False: the journal is this account's own, so it proves nothing
+            self.addCleanup(p.stop)
 
-    def gbt_cycle(self, side, mode="good"):
-        with mock.patch.dict(os.environ, {"FAKE_SIDE": json.dumps({"pricing.json": side})}):
+    def person(self, trial):
+        """A journal line as gbt-switch writes it after the switch, `trial` left (None: off)."""
+        v = mh.hard_limits._ABSENT if trial is None else trial
+        return {"key": "price.grade_break_trial", "before": "x", "after": mh.hard_limits.trial_hash(v), "by": "person",
+                "status": "done"}
+
+    def gbt_cycle(self, side, mode="good", lines=()):
+        env = {"FAKE_SIDE": json.dumps({"pricing.json": side}) if side is not None else "{}",
+               "FAKE_JOURNAL": self.journal if lines else "", "FAKE_JOURNAL_LINES": json.dumps(list(lines))}
+        with mock.patch.dict(os.environ, env):
             return self.go(mode)
 
-    def test_a_persons_trial_off_during_a_cycle_stays_off(self):
+    def test_a_persons_journaled_off_during_a_cycle_stays_off_and_out_of_the_commits(self):
         self.gbt_start(self.GBT)
-        rec = self.gbt_cycle(self.gbt_pricing())                     # the switch's OFF while the model runs
-        self.assertEqual(rec["status"], "rejected", rec.get("problems"))
+        start = self.git("rev-parse", "HEAD")
+        rec = self.gbt_cycle(self.gbt_pricing(), "good", [self.person(None)])
+        self.assertEqual(rec["status"], "running", rec.get("problems"))
+        self.assertTrue(self.exists())
         self.assertIsNone(self.gbt_now())
-        self.assertFalse(self.exists())                               # the model's own change is still undone
+        self.assertEqual(self.gbt_now("HEAD"), self.GBT)                 # uncommitted, as the person left it
+        self.assertEqual(self.git("log", "--format=%s", f"{start}..HEAD", "--", "pricing.json"), "")
 
-    def test_a_persons_trial_on_during_a_cycle_stays_on(self):
+    def test_a_persons_journaled_on_stays_when_the_cycle_is_refused(self):
         self.gbt_start(None)
-        rec = self.gbt_cycle(self.gbt_pricing(self.GBT))
-        self.assertEqual(rec["status"], "rejected", rec.get("problems"))
+        start = self.git("rev-parse", "HEAD")
+        rec = self.gbt_cycle(self.gbt_pricing(self.GBT), "broken", [self.person(self.GBT)])
+        self.assertEqual(rec["status"], "rejected")
+        self.assertFalse(self.exists())                                  # the model's own change is still undone
         self.assertEqual(self.gbt_now(), self.GBT)
+        self.assertIsNone(self.gbt_now("HEAD"))
+        self.assertEqual(self.git("log", "--format=%s", f"{start}..HEAD", "--", "pricing.json"), "")
 
-    def test_a_moved_window_is_still_refused_and_put_back(self):
+    def test_a_persons_renewal_off_then_on_stays(self):
         self.gbt_start(self.GBT)
-        moved = dict(self.GBT, start_at=self.GBT["start_at"] + 3600, stop_at=self.GBT["stop_at"] + 3600)
-        rec = self.gbt_cycle(self.gbt_pricing(moved), mode="nothing")
-        self.assertIn("grade_break_trial", " ".join(rec.get("problems") or []))
-        self.assertEqual(self.gbt_now(), self.GBT)
-        for bad in (dict(self.GBT, share=2), "on"):                    # an ON the switch would never write: not kept
+        rec = self.gbt_cycle(self.gbt_pricing(self.GBT2), "good", [self.person(None), self.person(self.GBT2)])
+        self.assertEqual(rec["status"], "running", rec.get("problems"))
+        self.assertEqual(self.gbt_now(), self.GBT2)
+        self.assertEqual(self.gbt_now("HEAD"), self.GBT)
+        self.gbt_start(self.GBT)
+        rec = self.gbt_cycle(self.gbt_pricing(self.GBT2, goods_break=0.06), "broken",
+                             [self.person(None), self.person(self.GBT2)])
+        self.assertEqual(rec["status"], "rejected")
+        self.assertEqual(self.gbt_now(), self.GBT2)                      # the undo took pricing.json back; the switch stays
+        self.assertIn("put back", " ".join(rec.get("person_trial") or []))
+        with open(os.path.join(self.root, "pricing.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["price"]["goods_break"], 0.05)
+
+    def test_the_models_off_or_on_without_the_journal_is_refused_and_undone(self):
+        for start, side in ((self.GBT, None), (None, self.GBT)):
+            self.gbt_start(start)
+            rec = self.gbt_cycle(self.gbt_pricing(side), "good")
+            self.assertEqual(rec["status"], "rejected")
+            self.assertIn("grade_break_trial", " ".join(rec["problems"]))
+            self.assertEqual(self.gbt_now(), start)
+            self.assertEqual(self.gbt_now("HEAD"), start)
+
+    def test_two_cycles_cannot_move_the_window_off_then_on(self):
+        self.gbt_start(self.GBT)
+        moved = dict(self.GBT, start_at=self.GBT["start_at"] + 7200, stop_at=self.GBT["stop_at"] + 7200)
+        for side in (self.gbt_pricing(), self.gbt_pricing(moved), self.gbt_pricing(moved)):
+            rec = self.gbt_cycle(side, "nothing")
+            self.assertIn("grade_break_trial", " ".join(rec.get("problems") or []))
+            self.assertEqual(self.gbt_now(), self.GBT)
+            self.assertEqual(self.gbt_now("HEAD"), self.GBT)
+        for bad in (dict(self.GBT, share=2), "on"):
             self.gbt_start(None)
             self.gbt_cycle(self.gbt_pricing(bad), mode="nothing")
             self.assertIsNone(self.gbt_now(), bad)
+
+    def test_a_journal_line_proves_nothing_from_before_the_cycle_for_another_value_or_from_this_account(self):
+        self.gbt_start(self.GBT)
+        with open(self.journal, "a") as f:                                 # written before the cycle began
+            f.write(json.dumps(dict(self.person(None), t=time.time() - 5)) + "\n")
+        self.assertEqual(self.gbt_cycle(self.gbt_pricing(), "nothing")["status"], "rejected")
+        self.assertEqual(self.gbt_now(), self.GBT)
+        moved = dict(self.GBT2, salt="other")
+        rec = self.gbt_cycle(self.gbt_pricing(moved), "nothing", [self.person(self.GBT2)])
+        self.assertEqual(rec["status"], "rejected")                       # the journal said GBT2, the file holds another
+        self.assertEqual(self.gbt_now(), self.GBT)
+        rec = self.gbt_cycle(self.gbt_pricing(), "nothing", [self.person(self.GBT2), self.person(None),
+                                                            dict(self.person(self.GBT2), status="intent")])
+        self.assertEqual(rec["status"], "no_change", rec.get("problems"))  # the latest done one counts
+        self.assertIsNone(self.gbt_now())
+
+    def test_a_journal_this_account_can_write_proves_nothing(self):
+        self.gbt_start(self.GBT, journal=False)
+        rec = self.gbt_cycle(self.gbt_pricing(), "nothing", [self.person(None)])
+        self.assertEqual(rec["status"], "rejected")                       # our own account wrote it: not a proof
+        self.assertEqual(self.gbt_now(), self.GBT)
+
+    def test_an_uncommitted_person_switch_does_not_refuse_other_pricing_cycles(self):
+        self.gbt_start(None)
+        with open(os.path.join(self.root, "pricing.json"), "w") as f:   # switched ON before the cycle, not committed
+            f.write(self.gbt_pricing(self.GBT))
+        rec = self.gbt_cycle(self.gbt_pricing(self.GBT, goods_break=0.06), "good")
+        self.assertEqual(rec["status"], "running", rec.get("problems"))
+        head = json.loads(self.git("show", "HEAD:pricing.json"))["price"]
+        self.assertEqual(head, {"goods_break": 0.06})                    # the cycle's edit, without the person's trial
+        self.assertEqual(self.gbt_now(), self.GBT)
+        rec = self.gbt_cycle(self.gbt_pricing(None, goods_break=0.07), "good")
+        self.assertEqual(rec["status"], "rejected")                       # the model taking the person's trial off
+        self.assertEqual(self.gbt_now(), self.GBT)
+
+    def test_a_price_that_is_not_an_object_is_nobodys_off(self):
+        self.gbt_start(self.GBT)
+        rec = self.gbt_cycle('{"seller": {}, "price": []}\n', "nothing", [self.person(None)])
+        self.assertEqual(rec["status"], "rejected")
+        self.assertEqual(self.gbt_now(), self.GBT)
+        self.assertEqual(mh.trial_of({"price": []}), mh.UNKNOWN)
+        self.assertEqual(mh.trial_of({}), mh.UNKNOWN)
+
+    def test_a_switch_that_cannot_be_put_back_is_recorded_not_lost_silently(self):
+        with open(os.path.join(self.root, "pricing.json"), "w") as f:   # a trial over several lines: no line swap
+            f.write('{\n  "seller": {},\n  "price": {\n    "grade_break_trial": {\n      "share": 0.5},\n'
+                    '    "goods_break": 0.05\n  }\n}\n')
+        self.git("add", "pricing.json")
+        self.git("commit", "-qm", "multi-line")
+        folder = os.path.join(self.outer, "gbt-switch")
+        os.makedirs(folder, mode=0o755, exist_ok=True)
+        self.journal = os.path.join(folder, "journal.jsonl")
+        open(self.journal, "a").close()
+        os.chmod(self.journal, 0o644)
+        with mock.patch.object(mh.hard_limits, "PERSON_JOURNAL", self.journal), \
+                mock.patch.object(mh.hard_limits, "_me", lambda: os.getuid() + 1000):
+            rec = self.gbt_cycle(self.gbt_pricing(self.GBT2), "broken", [self.person(None), self.person(self.GBT2)])
+        self.assertEqual(rec["status"], "rejected")
+        self.assertIn("could not put back", " ".join(rec.get("person_trial") or []))
+        self.assertIn("could not be kept out of the commit", " ".join(rec["problems"]))
+
+    def test_a_persons_switch_during_the_watch_survives_its_undo(self):
+        self.gbt_start(self.GBT)
+        def watch():                       # the model's commit holds pricing.json; the person switches meanwhile
+            with open(os.path.join(self.root, "pricing.json"), "w") as f:
+                f.write(self.gbt_pricing(None, goods_break=0.06))
+            with open(self.journal, "a") as f:
+                f.write(json.dumps(dict(self.person(None), t=time.time())) + "\n")
+            return ["tracebacks +5"]
+        with mock.patch.object(mh, "canary", watch):
+            rec = self.gbt_cycle(self.gbt_pricing(self.GBT, goods_break=0.06), "good")
+        self.assertEqual(rec["status"], "canary_failed", rec.get("problems"))
+        self.assertIsNone(self.gbt_now())
+        with open(os.path.join(self.root, "pricing.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["price"]["goods_break"], 0.05)     # the cycle's own edit is undone
+        self.assertEqual(self.gbt_now("HEAD"), self.GBT)
+        self.assertIn("put back", " ".join(rec["person_trial"]))
 
     def test_the_schedule_survives_a_restart(self):
         grades = os.path.join(self.root, "meta", "grades.jsonl")

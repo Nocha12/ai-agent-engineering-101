@@ -255,6 +255,25 @@ class Switch(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.sw.switch_off(self.path, backup_dir=self.bak, stamp="t4")
 
+    def test_with_trial_is_the_switches_text_without_a_file(self):
+        with open(self.path, encoding="utf-8") as f:
+            raw = f.read()
+        s, s2 = self.setting(), self.setting(salt="other")
+        self.sw.switch_on(self.path, s, backup_dir=self.bak, stamp="t1")
+        with open(self.path, encoding="utf-8") as f:
+            on = f.read()
+        self.assertEqual(self.sw.with_trial(raw, s), on)
+        self.assertEqual(self.sw.with_trial(on), raw)
+        self.assertEqual(self.sw.with_trial(raw), raw)
+        self.assertEqual(self.sw.with_trial(self.sw.with_trial(on, s2), s), on)       # a renewal and back
+        with open(self.path, encoding="utf-8") as f:
+            self.assertEqual(f.read(), on)                                           # no file written
+        for bad in ('{"price": []}', "not json"):
+            with self.assertRaises(ValueError):
+                self.sw.with_trial(bad)
+        with self.assertRaises(ValueError):
+            self.sw.with_trial(raw, dict(s, share=2))
+
     def test_off_refuses_a_reformatted_trial(self):
         import json
         self.sw.switch_on(self.path, self.setting(), backup_dir=self.bak, stamp="t1")

@@ -434,6 +434,81 @@ class GradeBreakTrialFrozenTest(unittest.TestCase):
             self.assertNotIn("grade_break_trial", json.load(f)["price"])
         self.assertNotIn("check_policy_change", inspect.getsource(sw))      # the person's path is not the meta's
 
+    def test_trials_from_moves_only_the_trials_base(self):
+        head, person = self.with_trial(self.TRIAL), self.with_trial()
+        self.assertEqual(hl.check_policy_change(head, self.with_trial(goods_break=0.06), trials_from=person), [])
+        self.assertTrue(self.flagged(person, head))
+        self.assertTrue([p for p in hl.check_policy_change(head, self.with_trial(self.TRIAL), trials_from=person)
+                         if "grade_break_trial" in p])                     # back to HEAD's is a change from the person's
+        self.assertTrue([p for p in hl.check_policy_change(head, self.with_trial(goods_break=0.6), trials_from=person)
+                         if "goods_break" in p])                           # every other check still on old
+
+
+class PersonJournalTest(unittest.TestCase):
+    """hard_limits.person_switches: a person's switch is proved only by a journal the market account cannot write."""
+    T = {"share": 0.5, "salt": "s", "grade_break": {"B": 0.19}, "start_at": 1.0, "stop_at": 2.0}
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp)
+        os.chmod(self.tmp, 0o755)
+        self.folder = os.path.join(self.tmp, "gbt-switch")
+        os.mkdir(self.folder, 0o755)
+        self.path = os.path.join(self.folder, "journal.jsonl")
+        self.write([{"t": 100, "key": "price.grade_break_trial", "after": hl.trial_hash(self.T), "by": "person",
+                     "status": "done"}])
+        os.chmod(self.path, 0o644)
+        other = mock.patch.object(hl, "_me", lambda: os.getuid() + 1000)
+        other.start()
+        self.addCleanup(other.stop)
+
+    def write(self, lines):
+        with open(self.path, "a", encoding="utf-8") as f:
+            for e in lines:
+                f.write((e if isinstance(e, str) else json.dumps(e)) + "\n")
+
+    def test_a_done_person_switch_since_the_start_proves_its_value(self):
+        self.assertTrue(hl.person_left("price.grade_break_trial", self.T, 100, self.path))
+        self.assertFalse(hl.person_left("price.grade_break_trial", self.T, 101, self.path))       # before the cycle
+        self.assertFalse(hl.person_left("price.grade_break_trial", dict(self.T, salt="x"), 0, self.path))
+        self.assertFalse(hl.person_left("price.grade_break_trial", hl._ABSENT, 0, self.path))
+
+    def test_only_the_latest_done_person_line_counts(self):
+        self.write(["not json", {"t": 101, "key": "price.grade_break_trial", "after": "off", "by": "person",
+                                 "status": "done"},
+                    {"t": 102, "key": "price.grade_break_trial", "after": hl.trial_hash(self.T), "by": "person",
+                     "status": "intent"},
+                    {"t": 103, "key": "price.grade_break_trial", "after": hl.trial_hash(self.T), "by": "meta",
+                     "status": "done"},
+                    {"t": 104, "key": "price.other", "after": hl.trial_hash(self.T), "by": "person", "status": "done"}])
+        self.assertTrue(hl.person_left("price.grade_break_trial", hl._ABSENT, 0, self.path))
+        self.assertFalse(hl.person_left("price.grade_break_trial", self.T, 0, self.path))
+
+    def test_a_journal_the_reader_could_write_proves_nothing(self):
+        ok = lambda: hl.person_left("price.grade_break_trial", self.T, 0, self.path)
+        self.assertTrue(ok())
+        with mock.patch.object(hl, "_me", os.getuid):                    # this account's own file
+            self.assertFalse(ok())
+        for target, mode, back in ((self.path, 0o664, 0o644), (self.path, 0o646, 0o644), (self.folder, 0o775, 0o755),
+                                   (self.tmp, 0o777, 0o755)):            # writable by others; the parent not sticky
+            os.chmod(target, mode)
+            self.assertFalse(ok(), (target, oct(mode)))
+            os.chmod(target, back)
+        os.chmod(self.tmp, 0o1777)                                        # a sticky parent (/Users/Shared) is fine
+        self.assertTrue(ok())
+        os.chmod(self.tmp, 0o755)
+        os.rename(self.path, self.path + ".real")
+        os.symlink(self.path + ".real", self.path)
+        self.assertFalse(ok())                                            # a link to elsewhere
+        os.remove(self.path)
+        self.assertFalse(ok())                                            # no journal
+
+    def test_the_hash_is_the_value_as_compared(self):
+        self.assertEqual(hl.trial_hash(hl._ABSENT), "off")
+        self.assertEqual(hl.trial_hash(self.T), hl.trial_hash(dict(reversed(list(self.T.items())))))
+        self.assertNotEqual(hl.trial_hash(self.T), hl.trial_hash(dict(self.T, start_at=1)))
+        self.assertNotEqual(hl.trial_hash(None), "off")
+
 
 if __name__ == "__main__":
     unittest.main()
