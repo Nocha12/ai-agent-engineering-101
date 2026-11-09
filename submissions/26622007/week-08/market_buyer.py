@@ -67,6 +67,7 @@ import buyer_b3b1
 import buyer_accept_band
 import buyer_quote_deadline
 import buyer_food_ladder
+import buyer_goods_grade
 import buyer_food_shelf
 import buyer_rank_pg
 import buyer_shop_profile
@@ -1798,6 +1799,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "food_sku_trial": order.get("_food_sku_trial"),
         "food_shelf": buyer_food_shelf.measurement(order.get("_food_shelf"), best),
         "food_ladder": order.get("_food_ladder"),
+        "goods_grade": order.get("_goods_grade"),
         "turns": dict(out.get("turns") or {}),
         "goods_extra_quote_started": order.get("_goods_extra_quote_started"),
         "goods_extra_quote_added": order.get("_goods_extra_quote_added", 0),
@@ -2010,12 +2012,19 @@ def main():
     key = offer["sku"] if r3 else args.item     # prices are comparable within a SKU, not within a category
     label = offer["name"] if r3 else args.item
     chance = None
+    sw_h = buyer_short_warranty.hours_for(order.get("_sw"), shop["name"], quotes.get(shop["name"])) if r3 else None
+    order["_goods_grade"] = None
     if r3 and order.get("kind") == "goods":
         chance = market_model.break_chance(ledger_breaks(md, catalog), key)
+        # buyer_goods_grade arm B: a quote naming grade B/C prices the unit by that grade's chance (off: the SKU's)
+        chance, order["_goods_grade"] = buyer_goods_grade.adjust(md, order, quotes.get(shop["name"]),
+                                                                 ledger_breaks(md, catalog), key, chance, sw_h)
+        if order["_goods_grade"]:
+            log(f"[goods-grade] {shop['name']}: arm {order['_goods_grade']['arm']}, grade {order['_goods_grade']['grade']}"
+                f" (SKU {order['_goods_grade']['sku_chance']:.1%}, grade {order['_goods_grade']['grade_chance']:.1%})")
     limit = min(value_limit(offer, args.budget, chance, buyer_cfg()), saved_cap(offer, chance)) if r3 else args.budget
     # plan A: a counter up to 105% of the limit is taken; more with a shop that holds its ask (buyer_shop_profile)
     band_base, band_pct = accept_percent(md, shop["name"], offer, chance, limit, args.budget) if r3 else (None, None)
-    sw_h = buyer_short_warranty.hours_for(order.get("_sw"), shop["name"], quotes.get(shop["name"])) if r3 else None
     if sw_h is not None:      # a short warranty expected: p_max(h) is the ceiling, no accept band (owner 7955)
         limit = min(limit, short_cap(offer, chance, order, shop["name"], quotes.get(shop["name"]), shop))
         band_base, band_pct = None, None
