@@ -19,7 +19,10 @@ def chance(stats, sku, grade):
 class ShortTalkCapTest(unittest.TestCase):
     def setUp(self):
         self.order = {"kind": "goods", "order": "o-1", "acceptable": ["G1", "G2"],
-                      "_sw": {"S": .2964, "buffer": 2e7, "hist": {"ddolcom": 0}}}
+                      "_sw": {"S": .2964, "buffer": 2e7, "hist": {"ddolcom": 0},
+                              # its short receipts named hours over 0: priced at its 0 h history (one with none: never
+                              # bought, test_buyer_zero_block)
+                              "zero_hist": []}}
         p = [mock.patch.object(market_buyer, "ledger_breaks", return_value={"sold": 1000}),
              mock.patch.object(market_buyer.market_model, "unit_break_chance", side_effect=chance),
              mock.patch.dict(market_buyer._SW_CTX, {"md": "/md", "catalog": CAT}, clear=True)]

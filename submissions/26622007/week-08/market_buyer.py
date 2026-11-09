@@ -2165,8 +2165,8 @@ def main():
         if order["_goods_grade"]:
             log(f"[goods-grade] {shop['name']}: arm {order['_goods_grade']['arm']}, grade {order['_goods_grade']['grade']}"
                 f" (SKU {order['_goods_grade']['sku_chance']:.1%}, grade {order['_goods_grade']['grade_chance']:.1%})")
-    limit = 0 if zero else min(value_limit(offer, args.budget, chance, buyer_cfg()), saved_cap(offer, chance)) if r3 \
-        else args.budget
+    limit = min(value_limit(offer, args.budget, chance, buyer_cfg()), saved_cap(offer, chance)) if r3 and not zero \
+        else 0 if zero else args.budget
     if order["_goods_grade"]:     # arm A's limit too, for the judgement and to keep arm B out of the shop profiles
         order["_goods_grade"]["limit_a"] = min(value_limit(offer, args.budget, sku_chance, buyer_cfg()),
                                                saved_cap(offer, sku_chance))
