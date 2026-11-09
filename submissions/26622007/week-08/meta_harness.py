@@ -27,6 +27,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 
 import httpx
@@ -315,15 +316,29 @@ def test_prompt():
     cmd = test_command()
     shown = f'{cmd[0]} -c "{cmd[2]}"' if cmd[1] == "-c" else f"{sys.executable} -m unittest discover -p 'test_*.py'"
     return f"Tests: `{shown}` in this folder, the same command and environment the harness uses (the system python3 " \
-           "lacks httpx).\n"
+           "lacks httpx). The harness runs them on a copy of this folder as you leave it, without .market/, memory/ " \
+           "and logs/, which the kit keeps writing.\n"
+
+
+# What the kit and the shop keep writing, and keys. test_seller_warranty_trial hashes its folder's .market/ and memory/
+# before and after each test; run in the live checkout, the kit's writes ERRORed it and every code change was refused
+# (terra-1109-085220 09:03, terra-1109-100754 10:07; a clean clone passes). The copy is the working tree, so the
+# cycle's own uncommitted and new files are what is tested.
+TEST_COPY_SKIP = shutil.ignore_patterns(".market", "memory", "logs", "__pycache__", ".env*", "*.pem")
 
 
 def run_tests():
     cmd = test_command()
     if "discover" not in " ".join(cmd):     # the whole suite, never a chosen part of it
         raise RuntimeError("the harness runs the whole test suite")
-    p = subprocess.run(cmd, cwd=ROOT, capture_output=True,
-                       text=True, timeout=900, env=test_env())
+    scratch = tempfile.mkdtemp(prefix="meta-tests-")
+    try:
+        copy = os.path.join(scratch, os.path.basename(ROOT))
+        shutil.copytree(ROOT, copy, ignore=TEST_COPY_SKIP, ignore_dangling_symlinks=True)    # no link back to live
+        p = subprocess.run(cmd, cwd=copy, capture_output=True,
+                           text=True, timeout=900, env=test_env())
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
     failed = [ln for ln in p.stderr.splitlines() if ln.startswith(("FAIL: ", "ERROR: "))]
     return p.returncode == 0, "\n".join(failed[:20] + [p.stderr[-1200:]])
 

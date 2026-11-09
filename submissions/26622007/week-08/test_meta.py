@@ -380,6 +380,74 @@ class HarnessCycleTest(unittest.TestCase):
         self.assertIn("'discover', '-p', 'test_*.py'", boot)
         self.assertIn("sol_source_load.install()", mh.test_prompt())
 
+    def test_tests_pass_while_the_kit_keeps_writing_the_live_folder(self):
+        # 11/09 09:03 and 10:07 every code change was refused: test_seller_warranty_trial hashes its folder's .market/
+        # and memory/ before and after each test, and in the live checkout the kit writes there every second
+        for name in (".market", "memory"):
+            os.makedirs(os.path.join(self.root, name), exist_ok=True)
+            with open(os.path.join(self.root, name, "state.json"), "w") as f:
+                f.write("{}\n")
+        with open(os.path.join(self.root, "test_live.py"), "w") as f:
+            f.write(textwrap.dedent(f"""\
+                import os, unittest
+                HERE = os.path.dirname(os.path.abspath(__file__))
+                def state():
+                    out = []
+                    for name in (".market", "memory"):
+                        for top, _, files in os.walk(os.path.join(HERE, name)):
+                            out += [(top, n, open(os.path.join(top, n)).read()) for n in sorted(files)]
+                    return out
+                class T(unittest.TestCase):
+                    def test(self):
+                        before = state()
+                        for name in (".market", "memory"):     # the kit, writing the live folder meanwhile
+                            with open(os.path.join({self.root!r}, name, "state.json"), "a") as f:
+                                f.write("tick\\n")
+                        with open(os.path.join({self.root!r}, "ran-in.txt"), "w") as f:
+                            f.write(HERE)
+                        self.assertEqual(state(), before)
+                """))
+        ok, output = mh.run_tests()
+        self.assertTrue(ok, output)
+        with open(os.path.join(self.root, "ran-in.txt")) as f:
+            ran_in = f.read()
+        self.assertNotEqual(os.path.realpath(ran_in), os.path.realpath(self.root))
+        self.assertFalse(os.path.exists(ran_in))                        # the copy is gone afterwards
+        with open(os.path.join(self.root, ".market", "state.json")) as f:
+            self.assertEqual(f.read(), "{}\ntick\n")                    # the live folder itself was only the kit's
+
+    def test_the_copy_carries_the_cycles_uncommitted_change(self):
+        # the copy is the working tree the cycle left, not HEAD: a test that needs the change fails without it
+        with open(os.path.join(self.root, "value.py"), "w") as f:
+            f.write("VALUE = 1\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "value 1")
+        with open(os.path.join(self.root, "test_value.py"), "w") as f:      # new and untracked, as a model adds it
+            f.write("import unittest, value\nclass T(unittest.TestCase):\n    def test(self):\n"
+                    "        self.assertEqual(value.VALUE, 2)\n")
+        ok, output = mh.run_tests()
+        self.assertFalse(ok)                                            # HEAD's VALUE = 1: the test really runs
+        self.assertIn("test_value", output)
+        with open(os.path.join(self.root, "value.py"), "w") as f:
+            f.write("VALUE = 2\n")                                       # the cycle's edit, not committed yet
+        ok, output = mh.run_tests()
+        self.assertTrue(ok, output)
+
+    def test_the_copy_leaves_live_state_logs_and_keys_behind(self):
+        for rel in (".market/m.json", "memory/s.json", "shop_key.pem", ".env"):
+            os.makedirs(os.path.dirname(os.path.join(self.root, rel)) or self.root, exist_ok=True)
+            with open(os.path.join(self.root, rel), "w") as f:
+                f.write("live\n")
+        with open(os.path.join(self.root, "test_copy.py"), "w") as f:
+            f.write("import os, unittest\nHERE = os.path.dirname(os.path.abspath(__file__))\n"
+                    "class T(unittest.TestCase):\n    def test(self):\n"
+                    "        for rel in ('.market', 'memory', 'logs', 'shop_key.pem', '.env'):\n"
+                    "            self.assertFalse(os.path.exists(os.path.join(HERE, rel)), rel)\n"
+                    "        for rel in ('meta/terra.md', 'test_ok.py', '.gitignore'):\n"
+                    "            self.assertTrue(os.path.exists(os.path.join(HERE, rel)), rel)\n")
+        ok, output = mh.run_tests()
+        self.assertTrue(ok, output)
+
     def test_hard_to_tell_without_a_measurement_is_not_accepted(self):
         rec = self.go("unsure")
         self.assertEqual(rec["status"], "no_change_unsupported")
