@@ -744,7 +744,8 @@ class HarnessCycleTest(unittest.TestCase):
         self.journal = os.path.join(folder, "journal.jsonl")
         open(self.journal, "a").close()
         os.chmod(self.journal, 0o644)
-        for p in [mock.patch.object(mh.hard_limits, "PERSON_JOURNAL", self.journal)] + (
+        for p in [mock.patch.object(mh.hard_limits, "PERSON_JOURNAL", self.journal),
+                  mock.patch.object(mh, "LAST", {"target": None}, create=True)] + (
                 [mock.patch.object(mh.hard_limits, "_me", lambda: os.getuid() + 1000)] if journal else []):
             p.start()                  # journal=False: the journal is this account's own, so it proves nothing
             self.addCleanup(p.stop)
@@ -799,6 +800,40 @@ class HarnessCycleTest(unittest.TestCase):
             done.start()
             rec = self.gbt_cycle(self.gbt_pricing(), "nothing", [dict(self.person(None), status="intent")])
         self.assertIsNone(self.gbt_now(), rec)
+
+    def test_a_refused_window_left_in_head_by_a_failed_undo_is_not_trusted_next_cycle(self):
+        self.gbt_start(self.GBT)                            # no journal at all: the loop's own memory, not HEAD, carries it
+        moved = dict(self.GBT, start_at=self.GBT["start_at"] + 7200, stop_at=self.GBT["stop_at"] + 7200)
+        with mock.patch.object(mh, "undo", side_effect=RuntimeError("index.lock")):
+            rec = self.gbt_cycle(self.gbt_pricing(moved, goods_break=0.06), "broken")
+        self.assertEqual(rec["status"], "rejected_kept", rec.get("problems"))
+        self.assertEqual(self.gbt_now("HEAD"), moved)                    # the wip commit stays
+        self.assertEqual(self.gbt_now(), self.GBT)
+        rec = self.gbt_cycle(None, "nothing")
+        self.assertEqual(self.gbt_now(), self.GBT, rec)                  # HEAD's window is the model's, not a start
+
+    def test_the_journal_comes_before_head_when_the_folder_is_set_back_to_head(self):
+        self.gbt_start(self.GBT)
+        with open(self.journal, "a") as f:                                 # the person's OFF, before this cycle
+            f.write(json.dumps(dict(self.person(None), t=time.time() - 100)) + "\n")
+        rec = self.gbt_cycle(None, "nothing")                              # the folder holds HEAD's trial again
+        self.assertIsNone(self.gbt_now(), rec)
+        self.assertEqual(self.gbt_now("HEAD"), self.GBT)
+
+    def test_a_switch_under_way_when_the_cycle_stages_is_waited_for(self):
+        import threading
+        self.gbt_start(self.GBT)
+        done = threading.Timer(2.0, lambda: open(self.journal, "a").write(
+            json.dumps(dict(self.person(None), t=time.time())) + "\n"))
+        self.addCleanup(done.cancel)
+        with mock.patch.object(mh, "PENDING_WAIT", 10):
+            done.start()
+            rec = self.gbt_cycle(self.gbt_pricing(None, goods_break=0.06), "good",
+                                 [dict(self.person(None), status="intent")])
+        self.assertEqual(rec["status"], "running", rec.get("problems"))  # the OFF was the person's, the edit the cycle's
+        self.assertIsNone(self.gbt_now())
+        self.assertEqual(json.loads(self.git("show", "HEAD:./pricing.json"))["price"],
+                         {"grade_break_trial": self.GBT, "goods_break": 0.06})
 
     def gbt_cycle(self, side, mode="good", lines=()):
         env = {"FAKE_SIDE": json.dumps({"pricing.json": side}) if side is not None else "{}",
@@ -914,6 +949,7 @@ class HarnessCycleTest(unittest.TestCase):
                     '    "goods_break": 0.05\n  }\n}\n')
         self.git("add", "pricing.json")
         self.git("commit", "-qm", "multi-line")
+        start = self.git("rev-parse", "HEAD")
         folder = os.path.join(self.outer, "gbt-switch")
         os.makedirs(folder, mode=0o755, exist_ok=True)
         self.journal = os.path.join(folder, "journal.jsonl")
@@ -925,6 +961,7 @@ class HarnessCycleTest(unittest.TestCase):
         self.assertEqual(rec["status"], "rejected")
         self.assertIn("could not set it back", rec.get("person_trial") or "")
         self.assertIn("could not be kept out of the commit", " ".join(rec["problems"]))
+        self.assertNotIn('"s2"', self.git("log", "-p", "--format=", f"{start}..HEAD", "--", "pricing.json"))
 
     def test_a_persons_switch_during_the_watch_survives_its_undo(self):
         self.gbt_start(self.GBT)
