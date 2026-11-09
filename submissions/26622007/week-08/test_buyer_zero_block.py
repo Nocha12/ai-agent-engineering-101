@@ -57,7 +57,7 @@ class FormulaKeptTest(unittest.TestCase):
 
 class ReceiptGateTest(unittest.TestCase):
     def test_a_receipt_without_warranty_hours_is_refused_before_pricing_and_reserve(self):
-        for w in (0, 0.0, -0.0, None, -1, 1e-9, 0.5, 0.99, float("nan"), float("-inf"), True, "3", "6 h"):
+        for w in (0, 0.0, -0.0, None, -1, -0.5, float("nan"), float("inf"), float("-inf"), True, "3", "6 h"):
             with tempfile.TemporaryDirectory() as d:
                 rec = {"price": 1000, "warranty_hours": w}
                 with mock.patch.object(sw, "reserve", side_effect=AssertionError("reserved")), \
@@ -80,8 +80,23 @@ class ReceiptGateTest(unittest.TestCase):
             self.assertFalse(ok)
             self.assertIn("over p_max", why)
             ok, note, why = sw.receipt_check(st(), d, {"price": 3000, "warranty_hours": 1}, 10000, 0.072)
-            self.assertTrue(ok, why)                               # 1 h, the least the ledger ever named
+            self.assertTrue(ok, why)
             self.assertEqual(note["h"], 1)
+
+    def test_a_small_positive_warranty_is_priced_exactly_as_before(self):
+        # 0 < h < 6, however small, is a short warranty: no new least warranty (only none is blocked)
+        for w, price in ((1e-9, 6000), (0.01, 6000), (0.5, 6000), (0.5, 6100), (0.99, 6100), (0.5, 9000)):
+            got = []
+            for state in (st(), st(block_zero=False)):
+                with tempfile.TemporaryDirectory() as d:
+                    with mock.patch.object(sw, "p_max", wraps=sw.p_max) as pm:
+                        ok, note, why = sw.receipt_check(state, d, {"price": price, "warranty_hours": w}, 10000, 0.072,
+                                                         "o-1", now=1000.0)
+                    self.assertTrue(pm.called, w)                       # priced
+                    got.append((ok, note, why, sorted(os.listdir(d))))
+            self.assertEqual(got[0], got[1], w)
+            self.assertNotIn("blocked", got[0][1] or {}, w)
+            self.assertEqual(got[0][1]["h"], w)
 
     def test_rollback_false_is_the_old_0h_check(self):
         with tempfile.TemporaryDirectory() as d:
@@ -98,17 +113,21 @@ class ZeroExpectedTest(unittest.TestCase):
         self.assertTrue(sw.zero_expected(s, "z", None))                                   # 0 h history, no quote
         self.assertTrue(sw.zero_expected(s, "z", {"warranty_h": None, "warranty_said_ok": False}))
 
-    def test_under_one_hour_is_none(self):
-        s = st()
-        for w in (0.5, 1e-9, 0.99):
+    def test_only_none_is_no_warranty_a_small_positive_is_one(self):
+        s = st(hist={"z": 0}, zero_hist=["z"])
+        for w in (0, 0.0, -0.0, -1, -0.5):
             self.assertEqual(sw.zero_expected(s, "a", {"warranty_h": w}), sw.ZERO_QUOTE, w)
-        self.assertIsNone(sw.zero_expected(s, "a", {"warranty_h": 1}))
-        self.assertTrue(sw.no_warranty(None) and sw.no_warranty(0.999) and sw.no_warranty(True) and sw.no_warranty("2"))
-        self.assertFalse(sw.no_warranty(1) or sw.no_warranty(3.0) or sw.no_warranty(72))
+        for w in (1e-9, 0.01, 0.5, 0.99, 1, 3):
+            self.assertIsNone(sw.zero_expected(s, "a", {"warranty_h": w}), w)
+            self.assertIsNone(sw.zero_expected(s, "z", {"warranty_h": w}), w)       # its own words over the history
+        for w in (None, 0, -0.0, -2, True, "2", float("nan"), float("inf"), float("-inf")):
+            self.assertTrue(sw.no_warranty(w), w)
+        for w in (1e-9, 0.01, 0.5, 0.999, 1, 3.0, 5.99, 6, 72):
+            self.assertFalse(sw.no_warranty(w), w)
 
     def test_the_history_blocks_only_shops_whose_short_receipts_had_none(self):
         self.assertEqual(sw.zero_expected(st(hist={"z": 0}, zero_hist=["z"]), "z", None), sw.ZERO_HIST)
-        self.assertIsNone(sw.zero_expected(st(hist={"z": 0}, zero_hist=[]), "z", None))     # its were 1 h or more
+        self.assertIsNone(sw.zero_expected(st(hist={"z": 0}, zero_hist=[]), "z", None))     # its named hours over 0
         self.assertIsNone(sw.zero_expected(st(hist={"z": 0}, zero_hist=[]), "z", {"warranty_h": None}))
         self.assertEqual(sw.zero_expected(st(hist={"z": 0}, zero_hist="z"), "z", None), sw.ZERO_HIST)   # not a list
 
@@ -145,15 +164,17 @@ class ZeroWarrantyShopsTest(unittest.TestCase):
             self.trade("a", "warranty 0 h, I buy goods only with 6 h; warranty 0 h: price 64.8% of list is over p_max 0.0%"),
             self.trade("b", "warranty 3.0 h, I buy goods only with 6 h"),
             self.trade("c", "warranty 3.0 h, I buy goods only with 6 h"),
-            self.trade("c", "warranty 0.5 h, I buy goods only with 6 h"),
+            self.trade("c", "warranty 0.5 h, I buy goods only with 6 h"),       # a warranty, however short
+            self.trade("i", "warranty 0.0 h, I buy goods only with 6 h"),
+            self.trade("j", "warranty -1 h, I buy goods only with 6 h"),
             self.trade("d", None),                                          # no hours said: fails closed
             self.trade("e", "warranty True h, I buy goods only with 6 h"),
             self.trade("f", "warranty 0 h, I buy goods only with 6 h", ago=4 * 3600),   # older than the window
             self.trade("g", "warranty 0 h, I buy goods only with 6 h", item="F1"),       # food
             self.trade("h", "warranty 0 h, I buy goods only with 6 h", warranty_said={"arm": "B", "stop_at": time.time() + 99}),
         ]}
-        names = set("abcdefghz")
-        self.assertEqual(market_buyer.zero_warranty_shops(mem, self.CAT, names), {"a", "c", "d", "e"})
+        names = set("abcdefghijz")
+        self.assertEqual(market_buyer.zero_warranty_shops(mem, self.CAT, names), {"a", "d", "e", "i", "j"})
         self.assertEqual(market_buyer.zero_warranty_shops(mem, self.CAT, {"b"}), set())
 
     def test_skip_short_warranty_sets_it(self):
@@ -174,11 +195,20 @@ class QuoteAndTextTest(unittest.TestCase):
         return q
 
     def test_a_quote_without_warranty_is_refused(self):
-        for text in ("Warranty: 0 hours. Price 9000", "sold without a warranty", "no warranty on this unit, 5000",
-                     "0.5 h warranty, 5000"):
+        for text in ("Warranty: 0 hours. Price 9000", "sold without a warranty", "no warranty on this unit, 5000"):
             q = self.q(text, self.ON)
-            self.assertLess(q["warranty_h"], 1, text)
+            self.assertEqual(q["warranty_h"], 0, text)
             self.assertIn("no warranty", q["refused"], text)
+
+    def test_a_small_positive_quote_is_kept_as_before(self):
+        rb = {"kind": "goods", "_sw": st(hist={"z": 0}, block_zero=False)}
+        for text in ("0.5 h warranty, 5000", "warranty: 0.5 hours, 5000"):
+            for name in ("a", "z"):
+                q = self.q(text, self.ON, name)
+                self.assertEqual(q["warranty_h"], 0.5, text)
+                self.assertIsNone(q["refused"], (text, name))
+                self.assertEqual(q, self.q(text, rb, name), (text, name))
+            self.assertIsNone(market_buyer.goods_text_refused(text, self.ON), text)
 
     def test_a_silent_quote_from_a_0h_shop_is_refused_others_kept(self):
         self.assertIn("no warranty", self.q("asking 5000", self.ON, "z")["refused"])
@@ -206,11 +236,10 @@ class QuoteAndTextTest(unittest.TestCase):
         self.assertNotIn("warranty_h", self.q("no warranty", food))
 
     def test_talk_text_without_warranty_stops_the_talk(self):
-        for text in ("Warranty: 0 hours. Price 9000", "sold without a warranty", "no warranty on this unit",
-                     "0.5 h warranty, 9000"):
+        for text in ("Warranty: 0 hours. Price 9000", "sold without a warranty", "no warranty on this unit"):
             self.assertIsNotNone(market_buyer.goods_text_refused(text, self.ON), text)
             self.assertIsNone(market_buyer.goods_text_refused(text, {"kind": "goods", "_sw": st(block_zero=False)}), text)
-        for text in ("three-hour full-refund warranty, 9000", "72 h warranty", "price 9000"):
+        for text in ("three-hour full-refund warranty, 9000", "72 h warranty", "price 9000", "0.5 h warranty, 9000"):
             self.assertIsNone(market_buyer.goods_text_refused(text, self.ON), text)
         self.assertIsNone(market_buyer.goods_text_refused("no warranty", {"kind": "food"}))
 
@@ -271,7 +300,7 @@ class MainZeroTest(unittest.TestCase):
         return out, calls, o, reserved
 
     def test_a_0h_receipt_is_not_passed_to_the_kit(self):
-        for w in (0, None, -2, "0", -0.0, 1e-9, 0.5, float("nan"), True):
+        for w in (0, None, -2, "0", -0.0, float("nan"), True):
             out, calls, o, reserved = self.main(self.ON, 5800, w)
             self.assertIsNone(out["receipt"], w)
             self.assertEqual(out["accept"], {"warranty_hours": 6}, w)
@@ -286,6 +315,15 @@ class MainZeroTest(unittest.TestCase):
         self.assertEqual(out["accept"], {"warranty_hours": 0, "grades": ["A", "B", "C"]})
         self.assertTrue(o["short_warranty_buy"]["ok"])
         self.assertEqual(len(reserved), 1)
+
+    def test_a_small_positive_receipt_is_paid_exactly_as_before(self):
+        for w in (1e-9, 0.5, 0.99):
+            on, rb = self.main(self.ON, 5800, w), self.main(self.ROLLBACK, 5800, w)
+            self.assertIsNotNone(on[0]["receipt"], w)
+            self.assertEqual(on[0]["accept"]["warranty_hours"], w)
+            self.assertEqual((on[0], on[1], on[2]["short_warranty_buy"], len(on[3])),
+                             (rb[0], rb[1], rb[2]["short_warranty_buy"], len(rb[3])), w)
+            self.assertNotIn("blocked", on[2]["short_warranty_buy"])
 
     def test_a_3h_receipt_within_p_max_is_still_paid(self):
         out, calls, o, reserved = self.main(self.ON, 6000, 3)
@@ -326,6 +364,93 @@ class MainZeroTest(unittest.TestCase):
         rb = self.main(self.ROLLBACK, 5800, 0, known_short=True)  # rollback: talked to at p_max(0) as before
         self.assertEqual(len(rb[1]), 1)
         self.assertNotIn("zero", rb[2]["short_warranty"])
+
+
+class NoPriceBeforeTheGateTest(unittest.TestCase):
+    """A known no-warranty pick never reaches a price: main() works out no value_limit, saved_cap, accept_percent, short
+    cap or band for it, and p_max / expected / short_terms are never called (the gate stands before them)."""
+    PRICING = (("market_buyer", "value_limit"), ("market_buyer", "saved_cap"), ("market_buyer", "accept_percent"),
+               ("market_buyer", "short_cap"), ("market_buyer", "short_terms"), ("market_buyer.buyer_accept_band", "ceiling"),
+               ("sw", "p_max"), ("sw", "expected"), ("sw", "cap"), ("sw", "grades_ok"), ("sw", "receipt_check"))
+
+    def events(self, switch):
+        ev = []
+        mods = {"market_buyer": market_buyer, "market_buyer.buyer_accept_band": market_buyer.buyer_accept_band, "sw": sw}
+        patches = []
+        for mod, name in self.PRICING:
+            real = getattr(mods[mod], name)
+            patches.append(mock.patch.object(mods[mod], name,
+                                             (lambda real, name: lambda *a, **k: ev.append(name) or real(*a, **k))(real, name)))
+        patches.append(mock.patch.object(market_buyer, "log", lambda m: ev.append(("log", m))))
+        for p in patches:
+            p.start()
+        try:
+            out, calls, o, _ = MainZeroTest.main(MainZeroTest(), switch, 5800, 0, known_short=True)
+        finally:
+            for p in reversed(patches):
+                p.stop()
+        return ev, out, calls, o
+
+    @staticmethod
+    def at(ev, text):
+        return next(i for i, e in enumerate(ev) if isinstance(e, tuple) and text in e[1])
+
+    def test_a_known_0h_pick_reaches_no_price(self):
+        ev, out, calls, o = self.events(MainZeroTest.ON)
+        chose, gate, stop = self.at(ev, "[choose] https"), self.at(ev, "no warranty expected"), self.at(ev, "[offer] limit 0")
+        self.assertLess(chose, gate)
+        self.assertLess(gate, stop)
+        self.assertEqual([e for e in ev[chose:] if isinstance(e, str)], [])   # from the pick on: no price at all
+        # before the pick, only buyer_food_sku.reserve's limit for every shop (another study, as before): the same calls
+        # under rollback, so the gate changes nothing there
+        rb = self.events(MainZeroTest.ROLLBACK)[0]
+        before = lambda e: [x for x in e[:self.at(e, "[choose] https")] if isinstance(x, str)]
+        self.assertEqual(before(ev), before(rb))
+        self.assertNotIn("p_max", before(ev))
+        self.assertEqual(calls, [])
+        self.assertEqual(o["short_warranty"]["zero"], sw.ZERO_HIST)
+        self.assertNotIn("short_warranty_buy", o)
+
+    def test_the_probe_sees_prices_under_rollback(self):
+        ev, out, calls, o = self.events(MainZeroTest.ROLLBACK)
+        priced = [e for e in ev if isinstance(e, str)]
+        for name in ("value_limit", "saved_cap", "accept_percent", "short_cap", "short_terms", "p_max"):
+            self.assertIn(name, priced)
+        self.assertEqual(len(calls), 1)
+
+
+class ShortCapGateTest(unittest.TestCase):
+    """short_cap called on its own (quote ranking, the order record) gives 0 for a no-warranty unit before short_terms,
+    cap or p_max, with the run's catalog and with the fallback (no catalog) alike."""
+    O = {"sku": "G1", "list_price": 10000}
+
+    def cap(self, sw_state, name, q, catalog):
+        with mock.patch.dict(market_buyer._SW_CTX, {"catalog": catalog, "md": None}, clear=True), \
+                mock.patch.object(market_buyer, "short_terms", side_effect=AssertionError("short_terms")), \
+                mock.patch.object(sw, "cap", side_effect=AssertionError("cap")), \
+                mock.patch.object(sw, "p_max", side_effect=AssertionError("p_max")), \
+                mock.patch.object(sw, "expected", side_effect=AssertionError("expected")):
+            return market_buyer.short_cap(self.O, 0.072, {"kind": "goods", "_sw": sw_state}, name, q, None)
+
+    def test_zero_gives_0_unpriced(self):
+        s = st(hist={"z": 0}, zero_hist=["z"])
+        for catalog in ({"G1": {"kind": "goods", "list_price": 10000}}, None):
+            self.assertEqual(self.cap(s, "z", None, catalog), 0)
+            self.assertEqual(self.cap(s, "z", {"warranty_h": None}, catalog), 0)
+            self.assertEqual(self.cap(s, "a", {"warranty_h": 0, "refused": sw.ZERO_QUOTE}, catalog), 0)
+            self.assertEqual(self.cap(s, "a", {"warranty_h": -1}, catalog), 0)
+
+    def test_others_priced_as_before(self):
+        s = st(hist={"z": 0}, zero_hist=["z"])
+        with mock.patch.dict(market_buyer._SW_CTX, {}, clear=True):
+            for name, q in (("a", {"warranty_h": 0.5}), ("a", {"warranty_h": 3}), ("z", {"warranty_h": 0.5})):
+                on = market_buyer.short_cap(self.O, 0.072, {"kind": "goods", "_sw": s}, name, q)
+                rb = market_buyer.short_cap(self.O, 0.072, {"kind": "goods", "_sw": dict(s, block_zero=False)}, name, q)
+                self.assertEqual(on, rb, (name, q))
+                self.assertGreater(on, 0, (name, q))
+            self.assertIsNone(market_buyer.short_cap(self.O, 0.072, {"kind": "goods", "_sw": s}, "a", {"warranty_h": None}))
+            rb0 = market_buyer.short_cap(self.O, 0.072, {"kind": "goods", "_sw": dict(s, block_zero=False)}, "z", None)
+            self.assertGreater(rb0, 0)                                    # rollback: p_max(0) as on 11/08
 
 
 if __name__ == "__main__":

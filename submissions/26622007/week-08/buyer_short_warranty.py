@@ -24,14 +24,15 @@ against accept.grades), and b is the worst of those.
 
 No warranty at all is never bought (fixed rule: no goods without a warranty; decision ax-0h-nonfood-block, 11/09 22:44).
 The switch used to price a unit expected with none at p_max(0 h) and pay a 0 h or unnamed receipt under it (9 such
-receipts passed to the kit 11/08-11/09 12:09). "None" is under MIN_WARRANTY_HOURS or not a number: the ledger's goods
-sales name only whole hours from 1 h up (392,737 rows to 11/09 22:5x: 1, 2, 3, 4, 6, 12, 24, 48, 72 h or none), so a
-seller cannot pass 0.000001 h off as a warranty. Before any price: a quote that says none, or a shop whose recent short
-receipts to me included one with none (zero_hist) with a quote that names no warranty hours, is refused and no talk is
-started (zero_expected); a talk text that says none ends the talk; and receipt_check refuses such a receipt before
-pricing or reserving. p_max(h) is not touched. A quote naming only 6 h or more (buyer_warranty_said.stated_ok) is never
-blocked by the history, in any arm; one naming 1 <= h < 6 is priced as before, and a shop whose short receipts all
-named 1 h or more is priced at its 0 h history as before.
+receipts passed to the kit 11/08-11/09 12:09). "None" is exactly what receipt_check used to price as 0 h: 0, a
+negative, missing or not a finite number (no_warranty); any finite h over 0 is a short warranty, priced as before (no
+new least warranty here). Before any price: a quote that says none, or a shop whose recent short receipts to me
+included one with none (zero_hist) with a quote that names no warranty hours, is refused and no talk is started
+(zero_expected; market_buyer.main checks it before value_limit, saved_cap, accept_percent and short_cap, and short_cap
+gives 0 for it without pricing); a talk text that says none ends the talk; and receipt_check refuses such a receipt
+before pricing or reserving. p_max(h) is not touched. A quote naming only 6 h or more (buyer_warranty_said.stated_ok)
+is never blocked by the history, in any arm; one naming 0 < h < 6 is priced as before, and a shop whose short receipts
+all named hours over 0 is priced at its 0 h history as before.
 
 Switch: .market/buyer_short_warranty.json {"enabled": true, "cash_buffer": <won>, "block_zero_nonfood": true}; missing,
 unreadable or anything else is off, and off is the old behaviour exactly (6 h or no deal). BUYER_SHORT_WARRANTY=0 in the
@@ -59,7 +60,6 @@ GRADES = ("A", "B", "C")
 EXPOSURE_FILE = "buyer_short_warranty_exposure.jsonl"    # one line per short-warranty deal passed to the kit
 ME = ("nocha12",)               # my buyer's name on the board, compared lowercased
 BLOCK_ZERO = "block_zero_nonfood"   # switch field; only JSON false turns the no-warranty block off
-MIN_WARRANTY_HOURS = 1          # under this (or not a number) is no warranty: the least the ledger ever named is 1 h
 ZERO_QUOTE = "no warranty expected: the quote says none"
 ZERO_HIST = "no warranty expected: the shop's recent goods receipts to me had none"
 
@@ -155,15 +155,16 @@ def block_zero(sw):
 
 
 def no_warranty(w):
-    """Whether warranty hours w are none: not a number, or under MIN_WARRANTY_HOURS."""
-    return not (number(w) and w >= MIN_WARRANTY_HOURS)
+    """Whether warranty hours w are none: 0, negative, missing or not a finite number (nan, inf, a bool, a string), the
+    hours receipt_check priced as 0 h before the block. Any finite w > 0 is a warranty (0.5 h too)."""
+    return not (number(w) and w > 0)
 
 
 def zero_expected(sw, shop, quote=None):
     """Why this shop's goods unit is expected with no warranty, so it is refused before any price, else None: the quote
-    says none (or under MIN_WARRANTY_HOURS), or names no warranty hours (neither short nor 6 h or more) while the shop is
+    says none (no_warranty: 0 or negative), or names no warranty hours (neither short nor 6 h or more) while the shop is
     in the short history (hist, taken as 0 h) and its recent short receipts to me included one with none (zero_hist;
-    a state without zero_hist reads every hist shop so: fails closed). A quote naming 1 <= h < 6 is priced as before
+    a state without zero_hist reads every hist shop so: fails closed). A quote naming 0 < h < 6 is priced as before
     (hours_for), and one naming only 6 h or more is never blocked by the history (buyer_warranty_said, any arm or off)."""
     if not block_zero(sw):
         return None

@@ -1348,8 +1348,11 @@ def short_cap(o, b, order, name, q, shop=None):
     """buyer_short_warranty's cap for a shop expected to give a short warranty on this order, else None: the highest
     price the receipt check passes (short_terms; the grade of least chance, as grades_ok takes any grade that keeps S).
     11/08 19:32-20:00 the cap was p_max of the quoted SKU's list and chance, and 12 of 21 ddolcom orders agreed grade C
-    units at 60% of list that the receipt check then refused. A check that fails gives 0: nothing fits."""
+    units at 60% of list that the receipt check then refused. A check that fails gives 0: nothing fits. A unit expected
+    with no warranty (buyer_short_warranty.zero_expected) gives 0 before any price: never bought."""
     sw = (order or {}).get("_sw")
+    if buyer_short_warranty.zero_expected(sw, name, q):
+        return 0
     h = buyer_short_warranty.hours_for(sw, name, q)
     if h is None:
         return None
@@ -2144,37 +2147,41 @@ def main():
     key = offer["sku"] if r3 else args.item     # prices are comparable within a SKU, not within a category
     label = offer["name"] if r3 else args.item
     chance = None
-    sw_h = buyer_short_warranty.hours_for(order.get("_sw"), shop["name"], quotes.get(shop["name"])) if r3 else None
+    # no warranty expected (buyer_short_warranty.zero_expected): never bought, so no price at all (no limit, band or
+    # short cap is worked out) and no talk (limit 0 below)
+    zero = buyer_short_warranty.zero_expected(order.get("_sw"), shop["name"], quotes.get(shop["name"])) \
+        if r3 and order.get("_sw") is not None else None
+    sw_h = buyer_short_warranty.hours_for(order.get("_sw"), shop["name"], quotes.get(shop["name"])) if r3 and not zero else None
     order["_goods_grade"] = None
+    if zero:
+        order["_sw_zero"] = zero
+        log(f"[short-warranty] {shop['name']}: {zero}: no talk")
     if r3 and order.get("kind") == "goods":
-        chance = sku_chance = market_model.break_chance(ledger_breaks(md, catalog), key)
+        chance = sku_chance = market_model.break_chance(ledger_breaks(md, catalog), key)   # the ledger's rate, for the record
+    if r3 and order.get("kind") == "goods" and not zero:
         # buyer_goods_grade arm B: a quote naming grade B/C prices the unit by that grade's chance (off: the SKU's)
         chance, order["_goods_grade"] = buyer_goods_grade.adjust(md, order, quotes.get(shop["name"]),
                                                                  ledger_breaks(md, catalog), key, chance, sw_h)
         if order["_goods_grade"]:
             log(f"[goods-grade] {shop['name']}: arm {order['_goods_grade']['arm']}, grade {order['_goods_grade']['grade']}"
                 f" (SKU {order['_goods_grade']['sku_chance']:.1%}, grade {order['_goods_grade']['grade_chance']:.1%})")
-    limit = min(value_limit(offer, args.budget, chance, buyer_cfg()), saved_cap(offer, chance)) if r3 else args.budget
+    limit = 0 if zero else min(value_limit(offer, args.budget, chance, buyer_cfg()), saved_cap(offer, chance)) if r3 \
+        else args.budget
     if order["_goods_grade"]:     # arm A's limit too, for the judgement and to keep arm B out of the shop profiles
         order["_goods_grade"]["limit_a"] = min(value_limit(offer, args.budget, sku_chance, buyer_cfg()),
                                                saved_cap(offer, sku_chance))
     # plan A: a counter up to 105% of the limit is taken; more with a shop that holds its ask (buyer_shop_profile)
-    band_base, band_pct = accept_percent(md, shop["name"], offer, chance, limit, args.budget) if r3 else (None, None)
+    band_base, band_pct = accept_percent(md, shop["name"], offer, chance, limit, args.budget) if r3 and not zero \
+        else (None, None)
     if r3 and (order.get("_saved_floor") or {}).get("band_off"):   # a deal over the floor would lower Saved
         band_base, band_pct = None, None
-    zero = buyer_short_warranty.zero_expected(order.get("_sw"), shop["name"], quotes.get(shop["name"])) \
-        if r3 and order.get("_sw") is not None else None
-    if zero:                  # no warranty expected: never bought, so no price and no talk (limit 0 below)
-        limit, band_base, band_pct = 0, None, None
-        order["_sw_zero"] = zero
-        log(f"[short-warranty] {shop['name']}: {zero}: no talk")
-    elif sw_h is not None:    # a short warranty expected: p_max(h) is the ceiling, no accept band (owner 7955)
+    if sw_h is not None:    # a short warranty expected: p_max(h) is the ceiling, no accept band (owner 7955)
         limit = min(limit, short_cap(offer, chance, order, shop["name"], quotes.get(shop["name"]), shop))
         band_base, band_pct = None, None
         order["_sw_h_est"] = sw_h
         log(f"[short-warranty] {shop['name']} expected {sw_h:g} h: limit {limit} (the receipt check's list and grade chance)")
     top = buyer_accept_band.ceiling(limit, args.budget, band_pct, value_limit(offer, args.budget, chance, buyer_cfg())) \
-        if r3 else limit
+        if r3 and not zero else limit
     mine = my_history(memory, shop["name"])
     pattern = shop_pattern(ledger_rows(md), shop["url"], catalog) if r3 else None
     deals, low = item_stats(mine, key)

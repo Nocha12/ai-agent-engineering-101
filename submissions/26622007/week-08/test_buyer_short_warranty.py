@@ -210,11 +210,15 @@ class BuyerHooksTest(unittest.TestCase):
         on = {"kind": "goods", "_sw": {"S": .3, "buffer": 1e6, "hist": {}}}
         self.assertIsNone(market_buyer.short_cap(o, .072, {"kind": "goods"}, "s", {"warranty_h": 0}))
         self.assertIsNone(market_buyer.short_cap(o, .072, on, "s", {"warranty_h": None}))
-        self.assertEqual(market_buyer.short_cap(o, .072, on, "s", {"warranty_h": 0}), sw.cap(10000, 0, .072, .3))
+        rb = {"kind": "goods", "_sw": dict(on["_sw"], block_zero=False)}       # the rollback: 0 h priced at p_max(0)
+        self.assertEqual(market_buyer.short_cap(o, .072, rb, "s", {"warranty_h": 0}), sw.cap(10000, 0, .072, .3))
+        self.assertEqual(market_buyer.short_cap(o, .072, on, "s", {"warranty_h": 0}), 0)    # on: none, never bought
+        self.assertEqual(market_buyer.short_cap(o, .072, on, "s", {"warranty_h": 3}), sw.cap(10000, 3, .072, .3))
         shops = [{"name": "s", "_offer": o, "_b": .072}] * 3
         got = {"s": {"ask": 6500, "warranty_h": 0}}
         self.assertTrue(market_buyer.quotes_enough(shops, got, 20000, {}))           # off: 6,500 under the 6 h cap
-        self.assertFalse(market_buyer.quotes_enough(shops, got, 20000, {}, on))      # on: over p_max(0) = 5,991
+        self.assertFalse(market_buyer.quotes_enough(shops, got, 20000, {}, rb))      # rollback: over p_max(0) = 5,991
+        self.assertFalse(market_buyer.quotes_enough(shops, got, 20000, {}, on))      # on: a 0 h quote never fits
 
 
 class MainTest(unittest.TestCase):
