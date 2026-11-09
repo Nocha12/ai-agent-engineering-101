@@ -151,6 +151,22 @@ class ZeroExpectedTest(unittest.TestCase):
         self.assertIsNone(sw.hours_for(s, "a", {"warranty_h": None}))
 
 
+class WarrantyShortTest(unittest.TestCase):
+    G = {"kind": "goods"}
+
+    def test_not_a_finite_number_is_no_warranty(self):
+        for w in (float("inf"), json.loads("1e309"), float("-inf"), float("nan"), None, "72", True):
+            self.assertEqual(market_buyer.warranty_short({"warranty_hours": w}, self.G),
+                             "warranty 0 h, I buy goods only with 6 h", w)
+
+    def test_finite_hours_as_before(self):
+        for w in (6, 6.0, 72, 73, 1e300):
+            self.assertIsNone(market_buyer.warranty_short({"warranty_hours": w}, self.G), w)
+        self.assertEqual(market_buyer.warranty_short({"warranty_hours": 5}, self.G), "warranty 5 h, I buy goods only with 6 h")
+        self.assertEqual(market_buyer.warranty_short({"warranty_hours": 0.5}, self.G), "warranty 0.5 h, I buy goods only with 6 h")
+        self.assertIsNone(market_buyer.warranty_short({"warranty_hours": float("inf")}, {"kind": "food"}))
+
+
 class ZeroWarrantyShopsTest(unittest.TestCase):
     CAT = {"G1": {"kind": "goods"}, "F1": {"kind": "food"}}
 
@@ -308,6 +324,23 @@ class MainZeroTest(unittest.TestCase):
             self.assertFalse(o["passed_to_kit"], w)
             self.assertEqual(reserved, [], w)
             self.assertIn("no warranty", " ".join(o["warnings"]))
+
+    def test_an_infinite_receipt_is_not_passed_to_the_kit(self):
+        # inf >= 6 made warranty_short say "fine": the short branch and its no_warranty block were skipped and an
+        # inf-hour goods receipt was paid (json.loads takes Infinity and 1e309 as inf). Not seen in settle (max 72 h).
+        for w in (float("inf"), json.loads("1e309"), json.loads("Infinity"), float("-inf")):
+            out, calls, o, reserved = self.main(self.ON, 5800, w)
+            self.assertIsNone(out["receipt"], w)
+            self.assertEqual(out["accept"], {"warranty_hours": 6}, w)
+            self.assertEqual(o["short_warranty_buy"], {"h": 0, "ok": False, "blocked": "no_warranty"}, w)
+            self.assertFalse(o["passed_to_kit"], w)
+            self.assertEqual(reserved, [], w)
+            self.assertIn("warranty 0 h, I buy goods only with 6 h", " ".join(o["warnings"]))
+
+    def test_switch_off_an_infinite_receipt_is_refused_like_a_0h_one(self):
+        inf, zero = self.main(None, 5800, float("inf")), self.main(None, 5800, 0)
+        self.assertIsNone(inf[0]["receipt"])
+        self.assertEqual((inf[0], inf[1], inf[2]["warnings"], inf[3]), (zero[0], zero[1], zero[2]["warnings"], zero[3]))
 
     def test_rollback_pays_a_0h_receipt_within_p_max_as_on_11_08(self):
         out, calls, o, reserved = self.main(self.ROLLBACK, 5800, 0)
