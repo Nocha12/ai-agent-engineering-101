@@ -136,6 +136,17 @@ class Turn(unittest.TestCase):
                           "limit": 600000, "live": True, "applied": True})
         self.assertEqual((ev[3]["live"], ev[3]["applied"]), (True, False))
 
+    def test_a_journal_that_cannot_be_written_changes_nothing(self):
+        md = tempfile.mkdtemp()
+        write(md)
+        with open(os.path.join(md, os.path.dirname(mf.JOURNAL)), "w") as f:     # a file where its folder goes
+            f.write("x")
+        ctx = mf.assign(md, {"order": order_in("B")}, now=NOW)
+        self.assertEqual(ctx["arm"], "B")
+        d = mf.turn(None, None, G, [], 600000, (0.9,), 518149, True, True, ctx, md, "moss-and-oak", now=NOW)
+        self.assertEqual(d["price"], int(0.9 * 518149))
+        self.assertEqual(len(ctx["applied"]), 1)
+
     def test_off_or_not_seen_journals_nothing(self):
         md = tempfile.mkdtemp()
         self.assertIsNone(mf.assign(md, {"order": "o-1"}, now=NOW))
@@ -316,12 +327,12 @@ class Wired(unittest.TestCase):
             self.assertEqual(ladder(10500, "", history)["price"], 10000)
         seen = []
         with unittest.mock.patch.object(market_buyer, "moss_first_and_final_m1",
-                                        side_effect=lambda d, *a: seen.append(d) or d), \
+                                        side_effect=lambda d, *a: seen.append((d, a[-1])) or d), \
                 unittest.mock.patch.object(market_buyer, "md", self.md, create=True):
             ladder = tb.RealLadderTest("test_on_takes_the_final_ask_within_105_after_my_raise_off_walks").ladder(
                 {"kind": "goods", "_final_m1": []}, 10000)
             self.assertEqual(ladder(10500, "", history)["price"], 10000)
-        self.assertEqual(seen, [{"shop_price": 10500, "action": "offer", "price": 10000}])
+        self.assertEqual(seen, [({"shop_price": 10500, "action": "offer", "price": 10000}, "fixture")])  # shop["name"]
 
 
 class FinalM1(unittest.TestCase):
