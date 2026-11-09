@@ -1,27 +1,49 @@
 {
- "about": "Players 추가효과 순서로 한 번에 하나. 종료된 기존4개는 experiments_log.jsonl와 이번 queue-before.json에 보존. 독립 기대값은 미식별이며 주 전략 오류 교정 뒤 작은 진단 실험을 진행한다.",
+ "about": "Evidenced experiments, one at a time, in order (meta/terra.md 'Experiments'). Add at the end with every field filled and the evidence cited; meta/experiments_log.jsonl holds which one runs.",
  "queue": [
   {
-   "id": "sku-evidence-restock-133041",
-   "change": "첫 Terra 주기에 meta/restock-sku-evidence.txt의 세 문장을 restock.GOAL에 붙여 시작한다. 총재고만으로 광범위 제안을 거절하지 않고 축소 SKU별 숙성 손실·기한·잔류 근거를 인용한다. 가격/수량 변경 없이 이후3판단을 수집한다.",
-   "evidence": "meta/evidence/astra-1109-133041-probes.jsonl:10 실제 광범위 제안 거절; meta/evidence/astra-1109-133041-probes.jsonl:5 및 :6 총상한 절단0/0",
-   "metric": "총재고만으로 광범위 축소한 판단 수와 SKU근거 완비 판단 수",
-   "direction": "below",
-   "threshold": "근거없는 총량축소1건 미만, SKU근거 완비2건 이상; 예상 추가 Players 미식별이므로 경제효과0을 기준으로 측정",
-   "min_sample": "재입고 판단3건",
+   "id": "carpet-G1465c678-one-unit",
+   "change": "One unit of G1465c678 (list 307,000; worst cost at the highest surge 345,375): next_window target 1, priority_skus gets it with sku_target_units 1 so the guard lets one high-price unit through, no repeat until judged.",
+   "evidence": "GPT Pro 11/05 product candidates: the next high-price candidate in the current exploration budget; market mature sales 29 at 3 shops, 0 refunds, 21 of them at one shop, so whether we sell it is unknown.",
+   "metric": "the unit's net contribution 6 h after its sale (settled price - cost - refund - storage), or unsold after two supply windows",
+   "direction": "above",
+   "threshold": "net contribution > 0 and sold within 2 supply windows",
+   "min_sample": "1 unit",
    "hours": 12,
-   "undo": "11/10 01:30 KST까지 실패 또는 표본부족이면 이번 restock.GOAL 세 문장만 제거. 총상한·현금가드·사람 스위치 유지"
+   "undo": "drop it from next_window, priority_skus and sku_target_units; no repeat"
   },
   {
-   "id": "recent-cohort-context-133041",
-   "change": "앞 실험 종료 뒤 기존 cohort_profit start로 최근 완료6h 숙성창과 이전6h의 G8ec51935를 SKU×등급별 비교하는 임시 재입고 맥락1개 추가. 누적손익 대신 최근 매입원가·환불을 명시하며 가격/수량은 자동 변경하지 않는다.",
-   "evidence": "meta/evidence/astra-1109-133041-probes.jsonl:14 최근116숙성/누락0/순기여-3992702원; :2 누적374건/원가누락1/known_net36642201원. 단순 누적 흑자와 최근 손실이 반대.",
-   "metric": "원가·환불·등급이 확인된 최근/이전 코호트 비교와 실제 판단 인용 수",
+   "id": "g6-a-ask-cap-343k",
+   "change": "price.ask_caps.G6b9db161.A 350,000 -> 343,000 (first ask 2% lower), nothing else.",
+   "evidence": "GPT Pro 11/05 priority 7: G6 A 64 mature sales, 5 refunds, mean paid 345,584, contribution 52,388 per sale; book breaks even at +13.9% units, revenue at +2.04%; the data has no count of orders lost on price, so it is a test.",
+   "metric": "G6 A units sold per hour and net contribution per hour, same grade and stock hours, against the 20 mature sales before",
    "direction": "above",
-   "threshold": "누락0인 비교1개 이상과 실제 판단 인용1개 이상; 경제적 확대는 별도 세 조건 모두 충족할 때만",
-   "min_sample": "각 비교창 원가 확인 숙성20건, 실제 판단1건",
+   "threshold": "net contribution per hour >= the previous 20 sales' rate",
+   "min_sample": "20 mature sales after the change",
+   "hours": 24,
+   "undo": "price.ask_caps.G6b9db161.A back to 350000"
+  },
+  {
+   "id": "supply-audit-context-113730",
+   "change": "restock.GOAL에 supply_audit와 cohort_profit으로 검증 고가 SKU 한 개의 두 공급창을 확인하는 지침 추가; 설정과 매입량은 그대로",
+   "evidence": "meta/evidence/astra-1107-113730-probes.jsonl:4 G03d0199f 1입고 0판매; :6 G24f5f979 1입고 1판매; meta/changes.jsonl:72 반복 미확인",
+   "metric": "재고 불명 축소 건수와 단위 ID·숙성 순기여를 함께 인용한 재입고 판단 수",
+   "direction": "above",
+   "threshold": "근거 완비 판단 >=2, 재고 불명 축소 =0",
+   "min_sample": "재입고 판단 3건 및 서로 다른 완료 공급창 2개",
    "hours": 12,
-   "undo": "시작 후12h(주 실험 만료 후 즉시 시작하면11/10 13:30 KST)에 표본부족/비교실패면 이 임시 맥락만 제거. 누적 원장과 기존 도구·전체 재고는 유지"
+   "undo": "이번 restock.GOAL 추가 문장만 제거; 기존 my_state와 총상한은 유지. 도구 결과 오류면 supply_audit와 해당 테스트 제거"
+  },
+  {
+   "id": "forum-demand-join-113730",
+   "change": "주 실험 종료 뒤 forum 분석 맥락에 구합니다 3개를 catalog_search/auto_market_research의 실제 결제 SKU와 연결하도록 추가; 매입·메시지·투표 없음",
+   "evidence": "meta/evidence/astra-1107-113730-audit-v3.jsonl:201: #30979 곡물 예산1만원대 72h, #30992 신선조개류 주문3건 실패",
+   "metric": "예산·잔여기한·실제 settle 근거를 함께 확인한 수요 후보 수",
+   "direction": "above",
+   "threshold": "유효 후보 >=1, 잘못 연결한 결제행 =0",
+   "min_sample": "수요글 3개; 없으면 표본부족으로 종료",
+   "hours": 12,
+   "undo": "이번 수요 연결 맥락 문장만 제거; 후보 자동매입 금지"
   }
  ]
 }

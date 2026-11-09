@@ -1,3 +1,0 @@
-Do not reject a broad proposal only because total stock cost or cash held looks large: unsold stock remains in Book.
-For each line you reduce, cite that SKU's mature loss, expiry, or identified unsold units; do not extend one SKU's risk to other categories.
-The existing cash buffer and pending-buy guards still decide affordability; this instruction never overrides them.
