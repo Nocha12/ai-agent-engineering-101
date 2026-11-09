@@ -1265,6 +1265,28 @@ def choose_racing(pick, memory, item, budget, pre):
     return box["r"]
 
 
+def warranty_said_row(md, order, offer, chance, shop, quotes, rec, short):
+    """The orders row's "warranty_said" (buyer_warranty_said.measure), or None: a failing cap0 or measure is logged
+    and never stops the result line (review 4 m1/m2)."""
+    if not (order.get("_sw") or {}).get("said"):
+        return None
+    cap0 = None
+    try:
+        # arm A's cap for the chosen shop: the same short_cap with the study left out
+        cap0 = short_cap(offer, chance, {**order, "_sw": {**order["_sw"], "said": None}}, shop["name"],
+                         quotes.get(shop["name"]), shop) if chance is not None else None
+    except Exception as e:   # noqa: BLE001 - cap0 is a measure only: None
+        log(f"[warranty-said] cap0 failed: {type(e).__name__}: {e}")
+    try:
+        said = buyer_warranty_said.measure(md, order["_sw"], quotes, shop["name"], rec, short, cap0)
+    except Exception as e:   # noqa: BLE001 - the study's measure never stops the result line
+        log(f"[warranty-said] record failed: {type(e).__name__}: {e}")
+        return None
+    if said and said.get("note_error"):
+        log(f"[warranty-said] stop note failed: {said['note_error']}; the stop rule counts this receipt out")
+    return said
+
+
 _SW_CTX = {}     # {"md", "catalog"} of this run, set by main() when buyer_short_warranty is on
 
 
@@ -2306,19 +2328,7 @@ def main():
             order.get("_stock_evidence"), state=out.get("state"), passed_to_kit=result.get("receipt") is not None)
         if rk is not None and rk.get("treatment") == "unknown":
             buyer_rank_pg.unselected(rk, "no_quote_selection")
-        said = None
-        if (order.get("_sw") or {}).get("said"):
-            cap0 = None
-            try:
-                # arm A's cap for the chosen shop: the same short_cap with the study left out
-                cap0 = short_cap(offer, chance, {**order, "_sw": {**order["_sw"], "said": None}}, shop["name"],
-                                 quotes.get(shop["name"]), shop) if chance is not None else None
-            except Exception as e:   # noqa: BLE001 - cap0 is a measure only: None
-                log(f"[warranty-said] cap0 failed: {type(e).__name__}: {e}")
-            try:
-                said = buyer_warranty_said.measure(md, order["_sw"], quotes, shop["name"], rec, short, cap0)
-            except Exception as e:   # noqa: BLE001 - the study's measure never stops the result line
-                log(f"[warranty-said] record failed: {type(e).__name__}: {e}")
+        said = warranty_said_row(md, order, offer, chance, shop, quotes, rec, short)
         try:
             records.write(md, "orders", {**order_record(order, args, shops, quotes, first_choice, first_reason, shop, reason, offer,
                                                         limit, chance, out, rec, result, problems, warnings, short, why, stages,

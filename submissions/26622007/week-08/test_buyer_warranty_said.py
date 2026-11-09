@@ -76,7 +76,11 @@ class HoursForTest(unittest.TestCase):
                      "72 h warranty. 0.5 h for grade C", "72 h warranty. 30 min for grade C", "72시간 보증, C등급 30분",
                      # review 3 m-B, m-C
                      "72 h warranty. \nThis price ships without one.", "72 h warranty! ...Without it 9000",
-                     "72 h warranty, three hours for this price", "72 h warranty. grade C: two hours"):
+                     "72 h warranty, three hours for this price", "72 h warranty. grade C: two hours",
+                     # review 4 m3, m4
+                     "72 h warranty.\n-\nWithout it 9000", "72 h warranty. … Without it 9000",
+                     "72 h warranty, grade C: five minutes", "72 h warranty; this price: delivered within an hour",
+                     "72 h warranty, grade C half an hour", "72 h warranty, a few hours for this price"):
             q = quote(text)
             self.assertFalse(q["warranty_said_ok"], text)
             self.assertEqual(sw.hours_for(order_sw("B"), "thisjonghoon", q), 0, text)
@@ -290,6 +294,37 @@ class WiringTest(unittest.TestCase):
         self.assertEqual(src.count('"warranty_said": buyer_warranty_said.trade_mark(order)'), 1)
         self.assertEqual(src.count("buyer_warranty_said.held_out(t, now)"), 1)
         self.assertEqual(src.count('cap0 = short_cap(offer, chance, {**order, "_sw": {**order["_sw"], "said": None}}'), 1)
+
+    def test_a_failing_cap0_keeps_the_row_and_a_failing_note_is_logged(self):
+        # review 4 m1/m2: warranty_said_row
+        md = tempfile.mkdtemp()
+        try:
+            order = {"order": "o-1", "_sw": dict(order_sw("B"), said={"study": "bw1-test", "v": ws.VERSION,
+                     "assigned": "B", "arm": "B", "start_at": T0, "stop_at": T0 + 9 * 3600})}
+            quotes = {"thisjonghoon": quote(THISJONGHOON)}
+            shop = {"name": "thisjonghoon"}
+            lines = []
+            with mock.patch.object(market_buyer, "short_cap", side_effect=ValueError("x")), \
+                    mock.patch.object(market_buyer, "log", side_effect=lines.append):
+                r = market_buyer.warranty_said_row(md, order, {}, 0.03, shop, quotes, None, None)
+            self.assertEqual((r["applied"], r.get("cap0")), (True, None))
+            self.assertTrue(any("cap0 failed" in s for s in lines), lines)
+            lines.clear()
+            with mock.patch.object(ws, "note", side_effect=IsADirectoryError), \
+                    mock.patch.object(market_buyer, "short_cap", return_value=100), \
+                    mock.patch.object(market_buyer, "log", side_effect=lines.append):
+                r = market_buyer.warranty_said_row(md, order, {}, 0.03, shop, quotes, {"price": 1}, None)
+            self.assertEqual(r["note_error"], "IsADirectoryError")
+            self.assertTrue(any("stop note failed" in s for s in lines), lines)
+            with mock.patch.object(ws, "measure", side_effect=KeyError("k")), \
+                    mock.patch.object(market_buyer, "log", side_effect=lines.append):
+                self.assertIsNone(market_buyer.warranty_said_row(md, order, {}, 0.03, shop, quotes, None, None))
+            self.assertIsNone(market_buyer.warranty_said_row(md, {"_sw": order_sw("")}, {}, 0.03, shop, quotes,
+                                                             None, None))
+        finally:
+            for n in os.listdir(md):
+                os.unlink(os.path.join(md, n))
+            os.rmdir(md)
 
     def test_cap0_is_arm_a_short_cap(self):
         o = {"list_price": 921600, "sku": "G85a1a856"}

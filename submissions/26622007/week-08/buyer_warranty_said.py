@@ -63,12 +63,14 @@ EVENTS = "buyer_warranty_said_events.jsonl"
 MAX_WINDOW_HOURS = 12
 TRIP_MIN = 4
 TRIP_SHARE = 0.25     # about twice the highest shop's 0 h share of goods sales (thisjonghoon 55/416, 13%)
-VERSION = "bw1-3"
+VERSION = "bw1-4"
 # a sentence naming the warranty with any of these is not "names only 6 h or more" (review 08b282d I1)
 WARRANTY_WORD = re.compile(r"warrant|guarantee|safe-care|보증|케어|보장", re.I)
 # any duration under 6 h anywhere ("1 h for this price", "0.5 h for grade C", "30 min"): review 2 m3
-WORD_DURATION = re.compile(r"\b(" + "|".join(sorted(ask_read.WORD_N, key=len, reverse=True)) + r")[ \t-]*(?:h|hrs?|hours?)(?![a-z])",
-                           re.I)
+WORD_DURATION = re.compile(r"\b(" + "|".join(re.escape(w) for w in sorted(ask_read.WORD_N, key=len, reverse=True))
+                           + r")[ \t-]*(h|hrs?|hours?|mins?|minutes?)(?![a-z])", re.I)
+# "within an hour", "half an hour", "a few hours" (review 4 m4)
+FEW_HOURS = re.compile(r"\b(?:an?|half an?|a few|few|a couple of|couple of)[ \t-]+(?:hours?|hrs?|minutes?|mins?)\b", re.I)
 DURATION = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)[ \t-]*(h|hrs?|hours?|min|mins|minutes?|시간|분)(?![a-z])", re.I)
 # "if it breaks" is the market's own warranty wording, not a condition; a Korean hedge counts only next to the
 # warranty word (product names say "먼지없는", "색상선택": 11/09 replay, ana/bw1_said_replay.py)
@@ -186,9 +188,13 @@ def _stated_ok(text):
         if (v / 60 if m[2].lower().startswith("min") or m[2] == "분" else v) < ask_read.GOODS_WARRANTY_HOURS:
             return False
     for m in WORD_DURATION.finditer(raw):
-        if ask_read.WORD_N[m[1].lower()] < ask_read.GOODS_WARRANTY_HOURS:
+        v = ask_read.WORD_N[m[1].lower()]
+        if (v / 60 if m[2].lower().startswith("m") else v) < ask_read.GOODS_WARRANTY_HOURS:
             return False
-    sentences = [s for s in SENTENCE.split(raw) if s.strip()]
+    if FEW_HOURS.search(raw):
+        return False
+    # a piece with no word in it ("-", "…") is not the next sentence (review 4 m3)
+    sentences = [s for s in SENTENCE.split(raw) if re.search(r"\w", s)]
     # the warranty's sentence and the next one ("72 h warranty. This price ships without one.")
     if any(WARRANTY_WORD.search(s) and HEDGE.search(s + " " + (sentences[i + 1] if i + 1 < len(sentences) else ""))
            for i, s in enumerate(sentences)):
