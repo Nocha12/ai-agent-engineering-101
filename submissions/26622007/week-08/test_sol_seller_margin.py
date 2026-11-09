@@ -668,7 +668,7 @@ class SellerExposureTest(unittest.TestCase):
             controllers = ('READER_TRIAL', 'CONCESSION_TRIAL', 'LATE_CONCESSION', 'OPENING_DEFAULT',
                            'DRAIN', 'OPENING_CUE', 'LATE_SPEED', 'JEV_TRANSPORT', 'SHELF_REPLY',
                            'EXACT_ACCEPT', 'EXACT_COUNTER', 'GRADE_PREFERENCE', 'FOOD_OPENING',
-                           'AT_FLOOR_EXACT', 'DEEP_LOWBALL', 'QUOTE_HOLD', 'SHELF_JEV')
+                           'AT_FLOOR_EXACT', 'DEEP_LOWBALL', 'QUOTE_HOLD')
             for name in controllers:
                 stack.enter_context(mock.patch.object(getattr(seller, name), 'root', root/name))
             if action == 'prior_writer_failure':
