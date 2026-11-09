@@ -112,5 +112,146 @@ class GradeBreakTrial(unittest.TestCase):
             self.assertIsNone(profit_price.break_trial_arm(bed, cfg(**TRIAL, categories=bad), NOW), bad)
 
 
+    def test_values_that_raised_in_the_quote_are_off(self):
+        # an int too big for a float and a lone surrogate (json.load gives both) raised in math.isfinite / encode:
+        # the quote of every goods unit would have failed
+        u = unit(TREAT[0])
+        for bad in ({"stop_at": 10 ** 400}, {"start_at": -10 ** 400}, {"share": 10 ** 400},
+                    {"grade_break": {"B": 10 ** 400}}, {"grade_break": {"B": 0.19, "A": 10 ** 400}},
+                    {"salt": "\ud800"}, {"grade_break": {}}, {"start_at": True}, {"stop_at": False}):
+            self.assertIsNone(profit_price.break_trial_arm(u, cfg(**{**TRIAL, **bad}), now=NOW), bad)
+            with mock.patch.object(profit_price.time, "time", return_value=NOW):
+                q = profit_price.quote(u, median=700_000, pricing=pricing(**{**TRIAL, **bad}))
+            self.assertEqual((q["b"], q["b_trial"]), (0.122, None), bad)
+        for now in (float("nan"), float("inf"), 10 ** 400, "1794210000"):
+            self.assertIsNone(profit_price.break_trial_arm(u, cfg(**TRIAL), now=now), now)
+
+    def test_window_longer_than_twelve_hours_is_off(self):
+        u = unit(TREAT[0])
+        for stop in (NOW + 10 ** 12, TRIAL["start_at"] + 12 * 3600 + 1):
+            self.assertIsNone(profit_price.break_trial_arm(u, cfg(**{**TRIAL, "stop_at": stop}), now=NOW), stop)
+        twelve = {**TRIAL, "stop_at": TRIAL["start_at"] + 12 * 3600}
+        self.assertEqual(profit_price.break_trial_arm(u, cfg(**twelve), now=NOW), ("trial", 0.19))
+
+    def test_real_b_furniture_units(self):
+        # u-... from the shop's inventory 11/10 03:3x (cert left out: profit_price does not read it)
+        real = [{"unit": "u-21a880c0efac", "sku": "G021aae64", "category": "가구/침구>가구>침대/매트리스", "list_price": 545930,
+                 "kind": "goods", "cost": 353335, "supplied_at": 1794225885, "expires_at": None, "grade": "B"},
+                {"unit": "u-36474c9458ac", "sku": "G9f7c7d1b", "category": "가구/침구>가구>소파/의자/스툴", "list_price": 1776000,
+                 "kind": "goods", "cost": 871152, "supplied_at": 1794247531, "expires_at": None, "grade": "B"}]
+        t = {**TRIAL, "categories": ["가구/침구>"]}
+        p = pricing(**t)
+        for u in real:
+            want = "trial" if in_half(u["unit"]) else "control"
+            with mock.patch.object(profit_price.time, "time", return_value=NOW):
+                q = profit_price.quote(u, median=None, pricing=p)
+                off = profit_price.quote(u, median=None, pricing=pricing())
+            self.assertEqual(q["b_trial"], want)
+            self.assertEqual(q["b"], 0.19 if want == "trial" else 0.122)
+            self.assertEqual(q["floor"], profit_price.floor(u["cost"], u["list_price"], "goods", q["b"], profit_price.cfg_of(p)))
+            self.assertFalse(q["refuse"])
+            self.assertEqual(off["b"], 0.122)
+            self.assertIn(f"grade_break_trial {want}", profit_price.line(u, q))
+            a = {**u, "grade": "A"}
+            with mock.patch.object(profit_price.time, "time", return_value=NOW):
+                self.assertEqual(profit_price.quote(a, pricing=p), profit_price.quote(a, pricing=pricing()))
+
+
+class Switch(unittest.TestCase):
+    """grade_break_trial_switch: the setting and the pricing.json line."""
+
+    def setUp(self):
+        import os
+        import shutil
+        import tempfile
+        import grade_break_trial_switch as sw
+        self.sw, self.os = sw, os
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir)
+        self.path = os.path.join(self.dir, "pricing.json")
+        here = os.path.dirname(os.path.abspath(__file__))
+        shutil.copyfile(os.path.join(here, "pricing.json"), self.path)    # the real hand-formatted file
+        os.chmod(self.path, 0o644)
+        self.bak = os.path.join(self.dir, "bak")
+
+    def setting(self, **kw):
+        return self.sw.setting(**{"salt": "grade-break-furn-b-test-v1", "start_at": NOW, "hours": 9,
+                                  "categories": ["가구/침구>"], "source": "test", **kw})
+
+    def test_setting_is_a_finite_nine_hour_window_the_quote_runs(self):
+        s = self.setting()
+        self.assertEqual((s["start_at"], s["stop_at"], s["share"], s["grade_break"]), (NOW, NOW + 9 * 3600, 0.5, {"B": 0.19}))
+        self.assertTrue(profit_price.trial_setting_ok(s))
+        bed = {**unit(TREAT[0]), "category": "가구/침구>가구>소파"}
+        c = {**cfg(), "grade_break_trial": {**s, "salt": TRIAL["salt"]}}
+        self.assertIsNone(profit_price.break_trial_arm(bed, c, now=NOW - 0.001))
+        self.assertEqual(profit_price.break_trial_arm(bed, c, now=NOW), ("trial", 0.19))
+        self.assertIsNotNone(profit_price.break_trial_arm(bed, c, now=NOW + 9 * 3600 - 0.001))
+        self.assertIsNone(profit_price.break_trial_arm(bed, c, now=NOW + 9 * 3600))
+
+    def test_setting_refuses_what_would_not_run(self):
+        for kw in ({"hours": 0}, {"hours": -1}, {"hours": 12.001}, {"hours": 10 ** 400}, {"hours": True},
+                   {"hours": float("nan")}, {"hours": float("inf")}, {"start_at": None}, {"start_at": True},
+                   {"start_at": float("nan")}, {"start_at": 10 ** 400}, {"salt": ""}, {"salt": "\ud800"},
+                   {"share": 0}, {"share": 1.01}, {"grade_break": {"B": 1}}, {"grade_break": {}},
+                   {"categories": []}, {"categories": "가구/침구>"}, {"source": 1}):
+            with self.assertRaises(ValueError, msg=kw):
+                self.setting(**kw)
+        self.assertEqual(self.setting(hours=12)["stop_at"], NOW + 12 * 3600)
+
+    def test_on_adds_one_line_and_off_gives_the_same_bytes_back(self):
+        import json
+        with open(self.path, encoding="utf-8") as f:
+            raw = f.read()
+        old = json.loads(raw)
+        s = self.setting()
+        b1 = self.sw.switch_on(self.path, s, backup_dir=self.bak, stamp="t1")
+        with open(self.path, encoding="utf-8") as f:
+            on = f.read()
+        with open(b1, encoding="utf-8") as f:
+            self.assertEqual(f.read(), raw)
+        self.assertEqual(oct(self.os.stat(self.path).st_mode & 0o777), oct(0o644))
+        self.assertEqual(oct(self.os.stat(b1).st_mode & 0o777), oct(0o600))
+        new = json.loads(on)
+        self.assertEqual(new["price"]["grade_break_trial"], s)
+        self.assertEqual({**new, "price": {k: v for k, v in new["price"].items() if k != "grade_break_trial"}}, old)
+        added = [ln for ln in on.splitlines() if ln not in raw.splitlines()]
+        self.assertEqual(len(added), 1)
+        self.assertEqual(len(on.splitlines()), len(raw.splitlines()) + 1)
+        import shop_memory
+        with mock.patch.object(shop_memory, "PRICING", self.path):
+            loaded = shop_memory.load_pricing()
+        self.assertEqual(profit_price.cfg_of(loaded)["grade_break_trial"], s)
+        with self.assertRaises(ValueError):            # never over a trial already there
+            self.sw.switch_on(self.path, self.setting(salt="other"), backup_dir=self.bak, stamp="t2")
+        self.sw.switch_off(self.path, backup_dir=self.bak, stamp="t3")
+        with open(self.path, encoding="utf-8") as f:
+            self.assertEqual(f.read(), raw)
+        with self.assertRaises(ValueError):
+            self.sw.switch_off(self.path, backup_dir=self.bak, stamp="t4")
+
+    def test_on_leaves_the_file_when_refused(self):
+        with open(self.path, encoding="utf-8") as f:
+            raw = f.read()
+        bad = {**self.setting(), "stop_at": NOW + 10 ** 12}
+        with self.assertRaises(ValueError):
+            self.sw.switch_on(self.path, bad, backup_dir=self.bak, stamp="t1")
+        real_open = open
+        calls = []
+
+        def racing_open(p, *a, **kw):              # another writer between the read and the swap
+            calls.append(p)
+            if p == self.path and len([c for c in calls if c == self.path]) == 2:
+                with real_open(p, "w", encoding="utf-8") as f:
+                    f.write(raw + " ")
+            return real_open(p, *a, **kw)
+        with mock.patch("builtins.open", racing_open):
+            with self.assertRaises(ValueError):
+                self.sw.switch_on(self.path, self.setting(), backup_dir=self.bak, stamp="t2")
+        with open(self.path, encoding="utf-8") as f:
+            self.assertEqual(f.read(), raw + " ")
+        self.assertEqual([n for n in self.os.listdir(self.dir) if ".tmp-gbt-" in n], [])
+
+
 if __name__ == "__main__":
     unittest.main()

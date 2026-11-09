@@ -48,28 +48,62 @@ def break_trial_arm(u, cfg, now=None):
     "control", the trial's rate) for an eligible unit, so both arms are logged. Optional categories (catalog category
     prefixes, e.g. ["가구/침구>"]) limit it to those units: the excess was shown for furniture only, non-furniture B broke
     3 of 36 (Pro check, review/W-20261109-1520-AXPro주기/gptpro-answer.md 2.1). Fail-closed: None outside
-    [start_at, stop_at) or when a field is missing or odd, so an expired trial stops by itself."""
-    t = cfg.get("grade_break_trial")
-    if not isinstance(t, dict) or u.get("kind") != "goods" or not isinstance(t.get("salt"), str) or not t["salt"]:
-        return None
-    share, start, stop = t.get("share"), t.get("start_at"), t.get("stop_at")
-    if not (_num(share) and 0 < share <= 1 and _num(start) and _num(stop) and start < stop):
-        return None
-    now = time.time() if now is None else now
-    if not start <= now < stop:
-        return None
-    rates = t.get("grade_break")
-    g = rates.get(u.get("grade")) if isinstance(rates, dict) else None
-    if not _num(g) or not 0 <= g < 1 or not isinstance(u.get("unit"), str) or not u["unit"]:
-        return None
-    if "categories" in t:
-        cats = t["categories"]
-        if not isinstance(cats, list) or not cats or not all(isinstance(c, str) and c for c in cats):
+    [start_at, stop_at), when the window is longer than TRIAL_MAX_HOURS, or when a field is missing or odd (an int too
+    big for a float, a salt that is not UTF-8 included: they raised in the quote before), so an expired trial stops by
+    itself and a typo never starts an endless one."""
+    try:
+        t = cfg.get("grade_break_trial")
+        if not trial_setting_ok(t) or u.get("kind") != "goods":
             return None
-        if not isinstance(u.get("category"), str) or not u["category"].startswith(tuple(cats)):
+        now = time.time() if now is None else now
+        if not _trial_num(now) or not t["start_at"] <= now < t["stop_at"]:
             return None
-    h = hashlib.sha1(f"{t['salt']}|{u['unit']}".encode()).digest()
-    return ("trial" if int.from_bytes(h[:4], "big") / 2 ** 32 < share else "control"), g
+        g = t["grade_break"].get(u.get("grade"))
+        if not _trial_num(g) or not 0 <= g < 1 or not isinstance(u.get("unit"), str) or not u["unit"]:
+            return None
+        if "categories" in t and (not isinstance(u.get("category"), str)
+                                  or not u["category"].startswith(tuple(t["categories"]))):
+            return None
+        h = hashlib.sha1(f"{t['salt']}|{u['unit']}".encode()).digest()
+        return ("trial" if int.from_bytes(h[:4], "big") / 2 ** 32 < t["share"] else "control"), g
+    except (TypeError, ValueError, OverflowError, UnicodeError, AttributeError):
+        return None
+
+
+TRIAL_MAX_HOURS = 12      # the experiment register's longest window; a longer one is a typo (a stop_at of 10**12)
+
+
+def _trial_num(v):
+    """_num that says no to an int too big for a float instead of raising (math.isfinite(10**400) raises)."""
+    try:
+        return _num(v)
+    except OverflowError:
+        return False
+
+
+def trial_setting_ok(t):
+    """Whether price.grade_break_trial is a whole setting: salt (UTF-8 text), 0 < share <= 1, a finite window
+    start_at < stop_at <= start_at + TRIAL_MAX_HOURS h, grade_break a dict of rates in [0, 1), optional categories a
+    list of non-empty texts. break_trial_arm and grade_break_trial_switch.setting() use the same check."""
+    try:
+        if not isinstance(t, dict) or not isinstance(t.get("salt"), str) or not t["salt"]:
+            return False
+        t["salt"].encode()
+        share, start, stop = t.get("share"), t.get("start_at"), t.get("stop_at")
+        if not (_trial_num(share) and 0 < share <= 1 and _trial_num(start) and _trial_num(stop)
+                and start < stop <= start + TRIAL_MAX_HOURS * 3600):
+            return False
+        rates = t.get("grade_break")
+        if not isinstance(rates, dict) or not rates or not all(
+                isinstance(k, str) and _trial_num(v) and 0 <= v < 1 for k, v in rates.items()):
+            return False
+        if "categories" in t:
+            cats = t["categories"]
+            if not isinstance(cats, list) or not cats or not all(isinstance(c, str) and c for c in cats):
+                return False
+        return True
+    except (TypeError, ValueError, OverflowError, UnicodeError):
+        return False
 
 
 def unit_break(u, measured, cfg, max_break=None, now=None):
