@@ -85,6 +85,15 @@ class Share(unittest.TestCase):
         self.assertEqual(a["share"], mb.SAVED_MIN_SHARE)
         self.assertFalse(a["band_off"])
 
+    def test_kinds_limits_the_floor(self):
+        board(self.md, 0.3096)
+        switch(self.md, kinds=["food"])
+        self.assertEqual(sf.state(self.md, "o-1", env={}, kind="food")["arm"], "B")
+        self.assertIsNone(sf.state(self.md, "o-1", env={}, kind="goods"))
+        self.assertIsNone(sf.state(self.md, "o-1", env={}))          # kind unknown: off
+        switch(self.md, kinds="food")                                 # not a list: off
+        self.assertIsNone(sf.state(self.md, "o-1", env={}, kind="food"))
+
     def test_ab_bad_share_is_off(self):
         board(self.md, 0.3096)
         switch(self.md, ab={"salt": "x", "share": 2})
@@ -105,6 +114,7 @@ class Cap(unittest.TestCase):
         src = open(mb.__file__, encoding="utf-8").read()
         i = src.index("def main():")
         self.assertIn("buyer_saved_floor.state(md", src[i:])
+        self.assertIn('kind=order.get("kind")', src[i:])
         self.assertIn("SAVED_SHARE = ", src[i:])
         j = src.index("band_base, band_pct = accept_percent(", i)
         self.assertIn("band_off", src[j:j + 600])

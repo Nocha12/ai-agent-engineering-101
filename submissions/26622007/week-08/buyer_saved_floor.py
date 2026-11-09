@@ -13,10 +13,12 @@ not older than buyer_short_warranty.BOARD_MAX_AGE); with band "cap" (the default
 nothing over the limit is taken. A board that cannot be read leaves the order as before.
 
 Switch: .market/buyer_saved_floor.json {"enabled": true, "margin": 0.0, "band": "cap"|"keep",
-"ab": {"salt": "...", "share": 0.5}}; missing, unreadable or anything else is off, and off is the old behaviour
+"ab": {"salt": "...", "share": 0.5}, "kinds": ["food", "goods"]}; missing, unreadable or anything else is off, and off is the old behaviour
 exactly. With "ab", only the orders whose sha1(salt|order) falls under share are arm B (the floor); arm A is the
 old behaviour and is still returned so the judgement can count both. BUYER_SAVED_FLOOR=0 in the environment is off
-too. Read at every order (a buyer run is one order), so no restart either way.
+too. "kinds" (a list) limits it to those order kinds, so it can start on food when the food study ends and on goods
+when the goods studies end; an order of another or unknown kind is off. Read at every order (a buyer run is one
+order), so no restart either way.
 """
 import hashlib
 import json
@@ -78,10 +80,12 @@ def arm(salt, order_id, share):
     return "B" if h < share else "A"
 
 
-def state(md, order_id, now=None, env=None, base=BASE_SHARE):
+def state(md, order_id, now=None, env=None, base=BASE_SHARE, kind=None):
     """None when off; else {"arm", "share", "band_off", "board_saved"}: arm A keeps base and the band."""
     c = config(md, env)
     if c is None:
+        return None
+    if "kinds" in c and (not isinstance(c["kinds"], list) or kind not in c["kinds"]):
         return None
     S = board_saved(md, now)
     if S is None:

@@ -1872,7 +1872,8 @@ def main():
     SAVED_SHARE = SAVED_MIN_SHARE
     if r3:
         # buyer_saved_floor: the limit keeps my board Saved (off: SAVED_MIN_SHARE, the accept band as before)
-        order["_saved_floor"] = buyer_saved_floor.state(md, order.get("order"), base=SAVED_MIN_SHARE)
+        order["_saved_floor"] = buyer_saved_floor.state(md, order.get("order"), base=SAVED_MIN_SHARE,
+                                                         kind=order.get("kind"))
         if order["_saved_floor"]:
             SAVED_SHARE = order["_saved_floor"]["share"]
             log(f"[saved-floor] arm {order['_saved_floor']['arm']}: share {SAVED_SHARE:.4f}"
