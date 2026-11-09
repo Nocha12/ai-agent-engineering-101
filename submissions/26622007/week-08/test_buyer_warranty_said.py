@@ -2,8 +2,10 @@ import json
 import os
 import stat
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import buyer_short_warranty as sw
 import buyer_warranty_said as ws
@@ -55,6 +57,50 @@ class HoursForTest(unittest.TestCase):
             self.assertFalse(q["warranty_said_ok"], text)
             self.assertEqual(sw.hours_for(order_sw("B"), "thisjonghoon", q), 0, text)     # the least with the 0 h history
 
+    def test_a_negated_or_optional_warranty_is_never_set_aside(self):
+        # independent review 08b282d I1: each of these read True before
+        for text in ("No 72 h warranty on this unit.", "72 h warranty does not apply to this unit.",
+                     "Grade C, 72 h warranty excluded", "72 hours warranty-free",
+                     "Optional 72 h warranty (extra charge).",
+                     "72-hour warranty available for +12%; base price excludes it.",
+                     "Base price includes 0 h; 72 hour warranty on request.",
+                     "Grade A, 72 h warranty. This unit: zero-hour warranty.",
+                     "Grade A, 72 h warranty. Base price warranty: none.",
+                     "warranty not included. Typical 72 h warranty", "72 hour warranty. 보증 미적용",
+                     "72 h warranty, 안심케어 미포함", "Grade A 72 h warranty. Grade C refurbished: warranty void.",
+                     "Warranty 0 h included in this total price. 72 h warranty",
+                     "72 h warranty if you pay list", "72 h warranty isn't included"):
+            q = quote(text)
+            self.assertFalse(q["warranty_said_ok"], text)
+            self.assertEqual(sw.hours_for(order_sw("B"), "thisjonghoon", q), 0, text)
+        for text in (THISJONGHOON, THISJONGHOON_2, YMS979, "No scratches. Grade A, 72 h warranty.",
+                     # dyishappy's and moss-and-oak's own wording; product names with 없/선택 are no hedge
+                     "누우리 토퍼 (G8526e66c). Grade A: normal. 6-hour breakage warranty: market refunds the full price if "
+                     "it breaks within 6 hours of delivery. Asking 23000.",
+                     "레이디가구 선반 (G38a0dca5), grade B, 12-hour warranty included (full refund if it breaks)",
+                     "바숨 알러지케어 먼지없는 누빔 매트리스커버 (G575cddb8), grade A, 72 h warranty",
+                     "지누스 루미 침대 프레임 색상선택 2color (Ge04f5cab), grade A, 72 h warranty, market certificate included"):
+            self.assertTrue(ws.stated_ok(text), text)       # a negation outside the warranty sentence is no hedge
+
+    def test_a_reading_that_raises_is_not_set_aside(self):
+        with mock.patch.object(ws, "_stated_ok", side_effect=RuntimeError):
+            self.assertFalse(ws.stated_ok(THISJONGHOON))
+
+    def test_a_quote_with_its_own_hours_is_not_set_aside(self):
+        q = dict(quote(THISJONGHOON), warranty_h=3)
+        self.assertFalse(ws.applies(order_sw("B"), q))
+        self.assertEqual(sw.hours_for(order_sw("B"), "thisjonghoon", q), 0)
+
+    def test_a_0h_receipt_after_a_6h_deal_is_refused_as_now(self):
+        o = {"list_price": 921600, "sku": "G85a1a856"}
+        s = order_sw("B")
+        price = sw.cap(o["list_price"], 6, 0.03, s["S"])       # the arm B limit before the band
+        self.assertGreater(price, sw.cap(o["list_price"], 0, 0.03, s["S"]))
+        with tempfile.TemporaryDirectory() as md:
+            ok, rec, why = sw.receipt_check(s, md, {"warranty_hours": 0, "price": price}, o["list_price"], 0.03)
+        self.assertFalse(ok)
+        self.assertIn("p_max", why)
+
     def test_stated_ok_readings(self):
         for text in ("72 h warranty", "warranty: 24 h", "six-hour full-refund warranty", "6 h warranty", "warranty of 3 days"):
             self.assertTrue(ws.stated_ok(text), text)
@@ -76,11 +122,43 @@ class HoursForTest(unittest.TestCase):
         quotes = {"thisjonghoon": quote(THISJONGHOON), "yms979": quote(YMS979), "seochanit": quote(SEOCHANIT),
                   "mjforge": quote(THISJONGHOON)}          # mjforge: no 0 h history, nothing to set aside
         for arm in ("A", "B"):
-            r = ws.record(order_sw(arm), quotes)
+            r = ws.record(order_sw(arm), quotes, "thisjonghoon", None, 192767)
             self.assertEqual(r["arm"], arm)
             self.assertEqual(r["eligible"], ["thisjonghoon", "yms979"])
+            self.assertEqual((r["chosen"], r["chosen_eligible"], r["applied"], r["refused"], r["cap0"]),
+                             ("thisjonghoon", True, arm == "B", False, 192767))
+            r = ws.record(order_sw(arm), quotes, "seochanit", "warranty 0 h: price over p_max", 100)
+            self.assertEqual((r["chosen_eligible"], r["applied"], r["refused"], r["cap0"]), (False, False, True, None))
         self.assertIsNone(ws.record(order_sw(None), quotes))
         self.assertIsNone(ws.record(None, quotes))
+
+    def test_arm_b_rows_and_trades_are_kept_out_of_the_learning(self):
+        self.assertTrue(ws.said_b({"warranty_said": {"arm": "B"}}))
+        for row in ({"warranty_said": {"arm": "A"}}, {}, None, {"warranty_said": "B"}):
+            self.assertFalse(ws.said_b(row), row)
+        self.assertEqual(ws.trade_arm({"_sw": order_sw("B")}), "B")
+        self.assertIsNone(ws.trade_arm({"_sw": order_sw(None)}))
+        catalog = {"G1": {"kind": "goods"}}
+        now = time.time()
+        at = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(now - 60))
+        memory = {"trades": [{"time": at, "shop": "thisjonghoon", "item": "G1", "result": "no_warranty",
+                               "warranty_said": "B"}]}
+        self.assertEqual(market_buyer.short_warranty_shops(memory, catalog, now), set())
+        memory["trades"][0]["warranty_said"] = "A"
+        self.assertEqual(market_buyer.short_warranty_shops(memory, catalog, now), {"thisjonghoon"})
+        import buyer_rank_pg
+        import buyer_shop_profile
+        for mod in (buyer_rank_pg, buyer_shop_profile, market_buyer):
+            self.assertIn("buyer_warranty_said.said_b(r)", Path(mod.__file__).read_text(encoding="utf-8"), mod.__name__)
+
+    def test_rank_pg_stats_leave_arm_b_rows_out(self):
+        import buyer_rank_pg
+        row = {"ts": T0 - 600, "order": "o-1", "shop": "a", "kind": "goods", "quotes": [{"shop": "a", "ask": 1000}],
+               "asks": [1000], "state": "TASK_STATE_COMPLETED", "price": 900, "passed_to_kit": True,
+               "seconds": {"quotes": 5.0, "end": 15.0}}
+        a = buyer_rank_pg.stats_from_rows([dict(row, warranty_said={"arm": "A"})], {"o-1": "confirmed"}, T0)
+        b = buyer_rank_pg.stats_from_rows([dict(row, warranty_said={"arm": "B"})], {"o-1": "confirmed"}, T0)
+        self.assertEqual(b["counts"]["excluded_rows"], a["counts"]["excluded_rows"] + 1)
 
 
 class SwitchTest(unittest.TestCase):
@@ -109,7 +187,7 @@ class SwitchTest(unittest.TestCase):
     def test_bad_or_missing_fields_are_off(self):
         self.assertIsNone(ws.config(self.md, {}, T0))                 # no file
         for bad in ({"enabled": False}, {"start_at": None}, {"stop_at": None}, {"stop_at": T0 + 13 * 3600},
-                    {"stop_at": T0}, {"start_at": float("nan")}, {"share": 0}, {"share": 1.5}, {"share": True},
+                    {"stop_at": T0}, {"start_at": float("nan")}, {"share": 0}, {"share": 1}, {"share": 1.5}, {"share": True},
                     {"salt": ""}, {"study": None}, {"enabled": "true"}):
             self.write(self.good(**bad))
             self.assertIsNone(ws.config(self.md, {}, T0 + 60), bad)
@@ -131,6 +209,29 @@ class SwitchTest(unittest.TestCase):
         self.assertIsNone(ws.state(self.md, "", {}, T0 + 60))
         self.assertIsNone(ws.state(self.md, "o-1", {}, T0 + 10 * 3600))
 
+    def test_off_while_goods_grade_is_on(self):
+        self.write(self.good())
+        import buyer_goods_grade
+        with mock.patch.object(buyer_goods_grade, "config", return_value={"study": "g"}):
+            self.assertIsNone(ws.state(self.md, "o-1", {}, T0 + 60))
+        with mock.patch.object(buyer_goods_grade, "config", return_value=None):
+            self.assertIsNotNone(ws.state(self.md, "o-1", {}, T0 + 60))
+
+    def test_too_many_refused_receipts_send_every_order_to_arm_a(self):
+        self.write(self.good())
+        oid = next(f"o-{i}" for i in range(100) if ws.arm("bw1-salt", f"o-{i}", 0.5) == "B")
+        said = {"study": "bw1-test", "v": ws.VERSION}
+        for refused in (False,) * 9 + (True,) * 3:
+            ws.note(self.md, said, refused, T0)
+        ws.note(self.md, {"study": "other"}, True, T0)            # another study's events never count
+        self.assertEqual(ws.state(self.md, oid, {}, T0 + 60)["arm"], "B")       # 3 refused: under TRIP_MIN
+        ws.note(self.md, said, True, T0)                             # 4 of 13 refused: over 25%
+        s = ws.state(self.md, oid, {}, T0 + 60)
+        self.assertEqual((s["arm"], s["tripped"]), ("A", {"applied": 13, "refused": 4}))
+        self.assertEqual(stat.S_IMODE(os.stat(Path(self.md, ws.EVENTS)).st_mode), 0o600)
+        Path(self.md, ws.EVENTS).write_text("{bad\n" + json.dumps({"study": "bw1-test", "refused": True}) + "\n")
+        self.assertIsNone(ws.tripped(self.md, "bw1-test"))
+
     def test_switch_on_writes_a_finite_window_0600(self):
         d = ws.switch_on(self.md, study="bw1-test", salt="s", start_at=T0, hours=9)
         self.assertEqual(d["stop_at"], T0 + 9 * 3600)
@@ -151,7 +252,9 @@ class WiringTest(unittest.TestCase):
         src = Path(market_buyer.__file__).read_text(encoding="utf-8")
         self.assertEqual(src.count("buyer_warranty_said.state(md, order.get(\"order\"))"), 1)
         self.assertEqual(src.count("q[\"warranty_said_ok\"] = buyer_warranty_said.stated_ok(text)"), 1)
-        self.assertEqual(src.count("buyer_warranty_said.record(order.get(\"_sw\"), quotes)"), 1)
+        self.assertEqual(src.count("buyer_warranty_said.record(order[\"_sw\"], quotes, shop[\"name\"], short, cap0)"), 1)
+        self.assertEqual(src.count("buyer_warranty_said.note(md, said, short)"), 1)
+        self.assertEqual(src.count('"warranty_said": buyer_warranty_said.trade_arm(order)'), 1)
 
 
 if __name__ == "__main__":

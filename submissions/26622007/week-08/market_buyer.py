@@ -363,6 +363,8 @@ def short_warranty_shops(memory, catalog, now=None):
     for t in memory.get("trades") or []:
         if t.get("result") not in ("deal", "no_warranty") or (catalog.get(t.get("item")) or {}).get("kind") != "goods":
             continue
+        if t.get("warranty_said") == "B":   # warranty-said arm B's 6 h deals and their 0 h receipts: neither arm's history
+            continue
         try:
             at = time.mktime(time.strptime(t["time"], "%Y-%m-%dT%H:%M:%S"))
         except (KeyError, TypeError, ValueError):
@@ -973,7 +975,8 @@ def recent_asks(md, now=None, hours=HOPELESS_HOURS):
             if isinstance(q, dict) and q.get("sku") and num(q.get("ask")) and not str(q.get("lost") or "").startswith("refused"):
                 out[q["sku"]].append(q["ask"])
         if r.get("sku") and not (buyer_food_ladder.laddered(r) or buyer_goods_ladder.laddered(r)
-                                  or buyer_goods_grade.lowered(r) or buyer_saved_floor.floored(r)):
+                                  or buyer_goods_grade.lowered(r) or buyer_saved_floor.floored(r)
+                                  or buyer_warranty_said.said_b(r)):
             out[r["sku"]] += [a for a in r.get("asks") or () if num(a)] + ([r["price"]] if num(r.get("price")) else [])
     return out
 
@@ -1963,7 +1966,8 @@ def main():
         # buyer_warranty_said: arm B prices a quote naming 6 h or more as a 6 h deal, not at the shop's 0 h history
         sw["said"] = buyer_warranty_said.state(md, order.get("order"))
         if sw["said"]:
-            log(f"[warranty-said] arm {sw['said']['arm']} ({sw['said']['study']})")
+            log(f"[warranty-said] arm {sw['said']['arm']} ({sw['said']['study']})"
+                + (f" tripped: {sw['said']['tripped']}" if sw["said"].get("tripped") else ""))
         order["_sw"] = sw
         _SW_CTX.update(md=md, catalog=catalog)
         log(f"[short-warranty] on: S {order['_sw']['S']:.4f}, goods with a short warranty priced at p_max(h)")
@@ -2278,7 +2282,8 @@ def main():
             "goods_ladder": buyer_goods_ladder.trade_arm(order),
             "goods_grade": buyer_goods_grade.trade_mark(order, limit),
             "food_ladder": buyer_food_ladder.trade_arm(order),
-            "saved_floor": buyer_saved_floor.trade_arm(order)} if r3 else {}),
+            "saved_floor": buyer_saved_floor.trade_arm(order),
+            "warranty_said": buyer_warranty_said.trade_arm(order)} if r3 else {}),
         "result": "no_warranty" if short else "over_limit" if over else "deal" if rec is not None else (out["state"] or "error").replace("TASK_STATE_", "").lower(),
         "price": rec.get("price") if rec else None,
         "asks": asks, "holds": out.get("holds", 0), "problems": problems, "warnings": warnings, "why": why,
@@ -2301,6 +2306,17 @@ def main():
             order.get("_stock_evidence"), state=out.get("state"), passed_to_kit=result.get("receipt") is not None)
         if rk is not None and rk.get("treatment") == "unknown":
             buyer_rank_pg.unselected(rk, "no_quote_selection")
+        said = None
+        if (order.get("_sw") or {}).get("said"):
+            try:
+                h0 = (order["_sw"].get("hist") or {}).get(shop["name"])
+                cap0 = buyer_short_warranty.cap(offer["list_price"], h0, chance, order["_sw"]["S"]) \
+                    if h0 is not None and chance is not None else None
+                said = buyer_warranty_said.record(order["_sw"], quotes, shop["name"], short, cap0)
+                if said and said["applied"]:
+                    buyer_warranty_said.note(md, said, short)
+            except Exception as e:   # noqa: BLE001 - the study's measure never stops the result line
+                log(f"[warranty-said] record failed: {type(e).__name__}: {e}")
         try:
             records.write(md, "orders", {**order_record(order, args, shops, quotes, first_choice, first_reason, shop, reason, offer,
                                                         limit, chance, out, rec, result, problems, warnings, short, why, stages,
@@ -2312,8 +2328,7 @@ def main():
                                          **({"short_warranty": {"S": order["_sw"]["S"], "h_est": order.get("_sw_h_est"),
                                                                 "shops": order["_sw"]["hist"]}}
                                             if order.get("_sw") is not None else {}),
-                                         **({"warranty_said": buyer_warranty_said.record(order.get("_sw"), quotes)}
-                                            if (order.get("_sw") or {}).get("said") else {}),
+                                         **({"warranty_said": said} if said else {}),
                                          **({"rank_pg": buyer_rank_pg.metadata(order["_rank_pg"])}
                                             if order.get("_rank_pg") is not None else {}),
                                          **({"quote_deadline": order["_quote_deadline"]}

@@ -4,6 +4,7 @@ import os
 import tempfile
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import buyer_saved_floor as sf
@@ -163,9 +164,9 @@ class Learning(unittest.TestCase):
     def test_learners_skip_arm_b_rows(self):
         import buyer_rank_pg, buyer_shop_profile
         for mod in (buyer_rank_pg, buyer_shop_profile):
-            src = open(mod.__file__, encoding="utf-8").read()
+            src = Path(mod.__file__).read_text(encoding="utf-8")
             self.assertIn("buyer_saved_floor.floored(r)", src, mod.__name__)
-        src = open(mb.__file__, encoding="utf-8").read()
+        src = Path(mb.__file__).read_text(encoding="utf-8")
         self.assertIn('"saved_floor": buyer_saved_floor.trade_arm(order)', src)
 
 
