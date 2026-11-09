@@ -61,7 +61,7 @@ RUNTIME = ("seller_warranty_trial.json", ".market/")
 SWITCHES = ("seller_warranty_trial.json", ".market/sol_seller_margin_v2/controller.json", ".market/quote_hold/config.json",
             ".market/seller_concession_trial.json", ".market/seller_reader_trial.json", ".market/seller_a_open.json",
             ".market/seller_floor_margin.json", ".market/seller_food_margin.json", ".market/shelf_jev_skip/config.json") + tuple(
-    f".market/buyer_{n}.json" for n in ("accept_band", "b3b1", "food_ladder", "food_shelf", "goods_grade", "goods_ladder", "post_market", "quote_deadline", "rank_pg",
+    f".market/buyer_{n}.json" for n in ("accept_band", "b3b1", "food_ladder", "food_shelf", "goods_grade", "goods_ladder", "our_ask", "post_market", "quote_deadline", "rank_pg",
                                         "saved_floor", "shop_profile", "short_warranty", "warranty_said"))
 
 
