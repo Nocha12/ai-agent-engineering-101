@@ -12,7 +12,9 @@ were canceled. review/W-20261109-2040-AX셀러전략/report.md §10-9.
 Treatment (arm B): "Yes. This unit comes with a <h> h warranty written on the signed receipt: if it breaks within <h> h,
 you get the full price back. My price: <ask>.", a counter at the current ask; no Jev and no harness for that turn. It
 answers only for goods whose talk carries a warranty (deal["warranty"], set by warranty_terms) of at least the hours
-asked; a talk sold as is (seller_warranty_trial treatment) or with less is left alone in both arms. Arm A: the original
+asked; a talk sold as is (seller_warranty_trial treatment) or with less is left alone in both arms. So W-fact B only
+touches seller_warranty_trial's control talks: do not run the two windows together unless they are analysed together
+(rows carry others.warranty_trial); grade-warranty-v1 is enabled false and ended 11/09. Arm A: the original
 path, unchanged. Every price guard after the turn is unchanged. The question is goods only; S-shelf (shelf_fact) answers
 food only, so no turn is in both.
 
@@ -91,12 +93,12 @@ class Trial(shelf_jev_skip.Trial):
     def answer(self, task, text, deal, now=None):
         """The B line for this turn, or None (the original path); never raises."""
         try:
+            fact = factual_answer(text, deal)
+            if fact is None:
+                return None
             now = time.time() if now is None else now
             cfg = self.config(now)
             if cfg is None:
-                return None
-            fact = factual_answer(text, deal)
-            if fact is None:
                 return None
             salt_sha = hashlib.sha256(cfg["salt"].encode()).hexdigest()
             a = deal.get("warranty_fact")
