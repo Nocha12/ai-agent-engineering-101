@@ -1691,15 +1691,16 @@ def receipt_band(rec, offer, base, pct):
 
 def receipt_chance(order, offer, rec, chance_of):
     """The break chance a receipt for another SKU is held to under buyer_saved_floor (arm B with the floor on): that
-    SKU's (chance_of(sku), 0 when it has no rate); None, b = 0 as before, for the asked SKU, food, any other arm or
-    an error (GPT Pro 1638 P2: the shipped SKU's limit kept b = 0, so the floor did not hold for it)."""
+    SKU's (chance_of(sku), 0 when it has no rate, 1 at most: saved_cap then pays nothing); None, b = 0 as before, for
+    the asked SKU, food, any other arm or an error (GPT Pro 1638 P2: the shipped SKU's limit kept b = 0, so the floor
+    did not hold for it). main() records the chance it used in the order's "saved_floor" as "shipped"."""
     try:
         sku = (rec or {}).get("item")
         if not buyer_saved_floor.recheck((order or {}).get("_saved_floor")) or (order or {}).get("kind") != "goods" \
                 or not sku or sku == (offer or {}).get("sku"):
             return None
-        b = chance_of(sku)
-        return float(b) if isinstance(b, (int, float)) and not isinstance(b, bool) and 0 <= b < 1 else 0.0
+        b = chance_of(sku)   # SKU level (market_model.break_chance), as goods_grade's arm A holds the asked SKU
+        return min(float(b), 1.0) if isinstance(b, (int, float)) and not isinstance(b, bool) and b >= 0 else 0.0
     except Exception:  # noqa: BLE001 - a recheck never ends the run: b = 0 as before
         return None
 
@@ -2240,10 +2241,13 @@ def main():
         short = short_warranty_receipt(rec, order, md, catalog, key, chance, short, shop)
     if short:
         warnings.append(short)
+    shipped = receipt_chance(order, offer, rec, lambda sku: market_model.break_chance(ledger_breaks(md, catalog), sku)) \
+        if r3 and rec is not None and not problems and not short else None
+    if shipped is not None:   # the orders row says which arm-B receipts the recheck held to another SKU's chance
+        order["_saved_floor"]["shipped"] = {"sku": rec.get("item"), "chance": round(shipped, 4)}
     over = over_limit(rec, offer, limit, catalog, args.budget,
                       None if (order.get("_sw_buy") or {}).get("ok") else receipt_band(rec, offer, band_base, band_pct),
-                      receipt_chance(order, offer, rec,
-                                     lambda sku: market_model.break_chance(ledger_breaks(md, catalog), sku))) \
+                      shipped) \
         if r3 and rec is not None and not problems and not short else None
     if over:
         warnings.append(over)

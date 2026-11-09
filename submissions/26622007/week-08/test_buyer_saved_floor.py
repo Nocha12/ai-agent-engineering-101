@@ -4,6 +4,7 @@ import os
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 import buyer_saved_floor as sf
 import market_buyer as mb
@@ -241,16 +242,15 @@ class Assignment(unittest.TestCase):
         order = os.path.join(self.md, "order.json")
         with open(order, "w") as f:
             json.dump({"order": "o-early", "kind": "food", "category": "c", "item": "G1", "acceptable": ["G1"]}, f)
-        argv, mem, aux = sys.argv, mb.MEMORY, getattr(mb, "AGENT_DIR", None)
+        argv, mem, aux = sys.argv, mb.MEMORY, mb.AGENT_DIR
         sys.argv = ["market_buyer.py", "--shops", shops, "--item", "G1", "--budget", "9000", "--order", order]
         mb.MEMORY = os.path.join(self.md, "mem.json")
+        env = {k: v for k, v in os.environ.items() if k != "BUYER_SAVED_FLOOR"}   # an outside off switch: not this test
         try:
-            with contextlib.redirect_stdout(io.StringIO()) as out:
+            with mock.patch.dict(os.environ, env, clear=True), contextlib.redirect_stdout(io.StringIO()) as out:
                 self.assertEqual(mb.main(), 0)
         finally:
-            sys.argv, mb.MEMORY = argv, mem
-            if aux is not None:
-                mb.AGENT_DIR = aux
+            sys.argv, mb.MEMORY, mb.AGENT_DIR = argv, mem, aux
             mb.SAVED_SHARE = mb.SAVED_MIN_SHARE
         self.assertIn('"receipt": null', out.getvalue())
         with open(os.path.join(self.md, "measure", "orders.jsonl")) as f:
@@ -274,7 +274,7 @@ class ShippedSku(unittest.TestCase):
         mb.SAVED_SHARE = 0.31
         self.assertIsNone(mb.over_limit(rec, offer, 69000, catalog, 200000))               # b = 0: cap 69,000
         self.assertIsNone(mb.over_limit(rec, offer, 69000, catalog, 200000, shipped_chance=None))
-        why = mb.over_limit(rec, offer, 69000, catalog, 200000, shipped_chance=0.13)       # cap 100000 (1 - .31/.87)
+        why = mb.over_limit(rec, offer, 69000, catalog, 200000, shipped_chance=0.13)       # cap 100000 x (1 - .31/.87) = 64,367
         self.assertIsNotNone(why)
         self.assertIn("G2", why)
 
@@ -295,9 +295,21 @@ class ShippedSku(unittest.TestCase):
         self.assertIsNone(mb.receipt_chance({"kind": "goods"}, offer, {"item": "G2"}, chance))
         self.assertEqual(mb.receipt_chance(order_b, offer, {"item": "G3"}, chance), 0.0)  # no rate: 0 as before
 
+        self.assertEqual(mb.receipt_chance(order_b, offer, {"item": "G2"}, lambda sku: 1.2), 1.0)   # at most 1: cap 0
+        self.assertEqual(mb.receipt_chance(order_b, offer, {"item": "G2"}, lambda sku: float("nan")), 0.0)
+
         def boom(sku):
             raise ValueError(sku)
         self.assertIsNone(mb.receipt_chance(order_b, offer, {"item": "G2"}, boom))       # never raises into the run
+
+    def test_main_passes_and_records_the_shipped_chance(self):
+        """main() hands receipt_chance's result to over_limit and records it in the order's saved_floor (review N1, N3)."""
+        src = open(mb.__file__, encoding="utf-8").read()
+        i = src.index("def main():")
+        j = src.index("shipped = receipt_chance(order, offer, rec,", i)
+        k = src.index("over = over_limit(rec, offer, limit, catalog, args.budget,", j)
+        self.assertIn('order["_saved_floor"]["shipped"] = {"sku": rec.get("item")', src[j:k])
+        self.assertIn("shipped)", src[k:k + 300])
 
 
 if __name__ == "__main__":
