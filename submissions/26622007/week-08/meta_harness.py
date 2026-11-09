@@ -17,6 +17,7 @@ says so and the shop goes on. The harness commits only under this folder and che
 because the repository's rules forbid both; pushes happen only with META_PUSH=1.
 """
 import datetime
+import glob
 import hashlib
 import importlib
 import json
@@ -61,6 +62,11 @@ SWITCHES = ("seller_warranty_trial.json", ".market/sol_seller_margin_v2/controll
             ".market/seller_concession_trial.json", ".market/seller_reader_trial.json") + tuple(
     f".market/buyer_{n}.json" for n in ("accept_band", "b3b1", "food_shelf", "quote_deadline", "rank_pg", "shop_profile",
                                         "short_warranty"))
+
+
+# A study's root/"adopted" forces arm B and root/"disabled" stops it (late_concession, opening_cue, at_floor_exact, ...):
+# switches as well, made or removed (independent review 0738-isolate I).
+SWITCH_MARKERS = ("adopted", "disabled")
 
 
 def runtime(p):
@@ -323,24 +329,59 @@ def test_prompt():
 # What the kit and the shop keep writing, and keys. test_seller_warranty_trial hashes its folder's .market/ and memory/
 # before and after each test; run in the live checkout, the kit's writes ERRORed it and every code change was refused
 # (terra-1109-085220 09:03, terra-1109-100754 10:07; a clean clone passes). The copy is the working tree, so the
-# cycle's own uncommitted and new files are what is tested.
-TEST_COPY_SKIP = shutil.ignore_patterns(".market", "memory", "logs", "__pycache__", ".env*", "*.pem")
+# cycle's own uncommitted and new files are what is tested. It sits where the folder sits in the repo, with the repo's
+# own files and scripts/ (market_kit) around it and the tracked files of memory/ and logs/ in it: a bare copy failed 8
+# tests whatever the change (independent review 0738-isolate C).
+TEST_COPY_LIVE = (".market", "memory", "logs")                        # at the folder's top only
+TEST_COPY_NEVER = shutil.ignore_patterns("__pycache__", ".env*", "*.pem")
+TEST_COPY_ENV = ("MARKET_DIR", "SHOP_KEY_PEM", "BUYER_MEMORY", "SHOP_PRICING")     # these point at live state or keys
+
+
+def tracked(cwd, *paths):
+    p = subprocess.run(["git", "ls-files", "-z", "--", *paths], cwd=cwd, capture_output=True, text=True)
+    return [x for x in p.stdout.split("\0") if x] if p.returncode == 0 else []
+
+
+def test_copy(scratch):
+    """The folder as the cycle left it, inside a copy of the repo's top files and scripts/; returns the folder's copy."""
+    p = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=ROOT, capture_output=True, text=True)
+    top = os.path.realpath(p.stdout.strip()) if p.returncode == 0 else os.path.realpath(ROOT)
+    copy = os.path.join(scratch, os.path.relpath(os.path.realpath(ROOT), top))
+    def skip(d, names):
+        live = set(TEST_COPY_LIVE) if os.path.realpath(d) == os.path.realpath(ROOT) else set()
+        return live | TEST_COPY_NEVER(d, names)
+    shutil.copytree(ROOT, copy, ignore=skip, ignore_dangling_symlinks=True,         # links copied as content, not links
+                    dirs_exist_ok=True)                                         # the folder may be the repo's top
+    files = [(os.path.join(ROOT, r), os.path.join(copy, r)) for r in tracked(ROOT, *TEST_COPY_LIVE[1:])]
+    if top != os.path.realpath(ROOT):
+        files += [(os.path.join(top, r), os.path.join(scratch, r)) for r in tracked(top, "scripts")
+                  + [r for r in tracked(top, ":(top,glob)*") if "/" not in r]]
+    for src, dst in files:
+        if os.path.isfile(src) and not TEST_COPY_NEVER("", [os.path.basename(src)]):
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copyfile(src, dst)
+    return copy
 
 
 def run_tests():
     cmd = test_command()
     if "discover" not in " ".join(cmd):     # the whole suite, never a chosen part of it
         raise RuntimeError("the harness runs the whole test suite")
+    env = {k: v for k, v in test_env().items() if k not in TEST_COPY_ENV}
     scratch = tempfile.mkdtemp(prefix="meta-tests-")
     try:
-        copy = os.path.join(scratch, os.path.basename(ROOT))
-        shutil.copytree(ROOT, copy, ignore=TEST_COPY_SKIP, ignore_dangling_symlinks=True)    # no link back to live
-        p = subprocess.run(cmd, cwd=copy, capture_output=True,
-                           text=True, timeout=900, env=test_env())
+        proc = subprocess.Popen(cmd, cwd=test_copy(scratch), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, env=env, start_new_session=True)
+        try:
+            _, err = proc.communicate(timeout=900)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)                            # with any process a test started
+            _, err = proc.communicate()
+            return False, "ERROR: the test suite ran over 900 s\n" + (err or "")[-1200:]
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
-    failed = [ln for ln in p.stderr.splitlines() if ln.startswith(("FAIL: ", "ERROR: "))]
-    return p.returncode == 0, "\n".join(failed[:20] + [p.stderr[-1200:]])
+    failed = [ln for ln in err.splitlines() if ln.startswith(("FAIL: ", "ERROR: "))]
+    return proc.returncode == 0, "\n".join(failed[:20] + [err[-1200:]])
 
 
 def restart_seller(paths):
@@ -512,9 +553,10 @@ def start_contents(before):
 
 
 def switch_shas():
-    """{switch: sha1 of its bytes, None when missing} for SWITCHES."""
+    """{switch: sha1 of its bytes, None when missing} for SWITCHES and each study's adopted/disabled marker there."""
     out = {}
-    for p in SWITCHES:
+    markers = [os.path.relpath(m, ROOT) for k in SWITCH_MARKERS for m in glob.glob(os.path.join(ROOT, ".market", "*", k))]
+    for p in list(SWITCHES) + sorted(markers):
         try:
             with open(os.path.join(ROOT, p), "rb") as f:
                 out[p] = hashlib.sha1(f.read()).hexdigest()
@@ -987,7 +1029,8 @@ def cycle(kind):
     switches = switch_shas()
     answer, err = call_model(kind, cid, pack)
     rec = {"cycle": cid, "model": MODELS[kind], "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "answer": answer}
-    flipped = sorted(p for p, s in switch_shas().items() if switches[p] != s)
+    after = switch_shas()
+    flipped = sorted(p for p in set(switches) | set(after) if switches.get(p) != after.get(p))
     if flipped:
         rec["switches_changed"] = flipped
         log(f"{cid}: study switches changed while the model ran, left as they are: {flipped}")

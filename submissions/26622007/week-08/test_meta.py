@@ -364,11 +364,13 @@ class HarnessCycleTest(unittest.TestCase):
         # 11/09 09:03 terra-1109-085220 was refused on ~70 seller-study tests (fresh_frozen_load_proof): plain discover
         # imports local modules before sol_source_load can attest them; the safe runner installs it first and they pass
         # (the command itself: under the safe runner the real loader is already imported, so a fake one cannot tell)
-        seen = []
-        def run(cmd, **kw):
+        seen, real = [], subprocess.Popen
+        def popen(cmd, **kw):
+            if cmd[0] == "git":                                    # the copy's own git reads run as they are
+                return real(cmd, **kw)
             seen.append(cmd)
-            return subprocess.CompletedProcess(cmd, 0, "", "")
-        with mock.patch.object(mh.subprocess, "run", run):
+            return mock.Mock(returncode=0, pid=0, communicate=lambda timeout=None: ("", ""))
+        with mock.patch.object(mh.subprocess, "Popen", popen):
             mh.run_tests()
             with open(os.path.join(self.root, "sol_source_load.py"), "w") as f:
                 f.write("def install():\n    pass\n")
@@ -433,17 +435,53 @@ class HarnessCycleTest(unittest.TestCase):
         ok, output = mh.run_tests()
         self.assertTrue(ok, output)
 
+    def test_the_copy_keeps_the_repo_around_the_folder_and_its_tracked_memory_and_logs(self):
+        # independent review 0738-isolate C: a bare copy lost ../../scripts (market_kit), the project's AGENTS.md and the
+        # tracked memory/seller_memory.json, so 8 tests failed in it whatever the change
+        top = os.path.join(self.outer, "top")
+        week = os.path.join(top, "sub", "week")
+        for d in ("scripts", "sub/week/memory", "sub/week/logs", "sub/week/.market"):
+            os.makedirs(os.path.join(top, d))
+        files = {"AGENTS.md": "rules\n", "scripts/kitmod.py": "KIT = 1\n", "sub/week/memory/tracked.json": "{}\n",
+                 "sub/week/logs/tracked.log": "x\n", "sub/week/memory/live.json": "{}\n",
+                 "sub/week/logs/live.log": "x\n", "sub/week/.market/m.json": "{}\n",
+                 "sub/week/tools/memory/keep.py": "", "sub/week/test_up.py": textwrap.dedent("""\
+                     import os, sys, unittest
+                     HERE = os.path.dirname(os.path.abspath(__file__))
+                     sys.path.insert(0, os.path.join(HERE, "../../scripts"))
+                     import kitmod
+                     class T(unittest.TestCase):
+                         def test(self):
+                             top = os.path.dirname(os.path.dirname(HERE))
+                             self.assertTrue(os.path.isfile(os.path.join(top, "AGENTS.md")))
+                             for rel in ("memory/tracked.json", "logs/tracked.log", "tools/memory/keep.py"):
+                                 self.assertTrue(os.path.exists(os.path.join(HERE, rel)), rel)
+                             for rel in ("memory/live.json", "logs/live.log", ".market"):
+                                 self.assertFalse(os.path.exists(os.path.join(HERE, rel)), rel)
+                     """)}
+        for rel, text in files.items():
+            os.makedirs(os.path.dirname(os.path.join(top, rel)), exist_ok=True)
+            with open(os.path.join(top, rel), "w") as f:
+                f.write(text)
+        run = lambda *a: subprocess.run(["git", *a], cwd=top, capture_output=True, check=True)
+        run("init", "-q")
+        run("add", "AGENTS.md", "scripts", "sub/week/memory/tracked.json", "sub/week/logs/tracked.log", "sub/week/test_up.py")
+        run("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "top")
+        with mock.patch.object(mh, "ROOT", week):
+            ok, output = mh.run_tests()
+        self.assertTrue(ok, output)
+
     def test_the_copy_leaves_live_state_logs_and_keys_behind(self):
-        for rel in (".market/m.json", "memory/s.json", "shop_key.pem", ".env"):
+        for rel in (".market/m.json", "memory/s.json", "logs/live.log", "shop_key.pem", ".env"):
             os.makedirs(os.path.dirname(os.path.join(self.root, rel)) or self.root, exist_ok=True)
             with open(os.path.join(self.root, rel), "w") as f:
                 f.write("live\n")
         with open(os.path.join(self.root, "test_copy.py"), "w") as f:
             f.write("import os, unittest\nHERE = os.path.dirname(os.path.abspath(__file__))\n"
                     "class T(unittest.TestCase):\n    def test(self):\n"
-                    "        for rel in ('.market', 'memory', 'logs', 'shop_key.pem', '.env'):\n"
+                    "        for rel in ('.market', 'memory', 'logs/live.log', 'shop_key.pem', '.env'):\n"
                     "            self.assertFalse(os.path.exists(os.path.join(HERE, rel)), rel)\n"
-                    "        for rel in ('meta/terra.md', 'test_ok.py', '.gitignore'):\n"
+                    "        for rel in ('meta/terra.md', 'test_ok.py', '.gitignore', 'logs/market-kit.log'):\n"
                     "            self.assertTrue(os.path.exists(os.path.join(HERE, rel)), rel)\n")
         ok, output = mh.run_tests()
         self.assertTrue(ok, output)
@@ -594,6 +632,26 @@ class HarnessCycleTest(unittest.TestCase):
                 found |= {".market/" + m for m in re.findall(r'self\.root ?/ ?["\'](\w+_trial\.json)["\']', text)}
         self.assertGreaterEqual(len(found), 9)
         self.assertEqual(found - set(mh.SWITCHES), set())
+        # independent review 0738-isolate I: a study's root/"adopted" or root/"disabled" file also sets its arm
+        markers = set()
+        for name in os.listdir(here):
+            if name.endswith(".py") and not name.startswith("test_"):
+                text = open(os.path.join(here, name), encoding="utf-8").read()
+                markers |= set(re.findall(r'root ?/ ?["\'](\w+)["\']\)\.(?:exists|is_file)\(\)', text))
+        self.assertGreaterEqual(markers, {"adopted", "disabled"})
+        self.assertEqual(markers - set(mh.SWITCH_MARKERS), set())
+
+    def test_a_study_marker_made_while_the_model_ran_refuses_the_cycle(self):
+        os.makedirs(os.path.join(self.root, ".market", "opening_cue"))
+        with open(os.path.join(self.root, ".market", "opening_cue", "disabled"), "w") as f:
+            f.write("")
+        side = {".market/late_concession/adopted": ""}
+        with mock.patch.dict(os.environ, {"FAKE_SIDE": json.dumps(side)}):
+            os.remove(os.path.join(self.root, ".market", "opening_cue", "disabled"))  # gone before the model ran: not it
+            rec = self.go("good")
+        self.assertEqual(rec["status"], "rejected", rec.get("problems"))
+        self.assertEqual(rec["switches_changed"], [".market/late_concession/adopted"])
+        self.assertTrue(os.path.exists(os.path.join(self.root, ".market", "late_concession", "adopted")))
 
     def test_an_undo_puts_pricing_back_as_the_cycle_found_it_not_as_head(self):
         # independent review 0738-meta I1: undo checked out the commit's parent, dropping another job's pricing.json edit
