@@ -54,11 +54,27 @@ class Share(unittest.TestCase):
         board(self.md, 0.3096)
         switch(self.md, margin=0.002)
         self.assertAlmostEqual(sf.state(self.md, "o-1", env={})["share"], 0.3116)
-        switch(self.md, margin=0.5)            # out of range: no margin
-        self.assertAlmostEqual(sf.state(self.md, "o-1", env={})["share"], 0.3096)
-        board(self.md, 0.62)                   # never over MAX_SHARE
+        switch(self.md, margin=0.5)            # out of range: off (review I2)
+        self.assertIsNone(sf.state(self.md, "o-1", env={}))
+        board(self.md, 0.62)                   # a board Saved over MAX_SHARE is not trusted: off (review N6)
         switch(self.md)
-        self.assertEqual(sf.state(self.md, "o-1", env={})["share"], sf.MAX_SHARE)
+        self.assertIsNone(sf.state(self.md, "o-1", env={}))
+
+    def test_bad_config_is_off(self):        # review I2: a broken setting never turns the floor on
+        board(self.md, 0.3096)
+        for bad in ({"ab": None}, {"band": "Keep"}, {"margin": "0.01"}, {"kinds": None}, {"unknown": 1}):
+            switch(self.md, **bad)
+            self.assertIsNone(sf.state(self.md, "o-1", env={}, kind="food"), bad)
+
+    def test_malformed_board_is_off(self):   # review I1: never raises into the buyer run
+        switch(self.md)
+        for line in ({"ts": time.time(), "buyers": [1]}, {"ts": time.time(), "buyers": {"nocha12": "x"}}, [1, 2], "s"):
+            with open(os.path.join(self.md, "board_history.jsonl"), "w") as f:
+                f.write(json.dumps(line) + "\n")
+            self.assertIsNone(sf.state(self.md, "o-1", env={}), line)
+        with open(os.path.join(self.md, "board_history.jsonl"), "wb") as f:
+            f.write(b"\xff\xfe{bad\n")
+        self.assertIsNone(sf.state(self.md, "o-1", env={}))
 
     def test_never_under_base(self):
         board(self.md, 0.25)
