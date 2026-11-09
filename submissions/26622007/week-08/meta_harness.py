@@ -592,11 +592,55 @@ def put_back(found, paths):
             os.replace(full + ".meta-undo", full)
 
 
+TRIAL_AT_START = {"trial": None}     # price.grade_break_trial when the cycle started (trial_state)
+
+
+def trial_state():
+    """("off",), ("on", setting) or None when pricing.json cannot be read."""
+    p = pricing_now()
+    if "_unreadable" in p:
+        return None
+    price = p.get("price")
+    if not isinstance(price, dict) or "grade_break_trial" not in price:
+        return ("off",)
+    return ("on", price["grade_break_trial"])
+
+
+def kept_switch(start, now):
+    """The trial a person switched while the cycle ran (grade_break_trial_switch: the whole key off, or a whole valid
+    setting on where there was none), which the undo must not take back; None for anything else. A changed value or
+    window stays the cycle's change: hard_limits.PERSON_TRIALS refuses it and the undo reverts it."""
+    import profit_price
+    if start is not None and start[0] == "on" and now == ("off",):
+        return now
+    if start == ("off",) and now is not None and now[0] == "on" and profit_price.trial_setting_ok(now[1]):
+        return now
+    return None
+
+
+def keep_trial(cid, keep):
+    """Put a person's switch back after the undo, with the switch's own checks and backup (never anything else)."""
+    if keep is None or trial_state() == keep:
+        return
+    import grade_break_trial_switch as gbt
+    path, backups = os.path.join(ROOT, "pricing.json"), os.path.join(ROOT, ".market", "grade_break_trial_kept")
+    try:
+        if keep == ("off",):
+            gbt.switch_off(path, backup_dir=backups, stamp=cid)
+        else:
+            gbt.switch_on(path, keep[1], backup_dir=backups, stamp=cid)
+        log(f"{cid}: kept the grade_break_trial {keep[0].upper()} a person switched while the cycle ran")
+    except (ValueError, OSError) as e:
+        log(f"{cid}: could not keep the grade_break_trial {keep[0].upper()} a person switched: {e}")
+
+
 def try_undo(cid, sha, why, found=None):
     """undo(), or why it could not (the change then stays as committed). The cycle is recorded either way: an Astra
     cycle missing from meta/grades.jsonl runs again on the loop's next start."""
+    keep = kept_switch(TRIAL_AT_START["trial"], trial_state()) if TRIAL_AT_START["trial"] else None
     try:
         undo(sha, why, found)
+        keep_trial(cid, keep)
         return None
     except (RuntimeError, OSError) as e:      # OSError: put_back could not write the file back
         log(f"{cid}: could not undo {sha[:8]}, it stays: {e}")
@@ -1028,6 +1072,7 @@ def refresh_scorecard():
 def cycle(kind):
     before = dirty_paths()        # what the folder already held: not this cycle's change
     FOUND["pricing"] = pricing_now() if "pricing.json" in before else None
+    TRIAL_AT_START["trial"] = trial_state()
     found = start_contents(before)
     cid = f"{kind}-{time.strftime('%m%d-%H%M%S')}"
     os.makedirs(os.path.join(ROOT, "meta", "evidence"), exist_ok=True)
