@@ -25,6 +25,7 @@ MARKET = os.environ.get("MARKET_URL", "https://market.ourolabs.ai")
 ECON_ROUND = 3
 ROWS = "ledger_rows.jsonl"
 CURSOR = "ledger_cursor.json"
+REVIEWS = "ledger_reviews.jsonl"   # result reviews: stars and verified by account (review_row)
 PAGE = 500
 DEFAULTS = {"half_life_hours": 24, "shrink": 1.0, "price_ratio": 0.8, "min_prices": 3, "min_settles": 200,
             "captive_min_deals": 20, "captive_share": 0.6, "max_pages": 40}
@@ -72,6 +73,16 @@ def compact(e):
     return None
 
 
+def review_row(e):
+    """A Round 3 result's review as kept in REVIEWS, or None. The shop's stars part is one mean per reviewing account
+    (rules, Scoring); the rows file never kept stars, and stays as it was: it is read by byte-sized tails."""
+    d = e.get("data") or {}
+    if e.get("kind") != "result" or e.get("round", 0) < ECON_ROUND or d.get("stars") is None:
+        return None
+    return {"seq": e["seq"], "ts": e.get("ts"), "buyer": d.get("buyer"), "order": d.get("order"), "shop": d.get("shop"),
+            "seller": (d.get("receipt") or {}).get("shop"), "stars": d.get("stars"), "verified": d.get("verified")}
+
+
 def sync(md, get=ledger_get, max_pages=DEFAULTS["max_pages"]):
     """Reads at most max_pages of new entries. Returns how many rows it added; a slow market only delays it."""
     path, cur = os.path.join(md, ROWS), os.path.join(md, CURSOR)
@@ -83,11 +94,12 @@ def sync(md, get=ledger_get, max_pages=DEFAULTS["max_pages"]):
         if after is None:
             return 0
         state = {"after": after, "fields": {}}
-        if os.path.exists(path):              # a cursor lost but rows kept would count every deal twice
-            os.remove(path)
+        for p in (path, os.path.join(md, REVIEWS)):   # a cursor lost but rows kept would count every deal twice
+            if os.path.exists(p):
+                os.remove(p)
     added = 0
     os.makedirs(md, exist_ok=True)
-    with open(path, "a", encoding="utf-8") as out:
+    with open(path, "a", encoding="utf-8") as out, open(os.path.join(md, REVIEWS), "a", encoding="utf-8") as rev:
         for _ in range(max_pages):
             page = get(state["after"])
             for e in page:
@@ -97,6 +109,9 @@ def sync(md, get=ledger_get, max_pages=DEFAULTS["max_pages"]):
                 if row:
                     out.write(json.dumps(row, ensure_ascii=False) + "\n")
                     added += 1
+                review = review_row(e)
+                if review:
+                    rev.write(json.dumps(review, ensure_ascii=False) + "\n")
             if page:
                 state["after"] = page[-1]["seq"]
             if len(page) < PAGE:
@@ -108,10 +123,10 @@ def sync(md, get=ledger_get, max_pages=DEFAULTS["max_pages"]):
     return added
 
 
-def load_rows(md):
+def load_rows(md, name=ROWS):
     seen, rows = set(), []
     try:
-        with open(os.path.join(md, ROWS), encoding="utf-8") as f:
+        with open(os.path.join(md, name), encoding="utf-8") as f:
             for line in f:
                 try:
                     r = json.loads(line)
@@ -123,6 +138,11 @@ def load_rows(md):
     except OSError:
         pass
     return rows
+
+
+def load_reviews(md):
+    """REVIEWS, each seq once (a run repeated after a crash re-adds its rows, as in ROWS)."""
+    return load_rows(md, REVIEWS)
 
 
 def my_shops():
