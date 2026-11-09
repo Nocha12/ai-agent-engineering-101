@@ -356,6 +356,26 @@ class HarnessCycleTest(unittest.TestCase):
         self.assertEqual(rec["status"], "running", rec.get("problems"))
         self.assertEqual(mh.test_env()["PATH"].split(os.pathsep)[0], os.path.dirname(sys.executable))
 
+    def test_tests_run_with_the_seller_source_loader_installed_first(self):
+        # 11/09 09:03 terra-1109-085220 was refused on ~70 seller-study tests (fresh_frozen_load_proof): plain discover
+        # imports local modules before sol_source_load can attest them; the safe runner installs it first and they pass
+        # (the command itself: under the safe runner the real loader is already imported, so a fake one cannot tell)
+        seen = []
+        def run(cmd, **kw):
+            seen.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        with mock.patch.object(mh.subprocess, "run", run):
+            mh.run_tests()
+            with open(os.path.join(self.root, "sol_source_load.py"), "w") as f:
+                f.write("def install():\n    pass\n")
+            mh.run_tests()
+        self.assertEqual(seen[0][1:], ["-m", "unittest", "discover", "-p", "test_*.py"])     # no loader here: as before
+        self.assertEqual(seen[1][1], "-c")
+        boot = seen[1][2]
+        self.assertLess(boot.index("sol_source_load.install()"), boot.index("unittest.main"))
+        self.assertIn("'discover', '-p', 'test_*.py'", boot)
+        self.assertIn("sol_source_load.install()", mh.test_prompt())
+
     def test_hard_to_tell_without_a_measurement_is_not_accepted(self):
         rec = self.go("unsure")
         self.assertEqual(rec["status"], "no_change_unsupported")

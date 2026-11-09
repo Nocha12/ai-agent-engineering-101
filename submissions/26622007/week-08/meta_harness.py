@@ -265,8 +265,32 @@ def test_env():
     return env
 
 
+# The seller study attests that its modules were loaded fresh from this folder (sol_source_load), installed before any
+# local import as the safe runner's sitecustomize does. Plain discover imports them first, so ~70 study tests fail with
+# fresh_frozen_load_proof and every code change was refused (terra-1109-085220, 11/09 09:03; the 0738 "73 old failures").
+TEST_BOOT = ("import sol_source_load, unittest; sol_source_load.install(); "
+             "unittest.main(module=None, argv=['python -m unittest', 'discover', '-p', 'test_*.py'])")
+
+
+def test_command():
+    """The tests as the harness and the model run them: with the loader first when this folder has it."""
+    if os.path.isfile(os.path.join(ROOT, "sol_source_load.py")):
+        return [sys.executable, "-c", TEST_BOOT]
+    return [sys.executable, "-m", "unittest", "discover", "-p", "test_*.py"]
+
+
+def test_prompt():
+    cmd = test_command()
+    shown = f'{cmd[0]} -c "{cmd[2]}"' if cmd[1] == "-c" else f"{sys.executable} -m unittest discover -p 'test_*.py'"
+    return f"Tests: `{shown}` in this folder, the same command and environment the harness uses (the system python3 " \
+           "lacks httpx).\n"
+
+
 def run_tests():
-    p = subprocess.run([sys.executable, "-m", "unittest", "discover", "-p", "test_*.py"], cwd=ROOT, capture_output=True,
+    cmd = test_command()
+    if "discover" not in " ".join(cmd):     # the whole suite, never a chosen part of it
+        raise RuntimeError("the harness runs the whole test suite")
+    p = subprocess.run(cmd, cwd=ROOT, capture_output=True,
                        text=True, timeout=900, env=test_env())
     failed = [ln for ln in p.stderr.splitlines() if ln.startswith(("FAIL: ", "ERROR: "))]
     return p.returncode == 0, "\n".join(failed[:20] + [p.stderr[-1200:]])
@@ -369,8 +393,7 @@ def call_model(kind, cycle, pack):
     with open(os.path.join(ROOT, "meta", f"{kind}.md"), encoding="utf-8") as f:
         prompt = f.read()
     prompt += f"\n\nCycle {cycle}. Evidence pack: {os.path.relpath(pack, ROOT)}. Past changes: meta/changes.jsonl.\n"
-    prompt += f"Tests: `{sys.executable} -m unittest discover -p 'test_*.py'` in this folder, the same command and " \
-              "environment the harness uses (the system python3 lacks httpx).\n"
+    prompt += test_prompt()
     access = os.environ.get("META_CODEX_ACCESS", "--dangerously-bypass-approvals-and-sandbox").split()   # the Mac mini is its own
     cmd = [codex, "exec", "-m", MODELS[kind], *access, "--skip-git-repo-check", "--ephemeral",
            "-C", ROOT, "--output-schema", schema, "-o", out, "-"]
