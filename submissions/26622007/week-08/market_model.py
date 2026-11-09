@@ -68,10 +68,7 @@ def compact(e):
     if e["kind"] == "broken":
         return {**base, "sku": d.get("item")}
     if e["kind"] == "result" and d.get("shop"):       # names the shop by order, in case a settle entry does not
-        # stars and verified: the shop's stars part is one mean per reviewing account (rules, Scoring); rows cached
-        # before 11/10 have neither, so readers use .get()
-        return {**base, "shop": d["shop"], "seller": (d.get("receipt") or {}).get("shop"),
-                "stars": d.get("stars"), "verified": d.get("verified")}
+        return {**base, "shop": d["shop"], "seller": (d.get("receipt") or {}).get("shop")}
     return None
 
 

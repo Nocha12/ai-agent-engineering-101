@@ -98,28 +98,31 @@ class LinkTest(unittest.TestCase):
         e = {"kind": "settle", "seq": 1, "ts": T, "round": 3, "data": {"item": "H1", "warranty_hours": 6}}
         self.assertEqual(mm.compact(e)["warranty"], 6)
 
-    def test_a_result_keeps_its_review_stars_and_whether_it_was_verified(self):
+    def test_reviews_go_to_their_own_file_and_the_rows_stay_as_they_were(self):
         # "Stars take one mean per reviewing account" (rules, Scoring): the shop's stars part needs each review's stars
-        # by account. The row kept them nowhere, so which accounts pull the mean down could not be told (AX 11/10 지시 15).
-        e = {"kind": "result", "seq": 2, "ts": T, "round": 3,
-             "data": {"buyer": "b1", "order": "o-1", "shop": "https://s", "receipt": {"shop": "nocha12"},
-                      "stars": 4, "verified": True, "review": "free text, not kept"}}
-        row = mm.compact(e)
-        self.assertEqual((row["stars"], row["verified"]), (4, True))
-        self.assertEqual((row["buyer"], row["shop"], row["seller"]), ("b1", "https://s", "nocha12"))
-        self.assertNotIn("review", row)
-        bare = mm.compact({"kind": "result", "seq": 3, "ts": T, "round": 3, "data": {"buyer": "b2", "shop": "https://s"}})
-        self.assertEqual((bare["stars"], bare["verified"]), (None, None))
-
-    def test_rows_cached_before_the_stars_still_load(self):
+        # by account, which the rows never kept (AX 11/10 지시 15). They go to ledger_reviews.jsonl: the rows file is
+        # read by byte-sized tails (buyer_rank_pg 30 MB, restock 15-60 MB), so its rows keep their size (review 425e7dc I1).
+        res = {"kind": "result", "seq": 2, "ts": T, "round": 3,
+               "data": {"buyer": "b1", "order": "o-1", "shop": "https://s", "receipt": {"shop": "nocha12"},
+                        "stars": 4, "verified": True, "review": "free text, not kept"}}
+        old = {"kind": "result", "seq": 3, "ts": T, "round": 2, "data": {"buyer": "b0", "shop": "https://s", "stars": 1}}
+        bare = {"kind": "result", "seq": 4, "ts": T, "round": 3, "data": {"buyer": "b2", "shop": "https://s"}}
+        settle = {"kind": "settle", "seq": 5, "ts": T, "round": 3, "data": {"item": "H1", "amount": 9}}
+        self.assertEqual(mm.compact(res), {"k": "result", "seq": 2, "ts": T, "buyer": "b1", "order": "o-1",
+                                           "shop": "https://s", "seller": "nocha12"})
+        pages = [[res, old, bare, settle], []]
         with tempfile.TemporaryDirectory() as md:
-            with open(os.path.join(md, mm.ROWS), "w", encoding="utf-8") as f:
-                f.write(json.dumps({"k": "result", "seq": 1, "ts": T, "buyer": "b", "order": "o", "shop": "https://s",
-                                    "seller": "nocha12"}) + "\n")
-                f.write(json.dumps({"k": "result", "seq": 2, "ts": T, "buyer": "b", "order": "o2", "shop": "https://s",
-                                    "seller": "nocha12", "stars": 5, "verified": True}) + "\n")
-            rows = mm.load_rows(md)
-        self.assertEqual([r.get("stars") for r in rows], [None, 5])
+            with open(os.path.join(md, mm.CURSOR), "w") as f:
+                json.dump({"after": 1, "fields": {}}, f)
+            self.assertEqual(mm.sync(md, get=lambda after: pages.pop(0) if pages else []), 3)
+            with open(os.path.join(md, mm.ROWS), encoding="utf-8") as f:
+                self.assertNotIn("stars", f.read())
+            with open(os.path.join(md, mm.REVIEWS), "a", encoding="utf-8") as f:   # a run repeated after a crash
+                f.write(json.dumps({"seq": 2, "stars": 4}) + "\n")
+            self.assertEqual(mm.load_reviews(md), [{"seq": 2, "ts": T, "buyer": "b1", "order": "o-1", "shop": "https://s",
+                                                    "seller": "nocha12", "stars": 4, "verified": True}])
+        with tempfile.TemporaryDirectory() as md:
+            self.assertEqual(mm.load_reviews(md), [])                         # before the first sync: none, no error
 
 
 class BuyerMemoryTest(unittest.TestCase):
