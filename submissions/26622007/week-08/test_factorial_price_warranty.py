@@ -23,7 +23,7 @@ from test_sol_seller_margin import real_loop
 CONTROLLERS = ('READER_TRIAL', 'CONCESSION_TRIAL', 'LATE_CONCESSION', 'OPENING_DEFAULT',
                'DRAIN', 'OPENING_CUE', 'LATE_SPEED', 'JEV_TRANSPORT', 'SHELF_REPLY',
                'EXACT_ACCEPT', 'EXACT_COUNTER', 'GRADE_PREFERENCE', 'FOOD_OPENING',
-               'AT_FLOOR_EXACT', 'DEEP_LOWBALL', 'QUOTE_HOLD')
+               'AT_FLOOR_EXACT', 'DEEP_LOWBALL', 'QUOTE_HOLD', 'SHELF_JEV')
 AS_IS = 'sold as is, without a warranty'
 WITH_72 = 'comes with a 72 h warranty'
 
