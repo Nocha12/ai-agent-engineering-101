@@ -120,6 +120,8 @@ def board_saved(md, now=None):
 def board_row(md, now=None):
     """(my Saved, the snapshot's ts) on the newest board snapshot, or None as board_saved."""
     now = now or time.time()
+    if not _number(now):                  # delta review 2 M-2: never an OverflowError in now - ts
+        return None
     try:
         with open(os.path.join(md, "board_history.jsonl"), "rb") as f:
             f.seek(0, 2)
@@ -207,7 +209,8 @@ def switch_on(md, *, salt, start_at, hours, share=0.5, floor=False, band="cap", 
     (W-20261109-1638 지시 3, review M-1/M-3)."""
     now = time.time() if now is None else now
     d = {"enabled": True, "floor": floor, "band": band, "ab": {"salt": salt, "share": share}, "start_at": start_at,
-         "stop_at": start_at + hours * 3600 if _number(start_at) and _number(hours) else None,
+         "stop_at": start_at + hours * 3600 if _number(start_at) and _number(hours) and 0 < hours <= MAX_WINDOW_HOURS
+         else None,                        # a huge hours never reaches the sum: no OverflowError (delta review 2 M-1)
          **({"kinds": kinds} if kinds is not None else {}),
          **({"by": by} if by is not None else {}), **({"why": why} if why is not None else {})}
     if not _good(d) or not all(v is None or isinstance(v, str) for v in (by, why)):
