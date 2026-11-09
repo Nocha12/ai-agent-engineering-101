@@ -1944,6 +1944,27 @@ def choose_path(reason):
     return "code_single" if r.endswith("the only shop in the pool") else "single_ask"
 
 
+def moss_first_and_final_m1(d, meta, text, history, limit, steps, q, resume, sku, order, md, shop):
+    """The ladder's turn after buyer_moss_first (arm B: moss-and-oak's whole quote, first turn, priced by code) and
+    oneshot.final_m1 (a text-only Final price at my last offer once my offers are spent, taken); both default off, and
+    with both off (no order["_moss_first"], order["_final_m1"] None) the turn is d, unchanged."""
+    if order.get("_moss_first"):
+        moss = buyer_moss_first.turn(d, meta, text, history, limit, steps,
+                                     q.get("ask") if resume and q.get("ask_src") == "text" else None,
+                                     also_in_stock_only(text, sku, q.get("ask")), order.get("kind") == "goods",
+                                     order["_moss_first"], md, shop)
+        if moss is not d:
+            log(f"[moss-first] {shop}: arm B, the quote's ask {moss['shop_price']} -> offer {moss['price']} by code")
+        d = moss
+    if order.get("_final_m1") is not None:
+        m1 = oneshot.final_m1(d, meta, text, history, limit, steps)
+        if m1 is not d:
+            order["_final_m1"].append({"shop": shop, "price": m1["price"]})
+            log(f"[final-m1] {shop}: Final price {m1['price']} is my last offer, offers spent: taken")
+        d = m1
+    return d
+
+
 def firm_followup_turn(baseline, meta, text, history, limit, budget, order, shop, sku, quoted):
     """Existing refusal/cap verdict only; receipt proof is checked after talk."""
     if baseline is not None or not buyer_firm_trial.ENABLED:
@@ -2369,20 +2390,8 @@ def main():
                 order.get("kind") == "goods", discount_arm or probe_arm or
                 ("B" if order.get("_one_won_default") else None))
             # buyer_moss_first arm B (default off): moss-and-oak's whole quote, first turn, priced by code, not the harness
-            if order.get("_moss_first"):
-                moss = buyer_moss_first.turn(d, meta, text, history, limit, steps,
-                                             q.get("ask") if resume and q.get("ask_src") == "text" else None,
-                                             also_in_stock_only(text, key, q.get("ask")), order.get("kind") == "goods",
-                                             order["_moss_first"], md, shop["name"])
-                if moss is not d:
-                    log(f"[moss-first] {shop['name']}: arm B, the quote's ask {moss['shop_price']} -> offer {moss['price']} by code")
-                d = moss
-            if order.get("_final_m1") is not None:      # oneshot.final_m1 (default off): a Final price at my last offer
-                m1 = oneshot.final_m1(d, meta, text, history, limit, steps)
-                if m1 is not d:
-                    order["_final_m1"].append({"shop": shop["name"], "price": m1["price"]})
-                    log(f"[final-m1] {shop['name']}: Final price {m1['price']} is my last offer, offers spent: taken")
-                d = m1
+            if order.get("_moss_first") or order.get("_final_m1") is not None:
+                d = moss_first_and_final_m1(d, meta, text, history, limit, steps, q, resume, key, order, md, shop["name"])
             result = buyer_goods_first_one.turn(d, history, limit, steps, order.get("kind") == "goods", goods_first_arm)
             if goods_first_arm and d and d.get("action") == "offer" and not any(who == "you offered" for who, _ in history):
                 order["_goods_first_one_original"] = d["price"]

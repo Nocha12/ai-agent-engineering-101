@@ -168,59 +168,65 @@ class Wiring(unittest.TestCase):
         self.assertIn(".market/buyer_final_m1.json", meta_harness.SWITCHES)
 
 
-class RealLadder(unittest.TestCase):
-    """market_buyer.main's own price_ladder with the two switches."""
-
-    def ladder(self, order, md, q=None, limit=600000):
-        import ast, inspect
-        from types import SimpleNamespace
-        node = next(n for n in ast.walk(ast.parse(inspect.getsource(market_buyer.main)))
-                    if isinstance(n, ast.FunctionDef) and n.name == "price_ladder")
-        ns = {**vars(market_buyer), "discount_arm": None, "probe_arm": None, "goods_first_arm": None, "limit": limit,
-              "steps": (.9,), "q": q or {"ask": 518149, "ask_src": "text"}, "resume": True, "order": order,
-              "args": SimpleNamespace(budget=2 * limit), "shop": {"name": "moss-and-oak"}, "key": "G4a74caa4",
-              "r3": False, "md": md, "log": lambda *a, **k: None}
-        exec(compile(ast.Module(body=[node], type_ignores=[]), "<ladder>", "exec"), ns)
-        return ns["price_ladder"]
+class Wired(unittest.TestCase):
+    """market_buyer.moss_first_and_final_m1, which main's price_ladder calls right after the oneshot turn."""
 
     def setUp(self):
         self.md = tempfile.mkdtemp()
         write(self.md, start=1, end=1 + 9 * 3600)
+
+    def call(self, order, text=G, history=(), d=None, q=None, limit=600000):
+        return market_buyer.moss_first_and_final_m1(d, None, text, list(history), limit, (.9,),
+                                                    q or {"ask": 518149, "ask_src": "text"}, True, "G4a74caa4", order,
+                                                    self.md, "moss-and-oak")
 
     def order(self, arm, **kw):
         o = {"kind": "goods", "order": order_in(arm), **kw}
         o["_moss_first"] = mf.assign(self.md, o, now=2)
         return o
 
-    def test_off_the_first_moss_turn_is_the_harnesss(self):
-        self.assertIsNone(self.ladder({"kind": "goods"}, self.md)(None, G, []))
+    def test_off_is_the_turn_as_given(self):
+        for d in (None, {"shop_price": 1, "action": "walk_away", "price": 0}):
+            self.assertIs(self.call({"kind": "goods"}, d=d), d)
 
-    def test_arm_b_prices_it_while_the_switch_holds(self):
+    def test_arm_b_prices_the_moss_quote_arm_a_notes_it(self):
+        b, a = self.order("B"), self.order("A")
+        with unittest.mock.patch.object(mf.time, "time", return_value=3):
+            self.assertEqual(self.call(b), {"shop_price": 518149, "action": "offer", "price": int(.9 * 518149)})
+            self.assertIsNone(self.call(a))
+        self.assertEqual((len(b["_moss_first"]["applied"]), len(a["_moss_first"]["seen"]), a["_moss_first"]["applied"]),
+                         (1, 1, []))
+
+    def test_another_quote_or_a_rank_ask_is_left_alone(self):
         o = self.order("B")
         with unittest.mock.patch.object(mf.time, "time", return_value=3):
-            d = self.ladder(o, self.md)(None, G, [])
-        self.assertEqual(d, {"shop_price": 518149, "action": "offer", "price": int(.9 * 518149)})
-        self.assertEqual(len(o["_moss_first"]["applied"]), 1)
-        a = self.order("A")
-        with unittest.mock.patch.object(mf.time, "time", return_value=3):
-            self.assertIsNone(self.ladder(a, self.md)(None, G, []))
-        self.assertEqual((len(a["_moss_first"]["seen"]), a["_moss_first"]["applied"]), (1, []))
-
-    def test_another_shops_quote_or_rank_ask_is_left_alone(self):
-        o = self.order("B")
-        with unittest.mock.patch.object(mf.time, "time", return_value=3):
-            self.assertIsNone(self.ladder(o, self.md, q={"ask": 518149, "ask_src": "text_rank"})(None, G, []))
-            self.assertIsNone(self.ladder(o, self.md, q={"ask": 500000, "ask_src": "text"})(None, G, []))
+            self.assertIsNone(self.call(o, q={"ask": 518149, "ask_src": "text_rank"}))
+            self.assertIsNone(self.call(o, q={"ask": 500000, "ask_src": "text"}))
         self.assertEqual(o["_moss_first"]["seen"], [])
 
     def test_final_m1_only_when_on(self):
-        h = FinalM1.H
-        self.assertEqual(self.ladder({"kind": "food"}, self.md, limit=10000)(None, "Final price: 9600. ", h)["action"],
-                         "walk_away")
+        walk = oneshot.code_turn(9600, FinalM1.H, 10000, (.9,))
+        self.assertIs(self.call({"kind": "food"}, "Final price: 9600. ", FinalM1.H, walk, limit=10000), walk)
         on = {"kind": "food", "_final_m1": []}
-        self.assertEqual(self.ladder(on, self.md, limit=10000)(None, "Final price: 9600. ", h),
+        self.assertEqual(self.call(on, "Final price: 9600. ", FinalM1.H, walk, limit=10000),
                          {"shop_price": 9600, "action": "offer", "price": 9600})
         self.assertEqual(on["_final_m1"], [{"shop": "moss-and-oak", "price": 9600}])
+
+    def test_main_price_ladder_calls_it_only_when_on(self):
+        import test_buyer_accept_band as tb
+        history = [("shop asked", 11000), ("you offered", 9900)]
+        with unittest.mock.patch.object(market_buyer, "moss_first_and_final_m1", side_effect=AssertionError("called")):
+            ladder = tb.RealLadderTest("test_on_takes_the_final_ask_within_105_after_my_raise_off_walks").ladder(
+                {"kind": "goods"}, 10000)
+            self.assertEqual(ladder(10500, "", history)["price"], 10000)
+        seen = []
+        with unittest.mock.patch.object(market_buyer, "moss_first_and_final_m1",
+                                        side_effect=lambda d, *a: seen.append(d) or d), \
+                unittest.mock.patch.object(market_buyer, "md", self.md, create=True):
+            ladder = tb.RealLadderTest("test_on_takes_the_final_ask_within_105_after_my_raise_off_walks").ladder(
+                {"kind": "goods", "_final_m1": []}, 10000)
+            self.assertEqual(ladder(10500, "", history)["price"], 10000)
+        self.assertEqual(seen, [{"shop_price": 10500, "action": "offer", "price": 10000}])
 
 
 class FinalM1(unittest.TestCase):
