@@ -18,6 +18,8 @@ the configuration keeps the same study and version. The turn row is journaled be
 keeps the control path. Configuration: MARKET_DIR/shelf_jev_skip/config.json (SHELF_JEV_SKIP_CONFIG overrides), absent,
 invalid, disabled or outside [start_at, stop_at): the original path and no turn rows; a talk assigned earlier still gets
 its outcome row. mode "adopted": every eligible turn skips. Config and journal must be regular files (no FIFO waits).
+
+Switch: .market/shelf_jev_skip/config.json
 """
 import hashlib
 import json

@@ -20,16 +20,20 @@ SKU x grade (price.ask_caps, whether or not it bound), no scarce ask,
 no high-price trial cut (quote()'s why), and not in the margin study (sol_seller_margin assignment), so the two never
 price the same talk. Everything else is untouched and unrecorded.
 
-Switch: .market/seller_a_open.json {"enabled": true, "study": "<id>", "salt": "<salt>", "ratio": 0.76}; missing,
-unreadable or anything else is off, and off is today's ask exactly. SELLER_A_OPEN=0 in the environment is off too.
-Read at every quote, so no restart either way. Never raises. A new salt or ratio needs a new study id: the arms are a
-function of the salt, so changing it under one id would mix them.
+Switch: .market/seller_a_open.json {"enabled": true, "study": "<id>", "salt": "<salt>", "ratio": 0.76,
+"start_at": <epoch>, "stop_at": <epoch>}; on only in [start_at, stop_at), a window of at most MAX_WINDOW_HOURS. Missing,
+unreadable, a missing or non-finite time, an empty or too long window, or anything else is off, and off is today's ask
+exactly. SELLER_A_OPEN=0 in the environment is off too. Write it with switch_on(), which puts the times in. Read at
+every quote, so no restart either way, and the treatment stops by itself at stop_at (11/09 18:12: a switch without
+times kept arm B on until someone removed it; the experiment registry's expiry stops nothing). Never raises. A new
+salt or ratio needs a new study id: the arms are a function of the salt, so changing it under one id would mix them.
 """
 import hashlib
 import json
 import math
 import os
 import sys
+import time
 from pathlib import Path
 
 import profit_price
@@ -37,15 +41,21 @@ import profit_price
 SWITCH = "seller_a_open.json"
 RATIO, RATIO_LOW, RATIO_HIGH = 0.76, 0.70, 0.82
 MIN_LIST = 300000
+MAX_WINDOW_HOURS = 12
 
 
 def _num(v):
     return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
 
 
-def config(md=None, env=None):
-    """{"study", "salt", "ratio"} with the switch on, else None."""
+def _window(start, stop):
+    return _num(start) and _num(stop) and 0 < start < stop <= start + MAX_WINDOW_HOURS * 3600
+
+
+def config(md=None, env=None, now=None):
+    """{"study", "salt", "ratio", "start_at", "stop_at"} with the switch on at now, else None."""
     env = os.environ if env is None else env
+    now = time.time() if now is None else now
     if str(env.get("SELLER_A_OPEN") or "").strip().lower() in ("0", "false", "no", "off"):
         return None
     md = Path(md) if md is not None else Path(env.get("MARKET_DIR") or Path(__file__).parent / ".market")
@@ -60,7 +70,32 @@ def config(md=None, env=None):
         return None
     if not _num(ratio) or not RATIO_LOW <= ratio <= RATIO_HIGH:
         return None
-    return {"study": study, "salt": salt, "ratio": float(ratio)}
+    start, stop = d.get("start_at"), d.get("stop_at")
+    if not _window(start, stop) or not start <= now < stop:
+        return None
+    return {"study": study, "salt": salt, "ratio": float(ratio), "start_at": start, "stop_at": stop}
+
+
+def switch_on(md, *, study, salt, start_at, hours, ratio=RATIO):
+    """Write the switch for [start_at, start_at + hours) atomically (0600); ValueError leaves the old file as it was."""
+    stop_at = start_at + hours * 3600 if _num(hours) and _num(start_at) else None
+    d = {"enabled": True, "study": study, "salt": salt, "ratio": ratio, "start_at": start_at, "stop_at": stop_at}
+    if (not (isinstance(study, str) and study and isinstance(salt, str) and salt) or not _num(ratio)
+            or not RATIO_LOW <= ratio <= RATIO_HIGH or not _window(start_at, stop_at)):
+        raise ValueError("seller_a_open: bad switch")
+    path = Path(md) / SWITCH
+    tmp = path.with_name(f"{SWITCH}.tmp-{os.getpid()}")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(d, f, sort_keys=True, allow_nan=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    return d
 
 
 def arm(cfg, sku, grade):
@@ -71,11 +106,11 @@ def arm(cfg, sku, grade):
     return "B" if h[0] % 2 else "A"
 
 
-def decide(u, q, *, keep, margin_assignment, pricing=None, md=None, env=None):
+def decide(u, q, *, keep, margin_assignment, pricing=None, md=None, env=None, now=None):
     """(first ask, record|None). u: the unit; q: profit_price.quote()'s result. Today's q["open"] unless arm B moves it."""
     try:
         p0 = q["open"]
-        cfg = config(md, env)
+        cfg = config(md, env, now)
         lp = u.get("list_price")
         why = str(q.get("why") or "")
         if (not cfg or u.get("kind") != "goods" or u.get("grade") != "A" or not _num(lp) or lp < MIN_LIST
@@ -89,7 +124,7 @@ def decide(u, q, *, keep, margin_assignment, pricing=None, md=None, env=None):
         target = int(max(p0, q["floor"], math.ceil(cfg["ratio"] * lp)))     # never under today's ask or F; ratio < 1
         new = target if a == "B" else p0
         return new, {"study": cfg["study"], "arm": a, "ratio": cfg["ratio"], "usual": p0, "open": new,
-                     "list": lp, "floor": q["floor"]}
+                     "list": lp, "floor": q["floor"], "stop_at": cfg["stop_at"]}
     except Exception as e:  # noqa: BLE001 - a broken setting never stops a sale; the caller already read q["open"]
         print(f"SELLER_A_OPEN skipped: {type(e).__name__}", file=sys.stderr)
         return q.get("open") if isinstance(q, dict) else None, None
