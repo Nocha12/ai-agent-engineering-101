@@ -179,6 +179,18 @@ class Window(unittest.TestCase):
         raw_switch(self.md, json.dumps({"enabled": True, "floor": False, **good}))   # the same switch, finite: on
         self.assertEqual(sf.state(self.md, "o-1", env={}, now=self.t0)["arm"], "B")
 
+    def test_int_out_of_float_range_is_off_not_a_crash(self):   # parent 02:30: math.isfinite(10**400) raises
+        big = 10 ** 400
+        for kw in ({"start_at": big, "stop_at": big + 1}, {"start_at": self.t0 - 60, "stop_at": big},
+                   {"start_at": -big, "stop_at": self.t0 + 60},
+                   {"start_at": self.t0 - 60, "stop_at": self.t0 + 60, "margin": big},
+                   {"start_at": self.t0 - 60, "stop_at": self.t0 + 60, "ab": {"salt": "s", "share": big}}):
+            raw_switch(self.md, json.dumps({"enabled": True, "floor": False, **kw}))
+            self.assertIsNone(sf.config(self.md, env={}, now=self.t0), kw)
+            self.assertIsNone(sf.state(self.md, "o-1", env={}, now=self.t0), kw)
+        raw_switch(self.md, json.dumps({"enabled": True, "floor": False, "start_at": self.t0 - 60, "stop_at": self.t0 + 60}))
+        self.assertIsNone(sf.config(self.md, env={}, now=big))
+
     def test_reversed_empty_too_long_or_not_positive_is_off(self):
         self.assertIsNone(self.on(start_at=self.t0 + 60, stop_at=self.t0 - 60))
         self.assertIsNone(self.on(start_at=self.t0, stop_at=self.t0))
@@ -255,7 +267,7 @@ class SwitchOn(unittest.TestCase):
         for kw in ({"hours": 12.01}, {"hours": 0}, {"hours": float("nan")}, {"hours": True}, {"start_at": float("inf")},
                    {"start_at": "1"}, {"start_at": None}, {"salt": ""}, {"share": 0}, {"share": 1.5}, {"floor": "no"},
                    {"band": "Keep"}, {"floor": False, "band": "keep"}, {"kinds": ["toys"]}, {"by": {1}},
-                   {"why": 3}):
+                   {"why": 3}, {"start_at": 10 ** 400}, {"hours": 10 ** 400}, {"share": 10 ** 400}):
             args = {"salt": "sf2w-test", "start_at": self.t0, "hours": 9, "now": self.t0, **kw}
             with self.assertRaises(ValueError, msg=kw):
                 sf.switch_on(self.md, **args)

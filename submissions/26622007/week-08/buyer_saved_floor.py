@@ -52,7 +52,13 @@ VERSION = "sf-2w"          # sf-2: records carry study/v/board_ts/floor, the flo
 
 
 def _number(v):
-    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+    """A finite int or float, not bool; an int out of float range (JSON can hold 10**400) is not one, never a crash."""
+    if not isinstance(v, (int, float)) or isinstance(v, bool):
+        return False
+    try:
+        return math.isfinite(v)
+    except OverflowError:
+        return False
 
 
 def _window(start, stop):
@@ -196,8 +202,9 @@ def priced(trades):
 def switch_on(md, *, salt, start_at, hours, share=0.5, floor=False, band="cap", kinds=None, by=None, why=None,
               now=None):
     """Write the switch for [start_at, start_at + hours) atomically (0600) and return it. ValueError, the old file left
-    as it was, when a value is bad (the same check config makes) or the file there is another study that is enabled and
-    has not ended at now (or has no good window): never over someone else's open study (W-20261109-1638 지시 3)."""
+    as it was, when a value is bad (the same check config makes; by/why not text), the file there cannot be read, or it is
+    another study that is enabled and has not ended at now (or has no good window): never over someone else's open study
+    (W-20261109-1638 지시 3, review M-1/M-3)."""
     now = time.time() if now is None else now
     d = {"enabled": True, "floor": floor, "band": band, "ab": {"salt": salt, "share": share}, "start_at": start_at,
          "stop_at": start_at + hours * 3600 if _number(start_at) and _number(hours) else None,
