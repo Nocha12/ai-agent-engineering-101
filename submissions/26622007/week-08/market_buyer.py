@@ -65,6 +65,7 @@ import buyer_first95_trial
 import buyer_cap95_trial
 import buyer_b3b1
 import buyer_accept_band
+import buyer_saved_floor
 import buyer_quote_deadline
 import buyer_food_ladder
 import buyer_goods_grade
@@ -125,6 +126,7 @@ FOOD_TAKE_ASK = True        # food: an ask within my limit is taken as it is. Of
 FOOD_TAKE_SHARE = 0.65      # ... but only an ask at or under this share of list (0.70 until SAVED_MIN_SHARE went to 0.30). Patch 3.4 (11/06 06:00) scores Saved, the mean
 #                             share of list kept per deal over deals + 100, and a deal below my Saved (0.2415) lowers it: food
 #                             taken as asked kept a median 10% in the 6 h to 07:28 (126 of 150 under 0.2415; GPT Pro 11/06 07:30 B1)
+SAVED_SHARE = 0.30          # this order's share: SAVED_MIN_SHARE, or my board Saved under buyer_saved_floor (set in main)
 SAVED_MIN_SHARE = 0.30      # the share of list a deal must be expected to keep: the limit is list (1 - 0.30 / (1 - b)), b the
 #                             chance goods break (a break under warranty refunds and keeps 0). Of our 385 deals in that 6 h,
 #                             the 111 at 25% or more would have raised Saved 0.2415 -> 0.2441, all 385 lowered it to 0.2360.
@@ -262,7 +264,7 @@ def priced(trades):
     """The trades whose prices both arms of a buyer study may learn from: without goods-ladder arm B's 0.8 openings,
     goods-grade arm B's lowered limits and food-ladder arm B's 0.8 (C 0.7) openings (buyer_goods_ladder.priced,
     buyer_goods_grade.priced, buyer_food_ladder.priced)."""
-    return buyer_food_ladder.priced(buyer_goods_grade.priced(buyer_goods_ladder.priced(trades)))
+    return buyer_saved_floor.priced(buyer_food_ladder.priced(buyer_goods_grade.priced(buyer_goods_ladder.priced(trades))))
 
 
 def my_history(memory, name):
@@ -969,7 +971,7 @@ def recent_asks(md, now=None, hours=HOPELESS_HOURS):
             if isinstance(q, dict) and q.get("sku") and num(q.get("ask")) and not str(q.get("lost") or "").startswith("refused"):
                 out[q["sku"]].append(q["ask"])
         if r.get("sku") and not (buyer_food_ladder.laddered(r) or buyer_goods_ladder.laddered(r)
-                                  or buyer_goods_grade.lowered(r)):
+                                  or buyer_goods_grade.lowered(r) or buyer_saved_floor.floored(r)):
             out[r["sku"]] += [a for a in r.get("asks") or () if num(a)] + ([r["price"]] if num(r.get("price")) else [])
     return out
 
@@ -1629,10 +1631,11 @@ class NoValue(Exception):
     """saved_cap left nothing to pay for the offer: no talk is started."""
 
 
-def saved_cap(offer, chance, share=SAVED_MIN_SHARE):
+def saved_cap(offer, chance, share=None):
     """The most a deal may cost and still keep share of the list price in expectation (patch 3.4 Saved): goods that break
     under the warranty are refunded and keep 0, so the price keeps (1 - b)(1 - price / list) and the cap is
-    list (1 - share / (1 - b)). None or a chance of 1 or more leaves nothing to buy at."""
+    list (1 - share / (1 - b)). None or a chance of 1 or more leaves nothing to buy at. share None is SAVED_SHARE."""
+    share = SAVED_SHARE if share is None else share
     b = min(max(chance or 0, 0.0), 1.0)
     if b >= 1 or share / (1 - b) >= 1:
         return 0
@@ -1686,12 +1689,29 @@ def receipt_band(rec, offer, base, pct):
     return pct if not sku or sku == (offer or {}).get("sku") else base
 
 
-def over_limit(rec, offer, limit, catalog, budget, band=None):
+def receipt_chance(order, offer, rec, chance_of):
+    """The break chance a receipt for another SKU is held to under buyer_saved_floor (arm B with the floor on): that
+    SKU's (chance_of(sku), 0 when it has no rate, 1 at most: saved_cap then pays nothing); None, b = 0 as before, for
+    the asked SKU, food, any other arm or an error (GPT Pro 1638 P2: the shipped SKU's limit kept b = 0, so the floor
+    did not hold for it). main() records the chance it used in the order's "saved_floor" as "shipped"."""
+    try:
+        sku = (rec or {}).get("item")
+        if not buyer_saved_floor.recheck((order or {}).get("_saved_floor")) or (order or {}).get("kind") != "goods" \
+                or not sku or sku == (offer or {}).get("sku"):
+            return None
+        b = chance_of(sku)   # SKU level (market_model.break_chance), as goods_grade's arm A holds the asked SKU
+        return min(float(b), 1.0) if isinstance(b, (int, float)) and not isinstance(b, bool) and b >= 0 else 0.0
+    except Exception:  # noqa: BLE001 - a recheck never ends the run: b = 0 as before
+        return None
+
+
+def over_limit(rec, offer, limit, catalog, budget, band=None, shipped_chance=None):
     """Why a receipt is not one I pay for: its price is over my limit for its SKU (saved_cap, patch 3.4). A shop that
     sends a receipt at once, with no offer from me, skipped the talk where the limit is kept: 3 of the receipts paid from
     11/06 08:45 to 13:35 (Jaehoonang, agreed None) were over it, e.g. 13,532 for a limit of 13,415 (GPT Pro 11/06 13:30
     B2). None when the price is within it. Not cheating: the shop may ask what it likes; I just do not pay it.
-    band: buyer_accept_band.percent, the limit then goes up to that share of it (never over the budget)."""
+    band: buyer_accept_band.percent, the limit then goes up to that share of it (never over the budget).
+    shipped_chance: the shipped SKU's break chance for its saved cap (receipt_chance), else 0."""
     price = (rec or {}).get("price")
     if not isinstance(price, (int, float)) or isinstance(price, bool) or not isinstance(limit, (int, float)):
         return None
@@ -1702,7 +1722,7 @@ def over_limit(rec, offer, limit, catalog, budget, band=None):
         lp = ((catalog or {}).get(sku) or {}).get("list_price")
         if isinstance(lp, (int, float)):   # its list price unknown: the asked SKU's limit holds, not the budget
             cap = value_limit({"list_price": lp}, budget, 0, buyer_cfg())
-            limit = min(cap, saved_cap({"list_price": lp}, 0))
+            limit = min(cap, saved_cap({"list_price": lp}, shipped_chance or 0))
     limit = buyer_accept_band.ceiling(limit, budget, band, cap)
     return f"receipt price {price:g} is over my limit {limit:g} for {sku}" if round(price) > limit else None
 
@@ -1855,7 +1875,7 @@ def main():
         MEMORY = "memory/test_memory.json" if test else "memory/market_memory.json"
     order = load_json(args.order, {}) if args.order else {}
     if isinstance(order, dict):
-        for k in ("_sw", "_sw_buy", "_sw_h_est", "_rank_pg", "_rank_selection"):  # internal state, never read in
+        for k in ("_sw", "_sw_buy", "_sw_h_est", "_rank_pg", "_rank_selection", "_saved_floor"):  # internal state, never read in
             order.pop(k, None)
     md = os.path.dirname(args.shops) or "."
     rk = buyer_rank_pg.state(md, order) if args.order else None
@@ -1865,7 +1885,16 @@ def main():
             order["_rank_pg"] = rk
         else:
             buyer_rank_pg.unselected(rk, "non_round3_order")
+    global SAVED_SHARE
+    SAVED_SHARE = SAVED_MIN_SHARE
     if r3:
+        # buyer_saved_floor: the limit keeps my board Saved (off: SAVED_MIN_SHARE, the accept band as before)
+        order["_saved_floor"] = buyer_saved_floor.state(md, order.get("order"), base=SAVED_MIN_SHARE,
+                                                         kind=order.get("kind"))
+        if order["_saved_floor"]:
+            SAVED_SHARE = order["_saved_floor"]["share"]
+            log(f"[saved-floor] arm {order['_saved_floor']['arm']}: share {SAVED_SHARE:.4f}"
+                f" (board Saved {order['_saved_floor']['board_saved']:.4f}), band off {order['_saved_floor']['band_off']}")
         # Keep a retained invocation start on resume; invalid values fail closed in the trial.
         order.setdefault("_buyer_started_at", time.time())
         order["_food_quote_yield"] = order.get("kind") == "food" and quote_yield_arm(order.get("order"))
@@ -1908,6 +1937,7 @@ def main():
                                          "stock_evidence": buyer_stock_evidence.measurement(order),
                                          "quotes": [], "quote_attempts_complete": True,
                                          **({"rank_pg": buyer_rank_pg.metadata(rk)} if rk is not None else {}),
+                                         **({"saved_floor": order["_saved_floor"]} if order.get("_saved_floor") else {}),
                                          "state": "NO_SHOP_IN_STOCK", "seconds": {"end": round(time.time() - STARTED, 2)}})
         print(json.dumps({"shop": "", "receipt": None, **({} if r3 else {"stars": 1, "review": "No shops to trade with."})}))
         return 0
@@ -2044,6 +2074,8 @@ def main():
                                                saved_cap(offer, sku_chance))
     # plan A: a counter up to 105% of the limit is taken; more with a shop that holds its ask (buyer_shop_profile)
     band_base, band_pct = accept_percent(md, shop["name"], offer, chance, limit, args.budget) if r3 else (None, None)
+    if r3 and (order.get("_saved_floor") or {}).get("band_off"):   # a deal over the floor would lower Saved
+        band_base, band_pct = None, None
     if sw_h is not None:      # a short warranty expected: p_max(h) is the ceiling, no accept band (owner 7955)
         limit = min(limit, short_cap(offer, chance, order, shop["name"], quotes.get(shop["name"]), shop))
         band_base, band_pct = None, None
@@ -2209,8 +2241,16 @@ def main():
         short = short_warranty_receipt(rec, order, md, catalog, key, chance, short, shop)
     if short:
         warnings.append(short)
+    shipped = receipt_chance(order, offer, rec, lambda sku: market_model.break_chance(ledger_breaks(md, catalog), sku)) \
+        if r3 and rec is not None and not problems and not short else None
+    if shipped is not None:   # the orders row says which arm-B receipts the recheck held to another SKU's chance
+        lp = ((catalog or {}).get(rec.get("item")) or {}).get("list_price")   # over_limit uses it only with a list price
+        order["_saved_floor"]["shipped"] = {"sku": rec.get("item"), "chance": round(shipped, 4),
+                                         "applied": isinstance(lp, (int, float)) and not isinstance(lp, bool)}
     over = over_limit(rec, offer, limit, catalog, args.budget,
-                      None if (order.get("_sw_buy") or {}).get("ok") else receipt_band(rec, offer, band_base, band_pct)) if r3 and rec is not None and not problems and not short else None
+                      None if (order.get("_sw_buy") or {}).get("ok") else receipt_band(rec, offer, band_base, band_pct),
+                      shipped) \
+        if r3 and rec is not None and not problems and not short else None
     if over:
         warnings.append(over)
     for p in problems:
@@ -2231,7 +2271,8 @@ def main():
         **({"order": order.get("order"), "category": args.item, "list_price": offer["list_price"],
             "goods_ladder": buyer_goods_ladder.trade_arm(order),
             "goods_grade": buyer_goods_grade.trade_mark(order, limit),
-            "food_ladder": buyer_food_ladder.trade_arm(order)} if r3 else {}),
+            "food_ladder": buyer_food_ladder.trade_arm(order),
+            "saved_floor": buyer_saved_floor.trade_arm(order)} if r3 else {}),
         "result": "no_warranty" if short else "over_limit" if over else "deal" if rec is not None else (out["state"] or "error").replace("TASK_STATE_", "").lower(),
         "price": rec.get("price") if rec else None,
         "asks": asks, "holds": out.get("holds", 0), "problems": problems, "warnings": warnings, "why": why,
@@ -2271,6 +2312,8 @@ def main():
                                             if order.get("_quote_deadline") is not None else {}),
                                          **({"shop_profile": {"base": band_base, "pct": band_pct}}
                                             if band_pct != band_base else {}),
+                                         **({"saved_floor": order["_saved_floor"]}
+                                            if order.get("_saved_floor") else {}),
                                          **({"accept_band": {"pct": band_pct, "ceiling": top,
                                                              "taken": (order.get("_accept_band") or {}).get("taken")}}
                                             if band_pct else {})})

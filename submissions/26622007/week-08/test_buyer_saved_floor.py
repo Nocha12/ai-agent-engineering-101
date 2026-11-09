@@ -1,0 +1,319 @@
+"""buyer_saved_floor: the limit keeps my current Saved, not the fixed 0.30 (W-20261109-1638-AXPro주기)."""
+import json
+import os
+import tempfile
+import time
+import unittest
+from unittest import mock
+
+import buyer_saved_floor as sf
+import market_buyer as mb
+
+
+def board(md, saved, ts=None):
+    with open(os.path.join(md, "board_history.jsonl"), "w", encoding="utf-8") as f:
+        f.write(json.dumps({"ts": ts if ts is not None else time.time(), "buyers": {"nocha12": [saved, 0.89, 0.79]}}) + "\n")
+
+
+def switch(md, **kw):
+    with open(os.path.join(md, sf.SWITCH), "w", encoding="utf-8") as f:
+        json.dump({"enabled": True, **kw}, f)
+
+
+class Share(unittest.TestCase):
+    def setUp(self):
+        self.d = tempfile.TemporaryDirectory()
+        self.md = self.d.name
+
+    def tearDown(self):
+        self.d.cleanup()
+
+    def test_off_without_switch(self):
+        board(self.md, 0.3096)
+        self.assertIsNone(sf.state(self.md, "o-1"))
+
+    def test_off_by_env(self):
+        board(self.md, 0.3096)
+        switch(self.md)
+        self.assertIsNone(sf.state(self.md, "o-1", env={"BUYER_SAVED_FLOOR": "0"}))
+
+    def test_not_enabled_true_is_off(self):
+        board(self.md, 0.3096)
+        with open(os.path.join(self.md, sf.SWITCH), "w") as f:
+            json.dump({"enabled": "true"}, f)
+        self.assertIsNone(sf.state(self.md, "o-1"))
+
+    def test_on_uses_board_saved(self):
+        board(self.md, 0.3096)
+        switch(self.md)
+        st = sf.state(self.md, "o-1", env={})
+        self.assertEqual(st["arm"], "B")
+        self.assertAlmostEqual(st["share"], 0.3096)
+        self.assertTrue(st["band_off"])
+
+    def test_margin_and_bounds(self):
+        board(self.md, 0.3096)
+        switch(self.md, margin=0.002)
+        self.assertAlmostEqual(sf.state(self.md, "o-1", env={})["share"], 0.3116)
+        switch(self.md, margin=0.5)            # out of range: off (review I2)
+        self.assertIsNone(sf.state(self.md, "o-1", env={}))
+        board(self.md, 0.62)                   # a board Saved over MAX_SHARE is not trusted: off (review N6)
+        switch(self.md)
+        self.assertIsNone(sf.state(self.md, "o-1", env={}))
+
+    def test_bad_config_is_off(self):        # review I2: a broken setting never turns the floor on
+        board(self.md, 0.3096)
+        for bad in ({"ab": None}, {"band": "Keep"}, {"margin": "0.01"}, {"kinds": None}, {"unknown": 1}, {"stop_at": 1}):
+            switch(self.md, **bad)
+            self.assertIsNone(sf.state(self.md, "o-1", env={}, kind="food"), bad)
+
+    def test_malformed_board_is_off(self):   # review I1: never raises into the buyer run
+        switch(self.md)
+        for line in ({"ts": time.time(), "buyers": [1]}, {"ts": time.time(), "buyers": {"nocha12": "x"}}, [1, 2], "s"):
+            with open(os.path.join(self.md, "board_history.jsonl"), "w") as f:
+                f.write(json.dumps(line) + "\n")
+            self.assertIsNone(sf.state(self.md, "o-1", env={}), line)
+        with open(os.path.join(self.md, "board_history.jsonl"), "wb") as f:
+            f.write(b"\xff\xfe{bad\n")
+        self.assertIsNone(sf.state(self.md, "o-1", env={}))
+
+    def test_never_under_base(self):
+        board(self.md, 0.25)
+        switch(self.md)
+        self.assertEqual(sf.state(self.md, "o-1", env={})["share"], mb.SAVED_MIN_SHARE)
+
+    def test_stale_board_is_off(self):
+        board(self.md, 0.3096, ts=time.time() - 4 * 3600)
+        switch(self.md)
+        self.assertIsNone(sf.state(self.md, "o-1", env={}))
+
+    def test_band_kept_when_asked(self):
+        board(self.md, 0.3096)
+        switch(self.md, band="keep")
+        self.assertFalse(sf.state(self.md, "o-1", env={})["band_off"])
+
+    def test_ab_split_is_by_order_hash(self):
+        board(self.md, 0.3096)
+        switch(self.md, ab={"salt": "sf-test", "share": 0.5})
+        arms = [sf.state(self.md, f"o-{i}", env={})["arm"] for i in range(400)]
+        self.assertTrue(150 < arms.count("B") < 250)
+        self.assertEqual(arms, [sf.state(self.md, f"o-{i}", env={})["arm"] for i in range(400)])
+        a = next(sf.state(self.md, f"o-{i}", env={}) for i in range(400) if arms[i] == "A")
+        self.assertEqual(a["share"], mb.SAVED_MIN_SHARE)
+        self.assertFalse(a["band_off"])
+
+    def test_kinds_limits_the_floor(self):
+        board(self.md, 0.3096)
+        switch(self.md, kinds=["food"])
+        self.assertEqual(sf.state(self.md, "o-1", env={}, kind="food")["arm"], "B")
+        self.assertIsNone(sf.state(self.md, "o-1", env={}, kind="goods"))
+        self.assertIsNone(sf.state(self.md, "o-1", env={}))          # kind unknown: off
+        switch(self.md, kinds="food")                                 # not a list: off
+        self.assertIsNone(sf.state(self.md, "o-1", env={}, kind="food"))
+
+    def test_band_only_keeps_base_share(self):   # GPT Pro 1638 §2.4: the first A/B is the band off alone
+        board(self.md, 0.3096)
+        switch(self.md, floor=False)
+        st = sf.state(self.md, "o-1", env={})
+        self.assertEqual((st["arm"], st["share"], st["band_off"]), ("B", mb.SAVED_MIN_SHARE, True))
+        switch(self.md, floor=False, band="keep")      # nothing would change: off
+        self.assertIsNone(sf.state(self.md, "o-1", env={}))
+        switch(self.md, floor="no")
+        self.assertIsNone(sf.state(self.md, "o-1", env={}))
+
+    def test_empty_order_id_is_off_under_ab(self):
+        board(self.md, 0.3096)
+        switch(self.md, ab={"salt": "s", "share": 0.5})
+        self.assertIsNone(sf.state(self.md, None, env={}))
+        self.assertIsNone(sf.state(self.md, "", env={}))
+
+    def test_ab_bad_share_is_off(self):
+        board(self.md, 0.3096)
+        switch(self.md, ab={"salt": "x", "share": 2})
+        self.assertIsNone(sf.state(self.md, "o-1", env={}))
+
+
+class Learning(unittest.TestCase):
+    """Arm B's trades and talks are left out of what both arms learn from (GPT Pro 1638 P1)."""
+
+    def test_priced_leaves_out_arm_b(self):
+        trades = [{"order": "1", "saved_floor": "B"}, {"order": "2", "saved_floor": "A"}, {"order": "3"},
+                  {"order": "4", "saved_floor": None}]
+        self.assertEqual([t["order"] for t in sf.priced(trades)], ["2", "3", "4"])
+        self.assertEqual([t["order"] for t in mb.priced(trades)], ["2", "3", "4"])
+
+    def test_rows_and_trade_arm(self):
+        self.assertTrue(sf.floored({"saved_floor": {"arm": "B"}}))
+        self.assertFalse(sf.floored({"saved_floor": {"arm": "A"}}))
+        self.assertFalse(sf.floored({}))
+        self.assertEqual(sf.trade_arm({"_saved_floor": {"arm": "B"}}), "B")
+        self.assertIsNone(sf.trade_arm({}))
+
+    def test_recent_asks_skip_arm_b_talk_asks_and_prices(self):   # review 4f28644 I1: hopeless() reads it
+        now = time.time()
+        rows = [{"ts": now - 60, "sku": "G1", "asks": [9000], "price": 8800, "saved_floor": {"arm": "B"},
+                 "quotes": [{"shop": "s", "sku": "G1", "ask": 9500, "lost": None}]},
+                {"ts": now - 60, "sku": "G1", "asks": [9900], "price": 9700, "saved_floor": {"arm": "A"}, "quotes": []}]
+        with tempfile.TemporaryDirectory() as md:
+            os.makedirs(os.path.join(md, "measure"))
+            with open(os.path.join(md, "measure", "orders.jsonl"), "w") as f:
+                f.writelines(json.dumps(r) + "\n" for r in rows)
+            self.assertEqual(sorted(mb.recent_asks(md, now=now)["G1"]), [9500, 9700, 9900])
+
+    def test_learners_skip_arm_b_rows(self):
+        import buyer_rank_pg, buyer_shop_profile
+        for mod in (buyer_rank_pg, buyer_shop_profile):
+            src = open(mod.__file__, encoding="utf-8").read()
+            self.assertIn("buyer_saved_floor.floored(r)", src, mod.__name__)
+        src = open(mb.__file__, encoding="utf-8").read()
+        self.assertIn('"saved_floor": buyer_saved_floor.trade_arm(order)', src)
+
+
+class Cap(unittest.TestCase):
+    def tearDown(self):
+        mb.SAVED_SHARE = mb.SAVED_MIN_SHARE
+
+    def test_saved_cap_default_follows_saved_share(self):
+        self.assertEqual(mb.saved_cap({"list_price": 10000}, 0), 7000)
+        mb.SAVED_SHARE = 0.31
+        self.assertEqual(mb.saved_cap({"list_price": 10000}, 0), int(10000 * (1 - 0.31)))
+        self.assertEqual(mb.saved_cap({"list_price": 10000}, 0, 0.30), 7000)   # an explicit share still wins
+
+    def test_main_sets_and_logs_the_floor(self):
+        src = open(mb.__file__, encoding="utf-8").read()
+        i = src.index("def main():")
+        self.assertIn("buyer_saved_floor.state(md", src[i:])
+        self.assertIn('kind=order.get("kind")', src[i:])
+        self.assertIn("SAVED_SHARE = ", src[i:])
+        j = src.index("band_base, band_pct = accept_percent(", i)
+        self.assertIn("band_off", src[j:j + 600])
+
+
+class Assignment(unittest.TestCase):
+    """Every arm record names its study, version, board snapshot and floor flag, so the judgement can recount the arms
+    by sha1(salt|order) over every order (GPT Pro 1638 P2 buyer_saved_floor.py:76-98, :917)."""
+
+    def setUp(self):
+        self.d = tempfile.TemporaryDirectory()
+        self.md = self.d.name
+
+    def tearDown(self):
+        self.d.cleanup()
+
+    def test_both_arms_carry_study_version_board_and_floor(self):
+        ts = time.time() - 60
+        board(self.md, 0.3096, ts=ts)
+        switch(self.md, floor=False, ab={"salt": "sf-test", "share": 0.5})
+        rows = [sf.state(self.md, f"o-{i}", env={}) for i in range(40)]
+        self.assertEqual({r["arm"] for r in rows}, {"A", "B"})
+        for r in rows:
+            self.assertEqual((r["study"], r["v"], r["floor"]), ("sf-test", sf.VERSION, False))
+            self.assertAlmostEqual(r["board_ts"], ts)
+            self.assertEqual(r["board_saved"], 0.3096)
+
+    def test_without_ab_the_study_is_none(self):
+        board(self.md, 0.3096)
+        switch(self.md)
+        st = sf.state(self.md, "o-1", env={})
+        self.assertIsNone(st["study"])
+        self.assertTrue(st["floor"])
+
+    def test_recheck_only_for_arm_b_with_the_floor(self):
+        self.assertTrue(sf.recheck({"arm": "B", "floor": True}))
+        self.assertFalse(sf.recheck({"arm": "B", "floor": False}))    # band off alone: the first A/B stays the band
+        self.assertFalse(sf.recheck({"arm": "A", "floor": True}))
+        self.assertFalse(sf.recheck(None))
+        self.assertFalse(sf.recheck({"arm": "B"}))                     # an old record without the flag: no change
+
+    def test_no_shop_in_stock_row_carries_the_arm(self):
+        """The early exit (no shop has the order in stock) writes its orders.jsonl row with the arm, so the arm's
+        denominator keeps every order it was given (P2: the early exits were left out)."""
+        import contextlib
+        import io
+        import sys
+        board(self.md, 0.3096)
+        switch(self.md, floor=False, ab={"salt": "sf-test", "share": 1.0})
+        os.makedirs(os.path.join(self.md, "measure"), exist_ok=True)
+        with open(os.path.join(self.md, "catalog.json"), "w") as f:
+            json.dump({"G1": {"list_price": 10000, "name": "x", "category": "c"}}, f)
+        shops = os.path.join(self.md, "shops.json")
+        with open(shops, "w") as f:
+            json.dump([{"name": "s1", "url": "http://127.0.0.1:9/", "stock": []}], f)
+        order = os.path.join(self.md, "order.json")
+        with open(order, "w") as f:
+            json.dump({"order": "o-early", "kind": "food", "category": "c", "item": "G1", "acceptable": ["G1"]}, f)
+        argv, mem, aux = sys.argv, mb.MEMORY, mb.AGENT_DIR
+        sys.argv = ["market_buyer.py", "--shops", shops, "--item", "G1", "--budget", "9000", "--order", order]
+        mb.MEMORY = os.path.join(self.md, "mem.json")
+        env = {k: v for k, v in os.environ.items() if k != "BUYER_SAVED_FLOOR"}   # an outside off switch: not this test
+        try:
+            with mock.patch.dict(os.environ, env, clear=True), contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(mb.main(), 0)
+        finally:
+            sys.argv, mb.MEMORY, mb.AGENT_DIR = argv, mem, aux
+            mb.SAVED_SHARE = mb.SAVED_MIN_SHARE
+        self.assertIn('"receipt": null', out.getvalue())
+        with open(os.path.join(self.md, "measure", "orders.jsonl")) as f:
+            rows = [json.loads(l) for l in f]
+        self.assertEqual(rows[-1]["state"], "NO_SHOP_IN_STOCK")
+        self.assertEqual(rows[-1]["saved_floor"]["arm"], "B")
+        self.assertEqual(rows[-1]["saved_floor"]["study"], "sf-test")
+
+
+class ShippedSku(unittest.TestCase):
+    """A receipt for another SKU than the one asked: its saved cap used b = 0 (GPT Pro 1638 P2 market_buyer.py:1689-1707).
+    Under the floor (arm B, floor true) it uses that SKU's break chance; off and band-only arms keep b = 0."""
+
+    def tearDown(self):
+        mb.SAVED_SHARE = mb.SAVED_MIN_SHARE
+
+    def test_shipped_chance_lowers_the_cap(self):
+        offer = {"sku": "G1", "list_price": 100000}
+        catalog = {"G2": {"list_price": 100000}}
+        rec = {"item": "G2", "price": 66000}
+        mb.SAVED_SHARE = 0.31
+        self.assertIsNone(mb.over_limit(rec, offer, 69000, catalog, 200000))               # b = 0: cap 69,000
+        self.assertIsNone(mb.over_limit(rec, offer, 69000, catalog, 200000, shipped_chance=None))
+        why = mb.over_limit(rec, offer, 69000, catalog, 200000, shipped_chance=0.13)       # cap 100000 x (1 - .31/.87) = 64,367
+        self.assertIsNotNone(why)
+        self.assertIn("G2", why)
+
+    def test_same_sku_ignores_shipped_chance(self):
+        offer = {"sku": "G1", "list_price": 100000}
+        rec = {"item": "G1", "price": 66000}
+        self.assertIsNone(mb.over_limit(rec, offer, 69000, {}, 200000, shipped_chance=0.5))
+
+    def test_receipt_chance_only_when_rechecked(self):
+        order_b = {"_saved_floor": {"arm": "B", "floor": True}, "kind": "goods"}
+        offer = {"sku": "G1", "list_price": 100000}
+        chance = lambda sku: 0.15 if sku == "G2" else None   # noqa: E731
+        self.assertEqual(mb.receipt_chance(order_b, offer, {"item": "G2"}, chance), 0.15)
+        self.assertIsNone(mb.receipt_chance(order_b, offer, {"item": "G1"}, chance))      # the asked SKU: limit as is
+        self.assertIsNone(mb.receipt_chance({**order_b, "kind": "food"}, offer, {"item": "G2"}, chance))
+        self.assertIsNone(mb.receipt_chance({"_saved_floor": {"arm": "B", "floor": False}, "kind": "goods"},
+                                            offer, {"item": "G2"}, chance))
+        self.assertIsNone(mb.receipt_chance({"kind": "goods"}, offer, {"item": "G2"}, chance))
+        self.assertEqual(mb.receipt_chance(order_b, offer, {"item": "G3"}, chance), 0.0)  # no rate: 0 as before
+
+        self.assertEqual(mb.receipt_chance(order_b, offer, {"item": "G2"}, lambda sku: 1.2), 1.0)   # at most 1: cap 0
+        self.assertEqual(mb.receipt_chance(order_b, offer, {"item": "G2"}, lambda sku: float("nan")), 0.0)
+
+        def boom(sku):
+            raise ValueError(sku)
+        self.assertIsNone(mb.receipt_chance(order_b, offer, {"item": "G2"}, boom))       # never raises into the run
+
+    def test_main_passes_and_records_the_shipped_chance(self):
+        """main() hands receipt_chance's result to over_limit and records it in the order's saved_floor (review N1, N3),
+        with whether over_limit could use it (the shipped SKU has a list price; delta review N1)."""
+        with open(mb.__file__, encoding="utf-8") as f:
+            src = f.read()
+        i = src.index("def main():")
+        j = src.index("shipped = receipt_chance(order, offer, rec,", i)
+        k = src.index("over = over_limit(rec, offer, limit, catalog, args.budget,", j)
+        self.assertIn('order["_saved_floor"]["shipped"] = {"sku": rec.get("item")', src[j:k])
+        self.assertIn('"applied": isinstance(lp, (int, float))', src[j:k])
+        self.assertIn("shipped)", src[k:k + 300])
+
+
+if __name__ == "__main__":
+    unittest.main()
