@@ -11,6 +11,8 @@ import sys
 import time
 
 class Trial:
+    MAX_WINDOW = 1800   # seconds a config window may span
+
     def __init__(self, root=None):
         self.root = Path(root) if root is not None else Path(os.environ.get("MARKET_DIR") or Path(__file__).parent / ".market")
         self.warned = set()
@@ -40,7 +42,7 @@ class Trial:
             for key in ("start", "end"):
                 if type(c.get(key)) not in (int, float) or not math.isfinite(c[key]):
                     raise ValueError()
-            if not 0 < c["end"] - c["start"] <= 1800 or type(c.get("seed")) is not int:
+            if not 0 < c["end"] - c["start"] <= self.MAX_WINDOW or type(c.get("seed")) is not int:
                 raise ValueError()
             if "stop" in c and type(c["stop"]) is not bool:
                 raise ValueError()

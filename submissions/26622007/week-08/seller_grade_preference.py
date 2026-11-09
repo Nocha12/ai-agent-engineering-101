@@ -1,4 +1,10 @@
-"""Default-off fallback for three complete optional-grade preference sentences."""
+"""Default-off fallback for three complete optional-grade preference sentences.
+
+INFO is the buyers' request to be told the grade ("State price, grade and warranty hours."), not a grade policy: it is
+left out of the residual once, whole, before the strict checks. 10:40-13:37 11/09 every one of the 32 grade rejections
+carried an optional preference, and the template that pairs "Prefer discounted grade C/refurbished stock when
+available." with INFO was refused only for the word "grade" in INFO (review/W-20261109-1338-AXPro주기, Pro §1-3).
+"""
 import re
 import shop_stock
 
@@ -7,6 +13,7 @@ PREFERENCES=(
  "Prefer discounted grade C/refurbished stock when available.",
  "I prefer grade C (refurbished) or B (damaged box) with the warranty, priced for its grade; grade A only if you have nothing else.",
 )
+INFO="State price, grade and warranty hours."
 
 def preference_needs(text):
     if not isinstance(text,str):return None
@@ -19,6 +26,8 @@ def preference_needs(text):
         return None
     if shop_stock.policy_needs(text)["grades"]:return None
     residual=text[:start]+text[end:]
+    if residual.count(INFO)==1:
+        residual=residual.replace(INFO,"")
     # Unknown grade qualifiers outside the complete optional sentence stay strict.
     if re.search(r"\bgrades?\b",residual,re.I) or re.search(r"\b[ABC]\b",residual):
         return None
@@ -36,7 +45,9 @@ from pathlib import Path
 from seller_concession_trial import Trial
 
 class GradePreferenceTrial(Trial):
-    """Pre-selection ITT: every qualifying first request retains a denominator."""
+    """Pre-selection ITT: every qualifying first request retains a denominator. Its window may span 12 h (a 9 h verdict
+    with room to the 12 h stop); the concession trial keeps 30 min."""
+    MAX_WINDOW = 12 * 3600
     def __init__(self,root=None):
         base=Path(root) if root is not None else Path(os.environ.get("MARKET_DIR") or Path(__file__).parent/".market")
         super().__init__(base/"grade_preference")
