@@ -74,6 +74,7 @@ import buyer_food_shelf
 import buyer_rank_pg
 import buyer_shop_profile
 import buyer_short_warranty
+import buyer_warranty_said
 import rival_deny
 
 # Revenue rivals of my shop asked last (rival_deny): off from 11/07 00:30. With best_quote stopping at QUOTE_ENOUGH asks they
@@ -866,6 +867,7 @@ def quote(shop, label, key, order, out, ctl=None):
              "refused": quote_refused(text, order)}
         if order.get("_sw") is not None and order.get("kind") == "goods":
             q["warranty_h"] = warranty_hours_said(text)
+            q["warranty_said_ok"] = buyer_warranty_said.stated_ok(text)
         lock = (ctl or {}).get("lock")
         # Journal IO must never own the decision/termination lock.
         aligned = buyer_quote_alignment.read_quote(
@@ -1958,6 +1960,10 @@ def main():
         sw = None
     _SW_CTX.clear()
     if sw is not None:
+        # buyer_warranty_said: arm B prices a quote naming 6 h or more as a 6 h deal, not at the shop's 0 h history
+        sw["said"] = buyer_warranty_said.state(md, order.get("order"))
+        if sw["said"]:
+            log(f"[warranty-said] arm {sw['said']['arm']} ({sw['said']['study']})")
         order["_sw"] = sw
         _SW_CTX.update(md=md, catalog=catalog)
         log(f"[short-warranty] on: S {order['_sw']['S']:.4f}, goods with a short warranty priced at p_max(h)")
@@ -2306,6 +2312,8 @@ def main():
                                          **({"short_warranty": {"S": order["_sw"]["S"], "h_est": order.get("_sw_h_est"),
                                                                 "shops": order["_sw"]["hist"]}}
                                             if order.get("_sw") is not None else {}),
+                                         **({"warranty_said": buyer_warranty_said.record(order.get("_sw"), quotes)}
+                                            if (order.get("_sw") or {}).get("said") else {}),
                                          **({"rank_pg": buyer_rank_pg.metadata(order["_rank_pg"])}
                                             if order.get("_rank_pg") is not None else {}),
                                          **({"quote_deadline": order["_quote_deadline"]}

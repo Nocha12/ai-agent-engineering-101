@@ -31,6 +31,7 @@ import json
 import os
 import time
 
+import buyer_warranty_said
 import hard_limits
 
 SWITCH = "buyer_short_warranty.json"
@@ -133,8 +134,12 @@ def state(md, order, now=None, env=None):
 
 def hours_for(sw, shop, quote=None):
     """The warranty hours I expect from shop on this order, when under BREAK_HOURS: the least of what its quote said and
-    what its recent receipts showed (market_buyer.short_warranty_shops, taken as 0 h). None: a 6 h one, as usual."""
+    what its recent receipts showed (market_buyer.short_warranty_shops, taken as 0 h). None: a 6 h one, as usual.
+    buyer_warranty_said arm B: a quote naming only 6 h or more is a 6 h one whatever the history (the receipt is still
+    checked at its own hours)."""
     if not sw:
+        return None
+    if buyer_warranty_said.applies(sw, quote):
         return None
     hs = [h for h in ((quote or {}).get("warranty_h"), (sw.get("hist") or {}).get(shop)) if number(h)]
     h = min(hs) if hs else None

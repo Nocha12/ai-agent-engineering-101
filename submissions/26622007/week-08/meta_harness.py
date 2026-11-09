@@ -62,7 +62,7 @@ SWITCHES = ("seller_warranty_trial.json", ".market/sol_seller_margin_v2/controll
             ".market/seller_concession_trial.json", ".market/seller_reader_trial.json", ".market/seller_a_open.json",
             ".market/shelf_jev_skip/config.json") + tuple(
     f".market/buyer_{n}.json" for n in ("accept_band", "b3b1", "food_ladder", "food_shelf", "goods_grade", "goods_ladder", "quote_deadline", "rank_pg",
-                                        "saved_floor", "shop_profile", "short_warranty"))
+                                        "saved_floor", "shop_profile", "short_warranty", "warranty_said"))
 
 
 # A study's root/"adopted" forces arm B and root/"disabled" stops it (late_concession, opening_cue, at_floor_exact, ...):
