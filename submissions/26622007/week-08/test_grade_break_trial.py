@@ -1,7 +1,8 @@
 """price.grade_break_trial (profit_price.break_trial_arm / unit_break): a unit-hash half of grade B goods priced at a
-higher break chance, off outside its window or on any odd field."""
+higher break chance, off outside its window or on any odd field; both arms logged; the pick order does not see it."""
 import hashlib
 import unittest
+import unittest.mock as mock
 
 import profit_price
 
@@ -28,32 +29,39 @@ def cfg(**trial):
             "min_profit": 1, "min_profit_share": 0.0, **({"grade_break_trial": trial} if trial else {})}
 
 
+def pricing(**trial):
+    return {"price": {k: v for k, v in cfg(**trial).items() if k != "kind_ratio"}, "warranty": {"max_break": 0.5}}
+
+
 class GradeBreakTrial(unittest.TestCase):
     def test_hash_split_is_about_half(self):
         self.assertTrue(150 < len(TREAT) < 250)
 
     def test_treated_b_unit_takes_trial_rate(self):
-        b, tb = profit_price.unit_break(unit(TREAT[0]), None, cfg(**TRIAL), now=NOW)
-        self.assertEqual((b, tb), (0.19, 0.19))
+        self.assertEqual(profit_price.unit_break(unit(TREAT[0]), None, cfg(**TRIAL), 0.5, now=NOW), (0.19, "trial"))
 
-    def test_control_b_unit_keeps_usual_rate(self):
-        b, tb = profit_price.unit_break(unit(CTRL[0]), None, cfg(**TRIAL), now=NOW)
-        self.assertEqual((b, tb), (0.122, None))
+    def test_control_b_unit_keeps_usual_rate_and_is_labelled(self):
+        self.assertEqual(profit_price.unit_break(unit(CTRL[0]), None, cfg(**TRIAL), 0.5, now=NOW), (0.122, "control"))
 
     def test_never_lowers_a_higher_measured_rate(self):
-        b, tb = profit_price.unit_break(unit(TREAT[0]), 0.30, cfg(**TRIAL), now=NOW)
-        self.assertEqual((b, tb), (0.30, 0.19))
+        self.assertEqual(profit_price.unit_break(unit(TREAT[0]), 0.30, cfg(**TRIAL), 0.5, now=NOW), (0.30, "trial"))
+
+    def test_raise_over_max_break_is_not_made(self):
+        t = {**TRIAL, "grade_break": {"B": 0.6}}
+        self.assertEqual(profit_price.unit_break(unit(TREAT[0]), None, cfg(**t), 0.5, now=NOW), (0.122, "trial"))
+        with mock.patch.object(profit_price.time, "time", return_value=NOW):
+            q = profit_price.quote(unit(TREAT[0]), median=700_000, pricing=pricing(**t))
+        self.assertFalse(q["refuse"])
 
     def test_other_grades_and_food_untouched(self):
         for u, want in ((unit(TREAT[0], "A"), 0.035), (unit(TREAT[0], "C"), 0.344), (unit(TREAT[0], kind="food"), 0.0)):
-            b, tb = profit_price.unit_break(u, None, cfg(**TRIAL), now=NOW)
-            self.assertEqual((b, tb), (want, None), u)
+            self.assertEqual(profit_price.unit_break(u, None, cfg(**TRIAL), 0.5, now=NOW), (want, None), u)
 
     def test_window_is_half_open_and_fail_closed(self):
         u = unit(TREAT[0])
         for now in (TRIAL["start_at"] - 1, TRIAL["stop_at"], TRIAL["stop_at"] + 1):
             self.assertIsNone(profit_price.break_trial_arm(u, cfg(**TRIAL), now=now))
-        self.assertEqual(profit_price.break_trial_arm(u, cfg(**TRIAL), now=TRIAL["start_at"]), 0.19)
+        self.assertEqual(profit_price.break_trial_arm(u, cfg(**TRIAL), now=TRIAL["start_at"]), ("trial", 0.19))
         for bad in ({"stop_at": None}, {"start_at": float("nan")}, {"stop_at": float("inf")}, {"share": 0},
                     {"share": 1.5}, {"share": True}, {"salt": ""}, {"grade_break": {"B": 1.0}},
                     {"grade_break": {"B": "0.19"}}, {"grade_break": None}, {"start_at": NOW + 120}):
@@ -62,24 +70,32 @@ class GradeBreakTrial(unittest.TestCase):
         self.assertIsNone(profit_price.break_trial_arm({**u, "unit": None}, cfg(**TRIAL), now=NOW))
 
     def test_quote_floor_rises_only_for_treated(self):
-        p = {"price": {k: v for k, v in cfg(**TRIAL).items() if k != "kind_ratio"}}
-        import unittest.mock as m
-        with m.patch.object(profit_price.time, "time", return_value=NOW):
+        p = pricing(**TRIAL)
+        with mock.patch.object(profit_price.time, "time", return_value=NOW):
             qt = profit_price.quote(unit(TREAT[0]), median=700_000, pricing=p)
             qc = profit_price.quote(unit(CTRL[0]), median=700_000, pricing=p)
         self.assertEqual(qc["floor"], profit_price.floor(600_000, 1_000_000, "goods", 0.122, profit_price.cfg_of(p)))
         self.assertEqual(qt["floor"], profit_price.floor(600_000, 1_000_000, "goods", 0.19, profit_price.cfg_of(p)))
         self.assertGreater(qt["floor"], qc["floor"])
         self.assertGreaterEqual(qt["open"], qt["floor"])
-        self.assertEqual((qt["b_trial"], qc["b_trial"]), (0.19, None))
-        self.assertIn("grade_break_trial b 19%", profit_price.line(unit(TREAT[0]), qt))
-        self.assertNotIn("grade_break_trial", profit_price.line(unit(CTRL[0]), qc))
+        self.assertEqual((qt["b_trial"], qc["b_trial"]), ("trial", "control"))
+        self.assertIn("grade_break_trial trial", profit_price.line(unit(TREAT[0]), qt))
+        self.assertIn("grade_break_trial control", profit_price.line(unit(CTRL[0]), qc))
 
     def test_off_quote_is_unchanged(self):
-        p_off = {"price": {k: v for k, v in cfg().items() if k != "kind_ratio"}}
-        q = profit_price.quote(unit(TREAT[0]), median=700_000, pricing=p_off)
+        q = profit_price.quote(unit(TREAT[0]), median=700_000, pricing=pricing())
         self.assertEqual(q["b"], 0.122)
         self.assertIsNone(q["b_trial"])
+        self.assertNotIn("grade_break_trial", profit_price.line(unit(TREAT[0]), q))
+
+    def test_pick_order_does_not_see_the_arm(self):
+        import seller
+        p = pricing(**TRIAL)
+        with mock.patch.object(seller, "break_chance", return_value=None), \
+                mock.patch.object(profit_price.time, "time", return_value=NOW):
+            ft = seller.floor_rank(unit(TREAT[0]), p)
+            fc = seller.floor_rank(unit(CTRL[0]), p)
+        self.assertEqual(ft, fc)
 
 
 if __name__ == "__main__":

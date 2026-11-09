@@ -44,8 +44,9 @@ def break_trial_arm(u, cfg, now=None):
     (review/W-20261109-1520-AXPro주기/report.md): 11/08 06:00-11/09 09:00 our grade B furniture broke 72 of 377 (19.1%)
     against 45.1 expected at the market's SKU x grade rates (11.8% for the grade), so the floor priced them at b 12.2% and
     B furniture lost 9.0M over 02:35-15:15 (sales 95.1M, refunds 24.5M). The trial half of the units (a stable hash of
-    salt|unit under share) takes b at least the trial's grade rate; the other half keeps the usual b. Fail-closed: off
-    outside [start_at, stop_at) or when a field is missing or odd, so an expired trial stops by itself."""
+    salt|unit under share) takes b at least the trial's grade rate; the other half keeps the usual b. Returns ("trial" or
+    "control", the trial's rate) for an eligible unit, so both arms are logged. Fail-closed: None outside
+    [start_at, stop_at) or when a field is missing or odd, so an expired trial stops by itself."""
     t = cfg.get("grade_break_trial")
     if not isinstance(t, dict) or u.get("kind") != "goods" or not isinstance(t.get("salt"), str) or not t["salt"]:
         return None
@@ -60,14 +61,22 @@ def break_trial_arm(u, cfg, now=None):
     if not _num(g) or not 0 <= g < 1 or not isinstance(u.get("unit"), str) or not u["unit"]:
         return None
     h = hashlib.sha1(f"{t['salt']}|{u['unit']}".encode()).digest()
-    return g if int.from_bytes(h[:4], "big") / 2 ** 32 < share else None
+    return ("trial" if int.from_bytes(h[:4], "big") / 2 ** 32 < share else "control"), g
 
 
-def unit_break(u, measured, cfg, now=None):
-    """(b, trial b or None): break_for, raised to price.grade_break_trial's rate for a trial-half unit."""
+def unit_break(u, measured, cfg, max_break=None, now=None):
+    """(b, arm or None): break_for, raised to price.grade_break_trial's rate for a trial-half unit. A raise that would
+    take b over max_break (quote() refuses such a unit) is not made: the trial moves the price, never stops a sale.
+    Only quote() uses this; seller.floor_rank keeps break_for, so the order units of a SKU are offered in does not
+    depend on their arm (independent review 95e573d I1)."""
     b = break_for(u.get("kind"), measured, cfg, u.get("grade"))
-    tb = break_trial_arm(u, cfg, now)
-    return (max(b, tb) if tb is not None else b), tb
+    t = break_trial_arm(u, cfg, now)
+    if t is None:
+        return b, None
+    arm, g = t
+    if arm == "trial" and (not _num(max_break) or max(b, g) <= max_break):
+        b = max(b, g)
+    return b, arm
 
 
 def floor(cost, list_price, kind, b, cfg=None):
@@ -137,8 +146,8 @@ def quote(u, median=None, measured=None, paid=(), pricing=None):
     """Everything a unit's price rests on: {floor, open, b, stress_floor, refuse, why}."""
     cfg = cfg_of(pricing)
     kind, cost, lp = u.get("kind"), u["cost"], u.get("list_price") or 0
-    b, trial_b = unit_break(u, measured, cfg)
     max_break = ((pricing or {}).get("warranty") or {}).get("max_break", cfg["stress_break"])
+    b, trial_arm_ = unit_break(u, measured, cfg, max_break)
     f = floor(cost, lp, kind, b, cfg)
     scarce = (cfg.get("scarce_asks") or {}).get(u.get("sku")) if isinstance(cfg.get("scarce_asks"), dict) else None
     if isinstance(scarce, bool) or not isinstance(scarce, (int, float)) or scarce <= 0:
@@ -157,7 +166,7 @@ def quote(u, median=None, measured=None, paid=(), pricing=None):
     stress = floor(cost, lp, kind, max(cfg["stress_break"], b), cfg) if kind == "goods" else f
     return {"floor": f, "open": p0, "b": b, "stress_floor": stress, "stress_b": max(cfg["stress_break"], b), "why": why,
             "refuse": kind == "goods" and b > max_break, "stress_loss": kind == "goods" and p0 < stress,
-            "b_trial": trial_b}
+            "b_trial": trial_arm_}
 
 
 def line(u, q):
@@ -167,7 +176,7 @@ def line(u, q):
     if u.get("kind") == "goods":
         out += f", floor at b {q.get('stress_b', 0.25):.0%} {q['stress_floor']}" + (" - the first ask loses money there" if q["stress_loss"] else "")
     if q.get("b_trial") is not None:
-        out += f", grade_break_trial b {q['b_trial']:.0%}"
+        out += f", grade_break_trial {q['b_trial']}"
     if q["refuse"]:
         out += ", not sold: break chance above the warranty limit"
     return out
