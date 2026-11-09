@@ -127,6 +127,19 @@ class AgentLoopTest(unittest.TestCase):
             out = json.loads(agent_tools.run(name, {}, self.md, folder=os.path.join(HERE, "tools")))
             self.assertFalse(isinstance(out, dict) and "error" in out, (name, out))
 
+    def test_research_pack_reports_missing_forum_snapshot(self):
+        with open(os.path.join(self.md, "inventory.json"), "w") as f:
+            json.dump({"units": []}, f)
+        out = json.loads(agent_tools.run("auto_market_research_pack", {}, self.md, folder=os.path.join(HERE, "tools")))
+        self.assertFalse(out["forum_snapshot_available"])
+        self.assertEqual(out["forum_posts_recent"], [])
+        self.assertTrue(out["catalog_matches"])
+        with open(os.path.join(self.md, "forum.json"), "w") as f:
+            json.dump([{"text": "hello"}], f)
+        out = json.loads(agent_tools.run("auto_market_research_pack", {}, self.md, folder=os.path.join(HERE, "tools")))
+        self.assertTrue(out["forum_snapshot_available"])
+        self.assertEqual(out["forum_posts_recent"], [{"text": "hello"}])
+
     def test_every_step_reaches_the_wire_with_a_strict_schema(self):
         bodies = []
 

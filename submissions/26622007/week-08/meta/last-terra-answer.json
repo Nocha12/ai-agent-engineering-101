@@ -1,34 +1,39 @@
 {
-  "changed": false,
-  "hypothesis": "G6b9db161의 목표 수량은 공급 제약을 받지만, 최근 두 공급창에서 첫 창 입고분의 과반 판매가 확인되지 않아 지금 확대하면 현행 정책 대비 Players가 개선된다고 판단할 수 없다.",
-  "change_summary": "운영 설정과 코드는 유지했다. 목표 수량이 있는 SKU들의 최근 두 완료 공급창을 단위 ID와 숙성 순기여로 조회해 이번 주기 증거 파일에 기록했다.",
-  "target_metric": "Players와 수익성 있는 SKU의 공급창별 판매",
-  "expected": "이번 주기 정책 변경에 따른 직접 효과는 0이다. G6b9db161의 판매율과 실제 목표 구속을 다음 공급창에서 다시 판단한다.",
+  "changed": true,
+  "hypothesis": "포럼 스냅샷이 없는 환경에서도 자동 조사 도구가 나머지 자료를 반환하도록 하면 이전 두 주기의 변경을 반려시킨 도구 자체 테스트 실패를 제거할 수 있다.",
+  "change_summary": "auto_market_research_pack이 forum.json 부재를 처리하고 forum_snapshot_available로 자료 부재를 알리도록 수정했다. 부재와 존재를 확인하는 회귀 테스트를 추가했다. 하네스의 실제 복사·환경 정리 절차를 이용한 전체 테스트 1,576개가 통과했다. 중단된 직접 실행과 저장소 구조가 빠진 임시 복사본의 실패 로그도 보존했다.",
+  "target_metric": "도구 자체 테스트와 하네스 전체 테스트 통과",
+  "expected": "포럼 파일 부재로 인한 test_seed_tools_run 실패 1건을 없앤다. 이번 수리의 직접적인 Players 점수 효과는 0이며, 이후 운영 변경의 검증을 가능하게 한다.",
   "evidence": [
     {
-      "ref": "meta/evidence/terra-1109-213305.json:44",
+      "ref": "meta/evidence/terra-1110-011541.json:44",
       "excerpt": "\"objective_matches\": true,",
-      "meaning": "점수 산식이 확인된 규칙과 일치한다."
+      "meaning": "현재 점수 산식은 확인된 규칙과 일치한다."
     },
     {
-      "ref": "meta/evidence/terra-1109-213305.json:24920",
-      "excerpt": "\"no_stock\": 8,",
-      "meaning": "직전 팩 이후 품절 로그가 8건 발생했다."
+      "ref": "meta/evidence/terra-1110-011541.json:18066",
+      "excerpt": "\"paid\": 57,",
+      "meaning": "G2c023a8c의 숙성 판매 표본은 57건이다."
     },
     {
-      "ref": "meta/evidence/terra-1109-213305-audit.txt:2",
-      "excerpt": "{\"audit\": {\"available\": true, \"sku\": \"G6b9db161\", \"windows\": [1794225747, 1794226996], \"bought_first_window\": 2, \"sold_by_second_close\": 1, \"sold_fraction\": 0.5, \"remaining_units\": [], \"sold_units\": [\"u-3e7913e82b09\"], \"other_exits\": [\"u-cd0c497e4bf3\"], \"window_lines\": [[{\"sku\": \"G6b9db161\", \"target\": 2, \"sent\": 4, \"supplied\": 2}], [{\"sku\": \"G6b9db161\", \"target\": 2, \"sent\": 2, \"supplied\": 2}]], \"basis\": \"observed unit IDs; non-sale exits are not sales; remaining is not necessarily extra stock\", \"requires\": [\"guard cut reason and binding target\", \"mature cohort net > 0\", \"book >= 6h ago\", \"complete measurement coverage; absence of unit events is not proof of zero activity\"]}, \"mature_paid\": 164, \"mature_net_per_sale\": 47929.88}",
-      "meaning": "첫 창 입고 2개 중 확인된 판매는 1개이고 다른 1개는 비판매 출고다. 숙성 164건의 건당 순기여는 양수지만 과반 판매 조건은 확인되지 않았다."
+      "ref": "meta/evidence/terra-1110-011541.json:18075",
+      "excerpt": "\"net_per_sale\": -9270.54",
+      "meaning": "이 SKU는 숙성 판매당 순손실이어서 축소 조건이 여전히 남아 있다."
     },
     {
-      "ref": "logs/market-kit.log:84652",
-      "excerpt": "21:08:04 [buyer] [restock] guard: G6b9db161 9 -> 1 (units per SKU)",
-      "meaning": "해당 SKU에서 수량 가드가 제안을 잘랐지만 이것만으로 두 공급창 확대 조건 전체가 충족되지는 않는다."
+      "ref": "meta/evidence/terra-1110-011541.json:25007",
+      "excerpt": "\"log_rotated\": true,",
+      "meaning": "직전 팩 누락과 로그 회전으로 이전 가용 팩과의 차분을 한 시간으로 취급할 수 없다."
     },
     {
-      "ref": "meta/evidence/terra-1109-213305.json:454",
-      "excerpt": "\"profit_if_stock_sells_at_cost\": 283004703,",
-      "meaning": "현재 book은 283,004,703원이다."
+      "ref": "tools/auto_market_research_pack/tool.py:36",
+      "excerpt": "    except FileNotFoundError:",
+      "meaning": "선택적인 포럼 스냅샷이 없을 때 도구가 중단되지 않는다."
+    },
+    {
+      "ref": "meta/evidence/terra-1110-011541-harness-tests.txt:15",
+      "excerpt": "Ran 1576 tests in 191.466s",
+      "meaning": "하네스의 복사 절차로 전체 테스트를 실행했고 결과는 같은 로그의 OK다."
     }
   ],
   "evidence_gap": {
@@ -44,22 +49,22 @@
     }
   },
   "previous_verdict": "none",
-  "previous_reason": "직전 Terra 주기는 운영 변경이 없었고, 실행 중 연구 스위치가 외부에서 바뀌어 no_change_unsupported로 기록됐다. 이후 사람의 보증 판독 수정과 기본 비활성 seller_floor_margin 연구가 추가됐으며, 해당 변경의 되돌림 조건이 충족됐다는 근거는 확인하지 못했다.",
-  "grade_summary": "Players는 1.657로 유지되어 66명 중 5위이고 선두와 0.093 차이다. Shop ALL 0.850, Buyer ALL 0.807이며 양쪽 board_drift는 0이다. 신규 패치와 경보는 없다. 직전 팩 이후 상점 정산 219건, 구매 결제 87건, 품절 8건, 구매 결제 거절 1건, 체크아웃 거절 4건, 보증 제공 207건이다. 현재 로그 표본의 원가 미만 제안·보증 거절·포럼 게시 및 투표 거절은 각 0건이다. Book은 283,484,199원에서 283,004,703원으로 감소했고 24시간 초과 재고는 40개·36,551,058원에서 41개·36,885,789원으로 늘었다. 보관 손실 누계는 3,884,760원, 등급 하락 160건·0원, 폐기 1건·8,113원이고 누락 도구는 없다. 환불 추정 누계 374,360,042원은 과거 연결 오류를 포함하므로 SKU 축소 근거로 쓰지 않았다. 최근 한 시간 LLM 103회 비용은 0.0245이며 호출 수 제한은 없다.",
+  "previous_reason": "직전 G2c023a8c 목표 축소는 테스트 실패로 반려되어 운영 설정은 3개다. 숙성 57건의 건당 순기여는 -9,270.54원으로 축소 조건이 여전히 성립하지만, 이번 주기는 반복 반려의 원인인 도구를 수리하는 한 가지 변경에 사용했다. 이후 사람의 보증 시간 수정에 대한 되돌림 조건 충족은 확인되지 않았다.",
+  "grade_summary": "Players 1.653으로 66명 중 6위이며 선두와 0.090 차이다. Shop ALL 0.844, Buyer ALL 0.809이고 양쪽 board_drift는 0이다. 새 패치와 경보는 없다. 직전 팩이 누락되고 로그가 회전해 이전 가용 팩 이후 집계는 한 시간치가 아니다: 상점 정산 767건, 구매 결제 231건, 품절 62건, 구매 결제 거절 5건, 체크아웃 거절 4건, 정산 거절 1건이다. 현재 로그 표본의 원가 미만 제안·보증 거절·포럼 게시 거절·투표 거절은 각각 0건이다. Book은 283,004,703원에서 285,529,759원으로 늘었고 24시간 초과 재고는 41개·36,885,789원에서 47개·42,935,298원으로 늘었다. 보관 손실 누계는 4,121,401원, 등급 하락은 166건·0원, 폐기는 1건·8,113원이다. 환불 추정 누계 381,902,590원에는 과거 추정이 섞여 SKU 판정에 사용하지 않았다. 누락 도구는 없고 최근 한 시간 LLM 호출은 120회, 비용은 0.0213이며 호출 상한은 없다.",
   "weakest": [
     "상점 book",
     "구매자 Saved"
   ],
   "strategy_check": {
-    "current": "인증·정직한 등급·상품 보증을 내세운 폭넓은 식품·생활용품과 검증된 고가 가구·침구 판매 및 Saved 중심 구매",
-    "gap_cause": "unclear",
+    "current": "인증·정직한 등급·72시간 상품 보증을 내세운 폭넓은 식품·생활용품과 검증된 고가 가구·침구 판매 및 Saved 중심 구매",
+    "gap_cause": "bug",
     "keep_or_shift": "keep",
-    "reason": "최근 7.3시간 Players 성장률은 우리 +0.001, 바로 위 inextro +0.022, 선두 +0.018로 격차가 벌어졌지만, 최근 3.6시간은 각각 +0.009, +0.007, +0.008이다. 현 전략 유지는 잠정적이며 경쟁자 이동을 반영한 다른 전략의 추가 효과는 아직 확인되지 않았다. 선두 yms979는 27,179거래·40,063방문·매출 7,991,535,380원·book 1,060,049,716원이고 우리는 22,988거래·37,639방문·매출 4,418,539,467원·book 283,002,571원이다. 양쪽 모두 인증과 정직한 등급을 내세우며 우리는 상품 72시간 보증과 원가·보증비용 하한 협상을 유지한다. 다음 Saved 상대 0.3119까지 0.0005가 필요하고 통과 가치는 약 0.00847점이다. Book 상대 293,351,807원까지는 10,349,236원이 필요하고 가치는 약 0.00806점이다. G6b9db161은 숙성 건당 +47,929.88원이지만 최근 첫 공급창 2개 중 확인된 판매가 1개여서 확대 조건의 과반에 못 미친다. 현재 book은 약 7.3시간 전 281,340,092원보다 높다."
+    "reason": "최근 6.1시간 Players 변화는 우리 -0.002, 바로 위 inextro -0.021, 선두 -0.001이고, 12.7시간은 각각 +0.001, +0.012, +0.018이다. 단기에는 바로 위와의 격차가 줄었지만 장기에는 선두에 뒤처진다. 선두 yms979는 27,724거래·41,128방문·매출 8,150,583,282원·book 1,075,882,665원이고 우리는 23,748거래·38,753방문·매출 4,496,351,179원·book 285,276,139원이다. 양쪽은 인증과 정직한 등급을 약속하며 현 전략은 공개 재고·카드·포럼 유입, 원가와 보증비용 하한 협상 및 Saved 중심 구매를 유지한다. 다음 Saved 상대는 0.3135로 0.0003이 필요하고 통과 가치는 0.00847점이며, book 상대 295,495,840원까지는 10,219,701원이 필요하고 가치는 0.00806점이다. 다른 전략의 추가 ΔPlayers가 확인되지는 않았고, 반복된 테스트 반려라는 실행 장애가 확인돼 전략을 유지하며 수리한다."
   },
-  "action_kind": "none",
+  "action_kind": "tool_fix",
   "experiment": {
     "id": "",
     "step": "none",
-    "result": "실행 중인 실험과 대기 중인 실험은 각각 0건이다."
+    "result": "실행 중인 실험 0건, 대기 중인 실험 0건이다."
   }
 }
