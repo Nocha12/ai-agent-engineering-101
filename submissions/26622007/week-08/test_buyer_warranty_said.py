@@ -69,7 +69,11 @@ class HoursForTest(unittest.TestCase):
                      "warranty not included. Typical 72 h warranty", "72 hour warranty. 보증 미적용",
                      "72 h warranty, 안심케어 미포함", "Grade A 72 h warranty. Grade C refurbished: warranty void.",
                      "Warranty 0 h included in this total price. 72 h warranty",
-                     "72 h warranty if you pay list", "72 h warranty isn't included"):
+                     "72 h warranty if you pay list", "72 h warranty isn't included",
+                     # review 2 m3
+                     "72 h warranty. Without it the price is 9000", "72 h warranty. This price ships without one.",
+                     "72 h warranty, 1 h for this price", "72 h warranty; this price: warranty waived",
+                     "72 h warranty. 0.5 h for grade C", "72 h warranty. 30 min for grade C", "72시간 보증, C등급 30분"):
             q = quote(text)
             self.assertFalse(q["warranty_said_ok"], text)
             self.assertEqual(sw.hours_for(order_sw("B"), "thisjonghoon", q), 0, text)
@@ -136,16 +140,20 @@ class HoursForTest(unittest.TestCase):
         self.assertTrue(ws.said_b({"warranty_said": {"arm": "B"}}))
         for row in ({"warranty_said": {"arm": "A"}}, {}, None, {"warranty_said": "B"}):
             self.assertFalse(ws.said_b(row), row)
-        self.assertEqual(ws.trade_arm({"_sw": order_sw("B")}), "B")
-        self.assertIsNone(ws.trade_arm({"_sw": order_sw(None)}))
+        b = dict(order_sw("B"), said={"study": "bw1", "v": ws.VERSION, "arm": "B", "stop_at": T0 + 3600})
+        self.assertEqual(ws.trade_mark({"_sw": b}), {"arm": "B", "stop_at": T0 + 3600})
+        self.assertIsNone(ws.trade_mark({"_sw": order_sw(None)}))
         catalog = {"G1": {"kind": "goods"}}
         now = time.time()
         at = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(now - 60))
         memory = {"trades": [{"time": at, "shop": "thisjonghoon", "item": "G1", "result": "no_warranty",
-                               "warranty_said": "B"}]}
+                               "warranty_said": {"arm": "B", "stop_at": now + 3600}}]}
         self.assertEqual(market_buyer.short_warranty_shops(memory, catalog, now), set())
-        memory["trades"][0]["warranty_said"] = "A"
+        memory["trades"][0]["warranty_said"] = {"arm": "B", "stop_at": now - 1}     # review 2 m2: after the window
         self.assertEqual(market_buyer.short_warranty_shops(memory, catalog, now), {"thisjonghoon"})
+        for mark in ({"arm": "A", "stop_at": now + 3600}, None, "B"):
+            memory["trades"][0]["warranty_said"] = mark
+            self.assertEqual(market_buyer.short_warranty_shops(memory, catalog, now), {"thisjonghoon"}, mark)
         import buyer_rank_pg
         import buyer_shop_profile
         for mod in (buyer_rank_pg, buyer_shop_profile, market_buyer):
@@ -220,17 +228,37 @@ class SwitchTest(unittest.TestCase):
     def test_too_many_refused_receipts_send_every_order_to_arm_a(self):
         self.write(self.good())
         oid = next(f"o-{i}" for i in range(100) if ws.arm("bw1-salt", f"o-{i}", 0.5) == "B")
-        said = {"study": "bw1-test", "v": ws.VERSION}
+        said = {"study": "bw1-test", "v": ws.VERSION, "start_at": T0}
         for refused in (False,) * 9 + (True,) * 3:
             ws.note(self.md, said, refused, T0)
-        ws.note(self.md, {"study": "other"}, True, T0)            # another study's events never count
-        self.assertEqual(ws.state(self.md, oid, {}, T0 + 60)["arm"], "B")       # 3 refused: under TRIP_MIN
-        ws.note(self.md, said, True, T0)                             # 4 of 13 refused: over 25%
+        ws.note(self.md, {"study": "other", "start_at": T0}, True, T0)              # another study's: never count
+        for _ in range(5):
+            ws.note(self.md, dict(said, start_at=T0 - 86400), True, T0 - 86400)    # a reused name's old window
         s = ws.state(self.md, oid, {}, T0 + 60)
-        self.assertEqual((s["arm"], s["tripped"]), ("A", {"applied": 13, "refused": 4}))
+        self.assertEqual((s["assigned"], s["arm"]), ("B", "B"))                    # 3 refused: under TRIP_MIN
+        ws.note(self.md, said, True, T0)                                           # 4 of 13 refused: over 25%
+        s = ws.state(self.md, oid, {}, T0 + 60)
+        self.assertEqual((s["assigned"], s["arm"], s["tripped"]), ("B", "A", {"receipts": 13, "refused": 4}))
         self.assertEqual(stat.S_IMODE(os.stat(Path(self.md, ws.EVENTS)).st_mode), 0o600)
         Path(self.md, ws.EVENTS).write_text("{bad\n" + json.dumps({"study": "bw1-test", "refused": True}) + "\n")
-        self.assertIsNone(ws.tripped(self.md, "bw1-test"))
+        self.assertIsNone(ws.tripped(self.md, "bw1-test", T0))
+
+    def test_only_receipts_count_for_the_stop(self):
+        # review 2 I-b: an applied arm B order with no receipt (no deal, timeout) is not in the denominator
+        quotes = {"thisjonghoon": quote(THISJONGHOON)}
+        s = dict(order_sw("B"), said={"study": "bw1-test", "v": ws.VERSION, "assigned": "B", "arm": "B",
+                                      "start_at": T0, "stop_at": T0 + 9 * 3600})
+        for _ in range(20):
+            r = ws.measure(self.md, s, quotes, "thisjonghoon", None, None, 100)
+            self.assertTrue(r["applied"])
+        self.assertFalse(Path(self.md, ws.EVENTS).exists())
+        for _ in range(4):
+            ws.measure(self.md, s, quotes, "thisjonghoon", {"price": 1}, "warranty 0 h: over p_max", 100)
+        self.assertEqual(ws.tripped(self.md, "bw1-test", T0), {"receipts": 4, "refused": 4})
+        a = dict(s, said=dict(s["said"], assigned="A", arm="A"))
+        r = ws.measure(self.md, a, quotes, "thisjonghoon", {"price": 1}, "short", 100)    # arm A: never noted
+        self.assertFalse(r["applied"])
+        self.assertEqual(ws.tripped(self.md, "bw1-test", T0)["receipts"], 4)
 
     def test_switch_on_writes_a_finite_window_0600(self):
         d = ws.switch_on(self.md, study="bw1-test", salt="s", start_at=T0, hours=9)
@@ -252,9 +280,17 @@ class WiringTest(unittest.TestCase):
         src = Path(market_buyer.__file__).read_text(encoding="utf-8")
         self.assertEqual(src.count("buyer_warranty_said.state(md, order.get(\"order\"))"), 1)
         self.assertEqual(src.count("q[\"warranty_said_ok\"] = buyer_warranty_said.stated_ok(text)"), 1)
-        self.assertEqual(src.count("buyer_warranty_said.record(order[\"_sw\"], quotes, shop[\"name\"], short, cap0)"), 1)
-        self.assertEqual(src.count("buyer_warranty_said.note(md, said, short)"), 1)
-        self.assertEqual(src.count('"warranty_said": buyer_warranty_said.trade_arm(order)'), 1)
+        self.assertEqual(src.count("buyer_warranty_said.measure(md, order[\"_sw\"], quotes, shop[\"name\"], rec, short, cap0)"), 1)
+        self.assertEqual(src.count('"warranty_said": buyer_warranty_said.trade_mark(order)'), 1)
+        self.assertEqual(src.count("buyer_warranty_said.held_out(t, now)"), 1)
+
+    def test_cap0_is_arm_a_short_cap(self):
+        o = {"list_price": 921600, "sku": "G85a1a856"}
+        q = quote(THISJONGHOON)
+        b = {"_sw": order_sw("B")}
+        self.assertIsNone(market_buyer.short_cap(o, 0.03, b, "thisjonghoon", q))
+        a_cap = market_buyer.short_cap(o, 0.03, {**b, "_sw": {**b["_sw"], "said": None}}, "thisjonghoon", q)
+        self.assertEqual(a_cap, market_buyer.short_cap(o, 0.03, {"_sw": order_sw("A")}, "thisjonghoon", q))
 
 
 if __name__ == "__main__":

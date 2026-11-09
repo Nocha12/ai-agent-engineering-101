@@ -363,7 +363,7 @@ def short_warranty_shops(memory, catalog, now=None):
     for t in memory.get("trades") or []:
         if t.get("result") not in ("deal", "no_warranty") or (catalog.get(t.get("item")) or {}).get("kind") != "goods":
             continue
-        if t.get("warranty_said") == "B":   # warranty-said arm B's 6 h deals and their 0 h receipts: neither arm's history
+        if buyer_warranty_said.held_out(t, now):   # warranty-said arm B's 6 h deals and 0 h receipts: neither arm's history
             continue
         try:
             at = time.mktime(time.strptime(t["time"], "%Y-%m-%dT%H:%M:%S"))
@@ -2283,7 +2283,7 @@ def main():
             "goods_grade": buyer_goods_grade.trade_mark(order, limit),
             "food_ladder": buyer_food_ladder.trade_arm(order),
             "saved_floor": buyer_saved_floor.trade_arm(order),
-            "warranty_said": buyer_warranty_said.trade_arm(order)} if r3 else {}),
+            "warranty_said": buyer_warranty_said.trade_mark(order)} if r3 else {}),
         "result": "no_warranty" if short else "over_limit" if over else "deal" if rec is not None else (out["state"] or "error").replace("TASK_STATE_", "").lower(),
         "price": rec.get("price") if rec else None,
         "asks": asks, "holds": out.get("holds", 0), "problems": problems, "warnings": warnings, "why": why,
@@ -2309,12 +2309,10 @@ def main():
         said = None
         if (order.get("_sw") or {}).get("said"):
             try:
-                h0 = (order["_sw"].get("hist") or {}).get(shop["name"])
-                cap0 = buyer_short_warranty.cap(offer["list_price"], h0, chance, order["_sw"]["S"]) \
-                    if h0 is not None and chance is not None else None
-                said = buyer_warranty_said.record(order["_sw"], quotes, shop["name"], short, cap0)
-                if said and said["applied"]:
-                    buyer_warranty_said.note(md, said, short)
+                # arm A's cap for the chosen shop: the same short_cap with the study left out
+                cap0 = short_cap(offer, chance, {**order, "_sw": {**order["_sw"], "said": None}}, shop["name"],
+                                 quotes.get(shop["name"]), shop) if chance is not None else None
+                said = buyer_warranty_said.measure(md, order["_sw"], quotes, shop["name"], rec, short, cap0)
             except Exception as e:   # noqa: BLE001 - the study's measure never stops the result line
                 log(f"[warranty-said] record failed: {type(e).__name__}: {e}")
         try:

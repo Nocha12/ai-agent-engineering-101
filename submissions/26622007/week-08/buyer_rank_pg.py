@@ -23,6 +23,12 @@ A and B share adaptive statistics, so A is not a fixed holdout and this is not a
 
 Switch: .market/buyer_rank_pg.json {"enabled": true}; missing, unreadable or anything else is off, and off is the
 current order exactly. BUYER_RANK_PG=0 in the environment is off too. Read at every order, so no restart either way.
+
+"ledger_cover": true in the switch (exactly true) reads the ledger back to the oldest paid seq of the order window
+(LEDGER_MAX_BYTES at most) instead of the fixed TAIL_BYTES tail. Every order and both arms of any study read the same
+stats, so turning it on is a time boundary common to all of them: turn it on at a recorded time and write that time
+in the running studies' records. The cache is computed again at once when its ledger_cover differs from the switch,
+and the order rows and journal carry "ledger_cover": true while the stats they used were so computed.
 """
 import fcntl
 import hashlib
@@ -314,18 +320,42 @@ def _need_seq(orders, payments):
     return min(seqs) if seqs else None
 
 
+def _first_seq_at(path, nbytes):
+    """(seq of the first whole row of the last nbytes, file size), reading only that row: None when there is none."""
+    try:
+        with open(path, 'rb') as f:
+            f.seek(0, 2)
+            size = f.tell()
+            start = max(0, size - nbytes)
+            f.seek(start)
+            if start:
+                f.readline()
+            for _ in range(64):
+                raw = f.readline()
+                if not raw:
+                    break
+                try:
+                    row = json.loads(raw)
+                except (ValueError, UnicodeDecodeError, RecursionError):
+                    continue
+                if isinstance(row, dict) and type(row.get('seq')) is int:
+                    return row['seq'], size
+            return None, size
+    except OSError:
+        return None, 0
+
+
 def _ledger_cover(path, need, info):
-    """Ledger rows from a tail that reaches seq `need`, doubling from TAIL_BYTES up to LEDGER_MAX_BYTES."""
+    """(streamed ledger rows, bytes) from a tail reaching seq `need`: the tail size doubles from TAIL_BYTES up to
+    LEDGER_MAX_BYTES, probing only the first row's seq at each size, then the rows stream once as the fixed tail does
+    (no list of the ledger is held: review 2 I-a)."""
     n = min(TAIL_BYTES, LEDGER_MAX_BYTES)
-    while True:
-        diag = {}
-        rows = list(_tail(path, n, diag))
-        first = diag.get('first_seq')
-        if (not diag.get('truncated') or need is None or (first is not None and first <= need)
-                or n >= LEDGER_MAX_BYTES):
-            info.update(diag)
-            return rows, n
+    while need is not None and n < LEDGER_MAX_BYTES:
+        first, size = _first_seq_at(path, n)
+        if n >= size or (first is not None and first <= need):
+            break
         n = min(n * 2, LEDGER_MAX_BYTES)
+    return _tail(path, n, info), n
 
 
 def _read_cache(path):
@@ -344,9 +374,12 @@ def stats(md, now=None):
     with the cached ones, or None)."""
     now = time.time() if now is None else now
     path = os.path.join(md, CACHE)
-    fresh = lambda at: at is not None and 0 <= now - at < REFRESH
+    cover = ((_switch(md) or {}).get('ledger_cover') is True)
+    fresh = lambda at, st: (at is not None and 0 <= now - at < REFRESH and isinstance(st, dict)
+                            and isinstance(st.get('observation', {}), dict)
+                            and (st.get('observation', {}).get('ledger_cover') is True) == cover)
     at, st = _read_cache(path)
-    if fresh(at):
+    if fresh(at, st):
         return st
     try:
         with open(path + ".lock", "a") as lock:
@@ -355,12 +388,12 @@ def stats(md, now=None):
             except OSError:
                 return st
             at, st = _read_cache(path)
-            if fresh(at):
+            if fresh(at, st):
                 return st
             try:
                 st = compute(md, now)
             except Exception:   # noqa: BLE001 - a broken log is no ranking until the next REFRESH
-                st = {"pool": {}, "shops": {}}
+                st = {"pool": {}, "shops": {}, "observation": {"ledger_cover": cover}}
             tmp = f"{path}.{os.getpid()}.tmp"
             try:
                 with open(tmp, "w", encoding="utf-8") as f:
@@ -454,6 +487,8 @@ def state(md, order, env=None, now=None):
     try:
         st = stats(md, now)
         rk['stats'] = st if isinstance(st, dict) else {}
+        if (rk['stats'].get('observation') or {}).get('ledger_cover') is True:
+            rk['ledger_cover'] = True       # the time boundary common to all arms, on the row and in the journal
         nf = rk['stats'].get('nofit')
         nf = nf if isinstance(nf, dict) else {}
         cells = [c for name in ('pool', 'shops') if isinstance(nf.get(name), dict) for c in nf[name].values()]

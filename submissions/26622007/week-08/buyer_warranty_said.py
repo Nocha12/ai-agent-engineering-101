@@ -27,17 +27,20 @@ On, it moves what other goods studies see: buyer_goods_grade.adjust runs only wh
 shop changes. So it is off while buyer_goods_grade is on (state), and starts after the goods studies end.
 
 Kept apart from arm A (review 08b282d I2, as buyer_saved_floor): an arm B orders row (said_b) is not learned by
-recent_asks, buyer_rank_pg or buyer_shop_profile, and an arm B trade is not read by short_warranty_shops, so arm B's
-deals and its 0 h receipts change neither arm's 0 h history (each arm sees arm A's). Measure (I3): every goods order
-with the switch on carries "warranty_said" (both arms): the shops a quote would change ("eligible", a post-quote
-variable: arm B may close the quote wait sooner), the chosen shop, "applied", "refused" (the receipt fell short) and
-"cap0" (the chosen shop's cap at the 0 h history; the order row's limit is the arm's). The verdict is ITT over every
-goods order of the window, by arm, not over "eligible" orders.
+recent_asks, buyer_rank_pg or buyer_shop_profile, and an arm B trade inside its window is not read by
+short_warranty_shops, so arm B's deals and its 0 h receipts change neither arm's 0 h history (each arm sees arm A's);
+after stop_at the trade counts again as any other. Measure (I3): every goods order with the switch on carries
+"warranty_said" (both arms): the hash arm ("assigned") and the arm used ("arm"), the shops a quote would change
+("eligible", a post-quote variable: arm B may close the quote wait sooner), the chosen shop, "applied", "refused"
+(the receipt fell short) and "cap0" (market_buyer.short_cap of the chosen shop as arm A would have it). The verdict is
+ITT over every goods order of the window, by assigned arm, not over "eligible" orders.
 
 Stop (I4): arm B buys at the 6 h price from shops that ship 0 h on some receipts (thisjonghoon 55 of 416, yms979 222
-of 3,189 in the ledger); the receipt check refuses those as now, but more often. Each applied arm B order appends
-one line to EVENTS; when TRIP_MIN or more of them were refused and the refused share is over TRIP_SHARE, every later
-order of the study goes to arm A ("tripped" in its row and the log): the old behaviour, recorded, not silent.
+of 3,189 goods sales in the ledger); the receipt check refuses those as now, but more often. Each applied arm B order
+that got a receipt appends one line to EVENTS (with the window's start_at, so a reused study name never counts old
+lines); when TRIP_MIN or more of those receipts were refused and the refused share is over TRIP_SHARE, every later
+order of the window goes to arm A ("tripped" in its row and the log): the old behaviour, recorded, not silent. Orders
+already running when it trips finish in arm B, so the stop can come a few receipts late.
 """
 import hashlib
 import json
@@ -57,10 +60,12 @@ TRIP_SHARE = 0.25     # about twice the highest shop's 0 h share of goods sales 
 VERSION = "bw1-2"
 # a sentence naming the warranty with any of these is not "names only 6 h or more" (review 08b282d I1)
 WARRANTY_WORD = re.compile(r"warrant|guarantee|safe-care|보증|케어|보장", re.I)
+# any duration under 6 h anywhere ("1 h for this price", "0.5 h for grade C", "30 min"): review 2 m3
+DURATION = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)[ \t-]*(h|hrs?|hours?|min|mins|minutes?|시간|분)(?![a-z])", re.I)
 # "if it breaks" is the market's own warranty wording, not a condition; a Korean hedge counts only next to the
 # warranty word (product names say "먼지없는", "색상선택": 11/09 replay, ana/bw1_said_replay.py)
 HEDGE = re.compile(r"\b(?:no|not|non|without|exclud\w*|optional|options?|available|upgrade\w*|extra|surcharge|request|"
-                   r"void|expired?|zero|none|free|limited|unless|except|only for)\b|\bif\b(?! it br)|n't|"
+                   r"void|expired?|zero|none|free|limited|unless|except|only for|waiv\w*)\b|\bif\b(?! it br)|n't|"
                    r"(?:보증|케어|보장)\S*\s*(?:미적용|미포함|불가|없|제외|별도|옵션|추가|선택|유료)", re.I)
 ZERO_H = re.compile(r"(?<![\d.,])0(?:\.0+)?[ \t-]*(?:h|hrs?|hours?|시간)(?![a-z])|\bzero[ -]?hours?\b", re.I)
 SENTENCE = re.compile(r"[.;!?\n]+")
@@ -109,9 +114,10 @@ def state(md, order_id, env=None, now=None):
         import buyer_goods_grade
         if buyer_goods_grade.config(md, env, now) is not None:     # its adjust runs only when hours_for is None
             return None
-        s = {"study": c["study"], "v": VERSION, "arm": arm(c["salt"], order_id, c["share"]),
+        a = arm(c["salt"], order_id, c["share"])
+        s = {"study": c["study"], "v": VERSION, "assigned": a, "arm": a,
              "start_at": c["start_at"], "stop_at": c["stop_at"]}
-        trip = tripped(md, c["study"])
+        trip = tripped(md, c["study"], c["start_at"])
         if trip:
             s.update(arm="A", tripped=trip)
         return s
@@ -119,7 +125,7 @@ def state(md, order_id, env=None, now=None):
         return None
 
 
-def _events(md, study):
+def _events(md, study, start_at):
     out = []
     try:
         with open(Path(md) / EVENTS, encoding="utf-8") as f:
@@ -128,24 +134,25 @@ def _events(md, study):
                     e = json.loads(line)
                 except ValueError:
                     continue
-                if isinstance(e, dict) and e.get("study") == study:
+                if isinstance(e, dict) and e.get("study") == study and e.get("start_at") == start_at:
                     out.append(e)
     except OSError:
         pass
     return out
 
 
-def tripped(md, study):
-    """{"applied", "refused"} once the study's applied arm B orders were refused too often (TRIP_MIN, TRIP_SHARE), else None."""
-    ev = _events(md, study)
+def tripped(md, study, start_at):
+    """{"receipts", "refused"} once the window's applied arm B receipts were refused too often (TRIP_MIN, TRIP_SHARE),
+    else None."""
+    ev = _events(md, study, start_at)
     n, k = len(ev), sum(1 for e in ev if e.get("refused") is True)
-    return {"applied": n, "refused": k} if k >= TRIP_MIN and k / n > TRIP_SHARE else None
+    return {"receipts": n, "refused": k} if k >= TRIP_MIN and k / n > TRIP_SHARE else None
 
 
 def note(md, said, refused, now=None):
-    """Append one applied arm B order's receipt outcome to EVENTS (one short O_APPEND write, 0600)."""
-    line = json.dumps({"study": said["study"], "v": said.get("v"), "refused": bool(refused),
-                       "ts": time.time() if now is None else now}, sort_keys=True) + "\n"
+    """Append one applied arm B receipt's outcome to EVENTS (one short O_APPEND write, 0600)."""
+    line = json.dumps({"study": said["study"], "v": said.get("v"), "start_at": said.get("start_at"),
+                       "refused": bool(refused), "ts": time.time() if now is None else now}, sort_keys=True) + "\n"
     fd = os.open(Path(md) / EVENTS, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     try:
         os.write(fd, line.encode())
@@ -166,7 +173,14 @@ def _stated_ok(text):
     raw = text or ""
     if ZERO_H.search(raw) or ask_read.NO_WARRANTY.search(raw):
         return False
-    if any(WARRANTY_WORD.search(s) and HEDGE.search(s) for s in SENTENCE.split(raw)):
+    for m in DURATION.finditer(raw):
+        v = float(m[1])
+        if (v / 60 if m[2].lower().startswith("min") or m[2] == "분" else v) < ask_read.GOODS_WARRANTY_HOURS:
+            return False
+    sentences = SENTENCE.split(raw)
+    # the warranty's sentence and the next one ("72 h warranty. This price ships without one.")
+    if any(WARRANTY_WORD.search(s) and HEDGE.search(s + " " + (sentences[i + 1] if i + 1 < len(sentences) else ""))
+           for i, s in enumerate(sentences)):
         return False
     t = ask_read.SAFE_RE.sub(ask_read._keep_stop, raw)
     if ask_read.NO_WARRANTY.search(t) or ask_read.short_warranty_hours(text) is not None:
@@ -185,6 +199,14 @@ def applies(sw, quote):
     q = quote or {}
     return isinstance(said, dict) and said.get("arm") == "B" and q.get("warranty_said_ok") is True \
         and q.get("warranty_h") is None
+
+
+def measure(md, sw, quotes, chosen, receipt, short, cap0):
+    """The orders row's "warranty_said" for this order (record), noting an applied arm B receipt for the stop rule."""
+    said = record(sw, quotes, chosen, short, cap0)
+    if said and said["applied"] and receipt is not None:
+        note(md, said, short)
+    return said
 
 
 def record(sw, quotes, chosen=None, refused=None, cap0=None):
@@ -210,10 +232,16 @@ def said_b(row):
     return isinstance(g, dict) and g.get("arm") == "B"
 
 
-def trade_arm(order):
-    """The arm market_buyer writes into the order's trade: "A", "B" or None (not in the study)."""
+def trade_mark(order):
+    """What market_buyer writes into the order's trade: {"arm", "stop_at"}, or None (not in the study)."""
     g = ((order or {}).get("_sw") or {}).get("said")
-    return g.get("arm") if isinstance(g, dict) else None
+    return {"arm": g.get("arm"), "stop_at": g.get("stop_at")} if isinstance(g, dict) else None
+
+
+def held_out(trade, now):
+    """Whether short_warranty_shops leaves this trade out: an arm B trade while its window is open."""
+    g = (trade or {}).get("warranty_said")
+    return isinstance(g, dict) and g.get("arm") == "B" and _num(g.get("stop_at")) and now < g["stop_at"]
 
 
 def switch_on(md, *, study, salt, start_at, hours, share=0.5):
