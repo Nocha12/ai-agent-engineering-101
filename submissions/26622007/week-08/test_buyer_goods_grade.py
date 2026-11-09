@@ -13,7 +13,7 @@ import buyer_goods_grade as gg     # noqa: E402
 import market_buyer as mb          # noqa: E402
 import market_model                # noqa: E402
 
-ON = {"enabled": True, "study": "goods-grade-test", "salt": "goods-grade-b-1033"}
+ON = {"enabled": True, "study": "goods-grade-test", "salt": "goods-grade-b-1033", "start": 0, "end": 4e9}
 # Goods quote fragments as shops wrote them (.market/measure/orders.jsonl quotes[].text, 11/09 13:xx)
 TEXT_B = "QCY T13 APP 무선 블루투스이어폰 ENC 노이즈캔슬링 (G5a3639e8), grade B (certified, 2h warranty). List 23500. Asking 16450."
 TEXT_C = "Gx 무선 청소기, grade C (refurbished), 6h warranty. List 100000. Asking 52000."
@@ -227,6 +227,100 @@ class Wiring(unittest.TestCase):
         k = src.index('order["_goods_grade"]["limit_a"] = min(value_limit(offer, args.budget, sku_chance, buyer_cfg()),', j)
         self.assertLess(k - j, 300)      # right after the limit, before the accept band reads it
         self.assertLess(k, src.index("band_base, band_pct = accept_percent(", j))
+
+
+class Window(unittest.TestCase):
+    """The ladder's review 809 I1 holds here too: the 1033 switch had no end, so arm B ran past 01:52 unless turned off."""
+    START = 1794199925.458                       # 11/09 13:52:05.458 ON (registry activated-at)
+    END = START + 12 * 3600                      # 11/10 01:52:05.458, the registry maximum
+
+    def test_on_only_inside_start_end(self):
+        with tempfile.TemporaryDirectory() as md:
+            b = order_in("B")
+            for bad in ({k: v for k, v in ON.items() if k != "end"}, {k: v for k, v in ON.items() if k != "start"},
+                        dict(ON, start="13:52"), dict(ON, end=False), dict(ON, start=self.END, end=self.START)):
+                switch(md, bad)
+                self.assertIsNone(gg.config(md, {}, now=self.START + 60), bad)
+            switch(md, dict(ON, start=self.START, end=self.END))
+            self.assertIsNone(gg.config(md, {}, now=self.START - 1))
+            self.assertEqual(gg.config(md, {}, now=self.END - 1)["study"], ON["study"])
+            self.assertIsNone(gg.config(md, {}, now=self.END))
+            q = {"ask": 52000, "text": TEXT_C}
+            self.assertEqual(gg.adjust(md, b, q, STATS, "Gx", SKU_CHANCE, None, env={}, now=self.END), (SKU_CHANCE, None))
+            self.assertGreater(gg.adjust(md, b, q, STATS, "Gx", SKU_CHANCE, None, env={}, now=self.END - 1)[0], SKU_CHANCE)
+
+
+class TradeMemory(unittest.TestCase):
+    """Arm B's lowered limits also reached the buyer memory's trades, whose prices rule_choose, gem_names,
+    my_avg_price, overpriced and item_stats read for both arms (main 11/09 14:58, same path as the ladder's 809 I3)."""
+    SALT = ON["salt"]
+
+    def setUp(self):
+        self.addCleanup(gg.hide_unmarked, None, [])
+
+    def trade(self, order, price, shop="ddolcom", time_="2026-11-09T13:52:10", **kw):
+        # a trade as market_buyer.py writes it (prod memory 11/09, shop and order replaced)
+        t = {"time": time_, "shop": shop, "item": "Gx", "budget": 120000, "order": order, "category": "청소기",
+             "list_price": 100000, "result": "deal", "price": price, "asks": [price], "holds": 0, "problems": [],
+             "warnings": [], "why": None, "signed": True, "paid": True}
+        t.update(kw)
+        return t
+
+    def test_trade_mark(self):
+        rec = {"study": "s", "arm": "B", "grade": "C", "limit_a": 70000}
+        self.assertEqual(gg.trade_mark({"_goods_grade": rec}, 50000), {"arm": "B", "lowered": True})
+        self.assertEqual(gg.trade_mark({"_goods_grade": rec}, 70000), {"arm": "B", "lowered": False})
+        self.assertEqual(gg.trade_mark({"_goods_grade": dict(rec, arm="A")}, 70000), {"arm": "A", "lowered": False})
+        self.assertIsNone(gg.trade_mark({"_goods_grade": None}, 1))
+        self.assertIsNone(gg.trade_mark(None, 1))
+
+    def test_market_buyer_writes_the_mark_and_hides_unmarked(self):
+        with open(mb.__file__, encoding="utf-8") as f:
+            src = f.read()
+        i = src.index('memory["trades"].append({')
+        self.assertIn('"goods_grade": buyer_goods_grade.trade_mark(order, limit)', src[i:i + 900])
+        self.assertIn('buyer_goods_grade.hide_unmarked(md, memory["trades"])', src)
+
+    def test_lowered_arm_b_deals_leave_price_learning(self):
+        a, b = order_in("A")["order"], order_in("B")["order"]
+        shops = [{"name": "ddolcom", "url": "u1", "reviews": []}, {"name": "yms979", "url": "u2", "reviews": []}]
+        mem = {"trades": [self.trade(a, 80000, shop="yms979", goods_grade={"arm": "A", "lowered": False}),
+                          self.trade(b, 52000, goods_grade={"arm": "B", "lowered": True})]}
+        gg.hide_unmarked(None, mem["trades"])
+        shop, why = mb.rule_choose(shops, mem, "Gx", asked=("ddolcom", "yms979"))
+        self.assertEqual(shop["name"], "yms979", why)
+        self.assertEqual(mb.item_stats(mb.my_history(mem, "ddolcom"), "Gx"), ([], None))
+        # an arm B deal whose limit did not go down is arm A's price: kept
+        kept = [self.trade(b, 52000, goods_grade={"arm": "B", "lowered": False})]
+        self.assertEqual(mb.item_stats(kept, "Gx"), ([52000], 52000))
+        self.assertEqual(len(mb.my_history(mem, "ddolcom")), 1)       # the trade stays for cheats, visits, signatures
+
+    def test_unmarked_since_the_switch_hidden_by_the_study_salt(self):
+        a, b = order_in("A")["order"], order_in("B")["order"]
+        early = next(o for o in (f"o-early{i}" for i in range(400)) if gg.arm({"salt": self.SALT}, o) == "B")
+        with tempfile.TemporaryDirectory() as md:
+            switch(md, dict(ON, study=gg.UNMARKED_STUDY, enabled=False))
+            trades = [self.trade(b, 52000), self.trade(a, 80000), self.trade(early, 1, time_="2026-11-09T13:52:04")]
+            hidden = gg.hide_unmarked(md, trades)
+            self.assertEqual((b in hidden, a in hidden, early in hidden), (True, False, False))
+            self.assertEqual([t["price"] for t in gg.priced(trades)], [80000, 1])
+            self.assertNotIn("goods_grade", trades[0])                  # nothing written back
+            self.assertEqual(gg.priced([self.trade(b, 7, goods_grade=None)])[0]["price"], 7)   # marked: by its mark
+            trash = os.path.join(md, gg.SWITCH)
+            os.remove(trash)
+            gg.hide_unmarked(md, trades)                                  # no salt: every unmarked one since 13:52:05
+            self.assertEqual([t["price"] for t in gg.priced(trades)], [1])
+
+    def test_both_studies_filter_together(self):
+        import buyer_goods_ladder as gl
+        self.addCleanup(gl.hide_unmarked, None, [])
+        ts = [self.trade("x1", 1, goods_ladder="B", goods_grade=None),
+              self.trade("x2", 2, goods_ladder=None, goods_grade={"arm": "B", "lowered": True}),
+              self.trade("x3", 3, goods_ladder="A", goods_grade={"arm": "B", "lowered": False})]
+        self.assertEqual([t["price"] for t in mb.priced(ts)], [3])
+
+    def test_hide_never_raises(self):
+        self.assertEqual(gg.hide_unmarked("/nonexistent", [None, 3, {"time": 5}]), frozenset())
 
 
 if __name__ == "__main__":
