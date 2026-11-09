@@ -331,6 +331,30 @@ class AlsoInStockSentenceTest(unittest.TestCase):
         self.assertIsNone(market_buyer.text_ask_checked(self.G, {"_offer": {"sku": "G00327e80", "list_price": 700000}}))
         self.assertIsNone(market_buyer.text_ask_checked(self.G, {"_offer": {"sku": "G4a74caa4"}}))
 
+    def test_the_ask_read_is_the_last_one(self):
+        # independent review 456291f M1: buyer.text_ask reads the first 2000 characters only
+        pad = "가" * 1990
+        t = self.G.replace("사이즈오브체어", "asking 300000 " + pad)
+        self.assertIsNone(market_buyer.text_ask_checked(t, self.SG))
+        cut = 2000 - 4 - self.G.index("518149") + len("사이즈오브체어")                 # "Asking: 518149" cut to 5181
+        t = self.G.replace("사이즈오브체어", "가" * cut)
+        self.assertEqual(market_buyer.buyer_text_ask(t), 5181)
+        self.assertIsNone(market_buyer.text_ask_checked(t, {"_offer": {"sku": "G4a74caa4", "list_price": 60000}}))
+        t = self.G.replace("사이즈오브체어", "asking 518149 ")                          # the same ask said twice: read
+        self.assertEqual(market_buyer.text_ask_checked(t, self.SG), 518149)
+        t = self.G.replace("사이즈오브체어", "asking 300000 ")
+        self.assertIsNone(market_buyer.text_ask_checked(t, self.SG))
+
+    def test_case_and_list_length(self):
+        # independent review 456291f M2: the SKUs as quoted, case and all
+        for t in (self.G.replace("G00327e80", "G4A74CAA4"), self.G.replace("G00327e80", "g4a74caa4"),
+                  self.G.replace("asking", "ASKING").replace("Asking", "ASKING"), self.G.replace("Also in", "also in")):
+            self.assertIsNone(market_buyer.text_ask_checked(t, self.SG), t[-200:])
+        alts = lambda n: ", ".join(f"G{i:08x}" for i in range(1, n + 1))
+        base = self.G.replace("G00327e80, G04ee8423, G0c3a9365, G0e4deffc, G10693924", "{}")
+        self.assertEqual(market_buyer.text_ask_checked(base.format(alts(20)), self.SG), 518149)
+        self.assertIsNone(market_buyer.text_ask_checked(base.format(alts(21)), self.SG))
+
     def test_other_sku_texts_still_dropped(self):
         t = "[매트리스] (G1111aaaa) asking 300000. Also [국] (G2222bbbb) asking 9000."
         self.assertIsNone(market_buyer.text_ask_checked(t, {"_offer": {"sku": "G1111aaaa", "list_price": 400000}}))
