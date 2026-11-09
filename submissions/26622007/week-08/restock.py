@@ -615,8 +615,6 @@ first; the code then fills the room the limits leave with the formula's lines, b
 the ordered category and a shop's visits follow how much it stocks. c1 is how your own earlier
 stock decisions turned out: what sold, what is left, what is gone unsold. Learn from it: a judgment that failed should not repeat.
 c2 is the shop's own memory: long-term notes, lessons from earlier mistakes that match this state, and recent days.
-Do not narrow the overall proposal merely because stock cost or carrying exposure is high: stock at cost remains in book.
-Storage and expiry matter per SKU; prefer evidence of that SKU's paid sales and losses to a blanket avoidance of food or furniture.
 The code keeps every line inside the shop's current limits (pricing.json), which start cautious and widen as results earn it."""
 
 
