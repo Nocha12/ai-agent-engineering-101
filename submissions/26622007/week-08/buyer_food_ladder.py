@@ -18,38 +18,66 @@ arm (would_drop not empty), so the studies touch disjoint talks. Everything else
 The grade is read from "grade C" / "grade=C" / "Grade C"; a quote that names it without the word (": C (close to its
 date)") gets the two-rung ladder.
 
-Switch: .market/buyer_food_ladder.json {"enabled": true, "study": "<id>", "salt": "<salt>"}; missing, unreadable or
+Learning: arm B's talks and deals say nothing of arm A's prices. Until the goods-ladder 809 I3 follow-up reached this
+study (11/09 15:2x) the buyer memory's trades carried no arm, so arm B's ladder deals (59 of them 11:41-15:17) reached the
+prices rule_choose, gem_names, my_avg_price, overpriced and item_stats read for both arms, and the shop chosen for arm
+A's next order could move with them (prod: arm B's 16906 for Gef4d3036 at bjeon01 against arm A's 18489 at choo-chu),
+and buyer_rank_pg and buyer_shop_profile read arm B's orders.jsonl rows (laddered). From that fix the trade carries
+trade_arm, priced leaves arm B's out, hide_unmarked those written before it, without writing the memory again, and the
+two shop learnings skip laddered rows. The ladder itself (what arm B offers) is unchanged.
+
+Switch: .market/buyer_food_ladder.json {"enabled": true, "study": "<id>", "salt": "<salt>", "start": <epoch>,
+"end": <epoch>}: on only from start until end (the study's ON time and its registry maximum), so arm B stops at end even
+if nobody turns the switch off (goods-ladder review 809 I1, same shape). Missing, unreadable, without the window or
 anything else is off, and off is the current talk exactly. BUYER_FOOD_LADDER=0 in the environment is off too. Read at
 every order, so no restart either way. Arms: sha256(salt:order id), first byte odd is B.
 """
 import hashlib
 import json
+import math
 import os
 import re
+import time
 
 SWITCH = "buyer_food_ladder.json"
 BASE = (0.9,)
 LADDER = (0.8, 0.9)
 LADDER_C = (0.7, 0.8, 0.9)
 GRADE = re.compile(r"\bgrade\s*[=:]?\s*([ABC])(?![\w/])", re.I)
+# the first study's trades before the arm was written into them (see hide_unmarked)
+UNMARKED_STUDY = "food-ladder-1033"
+UNMARKED_FROM = "2026-11-09T11:41:29"     # its switch went on at 11:41:29.279; trade times are local, to the second
+_HIDDEN = {"orders": frozenset()}           # order ids hide_unmarked set for this run
 
 
-def config(md, env=None):
-    """{"study", "salt"} with the switch on, else None."""
-    env = os.environ if env is None else env
-    if str(env.get("BUYER_FOOD_LADDER") or "").strip().lower() in ("0", "false", "no", "off"):
-        return None
+def _epoch(x):
+    return x if isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) else None   # Infinity: no stop
+
+
+def _switch(md):
     try:
         with open(os.path.join(md, SWITCH), encoding="utf-8") as f:
             d = json.load(f)
-    except (OSError, ValueError):
+    except (OSError, ValueError, TypeError):
         return None
-    if not isinstance(d, dict) or d.get("enabled") is not True:
+    return d if isinstance(d, dict) else None
+
+
+def config(md, env=None, now=None):
+    """{"study", "salt", "start", "end"} with the switch on and now in [start, end), else None."""
+    env = os.environ if env is None else env
+    if str(env.get("BUYER_FOOD_LADDER") or "").strip().lower() in ("0", "false", "no", "off"):
         return None
-    study, salt = d.get("study"), d.get("salt")
+    d = _switch(md)
+    if d is None or d.get("enabled") is not True:
+        return None
+    study, salt, start, end = d.get("study"), d.get("salt"), _epoch(d.get("start")), _epoch(d.get("end"))
     if not (isinstance(study, str) and study and isinstance(salt, str) and salt):
         return None
-    return {"study": study, "salt": salt}
+    now = time.time() if now is None else now
+    if start is None or end is None or not start <= now < end:
+        return None
+    return {"study": study, "salt": salt, "start": start, "end": end}
 
 
 def arm(cfg, order_id):
@@ -65,7 +93,7 @@ def grade(text):
     return found.pop() if len(found) == 1 else None
 
 
-def decide(md, order, q, steps, resume, *, probing, code_priced, env=None):
+def decide(md, order, q, steps, resume, *, probing, code_priced, env=None, now=None):
     """(steps for this talk, record or None). Never raises: any failure is the current talk, unrecorded."""
     try:
         order = order or {}
@@ -77,7 +105,7 @@ def decide(md, order, q, steps, resume, *, probing, code_priced, env=None):
                 or order.get("_one_won_default") or order.get("_food_quote_yield") or order.get("_b3") is not None
                 or (isinstance(fsh, dict) and fsh.get("would_drop"))):
             return steps, None
-        cfg = config(md, env)
+        cfg = config(md, env, now)
         a = arm(cfg, order.get("order"))
         if a is None:
             return steps, None
@@ -86,3 +114,45 @@ def decide(md, order, q, steps, resume, *, probing, code_priced, env=None):
         return out, {"study": cfg["study"], "arm": a, "grade": g, "steps": list(out)}
     except Exception:  # noqa: BLE001 - the study never changes an order it cannot read
         return steps, None
+
+
+def laddered(row):
+    """Whether an orders.jsonl row is an arm B talk of this study: the shop learning that both arms read leaves it out."""
+    g = row.get("food_ladder") if isinstance(row, dict) else None
+    return isinstance(g, dict) and g.get("arm") == "B"
+
+
+def trade_arm(order):
+    """The arm market_buyer writes into the order's trade: "A", "B" or None (not in the study)."""
+    g = (order or {}).get("_food_ladder")
+    return g.get("arm") if isinstance(g, dict) else None
+
+
+def hide_unmarked(md, trades):
+    """Order ids of the trades written from 11:41:29 without an arm (before trades carried it) that may be arm B: by
+    the first study's salt, read from the switch even when it is off; when it does not read, every such trade. The
+    memory is not written again: priced leaves them out for this run. Set once a run, after the memory loads.
+    Conservative: goods and ineligible food trades of that time hash to B too and leave price learning with them
+    (prod 11:41-15:17: 304 hidden of 549 for the 66 arm B trades, none missed); with the switch gone or another study's
+    in it, every unmarked trade since 11:41:29 stays hidden. Keep the 1033 salt in the switch file after the study ends."""
+    out = set()
+    try:
+        d = _switch(md) if md else None
+        salt = d.get("salt") if d and d.get("study") == UNMARKED_STUDY and isinstance(d.get("salt"), str) else None
+        for t in trades or []:
+            if not isinstance(t, dict) or "food_ladder" in t or not isinstance(t.get("order"), str) or not t["order"] \
+                    or not isinstance(t.get("time"), str) or t["time"] < UNMARKED_FROM:
+                continue
+            if salt is None or arm({"salt": salt}, t["order"]) == "B":
+                out.add(t["order"])
+    except Exception:  # noqa: BLE001 - a run that cannot tell keeps the memory as it reads
+        out = set()
+    _HIDDEN["orders"] = frozenset(out)
+    return _HIDDEN["orders"]
+
+
+def priced(trades):
+    """The trades whose prices arm A may learn from: without arm B's (marked, or hidden by hide_unmarked)."""
+    hidden = _HIDDEN["orders"]
+    return [t for t in trades if (t["food_ladder"] != "B" if "food_ladder" in t      # a marked trade: its mark
+                                  else not (hidden and t.get("order") in hidden))]

@@ -19,6 +19,7 @@ import json
 import os
 import time
 
+import buyer_food_ladder
 import buyer_goods_grade
 import buyer_goods_ladder
 
@@ -67,6 +68,8 @@ def profile_from_rows(rows, paid, now):
         if buyer_goods_grade.lowered(r):   # arm B's lowered limit says nothing of plan A's (review d85a9e9 I1)
             continue
         if buyer_goods_ladder.laddered(r):   # arm B's 0.8 openings say nothing of plan A's (review 459089c I2)
+            continue
+        if buyer_food_ladder.laddered(r):    # food-ladder arm B's 0.8 (C 0.7) openings, the same
             continue
         talks.setdefault(shop, []).append(r)
     out = {}

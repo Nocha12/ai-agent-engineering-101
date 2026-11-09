@@ -32,6 +32,7 @@ import os
 import time
 import uuid
 
+import buyer_food_ladder
 import buyer_goods_grade
 import buyer_goods_ladder
 
@@ -148,6 +149,9 @@ def stats_from_rows(rows, paid, now):
             counts['excluded_rows'] += 1
             continue
         if buyer_goods_ladder.laddered(r):  # arm B's 0.8 openings: not learned for both arms (review 459089c I2)
+            counts['excluded_rows'] += 1
+            continue
+        if buyer_food_ladder.laddered(r):   # food-ladder arm B's 0.8 (C 0.7) openings, the same
             counts['excluded_rows'] += 1
             continue
         qs = [q for q in quotes if isinstance(q, dict)] if isinstance(quotes, list) else []
