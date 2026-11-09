@@ -24,11 +24,14 @@ against accept.grades), and b is the worst of those.
 
 No warranty at all is never bought (fixed rule: no goods without a warranty; decision ax-0h-nonfood-block, 11/09 22:44).
 The switch used to price a unit expected with none at p_max(0 h) and pay a 0 h or unnamed receipt under it (9 such
-receipts passed to the kit 11/08-11/09 12:09). Now, before any price: a quote that says none / 0 h, or a shop whose last
-goods receipts were short with a quote that names no warranty hours (hist; zero_expected), is refused and no talk is
-started; a talk text that says none ends the talk; and receipt_check refuses a receipt whose warranty_hours is not a
-number over 0 before pricing or reserving. p_max(h) is not touched. A quote naming only 6 h or more
-(buyer_warranty_said.stated_ok) is never blocked by the history, in any arm; one naming 0 < h < 6 is priced as before.
+receipts passed to the kit 11/08-11/09 12:09). "None" is under MIN_WARRANTY_HOURS or not a number: the ledger's goods
+sales name only whole hours from 1 h up (392,737 rows to 11/09 22:5x: 1, 2, 3, 4, 6, 12, 24, 48, 72 h or none), so a
+seller cannot pass 0.000001 h off as a warranty. Before any price: a quote that says none, or a shop whose recent short
+receipts to me included one with none (zero_hist) with a quote that names no warranty hours, is refused and no talk is
+started (zero_expected); a talk text that says none ends the talk; and receipt_check refuses such a receipt before
+pricing or reserving. p_max(h) is not touched. A quote naming only 6 h or more (buyer_warranty_said.stated_ok) is never
+blocked by the history, in any arm; one naming 1 <= h < 6 is priced as before, and a shop whose short receipts all
+named 1 h or more is priced at its 0 h history as before.
 
 Switch: .market/buyer_short_warranty.json {"enabled": true, "cash_buffer": <won>, "block_zero_nonfood": true}; missing,
 unreadable or anything else is off, and off is the old behaviour exactly (6 h or no deal). BUYER_SHORT_WARRANTY=0 in the
@@ -56,8 +59,9 @@ GRADES = ("A", "B", "C")
 EXPOSURE_FILE = "buyer_short_warranty_exposure.jsonl"    # one line per short-warranty deal passed to the kit
 ME = ("nocha12",)               # my buyer's name on the board, compared lowercased
 BLOCK_ZERO = "block_zero_nonfood"   # switch field; only JSON false turns the no-warranty block off
+MIN_WARRANTY_HOURS = 1          # under this (or not a number) is no warranty: the least the ledger ever named is 1 h
 ZERO_QUOTE = "no warranty expected: the quote says none"
-ZERO_HIST = "no warranty expected: the shop's last goods receipts were short"
+ZERO_HIST = "no warranty expected: the shop's recent goods receipts to me had none"
 
 
 def config(md, env=None):
@@ -150,21 +154,32 @@ def block_zero(sw):
     return isinstance(sw, dict) and sw.get("block_zero", True) is not False
 
 
+def no_warranty(w):
+    """Whether warranty hours w are none: not a number, or under MIN_WARRANTY_HOURS."""
+    return not (number(w) and w >= MIN_WARRANTY_HOURS)
+
+
 def zero_expected(sw, shop, quote=None):
     """Why this shop's goods unit is expected with no warranty, so it is refused before any price, else None: the quote
-    says none or 0 h, or names no warranty hours (neither short nor 6 h or more) while the shop's last goods receipts
-    were short (hist, taken as 0 h). A quote naming 0 < h < 6 is priced as before (hours_for), and one naming only 6 h or
-    more is never blocked by the history (buyer_warranty_said, either arm or off)."""
+    says none (or under MIN_WARRANTY_HOURS), or names no warranty hours (neither short nor 6 h or more) while the shop is
+    in the short history (hist, taken as 0 h) and its recent short receipts to me included one with none (zero_hist;
+    a state without zero_hist reads every hist shop so: fails closed). A quote naming 1 <= h < 6 is priced as before
+    (hours_for), and one naming only 6 h or more is never blocked by the history (buyer_warranty_said, any arm or off)."""
     if not block_zero(sw):
         return None
     q = quote or {}
     w = q.get("warranty_h")
     if number(w):
-        return ZERO_QUOTE if w <= 0 else None
+        return ZERO_QUOTE if no_warranty(w) else None
     if q.get("warranty_said_ok") is True:
         return None
     h = (sw.get("hist") or {}).get(shop)
-    return ZERO_HIST if number(h) and h <= 0 else None
+    if not (number(h) and h <= 0):
+        return None
+    zs = sw.get("zero_hist")
+    if isinstance(zs, (list, tuple, set, frozenset)) and shop not in zs:
+        return None
+    return ZERO_HIST
 
 
 def hours_for(sw, shop, quote=None):
@@ -237,7 +252,7 @@ def receipt_check(sw, md, rec, list_price, b, order=None, now=None):
     b: worst() over the SKUs the shop may ship."""
     w = rec.get("warranty_hours")
     h = w if number(w) and w > 0 else 0
-    if block_zero(sw) and h <= 0:      # none, 0 h or not a number: never bought, before any price or reservation
+    if block_zero(sw) and no_warranty(w):     # none: never bought, before any price or reservation
         return False, {"h": 0, "ok": False, "blocked": "no_warranty"}, "no warranty: goods are not bought without one"
     price = rec.get("price")
     b = min(b, 1.0) if number(b) and b >= 0 else FALLBACK_BREAK

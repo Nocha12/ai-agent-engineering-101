@@ -1,3 +1,4 @@
+import inspect
 import json
 import os
 import stat
@@ -311,7 +312,10 @@ class WiringTest(unittest.TestCase):
         self.assertEqual(src.count("q[\"warranty_said_ok\"] = buyer_warranty_said.stated_ok(text)"), 1)
         self.assertEqual(src.count("buyer_warranty_said.measure(md, order[\"_sw\"], quotes, shop[\"name\"], rec, short, cap0)"), 1)
         self.assertEqual(src.count('"warranty_said": buyer_warranty_said.trade_mark(order)'), 1)
-        self.assertEqual(src.count("buyer_warranty_said.held_out(t, now)"), 1)
+        # arm B trades stay out of both readings of the 0 h history: short_warranty_shops and zero_warranty_shops
+        for fn in (market_buyer.short_warranty_shops, market_buyer.zero_warranty_shops):
+            self.assertEqual(inspect.getsource(fn).count("buyer_warranty_said.held_out(t, now)"), 1, fn.__name__)
+        self.assertEqual(src.count("buyer_warranty_said.held_out(t, now)"), 2)
         self.assertEqual(src.count('cap0 = short_cap(offer, chance, {**order, "_sw": {**order["_sw"], "said": None}}'), 1)
         self.assertEqual(src.count("said = warranty_said_row(md, order, offer, chance, shop, quotes, rec, short)"), 1)
         self.assertEqual(src.count('**({"warranty_said": said} if said else {})'), 1)

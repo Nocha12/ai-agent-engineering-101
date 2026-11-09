@@ -375,6 +375,35 @@ def short_warranty_shops(memory, catalog, now=None):
     return {s for s, r in out.items() if r[-1] == "no_warranty" or r[-SHORT_WARRANTY_LAST:].count("no_warranty") >= SHORT_WARRANTY_MIN}
 
 
+SHORT_SAID = re.compile(r"^warranty (\S+) h, I buy goods only with ")     # warranty_short's reason, first warning
+
+
+def zero_warranty_shops(memory, catalog, names, now=None):
+    """Of names (short_warranty_shops), those with a goods receipt to me in the last SHORT_WARRANTY_HOURS that ended
+    no_warranty with no warranty (buyer_short_warranty.no_warranty) or with hours its warning does not say (fails
+    closed). The receipt's hours are read from warranty_short's warning, which every no_warranty trade carries (379 of
+    379 in memory, 11/09 22:5x: "warranty 0 h, ...", "warranty 3.0 h, ...")."""
+    now, out = now or time.time(), set()
+    for t in memory.get("trades") or []:
+        if t.get("result") != "no_warranty" or t.get("shop") not in names \
+                or (catalog.get(t.get("item")) or {}).get("kind") != "goods" or buyer_warranty_said.held_out(t, now):
+            continue
+        try:
+            at = time.mktime(time.strptime(t["time"], "%Y-%m-%dT%H:%M:%S"))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if now - at > SHORT_WARRANTY_HOURS * 3600:
+            continue
+        m = next((SHORT_SAID.match(w) for w in t.get("warnings") or [] if isinstance(w, str) and SHORT_SAID.match(w)), None)
+        try:
+            h = float(m[1]) if m else None
+        except ValueError:
+            h = None
+        if buyer_short_warranty.no_warranty(h):
+            out.add(t["shop"])
+    return out
+
+
 def skip_short_warranty(shops, memory, catalog, order, now=None):
     """(shops left, names skipped) for this order: a goods order leaves out short_warranty_shops, unless that is every shop."""
     if (order or {}).get("kind") != "goods":
@@ -382,6 +411,8 @@ def skip_short_warranty(shops, memory, catalog, order, now=None):
     brief = sorted(short_warranty_shops(memory, catalog, now) & {s["name"] for s in shops})
     if order.get("_sw") is not None:      # buyer_short_warranty on: kept, priced as a 0 h warranty (hours_for)
         order["_sw"]["hist"].update({name: 0 for name in brief})
+        # those whose short receipts included one with none: a quote of theirs naming no hours is refused (zero_expected)
+        order["_sw"]["zero_hist"] = sorted(zero_warranty_shops(memory, catalog, set(brief), now))
         return list(shops), []
     left = [s for s in shops if s["name"] not in brief]
     return (left, brief) if left else (list(shops), [])
@@ -721,7 +752,8 @@ def goods_text_refused(text, order):
     if order.get("kind") != "goods":
         return None
     if order.get("_sw") is not None:
-        if buyer_short_warranty.block_zero(order["_sw"]) and warranty_hours_said(text) == 0:
+        h = warranty_hours_said(text)
+        if buyer_short_warranty.block_zero(order["_sw"]) and h is not None and buyer_short_warranty.no_warranty(h):
             return "the shop's text offers this goods unit with no warranty: goods are not bought without one"
         return None
     if not ask_read.no_warranty(text):
@@ -774,12 +806,11 @@ def short_warranty_receipt(rec, order, md, catalog, key, chance, short, shop=Non
     exposure (order["_sw_buy"] then says so), else short with the reason added. Fails closed. A receipt with no warranty
     hours over 0 is refused before any price or reservation (buyer_short_warranty.block_zero)."""
     w = rec.get("warranty_hours")
-    if buyer_short_warranty.block_zero(order["_sw"]) and not (hard_limits.number(w) and w > 0):
+    if buyer_short_warranty.block_zero(order["_sw"]) and buyer_short_warranty.no_warranty(w):
         order["_sw_buy"] = {"h": 0, "ok": False, "blocked": "no_warranty"}
         return f"{short}; no warranty: goods are not bought without one"
     try:
         lp, by_grade = short_terms(order, md, catalog, rec.get("item") or key, shop)
-        w = rec.get("warranty_hours")
         h = w if hard_limits.number(w) and w > 0 else 0
         grades, b = buyer_short_warranty.grades_ok(rec.get("price"), lp, h, order["_sw"]["S"], by_grade)
         if not grades:
@@ -2369,6 +2400,7 @@ def main():
                                          **({"short_warranty": {"S": order["_sw"]["S"], "h_est": order.get("_sw_h_est"),
                                                                 "shops": order["_sw"]["hist"],
                                                                 "block_zero": buyer_short_warranty.block_zero(order["_sw"]),
+                                                                "zero_hist": order["_sw"].get("zero_hist"),
                                                                 **({"zero": order["_sw_zero"]}
                                                                    if order.get("_sw_zero") else {})}}
                                             if order.get("_sw") is not None else {}),
