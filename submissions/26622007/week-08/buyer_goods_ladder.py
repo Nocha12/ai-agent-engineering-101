@@ -114,7 +114,10 @@ def trade_arm(order):
 def hide_unmarked(md, trades):
     """Order ids of the trades written from 14:16:00 without an arm (before trades carried it) that may be arm B: by
     the first study's salt, read from the switch even when it is off; when it does not read, every such trade. The
-    memory is not written again: priced leaves them out for this run. Set once a run, after the memory loads."""
+    memory is not written again: priced leaves them out for this run. Set once a run, after the memory loads.
+    Conservative: food and ineligible goods trades of that hour hash to B too and leave price learning with them
+    (prod 14:16-14:4x: 36 hidden for 21 arm B); with the switch gone or another study's in it, every unmarked trade
+    since 14:16 stays hidden. Keep the 1338 salt in the switch file after the study ends."""
     out = set()
     try:
         d = _switch(md) if md else None

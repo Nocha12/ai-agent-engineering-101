@@ -236,7 +236,8 @@ class TradeMemoryTest(unittest.TestCase):
         self.assertIsNone(gl.trade_arm(None))
 
     def test_market_buyer_writes_the_arm_into_the_trade(self):
-        src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "market_buyer.py"), encoding="utf-8").read()
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "market_buyer.py"), encoding="utf-8") as f:
+            src = f.read()
         i = src.index('memory["trades"].append({')
         self.assertIn('"goods_ladder": buyer_goods_ladder.trade_arm(order)', src[i:i + 900])
         self.assertIn("buyer_goods_ladder.hide_unmarked(md, memory[\"trades\"])", src)
@@ -254,12 +255,13 @@ class TradeMemoryTest(unittest.TestCase):
         self.assertEqual(shop["name"], "yms979", why)
         self.assertEqual(mb.item_stats(mb.my_history(mem, "ddolcom"), "G8ec51935"), ([], None))
         self.assertEqual(mb.item_stats(mb.my_history(mem, "yms979"), "G8ec51935"), ([2000000], 2000000))
-        three = [self.trade(self.oid("A") + str(i), 2000000, goods_ladder="A") for i in range(3)]
+        three = [self.trade(self.oid("A") + str(i), 2000000, shop="yms979", goods_ladder="A") for i in range(3)]
         mem = {"trades": three + [self.trade(b, 1000000, goods_ladder="B")]}
+        # with arm B's deal read, the average is 1750000 and ddolcom's 1000000 makes it a gem
         self.assertEqual(mb.my_avg_price(mem, "G8ec51935"), 2000000)
         self.assertEqual(mb.gem_names(mem, "G8ec51935"), set())
         # the trade itself stays in memory: problems, visits and signatures still count
-        self.assertEqual(len(mb.my_history(mem, "ddolcom")), 4)
+        self.assertEqual(len(mb.my_history(mem, "ddolcom")), 1)
 
     def test_unmarked_trades_since_the_switch_are_hidden_when_they_hash_to_b(self):
         import market_buyer as mb
