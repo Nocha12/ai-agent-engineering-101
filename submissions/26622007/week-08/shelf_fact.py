@@ -17,10 +17,12 @@ turn and journaled (event "turn") before a B answer is given, so the analysis is
 turn; a failed write keeps the original path. Outcome rows (seller.remember: deal, unpaid, canceled, ...) for every
 assigned task.
 
-R1 (shelf_jev_skip) protection: while R1's configuration is active this module never answers and never assigns or
-writes a turn row, so the two treatments are never on together (R1's B leaves Jev out of the same turn that S-shelf B
+R1 (shelf_jev_skip) protection: while R1 runs as a trial (mode "ab", active) this module never answers and never assigns
+or writes a turn row, so the two treatments are never on together (R1's B leaves Jev out of the same turn that S-shelf B
 would answer by code; with both on, R1's contrast would exist only inside S-shelf A). A talk assigned before R1 came
 on still gets its outcome rows (ITT), and R1's rows carry the talk's S-shelf assignment (shelf_jev_skip.OTHER_TRIALS).
+R1 kept as policy (mode "adopted") has no arms to spoil: it is arm A's baseline, S-shelf runs on top of it, and every
+turn row says which R1 it ran over (r1_mode: "adopted" or None).
 seller.py hands both the same clock for the turn. Talks enrolled in the old shelf_life trial (SHELF_REPLY, an id on
 deal["shelf_life"]) are left alone so its control arm is never answered by this one.
 
@@ -75,7 +77,8 @@ class Trial(shelf_jev_skip.Trial):
             if not shelf_jev_skip.QUESTION.fullmatch(text.strip() if isinstance(text, str) else ""):
                 return None
             cfg = self.config(now)
-            if cfg is None or self.r1.config(now) is not None:
+            r1 = self.r1.config(now)
+            if cfg is None or (r1 is not None and r1["mode"] != "adopted"):
                 return None
             if (deal.get("shelf_life") or {}).get("id"):
                 return None
@@ -92,7 +95,8 @@ class Trial(shelf_jev_skip.Trial):
             treated = a["arm"] in ("B", "adopted")
             self._write(dict(event="turn", ts=now, task=task, study=a["study"], version=a["version"],
                              epoch=a["epoch"], mode=a["mode"], arm=a["arm"], assigned_at=a["assigned_at"],
-                             randomization_unit="task", answered=treated, remaining_hours=fact["hours"],
+                             randomization_unit="task", salt_sha256=a["salt_sha256"],
+                             r1_mode=r1["mode"] if r1 else None, answered=treated, remaining_hours=fact["hours"],
                              required_hours=fact["required"], expires_at=deal.get("expires_at"),
                              round=deal.get("rounds"), ask=deal.get("ask"), reserve=deal.get("reserve"),
                              sku=deal.get("id"), unit=deal.get("unit"), kind=deal.get("kind"),

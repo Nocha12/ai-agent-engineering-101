@@ -205,6 +205,25 @@ class R1Protection(Base):
         self.r1_on(enabled=False)
         self.assertIsNotNone(self.trial.answer(c["task"], c["text"], deal_of(c), now=c["ts"] + 1))
 
+    def test_a_kept_r1_policy_is_the_baseline_not_a_trial(self):
+        # R1 kept for good runs as mode "adopted": no R1 arms to spoil, so S-shelf is one A/B on top of it
+        self.on(share=1.0)
+        self.r1_on(mode="adopted")
+        c = CASES[0]
+        self.assertIsNotNone(self.trial.answer(c["task"], c["text"], deal_of(c), now=c["ts"]))
+        self.assertEqual(self.rows()[0]["r1_mode"], "adopted")
+        self.r1_on(mode="ab")                                    # an R1 trial again: blocked
+        c = CASES[1]
+        self.assertIsNone(self.trial.answer(c["task"], c["text"], deal_of(c), now=c["ts"]))
+        self.assertEqual(len(self.rows()), 1)
+
+    def test_r1_off_is_on_the_row(self):
+        self.on(share=1.0)
+        c = CASES[0]
+        self.trial.answer(c["task"], c["text"], deal_of(c), now=c["ts"])
+        self.assertIsNone(self.rows()[0]["r1_mode"])
+        self.assertEqual(self.rows()[0]["salt_sha256"], hashlib.sha256(config()["salt"].encode()).hexdigest())
+
     def test_r1_assignment_is_kept_on_the_row(self):
         self.on(share=1.0)
         c = CASES[0]
