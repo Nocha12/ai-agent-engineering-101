@@ -70,6 +70,7 @@ import seller_opening_cue
 import seller_late_speed
 import seller_jev_transport
 import shelf_life_reply
+import shelf_jev_skip
 import exact_accept_trial
 import exact_counter_trial
 import seller_grade_preference
@@ -88,6 +89,7 @@ OPENING_CUE = seller_opening_cue.OpeningCue()
 LATE_SPEED = seller_late_speed.LateSpeed()
 JEV_TRANSPORT = seller_jev_transport.JevTransport()
 SHELF_REPLY = shelf_life_reply.ShelfLifeTrial()
+SHELF_JEV = shelf_jev_skip.Trial()
 EXACT_ACCEPT = exact_accept_trial.ExactAcceptTrial()
 EXACT_COUNTER = exact_counter_trial.ExactCounterTrial()
 GRADE_PREFERENCE = seller_grade_preference.GradePreferenceTrial()
@@ -807,6 +809,11 @@ class Seller(AgentExecutor):
         deal["reader_trial_floor"] = floor_now
         jev = reader if fast_classify.JEV_ON or reader.arm == "B" else None   # lazy, one call a turn
         shelf_text = SHELF_REPLY.reply(text, deal)
+        # R1 A/B: the exact shelf-life question has only hours in it, never an offer; only turns that would call Jev
+        deal.pop("shelf_jev_turn", None)    # this turn's row only, even after a turn that stopped before its decision
+        if (jev is not None and reader.jev is not None and shelf_text is None
+                and SHELF_JEV.skip(task.id, text, deal, floor_now)):
+            jev = None
         exact_decision = EXACT_ACCEPT.decide(text, deal, floor_now)
         counter_decision = EXACT_COUNTER.decide(text, deal, floor_now, MAX_ROUNDS)
         floor_exact_decision = AT_FLOOR_EXACT.decide(text, deal, floor_now, MAX_ROUNDS,
@@ -821,6 +828,7 @@ class Seller(AgentExecutor):
         if fast:
             log(f"task {task.id[:8]} FAST {fast['why']}: no harness call")
         deal["reader_trial_harness_used"] = fast is None
+        SHELF_JEV.decided(task.id, deal, fast, reader)
         try:
             d = fast or await asyncio.to_thread(decide_turn, deal, text)
         except HarnessError as e:
@@ -1006,6 +1014,7 @@ class Seller(AgentExecutor):
         except Exception:
             MEMORY_FAILURES.append(True)
             raise
+        SHELF_JEV.event(task_id, deal, result, price, observed_at)   # never raises
         try:
             shop_memory.record({"task": task_id, "item": deal.get("key") or deal["name"], "sku": deal["id"],
                                 "unit": deal.get("unit"), "cost": deal.get("cost"), "reserve": deal["reserve"],
