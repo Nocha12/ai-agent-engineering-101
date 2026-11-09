@@ -188,5 +188,117 @@ class Cap(unittest.TestCase):
         self.assertIn("band_off", src[j:j + 600])
 
 
+class Assignment(unittest.TestCase):
+    """Every arm record names its study, version, board snapshot and floor flag, so the judgement can recount the arms
+    by sha1(salt|order) over every order (GPT Pro 1638 P2 buyer_saved_floor.py:76-98, :917)."""
+
+    def setUp(self):
+        self.d = tempfile.TemporaryDirectory()
+        self.md = self.d.name
+
+    def tearDown(self):
+        self.d.cleanup()
+
+    def test_both_arms_carry_study_version_board_and_floor(self):
+        ts = time.time() - 60
+        board(self.md, 0.3096, ts=ts)
+        switch(self.md, floor=False, ab={"salt": "sf-test", "share": 0.5})
+        rows = [sf.state(self.md, f"o-{i}", env={}) for i in range(40)]
+        self.assertEqual({r["arm"] for r in rows}, {"A", "B"})
+        for r in rows:
+            self.assertEqual((r["study"], r["v"], r["floor"]), ("sf-test", sf.VERSION, False))
+            self.assertAlmostEqual(r["board_ts"], ts)
+            self.assertEqual(r["board_saved"], 0.3096)
+
+    def test_without_ab_the_study_is_none(self):
+        board(self.md, 0.3096)
+        switch(self.md)
+        st = sf.state(self.md, "o-1", env={})
+        self.assertIsNone(st["study"])
+        self.assertTrue(st["floor"])
+
+    def test_recheck_only_for_arm_b_with_the_floor(self):
+        self.assertTrue(sf.recheck({"arm": "B", "floor": True}))
+        self.assertFalse(sf.recheck({"arm": "B", "floor": False}))    # band off alone: the first A/B stays the band
+        self.assertFalse(sf.recheck({"arm": "A", "floor": True}))
+        self.assertFalse(sf.recheck(None))
+        self.assertFalse(sf.recheck({"arm": "B"}))                     # an old record without the flag: no change
+
+    def test_no_shop_in_stock_row_carries_the_arm(self):
+        """The early exit (no shop has the order in stock) writes its orders.jsonl row with the arm, so the arm's
+        denominator keeps every order it was given (P2: the early exits were left out)."""
+        import contextlib
+        import io
+        import sys
+        board(self.md, 0.3096)
+        switch(self.md, floor=False, ab={"salt": "sf-test", "share": 1.0})
+        os.makedirs(os.path.join(self.md, "measure"), exist_ok=True)
+        with open(os.path.join(self.md, "catalog.json"), "w") as f:
+            json.dump({"G1": {"list_price": 10000, "name": "x", "category": "c"}}, f)
+        shops = os.path.join(self.md, "shops.json")
+        with open(shops, "w") as f:
+            json.dump([{"name": "s1", "url": "http://127.0.0.1:9/", "stock": []}], f)
+        order = os.path.join(self.md, "order.json")
+        with open(order, "w") as f:
+            json.dump({"order": "o-early", "kind": "food", "category": "c", "item": "G1", "acceptable": ["G1"]}, f)
+        argv, mem, aux = sys.argv, mb.MEMORY, getattr(mb, "AGENT_DIR", None)
+        sys.argv = ["market_buyer.py", "--shops", shops, "--item", "G1", "--budget", "9000", "--order", order]
+        mb.MEMORY = os.path.join(self.md, "mem.json")
+        try:
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(mb.main(), 0)
+        finally:
+            sys.argv, mb.MEMORY = argv, mem
+            if aux is not None:
+                mb.AGENT_DIR = aux
+            mb.SAVED_SHARE = mb.SAVED_MIN_SHARE
+        self.assertIn('"receipt": null', out.getvalue())
+        with open(os.path.join(self.md, "measure", "orders.jsonl")) as f:
+            rows = [json.loads(l) for l in f]
+        self.assertEqual(rows[-1]["state"], "NO_SHOP_IN_STOCK")
+        self.assertEqual(rows[-1]["saved_floor"]["arm"], "B")
+        self.assertEqual(rows[-1]["saved_floor"]["study"], "sf-test")
+
+
+class ShippedSku(unittest.TestCase):
+    """A receipt for another SKU than the one asked: its saved cap used b = 0 (GPT Pro 1638 P2 market_buyer.py:1689-1707).
+    Under the floor (arm B, floor true) it uses that SKU's break chance; off and band-only arms keep b = 0."""
+
+    def tearDown(self):
+        mb.SAVED_SHARE = mb.SAVED_MIN_SHARE
+
+    def test_shipped_chance_lowers_the_cap(self):
+        offer = {"sku": "G1", "list_price": 100000}
+        catalog = {"G2": {"list_price": 100000}}
+        rec = {"item": "G2", "price": 66000}
+        mb.SAVED_SHARE = 0.31
+        self.assertIsNone(mb.over_limit(rec, offer, 69000, catalog, 200000))               # b = 0: cap 69,000
+        self.assertIsNone(mb.over_limit(rec, offer, 69000, catalog, 200000, shipped_chance=None))
+        why = mb.over_limit(rec, offer, 69000, catalog, 200000, shipped_chance=0.13)       # cap 100000 (1 - .31/.87)
+        self.assertIsNotNone(why)
+        self.assertIn("G2", why)
+
+    def test_same_sku_ignores_shipped_chance(self):
+        offer = {"sku": "G1", "list_price": 100000}
+        rec = {"item": "G1", "price": 66000}
+        self.assertIsNone(mb.over_limit(rec, offer, 69000, {}, 200000, shipped_chance=0.5))
+
+    def test_receipt_chance_only_when_rechecked(self):
+        order_b = {"_saved_floor": {"arm": "B", "floor": True}, "kind": "goods"}
+        offer = {"sku": "G1", "list_price": 100000}
+        chance = lambda sku: 0.15 if sku == "G2" else None   # noqa: E731
+        self.assertEqual(mb.receipt_chance(order_b, offer, {"item": "G2"}, chance), 0.15)
+        self.assertIsNone(mb.receipt_chance(order_b, offer, {"item": "G1"}, chance))      # the asked SKU: limit as is
+        self.assertIsNone(mb.receipt_chance({**order_b, "kind": "food"}, offer, {"item": "G2"}, chance))
+        self.assertIsNone(mb.receipt_chance({"_saved_floor": {"arm": "B", "floor": False}, "kind": "goods"},
+                                            offer, {"item": "G2"}, chance))
+        self.assertIsNone(mb.receipt_chance({"kind": "goods"}, offer, {"item": "G2"}, chance))
+        self.assertEqual(mb.receipt_chance(order_b, offer, {"item": "G3"}, chance), 0.0)  # no rate: 0 as before
+
+        def boom(sku):
+            raise ValueError(sku)
+        self.assertIsNone(mb.receipt_chance(order_b, offer, {"item": "G2"}, boom))       # never raises into the run
+
+
 if __name__ == "__main__":
     unittest.main()

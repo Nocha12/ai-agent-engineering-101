@@ -22,6 +22,12 @@ when the goods studies end; an order of another or unknown kind is off. Read at 
 order), so no restart either way. On, it moves what other buyer studies see (goods-grade's limit_a, quote fit, the
 shop profile's band records, food talks without the band): start it on a kind only after that kind's studies end, and
 every order it touched carries "saved_floor" in its measure record (review I3).
+
+Each record names the study (the ab salt), VERSION, the board snapshot it read (board_ts) and the floor flag, and the
+early exit with no shop in stock writes it too, so the judgement recounts both arms by sha1(salt|order) over every order
+(GPT Pro 1638 P2). With the floor on (arm B, "floor" true), a receipt for another SKU than the one asked is held to
+that SKU's break chance, not b = 0 (recheck; market_buyer.receipt_chance). The band-only first A/B ("floor": false)
+keeps b = 0 there, so arm B differs from arm A by the band alone.
 """
 import hashlib
 import json
@@ -35,6 +41,7 @@ BASE_SHARE = 0.30          # market_buyer.SAVED_MIN_SHARE
 MAX_SHARE = 0.40           # a board S above this is not trusted: off
 MAX_MARGIN = 0.05
 KEYS = {"enabled", "floor", "margin", "band", "ab", "kinds", "by", "since", "why", "source"}   # no start/stop: not enforced, so refused
+VERSION = "sf-2"           # sf-2: records carry study/v/board_ts/floor; the floor rechecks a shipped SKU's b
 
 
 def _number(v):
@@ -75,6 +82,12 @@ def config(md, env=None):
 
 def board_saved(md, now=None):
     """My Saved on the newest board snapshot, or None when it is missing, stale, over MAX_SHARE or unreadable."""
+    row = board_row(md, now)
+    return row[0] if row else None
+
+
+def board_row(md, now=None):
+    """(my Saved, the snapshot's ts) on the newest board snapshot, or None as board_saved."""
     now = now or time.time()
     try:
         with open(os.path.join(md, "board_history.jsonl"), "rb") as f:
@@ -95,7 +108,7 @@ def board_saved(md, now=None):
         for name, row in d["buyers"].items():
             if str(name).lower() in buyer_short_warranty.ME and isinstance(row, list) and row \
                     and _number(row[0]) and 0 < row[0] <= MAX_SHARE:
-                return float(row[0])
+                return float(row[0]), float(d["ts"])
         return None
     return None
 
@@ -106,24 +119,34 @@ def arm(salt, order_id, share):
 
 
 def state(md, order_id, now=None, env=None, base=BASE_SHARE, kind=None):
-    """None when off; else {"arm", "share", "band_off", "board_saved"}: arm A keeps base and the band.
-    Never raises into the buyer run (review I1): anything unexpected is off."""
+    """None when off; else {"arm", "share", "band_off", "board_saved", "board_ts", "floor", "study", "v"}: arm A keeps
+    base and the band. Never raises into the buyer run (review I1): anything unexpected is off."""
     try:
         c = config(md, env)
         if c is None or ("kinds" in c and kind not in c["kinds"]):
             return None
-        S = board_saved(md, now)
-        if S is None:
+        row = board_row(md, now)
+        if row is None:
             return None
+        S, ts = row
+        floor = c.get("floor", True)
+        meta = {"board_saved": S, "board_ts": ts, "floor": floor,
+                "study": c["ab"]["salt"] if "ab" in c else None, "v": VERSION}
         if "ab" in c:
             if not isinstance(order_id, str) or not order_id:
                 return None
             if arm(c["ab"]["salt"], order_id, c["ab"]["share"]) == "A":
-                return {"arm": "A", "share": base, "band_off": False, "board_saved": S}
-        share = min(MAX_SHARE, max(base, S + c.get("margin", 0))) if c.get("floor", True) else base
-        return {"arm": "B", "share": share, "band_off": c.get("band", "cap") == "cap", "board_saved": S}
+                return {"arm": "A", "share": base, "band_off": False, **meta}
+        share = min(MAX_SHARE, max(base, S + c.get("margin", 0))) if floor else base
+        return {"arm": "B", "share": share, "band_off": c.get("band", "cap") == "cap", **meta}
     except Exception:   # noqa: BLE001 - the floor is optional; the order goes on as before
         return None
+
+
+def recheck(st):
+    """Whether a receipt for another SKU is held to that SKU's break chance: arm B with the floor on only. The band-only
+    A/B (floor false), arm A and records without the flag keep b = 0 as before."""
+    return isinstance(st, dict) and st.get("arm") == "B" and st.get("floor") is True
 
 
 def trade_arm(order):

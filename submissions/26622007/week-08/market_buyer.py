@@ -1689,12 +1689,28 @@ def receipt_band(rec, offer, base, pct):
     return pct if not sku or sku == (offer or {}).get("sku") else base
 
 
-def over_limit(rec, offer, limit, catalog, budget, band=None):
+def receipt_chance(order, offer, rec, chance_of):
+    """The break chance a receipt for another SKU is held to under buyer_saved_floor (arm B with the floor on): that
+    SKU's (chance_of(sku), 0 when it has no rate); None, b = 0 as before, for the asked SKU, food, any other arm or
+    an error (GPT Pro 1638 P2: the shipped SKU's limit kept b = 0, so the floor did not hold for it)."""
+    try:
+        sku = (rec or {}).get("item")
+        if not buyer_saved_floor.recheck((order or {}).get("_saved_floor")) or (order or {}).get("kind") != "goods" \
+                or not sku or sku == (offer or {}).get("sku"):
+            return None
+        b = chance_of(sku)
+        return float(b) if isinstance(b, (int, float)) and not isinstance(b, bool) and 0 <= b < 1 else 0.0
+    except Exception:  # noqa: BLE001 - a recheck never ends the run: b = 0 as before
+        return None
+
+
+def over_limit(rec, offer, limit, catalog, budget, band=None, shipped_chance=None):
     """Why a receipt is not one I pay for: its price is over my limit for its SKU (saved_cap, patch 3.4). A shop that
     sends a receipt at once, with no offer from me, skipped the talk where the limit is kept: 3 of the receipts paid from
     11/06 08:45 to 13:35 (Jaehoonang, agreed None) were over it, e.g. 13,532 for a limit of 13,415 (GPT Pro 11/06 13:30
     B2). None when the price is within it. Not cheating: the shop may ask what it likes; I just do not pay it.
-    band: buyer_accept_band.percent, the limit then goes up to that share of it (never over the budget)."""
+    band: buyer_accept_band.percent, the limit then goes up to that share of it (never over the budget).
+    shipped_chance: the shipped SKU's break chance for its saved cap (receipt_chance), else 0."""
     price = (rec or {}).get("price")
     if not isinstance(price, (int, float)) or isinstance(price, bool) or not isinstance(limit, (int, float)):
         return None
@@ -1705,7 +1721,7 @@ def over_limit(rec, offer, limit, catalog, budget, band=None):
         lp = ((catalog or {}).get(sku) or {}).get("list_price")
         if isinstance(lp, (int, float)):   # its list price unknown: the asked SKU's limit holds, not the budget
             cap = value_limit({"list_price": lp}, budget, 0, buyer_cfg())
-            limit = min(cap, saved_cap({"list_price": lp}, 0))
+            limit = min(cap, saved_cap({"list_price": lp}, shipped_chance or 0))
     limit = buyer_accept_band.ceiling(limit, budget, band, cap)
     return f"receipt price {price:g} is over my limit {limit:g} for {sku}" if round(price) > limit else None
 
@@ -1920,6 +1936,7 @@ def main():
                                          "stock_evidence": buyer_stock_evidence.measurement(order),
                                          "quotes": [], "quote_attempts_complete": True,
                                          **({"rank_pg": buyer_rank_pg.metadata(rk)} if rk is not None else {}),
+                                         **({"saved_floor": order["_saved_floor"]} if order.get("_saved_floor") else {}),
                                          "state": "NO_SHOP_IN_STOCK", "seconds": {"end": round(time.time() - STARTED, 2)}})
         print(json.dumps({"shop": "", "receipt": None, **({} if r3 else {"stars": 1, "review": "No shops to trade with."})}))
         return 0
@@ -2224,7 +2241,10 @@ def main():
     if short:
         warnings.append(short)
     over = over_limit(rec, offer, limit, catalog, args.budget,
-                      None if (order.get("_sw_buy") or {}).get("ok") else receipt_band(rec, offer, band_base, band_pct)) if r3 and rec is not None and not problems and not short else None
+                      None if (order.get("_sw_buy") or {}).get("ok") else receipt_band(rec, offer, band_base, band_pct),
+                      receipt_chance(order, offer, rec,
+                                     lambda sku: market_model.break_chance(ledger_breaks(md, catalog), sku))) \
+        if r3 and rec is not None and not problems and not short else None
     if over:
         warnings.append(over)
     for p in problems:
