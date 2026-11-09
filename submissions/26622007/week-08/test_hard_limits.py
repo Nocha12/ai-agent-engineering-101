@@ -24,7 +24,10 @@ class HardLimitsTest(unittest.TestCase):
             return json.load(f)
 
     def test_the_shipped_settings_are_inside_the_bounds(self):
-        self.assertEqual(hl.check_policy_change({}, self.pricing()), [])
+        p = self.pricing()
+        trial = {k: v for k, v in p.items() if k == "price" and "grade_break_trial" in v}   # a person's, kept as is
+        old = {"price": {"grade_break_trial": trial["price"]["grade_break_trial"]}} if trial else {}
+        self.assertEqual(hl.check_policy_change(old, p), [])
 
     def test_never_spends_into_the_bankruptcy_zone(self):
         self.assertEqual(hl.spendable(900000), 0)
@@ -347,6 +350,89 @@ class NoBankruptcyReplayTest(unittest.TestCase):
             self.assertFalse(os.path.exists(os.path.join(md, "outbox.jsonl")))
         finally:
             shutil.rmtree(tmp)
+
+
+class GradeBreakTrialFrozenTest(unittest.TestCase):
+    """price.grade_break_trial is a study a person switches (grade_break_trial_switch): the meta-harness may not add,
+    remove or change any of it, the window included (AX 11/10 04:29: both ends +1 h kept a 9 h window and passed)."""
+    TRIAL = {"share": 0.5, "salt": "grade-break-furn-b-1110-0400-v1", "grade_break": {"B": 0.19},
+             "start_at": 1794250800.0, "stop_at": 1794283200.0, "categories": ["가구/침구>"],
+             "source": "W-20261109-1520-AXPro주기 report.md/verify.md; gbt-activate-1110/plan.md"}
+
+    def with_trial(self, trial=None, **price):
+        out = {"price": {"goods_break": 0.05, **price}}
+        if trial is not None:
+            out["price"]["grade_break_trial"] = trial
+        return out
+
+    def moved(self, **kw):
+        return self.with_trial(dict(self.TRIAL, **kw))
+
+    def flagged(self, old, new):
+        return [p for p in hl.check_policy_change(old, new) if "grade_break_trial" in p and "person" in p]
+
+    def test_the_parent_repro_both_ends_plus_one_hour(self):
+        import profit_price
+        new = self.moved(start_at=self.TRIAL["start_at"] + 3600, stop_at=self.TRIAL["stop_at"] + 3600)
+        self.assertTrue(profit_price.trial_setting_ok(new["price"]["grade_break_trial"]))   # a valid 9 h window
+        self.assertTrue(self.flagged(self.with_trial(self.TRIAL), new))
+
+    def test_every_field_is_frozen(self):
+        old = self.with_trial(self.TRIAL)
+        for kw in (dict(start_at=self.TRIAL["start_at"] - 1), dict(stop_at=self.TRIAL["stop_at"] - 3600),
+                   dict(salt="other"), dict(share=0.6), dict(grade_break={"B": 0.2}), dict(grade_break={"B": 0.19, "C": 0.3}),
+                   dict(categories=["가구/"]), dict(source="x"), dict(extra=1)):
+            self.assertTrue(self.flagged(old, self.moved(**kw)), kw)
+        dropped = {k: v for k, v in self.TRIAL.items() if k != "categories"}    # all furniture -> all goods
+        self.assertTrue(self.flagged(old, self.with_trial(dropped)))
+
+    def test_added_removed_or_put_back_changed(self):
+        self.assertTrue(self.flagged(self.with_trial(), self.with_trial(self.TRIAL)))       # a new trial
+        self.assertTrue(self.flagged(self.with_trial(self.TRIAL), self.with_trial()))       # removed
+        self.assertTrue(self.flagged(self.with_trial(self.TRIAL), {"price": [1]}))           # price no longer a dict
+        self.assertTrue(self.flagged(self.with_trial(self.TRIAL), {}))
+        self.assertTrue(self.flagged(self.with_trial(self.TRIAL), self.with_trial("on")))   # not a dict any more
+        self.assertTrue(self.flagged(self.with_trial(None), self.with_trial(None, grade_break_trial=None)))  # null added
+
+    def test_same_value_other_type_is_a_change(self):
+        old = self.with_trial(self.TRIAL)
+        self.assertTrue(self.flagged(old, self.moved(start_at=int(self.TRIAL["start_at"]))))     # 1.0 -> 1
+        self.assertTrue(self.flagged(self.with_trial(dict(self.TRIAL, share=1)), self.moved(share=True)))
+        self.assertTrue(self.flagged(old, self.moved(grade_break={"B": 0.19, "b": 0.19})))
+
+    def test_unchanged_passes(self):
+        old = self.with_trial(self.TRIAL)
+        same = json.loads(json.dumps(dict(reversed(list(self.TRIAL.items())))))          # key order, a reload
+        self.assertEqual(hl.check_policy_change(old, self.with_trial(same)), [])
+        self.assertEqual(hl.check_policy_change(old, self.with_trial(self.TRIAL, goods_break=0.051)), [])
+        self.assertEqual(hl.check_policy_change(self.with_trial(), self.with_trial(goods_break=0.051)), [])
+        nan = self.with_trial(dict(self.TRIAL, share=float("nan")))
+        self.assertEqual(self.flagged(nan, json.loads(json.dumps(nan))), [])             # NaN == NaN here
+
+    def test_the_meta_harness_refuses_it_on_its_own_path(self):
+        raw = json.dumps(self.with_trial(self.TRIAL))
+        shifted = self.moved(start_at=self.TRIAL["start_at"] + 3600, stop_at=self.TRIAL["stop_at"] + 3600)
+        for code, found in ((["pricing.json"], None), (["seller.py"], json.loads(raw))):
+            with mock.patch.object(meta_harness, "pricing_at_head", lambda: json.loads(raw)), \
+                    mock.patch.object(meta_harness, "pricing_now", lambda: shifted), \
+                    mock.patch.dict(meta_harness.FOUND, {"pricing": found}), \
+                    mock.patch.object(meta_harness, "git", lambda *a, **k: ""):
+                self.assertTrue([p for p in meta_harness.limit_problems(code) if "grade_break_trial" in p], code)
+
+    def test_a_person_still_switches_it(self):
+        import grade_break_trial_switch as sw
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        path = os.path.join(tmp, "pricing.json")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write('{\n  "price": {\n    "goods_break": 0.05\n  }\n}\n')
+        sw.switch_on(path, dict(self.TRIAL), backup_dir=os.path.join(tmp, "b"), stamp="t1")
+        with open(path, encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["price"]["grade_break_trial"], self.TRIAL)
+        sw.switch_off(path, backup_dir=os.path.join(tmp, "b"), stamp="t2")
+        with open(path, encoding="utf-8") as f:
+            self.assertNotIn("grade_break_trial", json.load(f)["price"])
+        self.assertNotIn("check_policy_change", inspect.getsource(sw))      # the person's path is not the meta's
 
 
 if __name__ == "__main__":
