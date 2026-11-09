@@ -842,6 +842,25 @@ def lowest_price_said(text):
     return int(m.group(1)) if m else None
 
 
+LIST_ASK = re.compile(r"(?:(?!list price|, ask |\basking\b|unit u-)[^\n])+ \((G[0-9a-f]{8})\), unit u-[0-9a-f]{12}: list price ([1-9][0-9]{0,11}), ask ([1-9][0-9]{0,11})\. "
+                      r"Grade [ABC], [0-9]+(?:\.[0-9]+)? h of shelf life left, market certificate attached\. "
+                      r"Send your offer as a number\.")
+
+
+def list_ask_said(text, sku, list_price):
+    """The ask of a quote that is only "<name> (<SKU>), unit <unit>: list price L, ask A. Grade G, H h of shelf life left,
+    market certificate attached. Send your offer as a number." (nkjunbc from 11/09 17:55): no "asking", so buyer.text_ask
+    read none, and 17 orders to 23:22 had that ask within my limit (W-20261109-2225-AXPro주기, GPT Pro mw9bm5jl §3(c)). That
+    text only, whole, for the SKU and list price quoted; any other text is left to buyer.text_ask. The ask read ranks the
+    quote, can end the order before the talk when over TALK_OVER_SHARE of my limit, and counts in recent_asks (hopeless), as
+    a text ask of any shop does; the talk's first turn stays with the harness (ask_read reads none of it, so oneshot.turn
+    is None), and what is paid is still the receipt's price under my limit."""
+    m = LIST_ASK.fullmatch((text or "").strip())
+    if not m or m.group(1) != sku or isinstance(list_price, bool) or int(m.group(2)) != list_price:
+        return None
+    return int(m.group(3))
+
+
 def text_ask_checked(text, shop):
     """buyer.text_ask, kept only when it is a believable price for the SKU quoted (5% to 100% of its list price, and no
     other SKU named in the text). 214 of 214 quotes with both a metadata ask and one text ask agreed (GPT Pro 13:30). The talk
@@ -851,6 +870,8 @@ def text_ask_checked(text, shop):
         v = lowest_price_said(text)
     o = shop.get("_offer") or {}
     lp = o.get("list_price")
+    if v is None:
+        v = list_ask_said(text, o.get("sku"), lp)
     if v is None or not isinstance(lp, (int, float)) or lp <= 0:
         return None
     named = set(re.findall(r"\bG[0-9a-f]{8}\b", text or ""))
