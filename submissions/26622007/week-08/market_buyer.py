@@ -864,7 +864,8 @@ def list_ask_said(text, sku, list_price):
 def text_ask_checked(text, shop):
     """buyer.text_ask, kept only when it is a believable price for the SKU quoted (5% to 100% of its list price, and no
     other SKU named in the text). 214 of 214 quotes with both a metadata ask and one text ask agreed (GPT Pro 13:30). The talk
-    still reads the shop's price from its text, and the receipt price is what is paid, so a wrong number only misranks."""
+    still reads the shop's price from its text, and the receipt price under my limit is what is paid; a wrong number ranks the
+    quote, can end the order before the talk (TALK_OVER_SHARE), and counts in recent_asks."""
     v = buyer_text_ask(text)
     if v is None:
         v = lowest_price_said(text)
