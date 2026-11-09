@@ -55,7 +55,11 @@ LIVE = ("logs", "memory")         # what the kit and the shop keep writing: neve
 RUNTIME = ("seller_warranty_trial.json", ".market/")
 # The studies' on/off files: not the model's to set. One that changes while the model runs refuses the cycle, and is left
 # as it is (another job may have set it): the edit is recorded, not committed or put back (independent review I-B).
-SWITCHES = ("seller_warranty_trial.json", ".market/buyer_food_shelf.json", ".market/sol_seller_margin_v2/controller.json")
+# Each module's "Switch: .market/<x>.json" is here (test_meta checks it); not .market/ as a whole, whose state files move.
+SWITCHES = ("seller_warranty_trial.json", ".market/sol_seller_margin_v2/controller.json", ".market/quote_hold/config.json",
+            ".market/seller_concession_trial.json", ".market/seller_reader_trial.json") + tuple(
+    f".market/buyer_{n}.json" for n in ("accept_band", "b3b1", "food_shelf", "quote_deadline", "rank_pg", "shop_profile",
+                                        "short_warranty"))
 
 
 def runtime(p):

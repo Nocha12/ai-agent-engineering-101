@@ -4,6 +4,7 @@
 """
 import json
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -513,6 +514,18 @@ class HarnessCycleTest(unittest.TestCase):
         self.assertEqual(rec["files"], ["changed.py"])
         self.assertIn("seller_warranty_trial.json", self.git("status", "--porcelain"))
         self.assertEqual(open(os.path.join(self.root, ".market", "buyer_food_shelf.json")).read(), '{"enabled": true}\n')
+
+    def test_every_study_switch_is_watched(self):
+        # independent re-review 0738-meta: 8 .market/ switches were missing from SWITCHES, so a model edit of them passed
+        here, found = os.path.dirname(os.path.abspath(mh.__file__)), set()
+        for name in os.listdir(here):
+            if name.endswith(".py") and not name.startswith("test_"):
+                text = open(os.path.join(here, name), encoding="utf-8").read()
+                found |= set(re.findall(r"^Switch: (\.market/[\w/]+\.json)", text, re.M))
+                found |= {".market/" + m for m in re.findall(r"^SWITCH = ['\"]([\w/]+\.json)['\"]", text, re.M)}
+                found |= {".market/" + m for m in re.findall(r'self\.root ?/ ?["\'](\w+_trial\.json)["\']', text)}
+        self.assertGreaterEqual(len(found), 9)
+        self.assertEqual(found - set(mh.SWITCHES), set())
 
     def test_an_undo_puts_pricing_back_as_the_cycle_found_it_not_as_head(self):
         # independent review 0738-meta I1: undo checked out the commit's parent, dropping another job's pricing.json edit
