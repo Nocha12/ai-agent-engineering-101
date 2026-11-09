@@ -16,8 +16,8 @@ Both arms are recorded (deal["floor_margin"] -> shop_memory), so the verdict is 
 net of real cost and refunds. Arms by SKU x grade, sha256("floor-margin|salt|sku|grade"), first byte odd is B: our
 own deals feed the SKU median.
 
-Eligible: goods, grade A, a list price, no markdown (keep 1), no ask cap set for the SKU x grade (slow stock), not in
-the margin study (sol_seller_margin assignment) and not a seller_a_open talk (either arm): a-open owns 30만+ A goods
+Eligible: goods, grade A, a list price, no markdown (keep 1), no ask cap set for the SKU x grade (slow stock), no
+scarce ask and no high-price trial cut (quote()'s why, as seller_a_open), not in the margin study (sol_seller_margin assignment) and not a seller_a_open talk (either arm): a-open owns 30만+ A goods
 while it is on (11/09 18:47-03:47, verdict pending), so the two never price the same talk; when a-open stops by
 itself, those talks come into this study.
 
@@ -115,6 +115,7 @@ def decide(u, q, *, reserve, ask, keep, margin_assignment, a_open, pricing=None,
                 or not _num(u.get("list_price")) or u["list_price"] <= 0 or not _num(u.get("cost"))
                 or not _num(reserve) or not _num(ask) or not _num(q.get("b")) or keep < 1
                 or margin_assignment is not None or a_open
+                or str(q.get("why") or "").startswith(("ask cap", "scarce ask", "trial "))
                 or profit_price.ask_cap(profit_price.cfg_of(pricing), u) is not None):
             return reserve, ask, None
         a = arm(cfg, u.get("sku"), u.get("grade"))

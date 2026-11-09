@@ -110,6 +110,38 @@ class SellerFloorMarginTest(unittest.TestCase):
         self.assertEqual(self.run_(u, q, pricing=caps), same)                     # slow stock with a cap
         self.assertEqual(self.run_(unit(grade="A"), q, pricing={"price": {**PRICING["price"], "ask_caps": {
             "G24f5f979": {"C": 1}}}})[2]["arm"], "B")
+        for why in ("ask cap 1800000 for grade A (was ...)", "scarce ask 1900000", "trial 0.97 x median 1"):
+            self.assertEqual(self.run_(u, dict(q, why=why)), same, why)
+
+    def test_a_open_talks_stay_a_opens_through_the_real_decide(self):
+        # independent review I1: both switches on, a-open's own decide() feeds this one as seller.py does
+        import seller_a_open as ao
+        Path(self.md.name, ao.SWITCH).write_text(json.dumps({"enabled": True, "study": "a-open-t", "salt": "ao",
+                                                            "ratio": 0.76, "start_at": ON - 60, "stop_at": ON + 3600}))
+        self.on(salt="fm")
+        seen = set()
+        for i in range(60):
+            for u in (unit(sku=f"G{i:04d}"), unit(sku=f"C{i:04d}", list_price=119000, cost=77500)):
+                q = self.q(u, median=0.69 * u["list_price"])
+                ask, rec = ao.decide(u, q, keep=1, margin_assignment=None, md=self.md.name, env={}, now=ON)
+                r, a, fmr = self.run_(dict(u), dict(q, open=ask), a_open=rec)
+                if u["list_price"] >= ao.MIN_LIST:
+                    self.assertIsNotNone(rec)
+                    self.assertEqual((r, a, fmr), (q["floor"], ask, None))
+                    seen.add(("a-open", rec["arm"]))
+                else:
+                    self.assertIsNone(rec)
+                    self.assertIsNotNone(fmr)
+                    seen.add(("floor", fmr["arm"]))
+        self.assertEqual(seen, {("a-open", "A"), ("a-open", "B"), ("floor", "A"), ("floor", "B")})
+
+    def test_seller_guards_hold_the_raised_reserve(self):
+        # independent review M1: an offer between today's F and arm B's reserve is not taken
+        import seller
+        deal = {"reserve": 1914798, "ask": 1914798, "open": 1914798, "rounds": 1, "kind": "goods",
+                "history": [("you asked", 1914798), ("buyer offered", 1800000)]}
+        action, price = seller.price_guards(deal, "accept", 1800000, 1800000, 1914798)
+        self.assertEqual((action, price), ("counter", 1914798))
 
     def test_cheap_a_goods_are_in(self):
         u = unit(sku="Gcheap", list_price=119000, cost=77500)    # under a-open's 30만
@@ -154,6 +186,16 @@ class SellerFloorMarginTest(unittest.TestCase):
 
     def test_never_raises(self):
         self.on(salt=self.salt_for("B"))
+        u = unit()
+        q = self.q(u)
+        real = profit_price.floor
+        def boom(*a, **k):
+            raise RuntimeError("x")
+        profit_price.floor = boom          # independent review M2: the except branch itself
+        try:
+            self.assertEqual(self.run_(u, q), (q["floor"], q["open"], None))
+        finally:
+            profit_price.floor = real
         self.assertEqual(fm.decide(unit(), {"open": 5}, reserve=4, ask=5, keep=1, margin_assignment=None, a_open=None,
                                    md=self.md.name, env={}, now=ON), (4, 5, None))
         self.assertEqual(fm.decide(None, {}, reserve=4, ask=5, keep=1, margin_assignment=None, a_open=None,
