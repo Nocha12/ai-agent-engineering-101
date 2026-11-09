@@ -65,6 +65,7 @@ import buyer_first95_trial
 import buyer_cap95_trial
 import buyer_b3b1
 import buyer_accept_band
+import buyer_saved_floor
 import buyer_quote_deadline
 import buyer_food_ladder
 import buyer_goods_grade
@@ -125,6 +126,7 @@ FOOD_TAKE_ASK = True        # food: an ask within my limit is taken as it is. Of
 FOOD_TAKE_SHARE = 0.65      # ... but only an ask at or under this share of list (0.70 until SAVED_MIN_SHARE went to 0.30). Patch 3.4 (11/06 06:00) scores Saved, the mean
 #                             share of list kept per deal over deals + 100, and a deal below my Saved (0.2415) lowers it: food
 #                             taken as asked kept a median 10% in the 6 h to 07:28 (126 of 150 under 0.2415; GPT Pro 11/06 07:30 B1)
+SAVED_SHARE = 0.30          # this order's share: SAVED_MIN_SHARE, or my board Saved under buyer_saved_floor (set in main)
 SAVED_MIN_SHARE = 0.30      # the share of list a deal must be expected to keep: the limit is list (1 - 0.30 / (1 - b)), b the
 #                             chance goods break (a break under warranty refunds and keeps 0). Of our 385 deals in that 6 h,
 #                             the 111 at 25% or more would have raised Saved 0.2415 -> 0.2441, all 385 lowered it to 0.2360.
@@ -1629,10 +1631,11 @@ class NoValue(Exception):
     """saved_cap left nothing to pay for the offer: no talk is started."""
 
 
-def saved_cap(offer, chance, share=SAVED_MIN_SHARE):
+def saved_cap(offer, chance, share=None):
     """The most a deal may cost and still keep share of the list price in expectation (patch 3.4 Saved): goods that break
     under the warranty are refunded and keep 0, so the price keeps (1 - b)(1 - price / list) and the cap is
-    list (1 - share / (1 - b)). None or a chance of 1 or more leaves nothing to buy at."""
+    list (1 - share / (1 - b)). None or a chance of 1 or more leaves nothing to buy at. share None is SAVED_SHARE."""
+    share = SAVED_SHARE if share is None else share
     b = min(max(chance or 0, 0.0), 1.0)
     if b >= 1 or share / (1 - b) >= 1:
         return 0
@@ -1855,7 +1858,7 @@ def main():
         MEMORY = "memory/test_memory.json" if test else "memory/market_memory.json"
     order = load_json(args.order, {}) if args.order else {}
     if isinstance(order, dict):
-        for k in ("_sw", "_sw_buy", "_sw_h_est", "_rank_pg", "_rank_selection"):  # internal state, never read in
+        for k in ("_sw", "_sw_buy", "_sw_h_est", "_rank_pg", "_rank_selection", "_saved_floor"):  # internal state, never read in
             order.pop(k, None)
     md = os.path.dirname(args.shops) or "."
     rk = buyer_rank_pg.state(md, order) if args.order else None
@@ -1865,7 +1868,15 @@ def main():
             order["_rank_pg"] = rk
         else:
             buyer_rank_pg.unselected(rk, "non_round3_order")
+    global SAVED_SHARE
+    SAVED_SHARE = SAVED_MIN_SHARE
     if r3:
+        # buyer_saved_floor: the limit keeps my board Saved (off: SAVED_MIN_SHARE, the accept band as before)
+        order["_saved_floor"] = buyer_saved_floor.state(md, order.get("order"), base=SAVED_MIN_SHARE)
+        if order["_saved_floor"]:
+            SAVED_SHARE = order["_saved_floor"]["share"]
+            log(f"[saved-floor] arm {order['_saved_floor']['arm']}: share {SAVED_SHARE:.4f}"
+                f" (board Saved {order['_saved_floor']['board_saved']:.4f}), band off {order['_saved_floor']['band_off']}")
         # Keep a retained invocation start on resume; invalid values fail closed in the trial.
         order.setdefault("_buyer_started_at", time.time())
         order["_food_quote_yield"] = order.get("kind") == "food" and quote_yield_arm(order.get("order"))
@@ -2044,6 +2055,8 @@ def main():
                                                saved_cap(offer, sku_chance))
     # plan A: a counter up to 105% of the limit is taken; more with a shop that holds its ask (buyer_shop_profile)
     band_base, band_pct = accept_percent(md, shop["name"], offer, chance, limit, args.budget) if r3 else (None, None)
+    if r3 and (order.get("_saved_floor") or {}).get("band_off"):   # a deal over the floor would lower Saved
+        band_base, band_pct = None, None
     if sw_h is not None:      # a short warranty expected: p_max(h) is the ceiling, no accept band (owner 7955)
         limit = min(limit, short_cap(offer, chance, order, shop["name"], quotes.get(shop["name"]), shop))
         band_base, band_pct = None, None
@@ -2271,6 +2284,8 @@ def main():
                                             if order.get("_quote_deadline") is not None else {}),
                                          **({"shop_profile": {"base": band_base, "pct": band_pct}}
                                             if band_pct != band_base else {}),
+                                         **({"saved_floor": order["_saved_floor"]}
+                                            if order.get("_saved_floor") else {}),
                                          **({"accept_band": {"pct": band_pct, "ceiling": top,
                                                              "taken": (order.get("_accept_band") or {}).get("taken")}}
                                             if band_pct else {})})
