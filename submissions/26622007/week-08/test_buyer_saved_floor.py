@@ -181,7 +181,7 @@ class Cap(unittest.TestCase):
         self.assertEqual(mb.saved_cap({"list_price": 10000}, 0, 0.30), 7000)   # an explicit share still wins
 
     def test_main_sets_and_logs_the_floor(self):
-        src = open(mb.__file__, encoding="utf-8").read()
+        src = Path(mb.__file__).read_text(encoding="utf-8")
         i = src.index("def main():")
         self.assertIn("buyer_saved_floor.state(md", src[i:])
         self.assertIn('kind=order.get("kind")', src[i:])

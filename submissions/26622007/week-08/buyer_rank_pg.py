@@ -393,7 +393,7 @@ def stats(md, now=None):
             try:
                 st = compute(md, now)
             except Exception:   # noqa: BLE001 - a broken log is no ranking until the next REFRESH
-                st = {"pool": {}, "shops": {}, "observation": {"ledger_cover": cover}}
+                st = {"pool": {}, "shops": {}, "observation": {"ledger_cover": cover, "failed": True}}
             tmp = f"{path}.{os.getpid()}.tmp"
             try:
                 with open(tmp, "w", encoding="utf-8") as f:
@@ -487,7 +487,8 @@ def state(md, order, env=None, now=None):
     try:
         st = stats(md, now)
         rk['stats'] = st if isinstance(st, dict) else {}
-        if (rk['stats'].get('observation') or {}).get('ledger_cover') is True:
+        obs = rk['stats'].get('observation') if isinstance(rk['stats'].get('observation'), dict) else {}
+        if obs.get('ledger_cover') is True and not obs.get('failed'):
             rk['ledger_cover'] = True       # the time boundary common to all arms, on the row and in the journal
         nf = rk['stats'].get('nofit')
         nf = nf if isinstance(nf, dict) else {}

@@ -111,6 +111,9 @@ class LedgerCoverTest(unittest.TestCase):
             rp.stats(self.md, NOW)
             rp.stats(self.md, NOW + 60)
         self.assertEqual(c.call_count, 1)                     # not computed again at every order
+        with mock.patch.object(rp, "compute", side_effect=RuntimeError):
+            rk = rp.state(self.md, {"order": "o-9", "kind": "goods"}, env={}, now=NOW + 120)
+        self.assertNotIn("ledger_cover", rp.metadata(rk))    # review 3 m-E: empty stats are not cover stats
 
     def test_a_non_boolean_cover_is_off(self):
         for v in ("true", 1, None, [True]):

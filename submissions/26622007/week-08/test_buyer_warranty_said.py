@@ -73,7 +73,10 @@ class HoursForTest(unittest.TestCase):
                      # review 2 m3
                      "72 h warranty. Without it the price is 9000", "72 h warranty. This price ships without one.",
                      "72 h warranty, 1 h for this price", "72 h warranty; this price: warranty waived",
-                     "72 h warranty. 0.5 h for grade C", "72 h warranty. 30 min for grade C", "72시간 보증, C등급 30분"):
+                     "72 h warranty. 0.5 h for grade C", "72 h warranty. 30 min for grade C", "72시간 보증, C등급 30분",
+                     # review 3 m-B, m-C
+                     "72 h warranty. \nThis price ships without one.", "72 h warranty! ...Without it 9000",
+                     "72 h warranty, three hours for this price", "72 h warranty. grade C: two hours"):
             q = quote(text)
             self.assertFalse(q["warranty_said_ok"], text)
             self.assertEqual(sw.hours_for(order_sw("B"), "thisjonghoon", q), 0, text)
@@ -255,6 +258,9 @@ class SwitchTest(unittest.TestCase):
         for _ in range(4):
             ws.measure(self.md, s, quotes, "thisjonghoon", {"price": 1}, "warranty 0 h: over p_max", 100)
         self.assertEqual(ws.tripped(self.md, "bw1-test", T0), {"receipts": 4, "refused": 4})
+        with mock.patch.object(ws, "note", side_effect=IsADirectoryError):     # review 3 m-A: the row stays
+            r = ws.measure(self.md, s, quotes, "thisjonghoon", {"price": 1}, None, 100)
+        self.assertEqual((r["applied"], r["note_error"]), (True, "IsADirectoryError"))
         a = dict(s, said=dict(s["said"], assigned="A", arm="A"))
         r = ws.measure(self.md, a, quotes, "thisjonghoon", {"price": 1}, "short", 100)    # arm A: never noted
         self.assertFalse(r["applied"])
@@ -283,6 +289,7 @@ class WiringTest(unittest.TestCase):
         self.assertEqual(src.count("buyer_warranty_said.measure(md, order[\"_sw\"], quotes, shop[\"name\"], rec, short, cap0)"), 1)
         self.assertEqual(src.count('"warranty_said": buyer_warranty_said.trade_mark(order)'), 1)
         self.assertEqual(src.count("buyer_warranty_said.held_out(t, now)"), 1)
+        self.assertEqual(src.count('cap0 = short_cap(offer, chance, {**order, "_sw": {**order["_sw"], "said": None}}'), 1)
 
     def test_cap0_is_arm_a_short_cap(self):
         o = {"list_price": 921600, "sku": "G85a1a856"}

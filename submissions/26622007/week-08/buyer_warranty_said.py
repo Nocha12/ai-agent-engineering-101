@@ -41,6 +41,12 @@ that got a receipt appends one line to EVENTS (with the window's start_at, so a 
 lines); when TRIP_MIN or more of those receipts were refused and the refused share is over TRIP_SHARE, every later
 order of the window goes to arm A ("tripped" in its row and the log): the old behaviour, recorded, not silent. Orders
 already running when it trips finish in arm B, so the stop can come a few receipts late.
+
+Read conservatively on purpose: a duration under 6 h anywhere in the text ("Delivered in 2 h", "Reply within 5 min")
+also leaves the quote as now; in the 24 h to 11/09 20:05 that took no quote the old reading set aside (the 70 that
+flipped were stored text cut at "if it", read whole they are set aside; ana/bw1_said_replay.py).
+Undo: delete the switch (or BUYER_WARRANTY_SAID=0). Arm B trades already made stay out of short_warranty_shops until
+their stop_at (at most MAX_WINDOW_HOURS), as they would have in the window.
 """
 import hashlib
 import json
@@ -57,10 +63,12 @@ EVENTS = "buyer_warranty_said_events.jsonl"
 MAX_WINDOW_HOURS = 12
 TRIP_MIN = 4
 TRIP_SHARE = 0.25     # about twice the highest shop's 0 h share of goods sales (thisjonghoon 55/416, 13%)
-VERSION = "bw1-2"
+VERSION = "bw1-3"
 # a sentence naming the warranty with any of these is not "names only 6 h or more" (review 08b282d I1)
 WARRANTY_WORD = re.compile(r"warrant|guarantee|safe-care|보증|케어|보장", re.I)
 # any duration under 6 h anywhere ("1 h for this price", "0.5 h for grade C", "30 min"): review 2 m3
+WORD_DURATION = re.compile(r"\b(" + "|".join(sorted(ask_read.WORD_N, key=len, reverse=True)) + r")[ \t-]*(?:h|hrs?|hours?)(?![a-z])",
+                           re.I)
 DURATION = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)[ \t-]*(h|hrs?|hours?|min|mins|minutes?|시간|분)(?![a-z])", re.I)
 # "if it breaks" is the market's own warranty wording, not a condition; a Korean hedge counts only next to the
 # warranty word (product names say "먼지없는", "색상선택": 11/09 replay, ana/bw1_said_replay.py)
@@ -177,7 +185,10 @@ def _stated_ok(text):
         v = float(m[1])
         if (v / 60 if m[2].lower().startswith("min") or m[2] == "분" else v) < ask_read.GOODS_WARRANTY_HOURS:
             return False
-    sentences = SENTENCE.split(raw)
+    for m in WORD_DURATION.finditer(raw):
+        if ask_read.WORD_N[m[1].lower()] < ask_read.GOODS_WARRANTY_HOURS:
+            return False
+    sentences = [s for s in SENTENCE.split(raw) if s.strip()]
     # the warranty's sentence and the next one ("72 h warranty. This price ships without one.")
     if any(WARRANTY_WORD.search(s) and HEDGE.search(s + " " + (sentences[i + 1] if i + 1 < len(sentences) else ""))
            for i, s in enumerate(sentences)):
@@ -205,7 +216,10 @@ def measure(md, sw, quotes, chosen, receipt, short, cap0):
     """The orders row's "warranty_said" for this order (record), noting an applied arm B receipt for the stop rule."""
     said = record(sw, quotes, chosen, short, cap0)
     if said and said["applied"] and receipt is not None:
-        note(md, said, short)
+        try:
+            note(md, said, short)
+        except OSError as e:       # the row is kept either way (review 3 m-A); the stop then counts one receipt less
+            said["note_error"] = type(e).__name__
     return said
 
 
