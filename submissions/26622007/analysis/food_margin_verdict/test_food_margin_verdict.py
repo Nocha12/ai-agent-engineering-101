@@ -472,7 +472,7 @@ class Compare(unittest.TestCase):
         se = math.sqrt(sum((10 * (d - 25)) ** 2 for d in (10, 20, 30, 40)) * 4 / 3) / 40
         self.assertEqual((iv["point"], iv["clusters"]), (25, 4))
         self.assertAlmostEqual(iv["t_p05"], round(25 - 2.353 * se, 2))
-        self.assertEqual(v.t95(45), 1.671)
+        self.assertEqual((v.t95(31), v.t95(45), v.t95(200)), (1.697, 1.684, 1.658))   # each band's low end
 
     def test_clusters_under_five_units_an_arm_are_left_out_of_the_interval(self):
         iv = v.compare(synth(SIX + [(3, 0, 100000, 0)]))["net_pending0_b_minus_a"]
@@ -548,6 +548,22 @@ class ShopAndGates(unittest.TestCase):
         win[2]["talk_cost"] = None
         self.assertIs(v.shop(day + win, [], lo, hi, cov, hi)["no_harm"], True)   # no talk cost: the point alone
 
+    def test_an_uncovered_unit_sold_in_a_span_counts_at_its_known_cost(self):
+        mem, led, units = real()
+        out = go(mem, led, units, coverage=[(START - 2 * DAY, START), (START + 2000, ASOF)])
+        b = unit_row(out, B_SOLD)
+        self.assertEqual((b["status"], b["amount"]), ("uncovered", 31722))      # supplied in the gap
+        self.assertEqual(v.shop_net(b), 31722 - 30211)
+
+    def test_a_span_without_the_talk_cost_figure_is_flagged_and_warned(self):
+        mem, led, units = real()
+        units[:] = [u for u in units if u["unit"] != B_SOLD]
+        mem[:] = [n for n in mem if n.get("unit") != B_SOLD]
+        out = go(mem, led, units)
+        self.assertIsNone(out["shop"]["window"]["net_per_hour_talk_cost"])
+        self.assertIs(out["shop"]["talk_cost_compared"], False)
+        self.assertTrue(any("talk cost" in w for w in out["warnings"]))
+
     def test_an_ambiguous_sale_counts_as_an_unknown_cost_sale(self):
         mem, led, units = real()
         e = copy.deepcopy(next(r for r in led if r["kind"] == "expire"))
@@ -591,6 +607,26 @@ class ShopAndGates(unittest.TestCase):
         g = v.gates(ex, SHOP_OK, judgeable=True)
         self.assertFalse(g["unresolved_under_5pct"])
         self.assertEqual(v.decide(g, ex), "hold")
+
+    def test_no_revert_when_the_fast_sellers_put_back_at_talk_cost_turn_it_round(self):
+        rows = synth([(13, 90, 50, 5)] * 6)
+        for r in [r for r in rows if r["arm"] == "B"][::12]:
+            r.update(status="sold", amount=1000 + 6000, refund=0, net=None, cost=None,
+                     excluded_by="cost_unknown", talk_cost=1000)
+        c = v.compare(rows)
+        self.assertLess(c["net_pending0_b_minus_a"]["hi"], 0)
+        self.assertGreater(c["net_talk_cost_b_minus_a"]["hi"], 0)
+        g = v.gates(c, SHOP_OK, judgeable=True)
+        self.assertTrue(g["unresolved_under_5pct"])
+        self.assertEqual(v.decide(g, c), "hold")
+
+    def test_cluster_gate_counts_the_clusters_the_intervals_used(self):
+        rows = synth([(5, 50, 90, 10)] * 4)
+        for c in range(4):
+            next(r for r in rows if r["sku"] == f"G{c}" and r["arm"] == "A").update(net=None, excluded_by="unknown")
+        cmp_ = v.compare(rows)
+        self.assertEqual(cmp_["clusters_both_arms"], 4)
+        self.assertFalse(v.gates(cmp_, SHOP_OK, judgeable=True)["clusters_both_arms"])
 
     def test_revert_needs_hi_below_zero_and_the_sample_gates(self):
         worse = v.compare(synth([(10, 90, 20, 30)] * 6))

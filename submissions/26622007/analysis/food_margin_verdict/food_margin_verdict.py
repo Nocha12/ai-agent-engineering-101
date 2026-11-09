@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""seller_food_margin A/B per food unit supplied in the window (W-20261109-2040-AX셀러전략, v4 11/10 00:40).
+"""seller_food_margin A/B per food unit supplied in the window (W-20261109-2040-AX셀러전략, v5 11/10 00:55).
 
 The treatment is assigned to a unit (sha256("food-margin|salt|unit"), first byte odd is B) and every food unit ends
 sold, expired or still in stock, so the verdict is intention to treat per unit supplied, not per talk: a unit counts in
@@ -62,8 +62,8 @@ sales at or under the usual floor (cost x 1.0025 + 1), and recorded arms that di
 Verdict: wait before start + MIN_HOURS (9 h, the registry's judgeable time) at asof; keep when every gate holds: main
 per arm >= 30 units, >= 4 clusters with >= 5 units of each arm, unresolved (excluded and not put back by talk_cost) < 5%
 per arm, lo > 0 for pending0, pending_cost and talk_cost, shop no_harm true; revert when the units, clusters and
-unresolved gates hold and hi < 0 for pending 0 and pending -cost; else
-hold.
+unresolved gates hold and hi < 0 in the same three ways (talk_cost too: the units it puts back are the fastest
+sellers); else hold.
 
   food_margin_verdict.py <seller_memory_r3.json> <units_in.jsonl> <ledger.jsonl>... --study ID --salt SALT
       --start EPOCH --stop EPOCH [--asof EPOCH] [--me SHOP] [--units]
@@ -99,7 +99,7 @@ T95 = [None, 6.314, 2.920, 2.353, 2.132, 2.015, 1.943, 1.895, 1.860, 1.833, 1.81
 def t95(df):
     if df < len(T95):
         return T95[df]
-    return 1.684 if df <= 40 else 1.671 if df <= 60 else 1.658 if df <= 120 else 1.645
+    return 1.697 if df <= 40 else 1.684 if df <= 60 else 1.671 if df <= 120 else 1.658   # the band's low end
 
 
 def arm(salt, unit):
@@ -265,6 +265,8 @@ def classify(memory, ledger_rows, units_rows, *, study, salt, start, stop, asof,
             r["cost"], r["cost_source"] = derived[u], "supply_residual"
         if s:
             r["settle_ts"] = s[0]["ts"]
+            if len(s) == 1 and _num(s[0]["data"].get("amount")):
+                r["amount"] = s[0]["data"]["amount"]
         if not any(a <= t <= b for a, b in cov):
             r["status"] = "uncovered"
         elif len(s) > 1 or (s and e) or len(e) > 1:
@@ -322,6 +324,8 @@ def classify(memory, ledger_rows, units_rows, *, study, salt, start, stop, asof,
     main_from = min([r["supply_ts"] for r in main] + [start])
     if not inside(cov, min(main_from, start - DAY), asof):
         warnings.append("the ledger read does not cover the day before start through asof without a gap")
+    if not shop_["talk_cost_compared"]:
+        warnings.append("shop: a sale with neither a known cost nor a talk cost; no_harm read on the scaled point only")
     if malformed or malformed_units:
         warnings.append(f"{malformed + malformed_units} malformed rows skipped")
     for k, e in ends.items():
@@ -489,6 +493,24 @@ def compare(rows):
     return out
 
 
+def shop_net(r):
+    """A sale's net for the shop spans: the unit's net, or for a sale of a known-cost unit outside main's statuses
+    (uncovered: supplied before the ledger read) its price - cost - refunds; None when its cost is unknown."""
+    if r["net"] is not None:
+        return r["net"]
+    if r["status"] == "uncovered" and _num(r.get("amount")) and _num(r.get("cost")):
+        return r["amount"] - r["cost"] - (r.get("refund") or 0)
+    return None
+
+
+def shop_talk_net(r):
+    """A sale with no known cost at the cost its talks name (None without one or without a single price)."""
+    c = r.get("talk_cost")
+    if _num(r.get("amount")) and _num(c) and r["status"] in ("sold", "uncovered"):
+        return r["amount"] - c - (r.get("refund") or 0)
+    return None
+
+
 def shop(rows, expire_rows, lo, hi, cov, asof):
     """Our food net per hour in [lo, hi) and in the same clock hours a day before, by settle and expire time."""
     food_units = {r["unit"] for r in rows}
@@ -496,13 +518,13 @@ def shop(rows, expire_rows, lo, hi, cov, asof):
     def span(a, b):
         ok = inside(cov, a, b) and b > a
         sold = [r for r in rows if r["settle_ts"] is not None and a <= r["settle_ts"] < b]
-        known = [r for r in sold if r["net"] is not None]
+        vals = [shop_net(r) for r in sold]
         exp = sum((r["data"].get("cost") or 0) for r in expire_rows
                   if a <= r["ts"] < b and r["ts"] <= asof and set(r["data"].get("units") or ()) & food_units)
-        n_unk = len(sold) - len(known)
-        nets = [r["net"] for r in known]
-        net = sum(nets) * (len(sold) / len(known) if known else 0) - exp
-        talk = [talk_net(r) for r in sold if r["net"] is None]
+        nets = [x for x in vals if x is not None]
+        known, n_unk = nets, len(sold) - len(nets)
+        net = sum(nets) * (len(sold) / len(nets) if nets else 0) - exp
+        talk = [shop_talk_net(r) for r, x in zip(sold, vals) if x is None]
         h = (b - a) / 3600
         per = lambda x: round(x / h, 2) if ok and h > 0 and (known or not n_unk) else None
         return {"from": a, "to": b, "covered": ok, "sales": len(sold), "unknown_cost_sales": n_unk,
@@ -515,9 +537,12 @@ def shop(rows, expire_rows, lo, hi, cov, asof):
     p = span(lo - (hi - lo), lo)
     usable = all(x["net_per_hour"] is not None for x in (w, d))
     tc = all(x["net_per_hour_talk_cost"] is not None for x in (w, d))
-    return {"window": w, "day_before": d, "span_before": p,
+    return {"window": w, "day_before": d, "span_before": p, "talk_cost_compared": tc,
             "no_harm": (w["net_per_hour"] >= d["net_per_hour"]
                         and (not tc or w["net_per_hour_talk_cost"] >= d["net_per_hour_talk_cost"])) if usable else None}
+
+
+GATED = ("net_pending0_b_minus_a", "net_pending_cost_b_minus_a", "net_talk_cost_b_minus_a")
 
 
 def gates(cmp_, shop_, *, judgeable):
@@ -525,7 +550,7 @@ def gates(cmp_, shop_, *, judgeable):
     lo = lambda k: bool(cmp_.get(k)) and cmp_[k].get("lo") is not None and cmp_[k]["lo"] > 0
     return {"judgeable": bool(judgeable),
             "units_per_arm": all(u.get(a, 0) >= 30 for a in ("A", "B")),
-            "clusters_both_arms": cmp_.get("clusters_both_arms", 0) >= 4,
+            "clusters_both_arms": all((cmp_.get(k) or {}).get("clusters", 0) >= 4 for k in GATED),
             "unresolved_under_5pct": all(u.get(a, 0) and ex.get(a, 0) < .05 * u[a] for a in ("A", "B")),
             "pending0_lo_above_0": lo("net_pending0_b_minus_a"),
             "pending_cost_lo_above_0": lo("net_pending_cost_b_minus_a"),
@@ -540,7 +565,7 @@ def decide(g, cmp_):
         return "keep"
     hi = lambda k: bool(cmp_.get(k)) and cmp_[k].get("hi") is not None and cmp_[k]["hi"] < 0
     if (g["units_per_arm"] and g["clusters_both_arms"] and g["unresolved_under_5pct"]
-            and hi("net_pending0_b_minus_a") and hi("net_pending_cost_b_minus_a")):
+            and all(hi(k) for k in GATED)):
         return "revert"
     return "hold"
 
@@ -585,6 +610,8 @@ def main(argv=None):
     units = []
     with open(a.units_in, encoding="utf-8") as f:
         for x in f:
+            if not x.strip():
+                continue
             try:
                 units.append(json.loads(x))
             except ValueError:
