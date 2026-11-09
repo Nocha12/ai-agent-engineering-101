@@ -17,7 +17,9 @@ Switch: .market/buyer_saved_floor.json {"enabled": true, "floor": true|false, "m
 [start_at, stop_at), a window of at most MAX_WINDOW_HOURS: the study ends at stop_at by this code, not by the
 experiments registry or a reminder (W-20261109-1638 지시 3). Missing, unreadable or anything else (no window, a time that
 is not a finite number, reversed, too long) is off, and off is the old behaviour exactly. switch_on writes it.
-Arm B's rows stay out of the learning after stop_at too (they were bought without the band). With "ab", only the orders whose sha1(salt|order) falls under share are arm B (the floor); arm A is the
+Arm B's rows stay out of the learning after stop_at too (they were bought without the band). The arm is set once
+per buyer run at its clock: a run resumed after stop_at is off, so the judgement counts an order by its first
+assignment, sha1(salt|order) over every order in the window (review M-4). With "ab", only the orders whose sha1(salt|order) falls under share are arm B (the floor); arm A is the
 old behaviour and is still returned so the judgement can count both. BUYER_SAVED_FLOOR=0 in the environment is off
 too. "floor": false keeps SAVED_MIN_SHARE and only turns the band off (GPT Pro 1638 §2.4: the first A/B). Arm B's
 trades and orders rows are left out of the price, rank and shop-profile learning both arms read. "kinds" (a list) limits it to those order kinds, so it can start on food when the food study ends and on goods
@@ -201,13 +203,19 @@ def switch_on(md, *, salt, start_at, hours, share=0.5, floor=False, band="cap", 
          "stop_at": start_at + hours * 3600 if _number(start_at) and _number(hours) else None,
          **({"kinds": kinds} if kinds is not None else {}),
          **({"by": by} if by is not None else {}), **({"why": why} if why is not None else {})}
-    if not _good(d):
+    if not _good(d) or not all(v is None or isinstance(v, str) for v in (by, why)):
         raise ValueError("buyer_saved_floor: bad switch")
-    old = _read(md)
+    path = os.path.join(md, SWITCH)
+    try:                                  # a file there that cannot be read is not shown safe to replace (review M-1)
+        with open(path, encoding="utf-8") as f:
+            old = json.load(f)
+    except FileNotFoundError:
+        old = None
+    except (OSError, ValueError) as e:
+        raise ValueError("buyer_saved_floor: the switch there cannot be read; not overwritten") from e
     if isinstance(old, dict) and old.get("enabled") is True \
             and not (_window(old.get("start_at"), old.get("stop_at")) and _number(now) and old["stop_at"] <= now):
         raise ValueError("buyer_saved_floor: another study is on or has no window; not overwritten")
-    path = os.path.join(md, SWITCH)
     tmp = f"{path}.tmp-{os.getpid()}"
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:

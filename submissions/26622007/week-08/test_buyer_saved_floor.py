@@ -254,7 +254,8 @@ class SwitchOn(unittest.TestCase):
         raw_switch(self.md, '{"enabled": false}')
         for kw in ({"hours": 12.01}, {"hours": 0}, {"hours": float("nan")}, {"hours": True}, {"start_at": float("inf")},
                    {"start_at": "1"}, {"start_at": None}, {"salt": ""}, {"share": 0}, {"share": 1.5}, {"floor": "no"},
-                   {"band": "Keep"}, {"floor": False, "band": "keep"}, {"kinds": ["toys"]}):
+                   {"band": "Keep"}, {"floor": False, "band": "keep"}, {"kinds": ["toys"]}, {"by": {1}},
+                   {"why": 3}):
             args = {"salt": "sf2w-test", "start_at": self.t0, "hours": 9, "now": self.t0, **kw}
             with self.assertRaises(ValueError, msg=kw):
                 sf.switch_on(self.md, **args)
@@ -276,6 +277,14 @@ class SwitchOn(unittest.TestCase):
         self.assertEqual(d["ab"]["salt"], "mine")                       # theirs ended at its stop_at: may follow
         raw_switch(self.md, '{"enabled": false}')
         self.assertEqual(sf.switch_on(self.md, salt="x", start_at=self.t0, hours=9, now=self.t0)["ab"]["salt"], "x")
+
+    def test_unreadable_old_file_is_not_overwritten(self):     # review M-1
+        for text in ('{"enabled": true, "floor": tr', "\xff", '{"enabled": true, "start_at": NaN}x'):
+            raw_switch(self.md, text)
+            with self.assertRaises(ValueError, msg=text):
+                sf.switch_on(self.md, salt="mine", start_at=self.t0, hours=9, now=self.t0)
+            with open(self.path(), encoding="utf-8") as f:
+                self.assertEqual(f.read(), text)
 
     def test_written_switch_turns_arm_b_band_off(self):
         sf.switch_on(self.md, salt="sf2w-test", start_at=self.t0 - 60, hours=9, share=1.0, now=self.t0)
