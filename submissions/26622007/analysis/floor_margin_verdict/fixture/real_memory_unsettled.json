@@ -1,0 +1,24 @@
+[
+ {
+  "time": "2026-11-09T21:35:08",
+  "task": "dfbb85a6-9d11-4eaa-b13f-c1540c4eb4f9",
+  "item": "즉석조리식품",
+  "sku": "Gb2392fa9",
+  "unit": "u-1f15d5121288",
+  "cost": 7804,
+  "reserve": 7825,
+  "open": 9951,
+  "arm": null,
+  "asks": [
+   9652,
+   9567
+  ],
+  "offers": [
+   7000,
+   9567
+  ],
+  "warranty": null,
+  "result": "agreed",
+  "price": 9567
+ }
+]

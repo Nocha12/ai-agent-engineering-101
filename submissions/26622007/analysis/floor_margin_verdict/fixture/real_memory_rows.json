@@ -1,0 +1,134 @@
+[
+ {
+  "time": "2026-11-09T21:23:52",
+  "task": "5ec1fb85-dd18-43be-bf78-c9b4490c9c83",
+  "item": "침대/매트리스",
+  "sku": "G2607d1f6",
+  "unit": "u-0d2de1927458",
+  "cost": 405522,
+  "reserve": 423382,
+  "open": 471276,
+  "arm": null,
+  "asks": [
+   457138,
+   447467
+  ],
+  "offers": [
+   372122,
+   447467
+  ],
+  "warranty": 72,
+  "result": "agreed",
+  "price": 447467,
+  "a_open": {
+   "study": "a-open-1033-v2",
+   "arm": "B",
+   "ratio": 0.76,
+   "usual": 423382,
+   "open": 471276,
+   "list": 620100,
+   "floor": 423382,
+   "stop_at": 1794250046.83632
+  }
+ },
+ {
+  "time": "2026-11-09T21:24:06",
+  "task": "5ec1fb85-dd18-43be-bf78-c9b4490c9c83",
+  "item": "침대/매트리스",
+  "sku": "G2607d1f6",
+  "unit": "u-0d2de1927458",
+  "cost": 405522,
+  "reserve": 423382,
+  "open": 471276,
+  "arm": null,
+  "asks": [
+   457138,
+   447467
+  ],
+  "offers": [
+   372122,
+   447467
+  ],
+  "warranty": 72,
+  "result": "deal",
+  "price": 447467,
+  "a_open": {
+   "study": "a-open-1033-v2",
+   "arm": "B",
+   "ratio": 0.76,
+   "usual": 423382,
+   "open": 471276,
+   "list": 620100,
+   "floor": 423382,
+   "stop_at": 1794250046.83632
+  }
+ },
+ {
+  "time": "2026-11-09T21:26:42",
+  "task": "3ee61a2f-a1c8-4adf-8c0d-948db450c823",
+  "item": "침대/매트리스",
+  "sku": "G85a1a856",
+  "unit": "u-1f1eee199439",
+  "cost": 578498,
+  "reserve": 600980,
+  "open": 600980,
+  "arm": null,
+  "asks": [
+   600980,
+   600980,
+   600980
+  ],
+  "offers": [
+   415726,
+   480565,
+   600980
+  ],
+  "warranty": 72,
+  "result": "agreed",
+  "price": 600980,
+  "a_open": {
+   "study": "a-open-1033-v2",
+   "arm": "A",
+   "ratio": 0.76,
+   "usual": 600980,
+   "open": 600980,
+   "list": 921600,
+   "floor": 600980,
+   "stop_at": 1794250046.83632
+  }
+ },
+ {
+  "time": "2026-11-09T21:26:47",
+  "task": "3ee61a2f-a1c8-4adf-8c0d-948db450c823",
+  "item": "침대/매트리스",
+  "sku": "G85a1a856",
+  "unit": "u-1f1eee199439",
+  "cost": 578498,
+  "reserve": 600980,
+  "open": 600980,
+  "arm": null,
+  "asks": [
+   600980,
+   600980,
+   600980
+  ],
+  "offers": [
+   415726,
+   480565,
+   600980
+  ],
+  "warranty": 72,
+  "result": "deal",
+  "price": 600980,
+  "a_open": {
+   "study": "a-open-1033-v2",
+   "arm": "A",
+   "ratio": 0.76,
+   "usual": 600980,
+   "open": 600980,
+   "list": 921600,
+   "floor": 600980,
+   "stop_at": 1794250046.83632
+  }
+ }
+]
