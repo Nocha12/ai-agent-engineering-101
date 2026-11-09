@@ -13,7 +13,7 @@ import buyer_goods_first_one as gfo  # noqa: E402
 import buyer_goods_ladder as gl    # noqa: E402
 import oneshot                     # noqa: E402
 
-ON = {"enabled": True, "study": "goods-ladder-test", "salt": "goods-ladder-test"}
+ON = {"enabled": True, "study": "goods-ladder-test", "salt": "goods-ladder-test", "start": 0, "end": 4e9}
 # A goods quote as ddolcom wrote it (orders.jsonl 11/09 13:4x: asks [552960], our offer 497664 = 0.9, taken)
 ASK, LIST, LIMIT = 552960, 921600, 626772
 TEXT = "G8ec51935 grade A, 72 h warranty, ask 552960"
@@ -69,6 +69,25 @@ class SwitchTest(unittest.TestCase):
             switch(md, ON)
             self.assertEqual(decide(md, o, env={"BUYER_GOODS_LADDER": "0"}), ((0.9,), None))
             self.assertEqual(decide(md, o)[0], (0.8, 0.9))
+
+    def test_the_switch_carries_its_window_and_is_off_outside_it(self):
+        # review 809 I1: the 1338 switch had no end, so arm B ran on past the registry's 02:16 until someone turned it off
+        start, end = 1794201360.055, 1794201360.055 + 12 * 3600       # 11/09 14:16:00.055 ON, 11/10 02:16:00.055 max
+        with tempfile.TemporaryDirectory() as md:
+            o = order_in("B")
+            for bad in ({k: v for k, v in ON.items() if k != "end"}, {k: v for k, v in ON.items() if k != "start"},
+                        dict(ON, end="02:16"), dict(ON, start=True), dict(ON, start=end, end=start)):
+                switch(md, bad)
+                self.assertEqual(gl.config(md, {}, now=start + 60), None, bad)
+            switch(md, dict(ON, start=start, end=end))
+            self.assertEqual(gl.config(md, {}, now=start - 1), None)
+            self.assertEqual(gl.config(md, {}, now=start)["study"], ON["study"])
+            self.assertEqual(gl.config(md, {}, now=end - 1)["study"], ON["study"])
+            self.assertEqual(gl.config(md, {}, now=end), None)
+            self.assertEqual(gl.decide(md, o, {"ask": ASK}, (0.9,), True, probing=False, code_priced=True, env={},
+                                       now=end + 1), ((0.9,), None))
+            self.assertEqual(gl.decide(md, o, {"ask": ASK}, (0.9,), True, probing=False, code_priced=True, env={},
+                                       now=end - 1)[0], (0.8, 0.9))
 
     def test_food_ladder_switch_does_not_turn_this_on(self):
         with tempfile.TemporaryDirectory() as md:
@@ -187,6 +206,90 @@ class LearningTest(unittest.TestCase):
         self.assertEqual((st["shops"]["a|goods"]["n"], st["counts"]["excluded_rows"]), (5, 5))
         rows = [row(i, price=1100) for i in range(5)] + [row(10 + i, g={"arm": "A"}) for i in range(5)]
         self.assertEqual(rp.stats_from_rows(rows, paid, self.NOW)["shops"]["a|goods"]["n"], 10)
+
+
+class TradeMemoryTest(unittest.TestCase):
+    """review 809 I3: arm B's deals went into memory/market_memory_r3.json with no arm, and rule_choose, gem_names,
+    my_avg_price, overpriced and item_stats read their prices for both arms (prod 11/09 14:16-14:4x: 15 arm B deals)."""
+    SALT = "goods-ladder-test"
+
+    def trade(self, order, price, shop="ddolcom", time_="2026-11-09T14:16:10", **kw):
+        # a trade as market_buyer.py writes it (prod memory 11/09 14:16:10, shop and order replaced)
+        t = {"time": time_, "shop": shop, "item": "G8ec51935", "budget": 3469200, "order": order,
+             "category": "소파/의자/스툴", "list_price": 2320000, "result": "deal", "price": price,
+             "asks": [price, price, price], "holds": 0, "problems": [], "warnings": [], "why": None, "signed": True,
+             "paid": True}
+        t.update(kw)
+        return t
+
+    def oid(self, a):
+        return order_in(a, salt=self.SALT)["order"]
+
+    def setUp(self):
+        self.addCleanup(gl.hide_unmarked, None, [])
+
+    def test_trade_arm(self):
+        self.assertEqual(gl.trade_arm({"_goods_ladder": {"study": "s", "arm": "B", "steps": [0.8, 0.9]}}), "B")
+        self.assertEqual(gl.trade_arm({"_goods_ladder": {"arm": "A"}}), "A")
+        self.assertIsNone(gl.trade_arm({"_goods_ladder": None}))
+        self.assertIsNone(gl.trade_arm({}))
+        self.assertIsNone(gl.trade_arm(None))
+
+    def test_market_buyer_writes_the_arm_into_the_trade(self):
+        src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "market_buyer.py"), encoding="utf-8").read()
+        i = src.index('memory["trades"].append({')
+        self.assertIn('"goods_ladder": buyer_goods_ladder.trade_arm(order)', src[i:i + 900])
+        self.assertIn("buyer_goods_ladder.hide_unmarked(md, memory[\"trades\"])", src)
+
+    def test_marked_arm_b_trades_leave_price_learning(self):
+        import market_buyer as mb
+        a, b = self.oid("A"), self.oid("B")
+        shops = [{"name": "ddolcom", "url": "u1", "reviews": []}, {"name": "yms979", "url": "u2", "reviews": []}]
+        trades = [self.trade(a, 2000000, shop="yms979", goods_ladder="A"),
+                  self.trade(b, 1547208, shop="ddolcom", goods_ladder="B")]
+        mem = {"trades": trades}
+        gl.hide_unmarked(None, trades)
+        # arm B's 1547208 at ddolcom must not make ddolcom the cheaper shop for arm A's next order
+        shop, why = mb.rule_choose(shops, mem, "G8ec51935", asked=("ddolcom", "yms979"))
+        self.assertEqual(shop["name"], "yms979", why)
+        self.assertEqual(mb.item_stats(mb.my_history(mem, "ddolcom"), "G8ec51935"), ([], None))
+        self.assertEqual(mb.item_stats(mb.my_history(mem, "yms979"), "G8ec51935"), ([2000000], 2000000))
+        three = [self.trade(self.oid("A") + str(i), 2000000, goods_ladder="A") for i in range(3)]
+        mem = {"trades": three + [self.trade(b, 1000000, goods_ladder="B")]}
+        self.assertEqual(mb.my_avg_price(mem, "G8ec51935"), 2000000)
+        self.assertEqual(mb.gem_names(mem, "G8ec51935"), set())
+        # the trade itself stays in memory: problems, visits and signatures still count
+        self.assertEqual(len(mb.my_history(mem, "ddolcom")), 4)
+
+    def test_unmarked_trades_since_the_switch_are_hidden_when_they_hash_to_b(self):
+        import market_buyer as mb
+        a, b = self.oid("A"), self.oid("B")
+        with tempfile.TemporaryDirectory() as md:
+            switch(md, dict(ON, study=gl.UNMARKED_STUDY, salt=self.SALT, enabled=False))   # off later: the salt still reads
+            early = next(o for o in (f"o-early{i}" for i in range(400)) if gl.arm({"salt": self.SALT}, o) == "B")
+            trades = [self.trade(b, 1547208), self.trade(a, 2000000, shop="yms979"),
+                      self.trade(early, 900000, time_="2026-11-09T14:15:59")]     # before 14:16:00: never arm B
+            hidden = gl.hide_unmarked(md, trades)
+            self.assertIn(b, hidden)
+            self.assertNotIn(a, hidden)
+            self.assertEqual([t["price"] for t in gl.priced(trades)], [2000000, 900000])
+            # nothing is written back: the trades are as they were
+            self.assertNotIn("goods_ladder", trades[0])
+            # a marked trade is read by its mark, not the hash
+            self.assertEqual(gl.priced([self.trade(b, 1, goods_ladder="A")])[0]["price"], 1)
+
+    def test_unmarked_without_the_salt_hides_every_unmarked_order_since_the_switch(self):
+        with tempfile.TemporaryDirectory() as md:
+            trades = [self.trade(self.oid("A"), 2000000), self.trade("o-old", 3, time_="2026-11-09T09:00:00"),
+                      self.trade(None, 5)]
+            gl.hide_unmarked(md, trades)                                   # no switch file
+            self.assertEqual([t["price"] for t in gl.priced(trades)], [3, 5])
+            switch(md, dict(ON, study="another-study"))                     # someone else's salt says nothing
+            gl.hide_unmarked(md, trades)
+            self.assertEqual([t["price"] for t in gl.priced(trades)], [3, 5])
+
+    def test_hide_never_raises(self):
+        self.assertEqual(gl.hide_unmarked("/nonexistent", [None, 3, {"time": 5}]), frozenset())
 
 
 class TalkTest(unittest.TestCase):

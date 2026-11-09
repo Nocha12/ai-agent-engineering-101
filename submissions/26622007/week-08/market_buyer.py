@@ -274,7 +274,7 @@ def unsigned(trades):
 
 def item_stats(trades, item):
     """What this shop did for this item before: deal prices and the lowest ask it reached."""
-    same = [t for t in trades if t["item"] == item]
+    same = [t for t in buyer_goods_ladder.priced(trades) if t["item"] == item]     # without arm B's 0.8 openings
     deals = [round(t["price"]) for t in same if t["result"] == "deal" and t.get("price") is not None]
     asks = [a for t in same for a in (t.get("asks") or [])]
     return deals, (min(asks) if asks else None)
@@ -292,8 +292,9 @@ def history_line(trades, item=None):
         return "no trades with you yet"
     deals = [t for t in trades if t["result"] == "deal"]
     parts = [f"{len(trades)} trades with you, {len(deals)} deals"]
-    if deals:
-        parts.append("deal prices " + ", ".join(f"{t['item']} {t['price']:g}/budget {t['budget']}" for t in deals[-4:]))
+    shown = buyer_goods_ladder.priced(deals)
+    if shown:
+        parts.append("deal prices " + ", ".join(f"{t['item']} {t['price']:g}/budget {t['budget']}" for t in shown[-4:]))
     if item:
         d, low = item_stats(trades, item)
         if d:
@@ -388,8 +389,8 @@ def shop_summary(shop, trades, item=None):
 
 def gem_names(memory, item):
     """Shops that sold this item to me at least 5% under my own average price for it (signed, no problems)."""
-    deals = [t for t in memory["trades"] if t["item"] == item and t["result"] == "deal" and not t.get("problems")
-             and t.get("signed", True) and t.get("price") is not None]
+    deals = [t for t in buyer_goods_ladder.priced(memory["trades"]) if t["item"] == item and t["result"] == "deal"
+             and not t.get("problems") and t.get("signed", True) and t.get("price") is not None]
     if len(deals) < 2:
         return set()
     avg = sum(t["price"] for t in deals) / len(deals)
@@ -400,7 +401,7 @@ def gem_names(memory, item):
 
 
 def my_avg_price(memory, item):
-    p = [t["price"] for t in memory["trades"] if t["item"] == item and t["result"] == "deal"
+    p = [t["price"] for t in buyer_goods_ladder.priced(memory["trades"]) if t["item"] == item and t["result"] == "deal"
          and not t.get("problems") and t.get("price") is not None]
     return sum(p) / len(p) if len(p) >= 3 else None
 
@@ -409,7 +410,7 @@ def overpriced(trades, item, avg):
     """The shop never came near my usual price for this item on two or more visits."""
     if avg is None:
         return None
-    same = [t for t in trades if t["item"] == item and t.get("asks")]
+    same = [t for t in buyer_goods_ladder.priced(trades) if t["item"] == item and t.get("asks")]
     if len(same) < 2 or any(t["result"] == "deal" for t in same):
         return None
     low = min(min(t["asks"]) for t in same)
@@ -504,7 +505,7 @@ def rule_choose(shops, memory, item, asked=(), budget=None):
         if len(skus) == 1 and None not in skus and "" not in skus:
             receipt_item = next(iter(skus))
     paid = {}
-    for t in memory["trades"]:
+    for t in buyer_goods_ladder.priced(memory["trades"]):      # arm B's 0.8 openings say nothing of arm A's prices
         if t.get("item") == receipt_item and t.get("result") == "deal" and not t.get("problems") and \
                 isinstance(t.get("price"), (int, float)):
             paid[t["shop"]] = min(paid.get(t["shop"], t["price"]), t["price"])
@@ -1901,6 +1902,7 @@ def main():
         print(json.dumps({"shop": "", "receipt": None, **({} if r3 else {"stars": 1, "review": "No shops to trade with."})}))
         return 0
     memory = load_memory()
+    buyer_goods_ladder.hide_unmarked(md, memory["trades"])     # arm B trades written before they carried the arm
     if r3:
         sync_payments(memory, os.path.join(md, "payments.jsonl"))
         sync_broken(memory, md, SETTLED)
@@ -2214,7 +2216,8 @@ def main():
 
     memory["trades"].append({
         "time": time.strftime("%Y-%m-%dT%H:%M:%S"), "shop": shop["name"], "item": key, "budget": args.budget,
-        **({"order": order.get("order"), "category": args.item, "list_price": offer["list_price"]} if r3 else {}),
+        **({"order": order.get("order"), "category": args.item, "list_price": offer["list_price"],
+            "goods_ladder": buyer_goods_ladder.trade_arm(order)} if r3 else {}),
         "result": "no_warranty" if short else "over_limit" if over else "deal" if rec is not None else (out["state"] or "error").replace("TASK_STATE_", "").lower(),
         "price": rec.get("price") if rec else None,
         "asks": asks, "holds": out.get("holds", 0), "problems": problems, "warnings": warnings, "why": why,
