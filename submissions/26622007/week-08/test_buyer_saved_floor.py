@@ -17,8 +17,15 @@ def board(md, saved, ts=None):
 
 
 def switch(md, **kw):
+    """The switch on now: a window [now - 60 s, now + 1 h) unless the test gives its own start_at/stop_at."""
+    now = time.time()
     with open(os.path.join(md, sf.SWITCH), "w", encoding="utf-8") as f:
-        json.dump({"enabled": True, **kw}, f)
+        json.dump({"enabled": True, "start_at": now - 60, "stop_at": now + 3600, **kw}, f)
+
+
+def raw_switch(md, text):
+    with open(os.path.join(md, sf.SWITCH), "w", encoding="utf-8") as f:
+        f.write(text)
 
 
 class Share(unittest.TestCase):
@@ -132,6 +139,148 @@ class Share(unittest.TestCase):
         board(self.md, 0.3096)
         switch(self.md, ab={"salt": "x", "share": 2})
         self.assertIsNone(sf.state(self.md, "o-1", env={}))
+
+
+class Window(unittest.TestCase):
+    """A finite window [start_at, stop_at) of at most MAX_WINDOW_HOURS in the switch itself (W-20261109-1638 지시 3):
+    the floor ends at stop_at by the code, not by the experiments registry or a reminder. Missing, not a finite number
+    (bool, string, NaN, inf), reversed, too long, before start_at and from stop_at on: off."""
+
+    def setUp(self):
+        self.d = tempfile.TemporaryDirectory()
+        self.md = self.d.name
+        self.t0 = time.time()
+        board(self.md, 0.3096, ts=self.t0)
+
+    def tearDown(self):
+        self.d.cleanup()
+
+    def on(self, now=None, **kw):
+        cfg = {"enabled": True, "floor": False, "ab": {"salt": "sf-w", "share": 1.0}, **kw}
+        raw_switch(self.md, json.dumps(cfg))
+        return sf.state(self.md, "o-1", env={}, now=self.t0 if now is None else now)
+
+    def test_missing_window_is_off(self):
+        self.assertIsNone(self.on())
+        self.assertIsNone(self.on(start_at=self.t0 - 60))
+        self.assertIsNone(self.on(stop_at=self.t0 + 60))
+        self.assertIsNone(self.on(start_at=None, stop_at=None))
+
+    def test_not_a_finite_number_is_off(self):
+        good = {"start_at": self.t0 - 60, "stop_at": self.t0 + 3600}
+        for k in ("start_at", "stop_at"):
+            for bad in (True, False, str(good[k]), [good[k]], {"t": good[k]}):
+                self.assertIsNone(self.on(**{**good, k: bad}), (k, bad))
+        for k in ("start_at", "stop_at"):
+            for token in ("NaN", "Infinity", "-Infinity"):
+                text = json.dumps({"enabled": True, "floor": False, **good}).replace(json.dumps(good[k]), token)
+                raw_switch(self.md, text)
+                self.assertIsNone(sf.state(self.md, "o-1", env={}, now=self.t0), (k, token))
+        raw_switch(self.md, json.dumps({"enabled": True, "floor": False, **good}))   # the same switch, finite: on
+        self.assertEqual(sf.state(self.md, "o-1", env={}, now=self.t0)["arm"], "B")
+
+    def test_reversed_empty_too_long_or_not_positive_is_off(self):
+        self.assertIsNone(self.on(start_at=self.t0 + 60, stop_at=self.t0 - 60))
+        self.assertIsNone(self.on(start_at=self.t0, stop_at=self.t0))
+        self.assertIsNone(self.on(start_at=self.t0 - 60, stop_at=self.t0 - 60 + sf.MAX_WINDOW_HOURS * 3600 + 1))
+        self.assertIsNotNone(self.on(start_at=self.t0 - 60, stop_at=self.t0 - 60 + sf.MAX_WINDOW_HOURS * 3600))
+        for s in (0, -60):                     # config alone: a board for that now does not exist
+            raw_switch(self.md, json.dumps({"enabled": True, "floor": False, "start_at": s, "stop_at": 3600}))
+            self.assertIsNone(sf.config(self.md, env={}, now=10), s)
+        raw_switch(self.md, json.dumps({"enabled": True, "floor": False, "start_at": 1, "stop_at": 3600}))
+        self.assertIsNotNone(sf.config(self.md, env={}, now=10))
+
+    def test_before_start_and_from_stop_on_is_off(self):
+        s, e = self.t0, self.t0 + 9 * 3600
+        self.assertIsNone(self.on(now=s - 1, start_at=s, stop_at=e))
+        self.assertEqual(self.on(now=s, start_at=s, stop_at=e)["arm"], "B")
+        board(self.md, 0.3096, ts=e - 1)
+        self.assertEqual(self.on(now=e - 1, start_at=s, stop_at=e)["arm"], "B")
+        board(self.md, 0.3096, ts=e)
+        self.assertIsNone(self.on(now=e, start_at=s, stop_at=e))
+        self.assertIsNone(self.on(now=e + 1, start_at=s, stop_at=e))
+
+    def test_default_now_is_the_clock(self):
+        raw_switch(self.md, json.dumps({"enabled": True, "floor": False,
+                                        "start_at": self.t0 - 7200, "stop_at": self.t0 - 3600}))
+        self.assertIsNone(sf.state(self.md, "o-1", env={}))          # ended an hour ago: off with no now given
+        raw_switch(self.md, json.dumps({"enabled": True, "floor": False,
+                                        "start_at": self.t0 + 3600, "stop_at": self.t0 + 7200}))
+        self.assertIsNone(sf.state(self.md, "o-1", env={}))          # not started: off
+
+    def test_both_arms_record_the_window(self):
+        s, e = self.t0 - 60, self.t0 + 3600
+        raw_switch(self.md, json.dumps({"enabled": True, "floor": False, "ab": {"salt": "sf-w", "share": 0.5},
+                                        "start_at": s, "stop_at": e}))
+        rows = [sf.state(self.md, f"o-{i}", env={}, now=self.t0) for i in range(40)]
+        self.assertEqual({r["arm"] for r in rows}, {"A", "B"})
+        for r in rows:
+            self.assertEqual((r["start_at"], r["stop_at"], r["v"]), (s, e, sf.VERSION))
+
+    def test_off_after_the_window_is_the_old_behaviour(self):
+        """After stop_at an order is not in the study at all: no arm, the old share and band (state None)."""
+        s, e = self.t0 - 3600, self.t0 - 1
+        self.assertIsNone(self.on(now=self.t0, start_at=s, stop_at=e))
+
+
+class SwitchOn(unittest.TestCase):
+    """The one writer of the switch: always a finite window, written whole (0600), never over another study's open one."""
+
+    def setUp(self):
+        self.d = tempfile.TemporaryDirectory()
+        self.md = self.d.name
+        self.t0 = time.time()
+        board(self.md, 0.3096, ts=self.t0)
+
+    def tearDown(self):
+        self.d.cleanup()
+
+    def path(self):
+        return os.path.join(self.md, sf.SWITCH)
+
+    def test_writes_a_finite_band_only_window(self):
+        d = sf.switch_on(self.md, salt="sf2w-test", start_at=self.t0, hours=12, by="W", why="t", now=self.t0)
+        self.assertEqual((d["start_at"], d["stop_at"]), (self.t0, self.t0 + 12 * 3600))
+        self.assertEqual((d["floor"], d["band"], d["ab"]), (False, "cap", {"salt": "sf2w-test", "share": 0.5}))
+        self.assertNotIn("kinds", d)                                   # food and goods both
+        self.assertEqual(os.stat(self.path()).st_mode & 0o777, 0o600)
+        with open(self.path(), encoding="utf-8") as f:
+            self.assertEqual(json.load(f), d)
+        self.assertIsNotNone(sf.config(self.md, env={}, now=self.t0))
+        self.assertIsNone(sf.config(self.md, env={}, now=self.t0 + 12 * 3600))
+        self.assertIsNone(sf.config(self.md, env={}, now=self.t0 - 1))
+
+    def test_bad_values_raise_and_leave_the_old_file(self):
+        raw_switch(self.md, '{"enabled": false}')
+        for kw in ({"hours": 12.01}, {"hours": 0}, {"hours": float("nan")}, {"hours": True}, {"start_at": float("inf")},
+                   {"start_at": "1"}, {"start_at": None}, {"salt": ""}, {"share": 0}, {"share": 1.5}, {"floor": "no"},
+                   {"band": "Keep"}, {"floor": False, "band": "keep"}, {"kinds": ["toys"]}):
+            args = {"salt": "sf2w-test", "start_at": self.t0, "hours": 9, "now": self.t0, **kw}
+            with self.assertRaises(ValueError, msg=kw):
+                sf.switch_on(self.md, **args)
+            with open(self.path(), encoding="utf-8") as f:
+                self.assertEqual(f.read(), '{"enabled": false}', kw)
+        self.assertEqual([n for n in os.listdir(self.md) if ".tmp" in n], [])
+
+    def test_never_over_another_open_or_unknown_study(self):
+        sf.switch_on(self.md, salt="theirs", start_at=self.t0, hours=12, now=self.t0)
+        with open(self.path(), encoding="utf-8") as f:
+            before = f.read()
+        with self.assertRaises(ValueError):
+            sf.switch_on(self.md, salt="mine", start_at=self.t0, hours=9, now=self.t0 + 60)
+        raw_switch(self.md, json.dumps({"enabled": True, "floor": True}))   # an old, windowless dynamic floor: unknown
+        with self.assertRaises(ValueError):
+            sf.switch_on(self.md, salt="mine", start_at=self.t0, hours=9, now=self.t0)
+        raw_switch(self.md, before)
+        d = sf.switch_on(self.md, salt="mine", start_at=self.t0 + 12 * 3600, hours=9, now=self.t0 + 12 * 3600)
+        self.assertEqual(d["ab"]["salt"], "mine")                       # theirs ended at its stop_at: may follow
+        raw_switch(self.md, '{"enabled": false}')
+        self.assertEqual(sf.switch_on(self.md, salt="x", start_at=self.t0, hours=9, now=self.t0)["ab"]["salt"], "x")
+
+    def test_written_switch_turns_arm_b_band_off(self):
+        sf.switch_on(self.md, salt="sf2w-test", start_at=self.t0 - 60, hours=9, share=1.0, now=self.t0)
+        st = sf.state(self.md, "o-1", env={}, now=self.t0, base=mb.SAVED_MIN_SHARE)
+        self.assertEqual((st["arm"], st["share"], st["band_off"], st["floor"]), ("B", mb.SAVED_MIN_SHARE, True, False))
 
 
 class Learning(unittest.TestCase):

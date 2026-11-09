@@ -13,8 +13,11 @@ not older than buyer_short_warranty.BOARD_MAX_AGE); with band "cap" (the default
 nothing over the limit is taken. A board that cannot be read leaves the order as before.
 
 Switch: .market/buyer_saved_floor.json {"enabled": true, "floor": true|false, "margin": 0.0, "band": "cap"|"keep",
-"ab": {"salt": "...", "share": 0.5}, "kinds": ["food", "goods"]}; missing, unreadable or anything else is off, and off is the old behaviour
-exactly. With "ab", only the orders whose sha1(salt|order) falls under share are arm B (the floor); arm A is the
+"ab": {"salt": "...", "share": 0.5}, "kinds": ["food", "goods"], "start_at": <epoch>, "stop_at": <epoch>}; on only in
+[start_at, stop_at), a window of at most MAX_WINDOW_HOURS: the study ends at stop_at by this code, not by the
+experiments registry or a reminder (W-20261109-1638 지시 3). Missing, unreadable or anything else (no window, a time that
+is not a finite number, reversed, too long) is off, and off is the old behaviour exactly. switch_on writes it.
+Arm B's rows stay out of the learning after stop_at too (they were bought without the band). With "ab", only the orders whose sha1(salt|order) falls under share are arm B (the floor); arm A is the
 old behaviour and is still returned so the judgement can count both. BUYER_SAVED_FLOOR=0 in the environment is off
 too. "floor": false keeps SAVED_MIN_SHARE and only turns the band off (GPT Pro 1638 §2.4: the first A/B). Arm B's
 trades and orders rows are left out of the price, rank and shop-profile learning both arms read. "kinds" (a list) limits it to those order kinds, so it can start on food when the food study ends and on goods
@@ -31,6 +34,7 @@ keeps b = 0 there, so arm B differs from arm A by the band alone.
 """
 import hashlib
 import json
+import math
 import os
 import time
 
@@ -40,42 +44,61 @@ SWITCH = "buyer_saved_floor.json"
 BASE_SHARE = 0.30          # market_buyer.SAVED_MIN_SHARE
 MAX_SHARE = 0.40           # a board S above this is not trusted: off
 MAX_MARGIN = 0.05
-KEYS = {"enabled", "floor", "margin", "band", "ab", "kinds", "by", "since", "why", "source"}   # no start/stop: not enforced, so refused
-VERSION = "sf-2"           # sf-2: records carry study/v/board_ts/floor; the floor rechecks a shipped SKU's b
+MAX_WINDOW_HOURS = 12      # the experiments' max (ax-pro-cycle 5: min 9 h, max 12 h)
+KEYS = {"enabled", "floor", "margin", "band", "ab", "kinds", "start_at", "stop_at", "by", "since", "why", "source"}
+VERSION = "sf-2w"          # sf-2: records carry study/v/board_ts/floor, the floor rechecks a shipped SKU's b; w: the window
 
 
 def _number(v):
-    return isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and abs(v) != float("inf")
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
 
 
-def config(md, env=None):
-    """The switch file as a dict when it is on and every setting in it is good, else None (review I2: a broken
-    setting never turns the floor on)."""
-    env = os.environ if env is None else env
-    if str(env.get("BUYER_SAVED_FLOOR") or "").strip().lower() in ("0", "false", "no", "off"):
-        return None
-    try:
-        with open(os.path.join(md, SWITCH), encoding="utf-8") as f:
-            d = json.load(f)
-    except (OSError, ValueError, TypeError):
-        return None
+def _window(start, stop):
+    return _number(start) and _number(stop) and 0 < start < stop <= start + MAX_WINDOW_HOURS * 3600
+
+
+def _good(d):
+    """Whether a switch dict is a good, enabled one with a finite window (any now)."""
     if not isinstance(d, dict) or d.get("enabled") is not True or set(d) - KEYS:
-        return None
+        return False
+    if not _window(d.get("start_at"), d.get("stop_at")):
+        return False
     if "margin" in d and not (_number(d["margin"]) and 0 <= d["margin"] <= MAX_MARGIN):
-        return None
+        return False
     if "band" in d and d["band"] not in ("cap", "keep"):
-        return None
+        return False
     if "floor" in d and not isinstance(d["floor"], bool):
-        return None
+        return False
     if d.get("floor") is False and d.get("band", "cap") == "keep":     # neither the share nor the band: nothing
-        return None
+        return False
     if "ab" in d:
         ab = d["ab"]
         if not isinstance(ab, dict) or not isinstance(ab.get("salt"), str) or not ab["salt"] \
                 or not _number(ab.get("share")) or not 0 < ab["share"] <= 1:
-            return None
+            return False
     if "kinds" in d and not (isinstance(d["kinds"], list) and d["kinds"]
                              and all(k in ("food", "goods") for k in d["kinds"])):
+        return False
+    return True
+
+
+def _read(md):
+    try:
+        with open(os.path.join(md, SWITCH), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def config(md, env=None, now=None):
+    """The switch file as a dict when it is on at now (in [start_at, stop_at)) and every setting in it is good, else
+    None (review I2: a broken setting never turns the floor on)."""
+    env = os.environ if env is None else env
+    now = time.time() if now is None else now
+    if str(env.get("BUYER_SAVED_FLOOR") or "").strip().lower() in ("0", "false", "no", "off"):
+        return None
+    d = _read(md)
+    if not _good(d) or not _number(now) or not d["start_at"] <= now < d["stop_at"]:
         return None
     return d
 
@@ -119,10 +142,11 @@ def arm(salt, order_id, share):
 
 
 def state(md, order_id, now=None, env=None, base=BASE_SHARE, kind=None):
-    """None when off; else {"arm", "share", "band_off", "board_saved", "board_ts", "floor", "study", "v"}: arm A keeps
-    base and the band. Never raises into the buyer run (review I1): anything unexpected is off."""
+    """None when off; else {"arm", "share", "band_off", "board_saved", "board_ts", "floor", "study", "v", "start_at",
+    "stop_at"}: arm A keeps base and the band. Never raises into the buyer run (review I1): anything unexpected is off."""
     try:
-        c = config(md, env)
+        now = time.time() if now is None else now
+        c = config(md, env, now)
         if c is None or ("kinds" in c and kind not in c["kinds"]):
             return None
         row = board_row(md, now)
@@ -131,7 +155,8 @@ def state(md, order_id, now=None, env=None, base=BASE_SHARE, kind=None):
         S, ts = row
         floor = c.get("floor", True)
         meta = {"board_saved": S, "board_ts": ts, "floor": floor,
-                "study": c["ab"]["salt"] if "ab" in c else None, "v": VERSION}
+                "study": c["ab"]["salt"] if "ab" in c else None, "v": VERSION,
+                "start_at": c["start_at"], "stop_at": c["stop_at"]}
         if "ab" in c:
             if not isinstance(order_id, str) or not order_id:
                 return None
@@ -164,3 +189,37 @@ def floored(row):
 def priced(trades):
     """The trades whose prices both arms may learn from: without arm B's (every trade carries its arm from the start)."""
     return [t for t in trades if t.get("saved_floor") != "B"]
+
+
+def switch_on(md, *, salt, start_at, hours, share=0.5, floor=False, band="cap", kinds=None, by=None, why=None,
+              now=None):
+    """Write the switch for [start_at, start_at + hours) atomically (0600) and return it. ValueError, the old file left
+    as it was, when a value is bad (the same check config makes) or the file there is another study that is enabled and
+    has not ended at now (or has no good window): never over someone else's open study (W-20261109-1638 지시 3)."""
+    now = time.time() if now is None else now
+    d = {"enabled": True, "floor": floor, "band": band, "ab": {"salt": salt, "share": share}, "start_at": start_at,
+         "stop_at": start_at + hours * 3600 if _number(start_at) and _number(hours) else None,
+         **({"kinds": kinds} if kinds is not None else {}),
+         **({"by": by} if by is not None else {}), **({"why": why} if why is not None else {})}
+    if not _good(d):
+        raise ValueError("buyer_saved_floor: bad switch")
+    old = _read(md)
+    if isinstance(old, dict) and old.get("enabled") is True \
+            and not (_window(old.get("start_at"), old.get("stop_at")) and _number(now) and old["stop_at"] <= now):
+        raise ValueError("buyer_saved_floor: another study is on or has no window; not overwritten")
+    path = os.path.join(md, SWITCH)
+    tmp = f"{path}.tmp-{os.getpid()}"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(d, f, sort_keys=True, allow_nan=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    return d
