@@ -115,6 +115,53 @@ def git(*args, check=True):
     return p.stdout.strip()
 
 
+def holds(line, excerpt):
+    """The line holds the quote. A quote under 4 characters only as the whole line (unittest's "OK": 11/08 12 cycles
+    were reverted for it)."""
+    return bool(excerpt) and excerpt in line and (len(excerpt) >= 4 or excerpt == line.strip())
+
+
+def cited_file(ref, root):
+    """(path here, line number) of `path:line`, or None when it is not that or not a file under root."""
+    m = re.fullmatch(r"(.+):(\d+)", ref or "")
+    if not m:
+        return None
+    path = os.path.realpath(os.path.join(root, m.group(1)))
+    if not path.startswith(os.path.realpath(root) + os.sep) or not os.path.isfile(path):
+        return None
+    return path, int(m.group(2))
+
+
+def anchor_evidence(items, root=None):
+    """Moves a citation whose quote is not on its line to the nearest line of the same file that holds it, as the file is
+    now (the model ends; its test log is complete). The model wrote the number while the log was still growing or from
+    a run before: 24 cycles were refused for a real quote at the wrong line (GPT Pro 11/09 07:38 9-1, "OK" at :1577,
+    "Ran 1180 tests" at :1654). The quote itself is never changed and verify_evidence still checks every line, so a quote
+    the file does not hold is refused as before. Returns "old -> new" for each one moved."""
+    root, notes = root or ROOT, []
+    for e in items or []:
+        found, excerpt = cited_file(e.get("ref"), root), (e.get("excerpt") or "").strip()
+        if not found or not excerpt:
+            continue
+        path, n = found
+        best = None
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for i, line in enumerate(f, 1):
+                if best is not None and i - n > abs(best - n):
+                    break               # every line from here is farther than the one found
+                if holds(line, excerpt):
+                    if i == n:          # the cited line holds it after all: leave it
+                        best = None
+                        break
+                    if best is None or abs(i - n) < abs(best - n):
+                        best = i
+        if best is not None:
+            old = e["ref"]
+            e["ref"] = f"{old.rsplit(':', 1)[0]}:{best}"
+            notes.append(f"{old} -> {e['ref']}")
+    return notes
+
+
 def verify_evidence(items, root=None):
     """Problems with the citations: each must be a real line of a real file here holding the quoted text."""
     root, problems = root or ROOT, []
@@ -125,17 +172,16 @@ def verify_evidence(items, root=None):
         if not m:
             problems.append(f"{e.get('ref')!r} is not path:line")
             continue
-        path = os.path.realpath(os.path.join(root, m.group(1)))
-        if not path.startswith(os.path.realpath(root) + os.sep) or not os.path.isfile(path):
+        if not cited_file(e["ref"], root):
             problems.append(f"{m.group(1)} is not a file here")
             continue
-        n, excerpt = int(m.group(2)), (e.get("excerpt") or "").strip()
+        path, n = cited_file(e["ref"], root)
+        excerpt = (e.get("excerpt") or "").strip()
         with open(path, encoding="utf-8", errors="replace") as f:
             line = next((x for i, x in enumerate(f, 1) if i == n), None)
         if line is None:
             problems.append(f"{e['ref']}: no such line")
-        elif not excerpt or excerpt not in line or (len(excerpt) < 4 and excerpt != line.strip()):
-            # a quote under 4 characters only as the whole line (unittest's "OK": 11/08 12 cycles were reverted for it)
+        elif not holds(line, excerpt):
             problems.append(f"{e['ref']}: the line does not contain {excerpt[:60]!r}")
     return problems
 
@@ -155,17 +201,44 @@ def secret_values():
     return out
 
 
-def secrets_in_stage():
-    diff = git("diff", "--cached", "--no-color")
+def secrets_in_stage(paths=None):
+    diff = git("diff", "--cached", "--no-color", *(["--", *paths] if paths is not None else []))
     found = [n for n, pat in (("private key", r"BEGIN [A-Z ]*PRIVATE KEY"), ("OpenRouter key", r"sk-or-v1-[0-9a-zA-Z]{20,}"))
              if re.search(r"^\+.*" + pat, diff, re.M)]
     found += ["a value from .env" for v in secret_values() if v in diff]
     return found
 
 
-def stage():
+def dirty_paths():
+    """{path: sha1 of its bytes, None when deleted} for each file of this folder that differs from HEAD or is untracked
+    and not ignored, logs/ and memory/ left out."""
+    names = git("ls-files", "-z", "-m", "-o", "-d", "--exclude-standard", "--", ".").split("\0")
+    names += git("diff", "--cached", "--name-only", "-z", "--relative", check=False).split("\0")
+    out = {}
+    for p in names:
+        if not p or p.split("/", 1)[0] in LIVE:
+            continue
+        full = os.path.join(ROOT, p)
+        try:
+            data = os.readlink(full).encode() if os.path.islink(full) else open(full, "rb").read()
+            out[p] = hashlib.sha1(data).hexdigest()
+        except OSError:
+            out[p] = None
+    return out
+
+
+def stage(before=None):
     """This folder's changes without logs/ and memory/. Astra's commit eba7dd67 carried them: 64 MB of kit logs, a Round 2
-    archive and the shop's memory dumps, which the kit kept writing, so the undo of that commit was refused."""
+    archive and the shop's memory dumps, which the kit kept writing, so the undo of that commit was refused.
+    With `before` (dirty_paths() at the cycle's start) only what changed since then: other work left in the folder is
+    not the cycle's. terra-1109-051538 changed nothing and was judged on pricing.json.bak-0406-terra-reoff, another job's
+    file (GPT Pro 11/09 07:38 9-2). A file both touched is the cycle's, with the earlier edit in it."""
+    if before is not None:
+        now = dirty_paths()
+        owned = sorted(p for p in now if p not in before or before[p] != now[p])
+        if owned:
+            git("add", "-A", "--", *owned)
+        return owned
     # not `add -A -- . :!logs :!memory`: with both in .gitignore git exits 1 on those pathspecs ("paths are ignored"),
     # which failed every Terra cycle from 11/04 11:07 (f0a8917) and left its change staged, uncommitted
     git("add", "-A", "--", ".")
@@ -313,8 +386,9 @@ def call_model(kind, cycle, pack):
         return None, f"no structured answer: {type(e).__name__}"
 
 
-def commit(message):
-    git("commit", "-q", "-m", f"{message}\n\nMeta-Harness: {os.path.basename(__file__)}")
+def commit(message, paths=None):
+    """With paths, those alone: what someone else staged stays staged and out of the harness's commit."""
+    git("commit", "-q", "-m", f"{message}\n\nMeta-Harness: {os.path.basename(__file__)}", *(["--", *paths] if paths else []))
     return git("rev-parse", "HEAD")
 
 
@@ -329,8 +403,8 @@ def undo(sha, why):
                 git("checkout", f"{sha}^", "--", p)
             else:
                 git("rm", "-q", "-f", "--ignore-unmatch", "--", p)
-        if git("diff", "--cached", "--name-only"):
-            git("commit", "-q", "-m", f"revert(week-08): {sha[:8]} 되돌림 - {why}"[:300])
+        if paths and git("diff", "--cached", "--name-only", "--", *paths):
+            git("commit", "-q", "-m", f"revert(week-08): {sha[:8]} 되돌림 - {why}"[:300], "--", *paths)
     except RuntimeError:              # half an undo is worse than none: every path back as the commit left it
         git("reset", "-q", "--", *paths, check=False)
         for p in paths:
@@ -353,12 +427,15 @@ def try_undo(cid, sha, why):
         return f"undo failed: {e}"[:400]
 
 
-def record(rec):
+def record(rec, before=None):
     grade_log(rec)
     with open(os.path.join(ROOT, "meta", "changes.jsonl"), "a", encoding="utf-8") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-    stage()
-    if git("diff", "--cached", "--name-only") and not secrets_in_stage():
+    paths = stage(before)
+    if before is not None:
+        if paths and git("diff", "--cached", "--name-only", "--", *paths) and not secrets_in_stage(paths):
+            commit(f"chore(week-08): 메타 하네스 기록 {rec['cycle']} - {rec['status']}"[:200], paths)
+    elif git("diff", "--cached", "--name-only") and not secrets_in_stage():
         commit(f"chore(week-08): 메타 하네스 기록 {rec['cycle']} - {rec['status']}"[:200])
 
 
@@ -509,9 +586,45 @@ def grade_log(rec):
                             "strategy": a.get("strategy"), "evidence_gap": a.get("evidence_gap")}, ensure_ascii=False) + "\n")
 
 
-def gap_problems(answer, code):
+GAP_ID = re.compile(r"(?<![0-9A-Za-z-])(?:u-[0-9a-f]{8,}|G[0-9a-f]{8})(?![0-9A-Za-z])")   # unit u-d9db11f14a2a, SKU G8ec51935
+GAP_REPEAT = 2                         # cycles an id stays named as missing before this cycle must measure it
+
+
+def gap_ids(text):
+    return set(GAP_ID.findall(text or ""))
+
+
+def open_gaps(n=GAP_REPEAT):
+    """{id: [first cycle, ...]} for each unit or SKU named as missing in each of the last n recorded cycles (any status,
+    any kind): the evidence gap that is carried instead of measured."""
+    try:
+        with open(os.path.join(ROOT, "meta", "grades.jsonl"), encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return {}
+    last = []
+    for line in reversed(lines):
+        try:
+            g = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(g, dict) and isinstance(g.get("cycle"), str):
+            last.append(g)
+            if len(last) == n:
+                break
+    if len(last) < n:
+        return {}
+    named = [gap_ids(((g.get("evidence_gap") or {}) if isinstance(g.get("evidence_gap"), dict) else {}).get("missing"))
+             for g in last[::-1]]
+    return {i: [g["cycle"] for g in last[::-1]] for i in sorted(set.intersection(*named))}
+
+
+def gap_problems(answer, code, carried=None):
     """A cycle that changes nothing because evidence is missing must have planned how to get it: the measurement and the
-    line that will judge it next cycle. Overnight 11/03-04 Terra ended 8 cycles on "hard to tell" with neither."""
+    line that will judge it next cycle. Overnight 11/03-04 Terra ended 8 cycles on "hard to tell" with neither.
+    A unit or SKU still missing after GAP_REPEAT cycles (`carried`, open_gaps()) must be measured in this one: named in
+    the measurement and quoted from a line that holds it. "G8ec51935 ... 원가 누락 1건" was carried cycle after cycle while
+    measure_r3 held the unit's cost (GPT Pro 11/09 07:38 9-3). An id no longer named as missing is taken as resolved."""
     if not answer or code:
         return []
     gap = answer.get("evidence_gap") or {}
@@ -521,7 +634,13 @@ def gap_problems(answer, code):
     if (gap.get("missing") or "").strip() and not ((gap.get("measurement") or "").strip() and whole):
         return ["evidence is missing but no measurement or whole judge line (metric, direction, threshold, min_sample, "
                 "expires, undo) was set (meta/terra.md 'When evidence is short')"]
-    return []
+    out = []
+    quoted = " ".join(str(e.get("excerpt") or "") for e in answer.get("evidence") or [] if isinstance(e, dict))
+    for i in sorted(gap_ids(gap.get("missing")) & set(carried or {})):
+        if i not in (gap.get("measurement") or "") or i not in quoted:
+            out.append(f"evidence gap {i} open since {carried[i][0]}: name it in the measurement and quote this cycle's "
+                       f"line of it (unit, cost, supply window or settlement), or no longer list it as missing")
+    return out
 
 
 def read_queue(text=None):
@@ -717,6 +836,7 @@ def refresh_scorecard():
 
 
 def cycle(kind):
+    before = dirty_paths()        # what the folder already held: not this cycle's change
     cid = f"{kind}-{time.strftime('%m%d-%H%M%S')}"
     os.makedirs(os.path.join(ROOT, "meta", "evidence"), exist_ok=True)
     pack = os.path.join(ROOT, "meta", "evidence", f"{cid}.json")
@@ -725,6 +845,7 @@ def cycle(kind):
     card = refresh_scorecard().build(ROOT, record=True)
     card["since_last_cycle"] = since_last(card, kind)
     card["experiments"] = view = experiments()
+    card["open_gaps"] = carried = open_gaps()
     lc = card.get("log_counts") or {}
     SAMPLE["settled"] = lc.get("settled_as_shop", 0) + lc.get("paid_as_buyer", 0)
     with open(pack, "w", encoding="utf-8") as f:
@@ -732,25 +853,29 @@ def cycle(kind):
     log(f"{cid}: asking {MODELS[kind]}")
     answer, err = call_model(kind, cid, pack)
     rec = {"cycle": cid, "model": MODELS[kind], "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "answer": answer}
-    paths = stage()
+    paths = stage(before)
     code = [p for p in paths if not p.startswith(NOT_CODE) and not p.startswith(("logs/", "memory/"))]
 
-    if secrets_in_stage():      # nothing goes into history, the attempt included
-        git("reset", "-q")
+    if secrets_in_stage(paths):      # nothing goes into history, the attempt included
+        git("reset", "-q", "--", *paths)
         subprocess.run(["git", "checkout", "--", *code], cwd=ROOT, check=False)
         for p in code:
             if os.path.exists(os.path.join(ROOT, p)) and git("ls-files", "--", p, check=False) == "":
                 os.remove(os.path.join(ROOT, p))
         rec.update(status="discarded_secret", reason="a secret was about to be committed")
         log(f"{cid}: DISCARDED, a secret was in the change")
-        record(rec)
+        record(rec, before)
         return rec
 
     problems = [err] if err else []
     if answer is not None:
+        moved_refs = anchor_evidence(answer.get("evidence"))
+        if moved_refs:
+            rec["evidence_reanchored"] = moved_refs
+            log(f"{cid}: citations moved to the line that holds them: {'; '.join(moved_refs)[:400]}")
         problems += verify_evidence(answer.get("evidence"))
         problems += strategy_problems(kind, answer, code)
-        problems += gap_problems(answer, code)
+        problems += gap_problems(answer, code, carried)
         problems += alert_problems(card, answer, code)
         problems += experiment_problems(kind, answer, view, code)
     problems += limit_problems(code)
@@ -766,36 +891,36 @@ def cycle(kind):
     if err and not code:
         rec.update(status="model_error", reason=err)
         log(f"{cid}: {err}")
-        record(rec)
+        record(rec, before)
         return rec
     if not code:
         rec.update(status="no_change" if not problems else "no_change_unsupported", problems=problems)
         if not problems:
             note_experiment(cid, answer)
         log(f"{cid}: no change ({len(problems)} citation problems)")
-        record(rec)
+        record(rec, before)
         return rec
 
     title = (answer or {}).get("change_summary") or err or "변경"
     if problems:
-        sha = commit(f"wip(week-08): [{cid}] 실패 - {title} / {problems[0]}"[:300])
+        sha = commit(f"wip(week-08): [{cid}] 실패 - {title} / {problems[0]}"[:300], paths)
         failed = try_undo(cid, sha, f"{cid} 검증 실패: {problems[0]}")
         rec.update(status="rejected_kept" if failed else "rejected", problems=problems + ([failed] if failed else []),
                    commit=sha)
-        record(rec)
+        record(rec, before)
         return rec
 
     why = (answer or {}).get("hypothesis") or ""
     body = "\n".join(x for x in (f"이유: {why}" if why else "", ("설정: " + "; ".join(moved)) if moved else "",
                                  f"기대: {(answer or {}).get('target_metric', '')} {(answer or {}).get('expected', '')}".strip()) if x)
-    sha = commit(f"feat(week-08): [{cid}] {title}"[:300] + (f"\n\n{body}" if body else ""))
+    sha = commit(f"feat(week-08): [{cid}] {title}"[:300] + (f"\n\n{body}" if body else ""), paths)
     rec.update(commit=sha, files=code, settings=moved)
     log(f"{cid}: applied {sha[:8]}: {title}")
     if docs_only:
         note_experiment(cid, answer)
         rec.update(status="running")
         log(f"{cid}: strategy document only, nothing to watch")
-        record(rec)
+        record(rec, before)
         return rec
     restart_seller(code)
     bad = canary()
@@ -811,7 +936,7 @@ def cycle(kind):
         note_experiment(cid, answer)    # only a change that stays: one the watch undid took its experiment step with it
         rec.update(status="running")
         log(f"{cid}: passed the watch")
-    record(rec)
+    record(rec, before)
     return rec
 
 

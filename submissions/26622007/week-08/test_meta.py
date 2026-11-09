@@ -265,12 +265,17 @@ if mode == "broken":
     open("test_x.py", "w").write("import unittest\\nclass T(unittest.TestCase):\\n    def test(self):\\n        self.fail('no')\\n")
 good = [{"ref": "logs/market-kit.log:2", "excerpt": "[acp] settled", "meaning": "m"}]
 bad = [{"ref": "logs/market-kit.log:2", "excerpt": "never said this", "meaning": "m"}]
+if mode == "shifted":       # the quote is real, its line number is not (the log grew while the model wrote)
+    good = [{"ref": "logs/market-kit.log:1", "excerpt": "[acp] settled", "meaning": "m"}]
+good += json.loads(os.environ.get("FAKE_EVIDENCE") or "[]")
 json.dump({"changed": True, "hypothesis": "h", "change_summary": "변경 요약", "target_metric": "profit", "expected": "up",
            "evidence": bad if mode in ("false-citation", "nothing-false") else [] if mode == "no-citation" else good,
            "previous_verdict": "none", "previous_reason": "", "strategy_check": check, "action_kind": action,
            "strategy": {"options": [], "chosen": "lean", "experiment": "e"},
-           "evidence_gap": {"missing": "breaks before or after the widening" if mode.startswith("unsure") else "",
-                            "measurement": "ledger seq of each break vs the 02:30 commit" if mode == "unsure-planned" else "",
+           "evidence_gap": {"missing": (os.environ.get("FAKE_MISSING") or "breaks before or after the widening")
+                                       if mode.startswith("unsure") else "",
+                            "measurement": (os.environ.get("FAKE_MEASUREMENT") or "ledger seq of each break vs the 02:30 commit")
+                                           if mode == "unsure-planned" else "",
                             "judge_line": {"metric": "break rate of the widened SKUs", "direction": "below",
                                            "threshold": "15%", "min_sample": "20 sales", "expires": "11-05 18:00",
                                            "undo": "narrow back"} if mode == "unsure-planned" else
@@ -363,6 +368,54 @@ class HarnessCycleTest(unittest.TestCase):
                                                                      "min_sample": "", "expires": "e", "undo": "u"}}
         self.assertTrue(mh.gap_problems({"evidence_gap": half}, []))        # no min_sample: not a whole judge line
         self.assertTrue(mh.gap_problems({"evidence_gap": {**half, "judge_line": "a string"}}, []))
+
+    def test_a_quote_whose_line_moved_is_anchored_to_the_line_that_holds_it(self):
+        # GPT Pro 11/09 07:38 §9-1: 24 cycles were refused for a real quote cited at the line it was expected on
+        rec = self.go("shifted")
+        self.assertEqual(rec["status"], "running", rec.get("problems"))
+        self.assertEqual(rec["answer"]["evidence"][0]["ref"], "logs/market-kit.log:2")
+        self.assertEqual(rec["evidence_reanchored"], ["logs/market-kit.log:1 -> logs/market-kit.log:2"])
+
+    def test_work_left_in_the_folder_before_the_cycle_is_not_its_change(self):
+        # GPT Pro 11/09 07:38 §9-2: terra-1109-051538 changed nothing, yet pricing.json.bak-0406-terra-reoff (another
+        # job's file) was staged by `add -A` and judged as the cycle's change
+        with open(os.path.join(self.root, "pricing.json.bak-0406"), "w") as f:
+            f.write("{}\n")
+        with open(os.path.join(self.root, "other_job.py"), "w") as f:
+            f.write("y = 2\n")
+        self.git("add", "other_job.py")                 # staged by someone else, not committed
+        rec = self.go("nothing")
+        self.assertEqual(rec["status"], "no_change", rec.get("problems"))
+        rec = self.go("good")
+        self.assertEqual((rec["status"], rec["files"]), ("running", ["changed.py"]), rec.get("problems"))
+        self.assertEqual(self.git("log", "--format=%H", "--", "pricing.json.bak-0406", "other_job.py"), "")
+        self.assertEqual(self.git("diff", "--cached", "--name-only"), "other_job.py")    # still staged, as it was
+        self.assertIn("pricing.json.bak-0406", self.git("status", "--porcelain"))
+
+    def test_a_gap_open_two_cycles_needs_this_cycles_measurement_of_its_ids(self):
+        # GPT Pro 11/09 07:38 §9-3: "G8ec51935 ... 원가 누락 1건" was left open cycle after cycle, never measured
+        grades = os.path.join(self.root, "meta", "grades.jsonl")
+        with open(grades, "w", encoding="utf-8") as f:
+            for c in ("terra-1109-062902", "terra-1109-074022"):
+                f.write(json.dumps({"cycle": c, "time": "2026-11-09T07:00:00+0900", "status": "no_change_unsupported",
+                                    "evidence_gap": {"missing": "G8ec51935의 원가 누락 1건, u-d9db11f14a2a 판매"}}) + "\n")
+        with open(os.path.join(self.root, "logs", "market-kit.log"), "a") as f:
+            f.write("10:00:02 [restock] G8ec51935 unit u-0a1b2c3d4e5f cost 4100\n")
+        env = {"FAKE_MISSING": "G8ec51935의 원가 누락 1건", "FAKE_MEASUREMENT": "measure_r3 unit cost"}
+        with mock.patch.dict(os.environ, env):
+            rec = self.go("unsure-planned")
+        self.assertEqual(rec["status"], "no_change_unsupported")
+        self.assertTrue(any("G8ec51935" in p and "open since terra-1109-062902" in p for p in rec["problems"]), rec["problems"])
+        self.assertFalse(any("u-d9db11f14a2a" in p for p in rec["problems"]))      # no longer named: resolved, no ask
+        with open(sorted(os.path.join(self.root, "meta", "evidence", p)
+                         for p in os.listdir(os.path.join(self.root, "meta", "evidence")))[-1], encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["open_gaps"]["G8ec51935"][0], "terra-1109-062902")
+        env.update(FAKE_MEASUREMENT="measure_r3 G8ec51935 unit cost",
+                   FAKE_EVIDENCE=json.dumps([{"ref": "logs/market-kit.log:3", "excerpt": "G8ec51935 unit u-0a1b2c3d4e5f cost 4100",
+                                              "meaning": "the missing cost, measured"}]))
+        with mock.patch.dict(os.environ, env):
+            rec = self.go("unsure-planned")
+        self.assertEqual(rec["status"], "no_change", rec.get("problems"))
 
     def test_the_schedule_survives_a_restart(self):
         grades = os.path.join(self.root, "meta", "grades.jsonl")
@@ -773,6 +826,22 @@ class EvidenceTest(unittest.TestCase):
             self.assertEqual(mh.verify_evidence([{"ref": "t.log:3", "excerpt": "OK"}], d), [])
             self.assertTrue(mh.verify_evidence([{"ref": "t.log:4", "excerpt": "OK"}], d))
             self.assertTrue(mh.verify_evidence([{"ref": "t.log:3", "excerpt": ""}], d))
+
+    def test_anchoring_finds_the_line_that_holds_the_quote_and_never_loosens_the_check(self):
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "t.log"), "w") as f:
+                f.write("NOT OK\nRan 1180 tests in 126.230s\n\nOK\nx\nRan 1180 tests in 126.230s\n")
+            items = [{"ref": "t.log:1", "excerpt": "OK"}, {"ref": "t.log:5", "excerpt": "Ran 1180 tests in 126.230s"},
+                     {"ref": "t.log:2", "excerpt": "Ran 1180 tests"}, {"ref": "t.log:1", "excerpt": "never said"},
+                     {"ref": "t.log:1", "excerpt": "x"}, {"ref": "../t.log:1", "excerpt": "OK"}]
+            notes = mh.anchor_evidence(items, d)
+            # "OK" only as a whole line (never NOT OK), the nearest of two, a line already right stays, no invented quote
+            self.assertEqual([i["ref"] for i in items], ["t.log:4", "t.log:6", "t.log:2", "t.log:1", "t.log:5", "../t.log:1"])
+            self.assertEqual(notes, ["t.log:1 -> t.log:4", "t.log:5 -> t.log:6", "t.log:1 -> t.log:5"])
+            self.assertEqual(len(mh.verify_evidence(items, d)), 2)       # the invented quote and the outside path
+
+    def test_gap_ids_are_units_and_skus(self):
+        self.assertEqual(mh.gap_ids("G8ec51935 원가, u-d9db11f14a2a 판매, Gx, u-12"), {"G8ec51935", "u-d9db11f14a2a"})
 
 
 class RivalsTest(unittest.TestCase):
