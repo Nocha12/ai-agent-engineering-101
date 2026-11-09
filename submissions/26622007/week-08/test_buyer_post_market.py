@@ -78,7 +78,7 @@ class MarketNote(unittest.TestCase):
     def test_arm_b_names_the_median_share_before_the_ledger_ref(self):
         self.switch()
         line = self.post(deal(ARM_B))
-        self.assertIn(" | 시장 중앙값 정가의 70% (같은 등급·보증 최근 3시간 5건) | ledger #100", line["post"])
+        self.assertIn(" | 시장 중앙값 7,000원(정가의 70%, 같은 등급·보증 6h 이상 최근 3시간 5건) | ledger #100", line["post"])
         self.assertEqual(line["refs"], [ARM_B])
         self.assertEqual(set(line), {"post", "refs", "as"})
         [m] = self.measured()
@@ -97,7 +97,7 @@ class MarketNote(unittest.TestCase):
         self.switch()
         rows = [settle(i, a, warranty=None) for i, a in enumerate([6000, 6500, 7000, 7500, 8000], 1)]
         line = self.post(deal(ARM_B, kind="food", warranty_hours=None, expires_at=NOW + 50 * 3600), rows=rows)
-        self.assertIn("시장 중앙값 정가의 70% (같은 등급 최근 3시간 5건)", line["post"])
+        self.assertIn("시장 중앙값 7,000원(정가의 70%, 같은 등급 최근 3시간 5건)", line["post"])
 
     def test_fewer_than_five_matching_settles_add_nothing(self):
         self.switch()
@@ -106,22 +106,51 @@ class MarketNote(unittest.TestCase):
         [m] = self.measured()
         self.assertEqual((m["arm"], m["eligible"], m["applied"], m["n"], m["median_share"]), ("B", False, False, 4, None))
 
-    def test_only_other_buyers_same_condition_fresh_honest_settles_count(self):
+    def test_only_other_deals_of_the_same_condition_fresh_and_honest_count(self):
         self.switch()
         noise = [settle(ARM_B, 100), settle(11, 100, grade="A"), settle(12, 100, warranty=2),
                  settle(13, 100, sku="G2"), settle(14, 100, honest=False), settle(15, 100, ago=3 * 3600 + 60),
                  settle(16, 100, ago=-60)]
         line = self.post(deal(ARM_B), rows=FIVE + noise)
-        self.assertIn("시장 중앙값 정가의 70% (같은 등급·보증 최근 3시간 5건)", line["post"])
+        self.assertIn("시장 중앙값 7,000원(정가의 70%, 같은 등급·보증 6h 이상 최근 3시간 5건)", line["post"])
+
+    def test_short_warranty_and_no_grade_say_so(self):
+        self.switch()
+        rows = [settle(i, a, grade=None, warranty=2) for i, a in enumerate([6000, 6500, 7000, 7500, 8000], 1)]
+        line = self.post(deal(ARM_B, grade=None, claim=None, warranty_hours=2), rows=rows)
+        self.assertIn("시장 중앙값 7,000원(정가의 70%, 보증 6h 미만·없음 최근 3시간 5건)", line["post"])
+
+    def test_non_finite_amounts_are_left_out_and_both_arms_are_measured(self):
+        self.switch()
+        rows = FIVE + [settle(20, math.inf), settle(21, math.inf), settle(22, math.inf)]
+        line = self.post(deal(ARM_B), rows=rows)
+        self.assertIn("시장 중앙값 7,000원", line["post"])
+        [m] = self.measured()
+        self.assertEqual((m["arm"], m["n"], m["median_share"]), ("B", 5, 0.7))
+
+    def test_arm_a_without_enough_settles_is_measured_not_eligible(self):
+        self.switch()
+        self.post(deal(ARM_A), rows=FIVE[:2])
+        [m] = self.measured()
+        self.assertEqual((m["arm"], m["eligible"], m["applied"], m["n"]), ("A", False, False, 2))
+
+    def test_no_row_while_a_buyer_post_waits(self):
+        self.switch()
+        with open(os.path.join(self.md, "outbox.jsonl"), "w") as f:
+            f.write(json.dumps({"post": "x", "as": "buyer"}) + "\n")
+        self.assertIsNone(self.post(deal(ARM_B)))
+        self.assertEqual(self.measured(), [])
 
     def test_the_window_is_finite_and_the_boundary_is_off(self):
-        for sw, now in (({}, NOW + 3600), ({}, NOW - 3601), ({"end": math.inf}, NOW), ({"end": None}, NOW),
+        for sw, now in (({}, NOW + 3600), ({}, NOW - 3601), ({"end": math.inf}, NOW), ({"end": None}, NOW), ({"end": math.nan}, NOW),
+                        ({"start": True}, NOW), ({"start": -math.inf}, NOW),
                         ({"enabled": "yes"}, NOW), ({"salt": ""}, NOW), ({"study": None}, NOW)):
             with self.subTest(sw=sw, now=now):
                 self.switch(**{k: v for k, v in sw.items()})
                 self.assertIsNone(buyer_post_market.config(self.md, env={}, now=now))
         self.switch()
         self.assertIsNotNone(buyer_post_market.config(self.md, env={}, now=NOW))
+        self.assertIsNotNone(buyer_post_market.config(self.md, env={}, now=NOW - 3600))   # start is on
         self.assertIsNone(buyer_post_market.config(self.md, env={"BUYER_POST_MARKET": "0"}, now=NOW))
 
     def test_past_the_end_the_post_is_the_old_one(self):
@@ -148,6 +177,12 @@ class MarketNote(unittest.TestCase):
         self.assertIn("시장 중앙값", line["post"])
         self.assertEqual(len(buyer_post.read_lines(os.path.join(self.md, "outbox.jsonl"))), 1)
 
+    def test_a_missing_measure_dir_is_made(self):
+        self.switch()
+        os.rmdir(os.path.join(self.md, "measure"))
+        self.post(deal(ARM_B))
+        self.assertEqual(len(self.measured()), 1)
+
     def test_a_failing_note_leaves_the_plain_post(self):
         self.switch()
         orig = buyer_post_market.median_share
@@ -158,6 +193,8 @@ class MarketNote(unittest.TestCase):
             buyer_post_market.median_share = orig
         self.assertNotIn("시장 중앙값", line["post"])
         self.assertTrue(line["post"].endswith(f"ledger #{ARM_B}"))
+        [m] = self.measured()
+        self.assertEqual((m["arm"], m["eligible"], m["applied"], m["n"]), ("B", False, False, 0))
 
 
 if __name__ == "__main__":

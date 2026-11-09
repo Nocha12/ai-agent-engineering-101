@@ -255,10 +255,10 @@ def maybe_post(md, settled_path, memory_path, now=None):
                 return None
             with open(os.path.join(md, "outbox.jsonl"), "a", encoding="utf-8") as f:
                 f.write(json.dumps(line, ensure_ascii=False) + "\n")
+            if measured:                         # the post is in the outbox: measured even if the state write fails
+                buyer_post_market.record(md, measured)
             state.update({"at": now, "last_kind": kind})
             _save(path, state)
-            if measured:
-                buyer_post_market.record(md, measured)
             return line
     except Exception:  # noqa: BLE001 - a forum post never stops the review the kit waits for
         return None
