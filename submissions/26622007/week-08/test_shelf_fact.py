@@ -317,7 +317,8 @@ class SellerWiring(unittest.TestCase):
         i = src.index("shelf_text = SHELF_REPLY.reply(text, deal)")
         self.assertIn("if shelf_text is None:\n            shelf_text = SHELF_FACT.answer(task.id, text, deal, now=shelf_now)",
                       src[i:i + 300])
-        self.assertIn("SHELF_JEV.skip(task.id, text, deal, floor_now, now=shelf_now)", src[i:i + 900])   # one clock
+        # one clock; W-fact's lines (11/10) sit between the two
+        self.assertIn("SHELF_JEV.skip(task.id, text, deal, floor_now, now=shelf_now)", src[i:i + 1300])
         self.assertIn("SHELF_FACT = shelf_fact.Trial(r1=SHELF_JEV)", src)
         self.assertIn("SHELF_FACT.event(task_id, deal, result, price, observed_at)", src)
 

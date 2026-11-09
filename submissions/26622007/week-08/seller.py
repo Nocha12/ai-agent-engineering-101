@@ -75,6 +75,7 @@ import seller_jev_transport
 import shelf_life_reply
 import shelf_jev_skip
 import shelf_fact
+import warranty_fact
 import exact_accept_trial
 import exact_counter_trial
 import seller_grade_preference
@@ -95,6 +96,7 @@ JEV_TRANSPORT = seller_jev_transport.JevTransport()
 SHELF_REPLY = shelf_life_reply.ShelfLifeTrial()
 SHELF_JEV = shelf_jev_skip.Trial()
 SHELF_FACT = shelf_fact.Trial(r1=SHELF_JEV)     # S-shelf A/B (11/10), never answers while an R1 trial (ab) is on
+WARRANTY_FACT = warranty_fact.Trial()          # W-fact A/B (11/10): goods warranty question; S-shelf is food only
 EXACT_ACCEPT = exact_accept_trial.ExactAcceptTrial()
 EXACT_COUNTER = exact_counter_trial.ExactCounterTrial()
 GRADE_PREFERENCE = seller_grade_preference.GradePreferenceTrial()
@@ -844,6 +846,10 @@ class Seller(AgentExecutor):
         shelf_now = time.time()     # one clock for S-shelf and R1 this turn: never both rows across R1's start
         if shelf_text is None:
             shelf_text = SHELF_FACT.answer(task.id, text, deal, now=shelf_now)
+        fact_why = "exact shelf-life question answered from current unit"
+        if shelf_text is None:
+            shelf_text = WARRANTY_FACT.answer(task.id, text, deal, now=shelf_now)
+            fact_why = "exact warranty question answered from this talk's warranty"
         # R1 A/B: the exact shelf-life question has only hours in it, never an offer; only turns that would call Jev
         deal.pop("shelf_jev_turn", None)    # this turn's row only, even after a turn that stopped before its decision
         if (jev is not None and reader.jev is not None and shelf_text is None
@@ -856,7 +862,7 @@ class Seller(AgentExecutor):
         deep_lowball_decision = DEEP_LOWBALL.decide(text, deal, floor_now, MAX_ROUNDS,
                                 unit_ok=bool(deal.get("unit") and self.stock.available(deal["unit"], task.id)))
         fast = exact_decision or counter_decision or floor_exact_decision or deep_lowball_decision or ({"buyer_offer": 0, "action": "counter", "price": deal["ask"], "message": "",
-                 "why": "exact shelf-life question answered from current unit"} if shelf_text is not None else
+                 "why": fact_why} if shelf_text is not None else
                 await asyncio.to_thread(fast_classify.seller_turn, text, deal, floor_now, jev))
         if not fast:   # NEGOTIATE_ENGINE=jevrule: Jev reads, a rule counters (negotiate.py); None when off
             fast = await asyncio.to_thread(negotiate.seller_turn_if_on, text, deal, floor_now, jev, MAX_ROUNDS)
@@ -1051,6 +1057,7 @@ class Seller(AgentExecutor):
             raise
         SHELF_JEV.event(task_id, deal, result, price, observed_at)   # never raises
         SHELF_FACT.event(task_id, deal, result, price, observed_at)  # never raises
+        WARRANTY_FACT.event(task_id, deal, result, price, observed_at)  # never raises
         try:
             shop_memory.record({"task": task_id, "item": deal.get("key") or deal["name"], "sku": deal["id"],
                                 "unit": deal.get("unit"), "cost": deal.get("cost"), "reserve": deal["reserve"],
