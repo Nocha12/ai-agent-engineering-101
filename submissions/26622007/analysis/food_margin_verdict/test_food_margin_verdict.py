@@ -402,7 +402,7 @@ class Compare(unittest.TestCase):
                   "net_bound_b_minus_a"):
             self.assertGreater(c[k]["lo"], 0)
             self.assertAlmostEqual(c[k]["point"], 40)
-        self.assertEqual(c["clusters_both_arms"], 6)
+        self.assertEqual(c["row_clusters_both_arms"], 6)
 
     def test_one_big_cluster_carrying_the_effect_is_not_enough(self):
         c = v.compare(synth([(40, 0, 400, 50)] + [(10, 60, 20, 40)] * 4))
@@ -464,7 +464,7 @@ class Compare(unittest.TestCase):
         self.assertIsNone(unit_row(go(mem, led, units), B_SOLD)["talk_cost"])
 
     def test_clusters_count_only_with_five_units_of_each_arm(self):
-        self.assertEqual(v.compare(synth([(4, 50, 90, 10)] * 6))["clusters_both_arms"], 0)
+        self.assertEqual(v.compare(synth([(4, 50, 90, 10)] * 6))["row_clusters_both_arms"], 0)
 
     def test_t_interval_numbers(self):
         spec = [(5, 0, d, 0) for d in (10, 20, 30, 40)]
@@ -564,6 +564,25 @@ class ShopAndGates(unittest.TestCase):
         self.assertIs(out["shop"]["talk_cost_compared"], False)
         self.assertTrue(any("talk cost" in w for w in out["warnings"]))
 
+    def test_an_uncovered_unit_also_expired_is_not_a_known_net_sale(self):
+        mem, led, units = real()
+        e = copy.deepcopy(next(r for r in led if r["kind"] == "expire"))
+        e["ts"] = settle_of(led, B_SOLD)["ts"] + 5
+        e["data"]["units"] = [B_SOLD]
+        led.append(e)
+        b = unit_row(go(mem, led, units, coverage=[(START - 2 * DAY, START), (START + 2000, ASOF)]), B_SOLD)
+        self.assertEqual((b["status"], b["order"], b["refund"]), ("uncovered", settle_of(led, B_SOLD)["data"]["order"], 0))
+        self.assertIsNone(v.shop_net(b))
+        self.assertIsNone(v.shop_talk_net(b))
+
+    def test_no_talk_cost_warning_when_the_spans_are_not_usable(self):
+        mem, led, units = real()
+        units[:] = [u for u in units if u["unit"] != B_SOLD]
+        mem[:] = [n for n in mem if n.get("unit") != B_SOLD]
+        out = go(mem, led, units, coverage=[(START - 600, ASOF)])
+        self.assertIsNone(out["shop"]["no_harm"])
+        self.assertFalse(any("talk cost" in w for w in out["warnings"]))
+
     def test_an_ambiguous_sale_counts_as_an_unknown_cost_sale(self):
         mem, led, units = real()
         e = copy.deepcopy(next(r for r in led if r["kind"] == "expire"))
@@ -625,7 +644,7 @@ class ShopAndGates(unittest.TestCase):
         for c in range(4):
             next(r for r in rows if r["sku"] == f"G{c}" and r["arm"] == "A").update(net=None, excluded_by="unknown")
         cmp_ = v.compare(rows)
-        self.assertEqual(cmp_["clusters_both_arms"], 4)
+        self.assertEqual(cmp_["row_clusters_both_arms"], 4)
         self.assertFalse(v.gates(cmp_, SHOP_OK, judgeable=True)["clusters_both_arms"])
 
     def test_revert_needs_hi_below_zero_and_the_sample_gates(self):

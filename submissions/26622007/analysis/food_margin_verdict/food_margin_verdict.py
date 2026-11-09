@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""seller_food_margin A/B per food unit supplied in the window (W-20261109-2040-AX셀러전략, v5 11/10 00:55).
+"""seller_food_margin A/B per food unit supplied in the window (W-20261109-2040-AX셀러전략, v6 11/10 01:05).
 
 The treatment is assigned to a unit (sha256("food-margin|salt|unit"), first byte odd is B) and every food unit ends
 sold, expired or still in stock, so the verdict is intention to treat per unit supplied, not per talk: a unit counts in
@@ -266,7 +266,10 @@ def classify(memory, ledger_rows, units_rows, *, study, salt, start, stop, asof,
         if s:
             r["settle_ts"] = s[0]["ts"]
             if len(s) == 1 and _num(s[0]["data"].get("amount")):
-                r["amount"] = s[0]["data"]["amount"]
+                r["amount"], r["order"] = s[0]["data"]["amount"], s[0]["data"].get("order")
+                r["refund"] = sum(v for ts, v in broken.get(r["order"], ())
+                                  if ts <= min(r["settle_ts"] + MATURE, asof))
+        r["expire_rows"] = len(e)
         if not any(a <= t <= b for a, b in cov):
             r["status"] = "uncovered"
         elif len(s) > 1 or (s and e) or len(e) > 1:
@@ -324,8 +327,9 @@ def classify(memory, ledger_rows, units_rows, *, study, salt, start, stop, asof,
     main_from = min([r["supply_ts"] for r in main] + [start])
     if not inside(cov, min(main_from, start - DAY), asof):
         warnings.append("the ledger read does not cover the day before start through asof without a gap")
-    if not shop_["talk_cost_compared"]:
-        warnings.append("shop: a sale with neither a known cost nor a talk cost; no_harm read on the scaled point only")
+    if shop_["no_harm"] is not None and not shop_["talk_cost_compared"]:
+        warnings.append("shop: a sale with no known cost and no single talk cost (or an ambiguous sale) in a span; "
+                        "no_harm read on the scaled point only")
     if malformed or malformed_units:
         warnings.append(f"{malformed + malformed_units} malformed rows skipped")
     for k, e in ends.items():
@@ -481,7 +485,7 @@ def compare(rows):
     for r in rows:
         per[(r["sku"], r["grade"])][r["arm"]] += 1
     out = {"units": {a: sum(1 for r in rows if r["arm"] == a) for a in ("A", "B")},
-           "clusters_both_arms": sum(1 for c in per.values() if min(c["A"], c["B"]) >= MIN_CLUSTER_UNITS),
+           "row_clusters_both_arms": sum(1 for c in per.values() if min(c["A"], c["B"]) >= MIN_CLUSTER_UNITS),
            "excluded": {a: sum(1 for r in rows if r["arm"] == a and r["excluded_by"]) for a in ("A", "B")},
            "unresolved": {a: sum(1 for r in rows if r["arm"] == a and r["excluded_by"] and talk_net(r) is None)
                           for a in ("A", "B")},
@@ -498,7 +502,7 @@ def shop_net(r):
     (uncovered: supplied before the ledger read) its price - cost - refunds; None when its cost is unknown."""
     if r["net"] is not None:
         return r["net"]
-    if r["status"] == "uncovered" and _num(r.get("amount")) and _num(r.get("cost")):
+    if r["status"] == "uncovered" and not r.get("expire_rows") and _num(r.get("amount")) and _num(r.get("cost")):
         return r["amount"] - r["cost"] - (r.get("refund") or 0)
     return None
 
@@ -506,7 +510,8 @@ def shop_net(r):
 def shop_talk_net(r):
     """A sale with no known cost at the cost its talks name (None without one or without a single price)."""
     c = r.get("talk_cost")
-    if _num(r.get("amount")) and _num(c) and r["status"] in ("sold", "uncovered"):
+    if (_num(r.get("amount")) and _num(c) and r["status"] in ("sold", "uncovered")
+            and not r.get("expire_rows")):
         return r["amount"] - c - (r.get("refund") or 0)
     return None
 
