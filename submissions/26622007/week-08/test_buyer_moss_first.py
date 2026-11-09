@@ -16,10 +16,16 @@ G = ("안내를 요청해 주셔서 반갑습니다, 고객님—항상 신뢰�
 NOW = 1_794_300_000.0
 
 
-def write(md, **kw):
+def write(md, mtime=None, **kw):
+    """The switch, its file dated before its start (mtime: start - 1 unless given)."""
     d = {"enabled": True, "salt": "moss-1110", "start": NOW - 60, "end": NOW - 60 + 9 * 3600, **kw}
-    with open(os.path.join(md, mf.SWITCH), "w", encoding="utf-8") as f:
+    p = os.path.join(md, mf.SWITCH)
+    with open(p, "w", encoding="utf-8") as f:
         json.dump(d, f)
+    st = d["start"]
+    m = mtime if mtime is not None else (st - 1 if isinstance(st, (int, float)) and not isinstance(st, bool)
+                                         and 1 <= st < 1e11 else 1)
+    os.utime(p, (m, m))
 
 
 def arm_of(order, salt="moss-1110"):
@@ -56,6 +62,17 @@ class Switch(unittest.TestCase):
             self.assertIsNone(mf.assign(self.md, {"order": "o-1"}, now=NOW), (start, end))
         write(self.md, start=NOW - 60, end=NOW - 60 + 12 * 3600)
         self.assertIsNotNone(mf.assign(self.md, {"order": "o-1"}, now=NOW))
+
+    def test_written_after_its_start_is_off(self):
+        write(self.md, mtime=NOW - 30)            # start NOW - 60: the file came after the window began
+        self.assertIsNone(mf.assign(self.md, {"order": "o-1"}, now=NOW))
+        write(self.md, mtime=NOW - 60)
+        self.assertEqual(mf.assign(self.md, {"order": "o-1"}, now=NOW)["written"], NOW - 60)
+
+    def test_order_id_checked(self):
+        write(self.md)
+        for oid in ("\ud800", "o 1", "o-" + "x" * 95, None, 5):
+            self.assertIsNone(mf.assign(self.md, {"order": oid}, now=NOW), repr(oid))
 
     def test_salt_checked(self):
         for salt in ("", "a b", "x" * 65, 5, None):
@@ -153,9 +170,55 @@ class Turn(unittest.TestCase):
         ctx = self.ctx("B")
         self.run_turn(ctx)
         m = mf.measurement(ctx)
-        self.assertEqual((m["arm"], m["salt"], m["start"], m["end"]), ("B", "moss-1110", ctx["start"], ctx["end"]))
+        self.assertEqual((m["arm"], m["salt"], m["start"], m["end"], m["written"]),
+                         ("B", "moss-1110", ctx["start"], ctx["end"], ctx["start"] - 1))
         self.assertEqual(len(m["applied"]), 1)
         json.dumps(m)
+
+
+class LeftOutOfLearning(unittest.TestCase):
+    """An arm B talk this study priced is left out of what both arms learn (independent review 5445a75 I1)."""
+    B = {"moss_first": {"arm": "B", "applied": [{"shop": "moss-and-oak", "ask": 100, "offer": 90}]}}
+
+    def rows(self):
+        return [dict(self.B), {"moss_first": {"arm": "B", "applied": []}}, {"moss_first": {"arm": "A", "applied": []}},
+                {"moss_first": None}, {}]
+
+    def test_applied_b(self):
+        self.assertEqual([mf.applied_b(r) for r in self.rows()], [True, False, False, False, False])
+        self.assertFalse(mf.applied_b(None))
+
+    def test_trade_mark_and_priced(self):
+        self.assertEqual(mf.trade_mark({"_moss_first": {"arm": "B", "applied": [1]}}), "B")
+        for o in ({"_moss_first": {"arm": "B", "applied": []}}, {"_moss_first": {"arm": "A", "applied": []}}, {}, None):
+            self.assertIsNone(mf.trade_mark(o))
+        trades = [{"price": 1, "moss_first": "B"}, {"price": 2, "moss_first": None}, {"price": 3}]
+        self.assertEqual([t["price"] for t in market_buyer.priced(trades)], [2, 3])
+
+    def test_recent_asks_leave_it_out(self):
+        md = tempfile.mkdtemp()
+        now = 1_794_300_000
+        row = lambda price, **kw: {"ts": now - 60, "sku": "G4a74caa4", "asks": [price + 10], "price": price, "quotes": [], **kw}
+        with unittest.mock.patch.object(market_buyer, "recent_orders",
+                                        return_value=[row(100, **self.B), row(200), row(300, moss_first={"arm": "A", "applied": []})]):
+            self.assertEqual(sorted(market_buyer.recent_asks(md, now)["G4a74caa4"]), [200, 210, 300, 310])
+
+    def test_shop_profile_and_rank_pg_leave_it_out(self):
+        import buyer_rank_pg
+        import buyer_shop_profile
+        from pathlib import Path
+        for mod in (buyer_shop_profile, buyer_rank_pg, market_buyer):
+            self.assertIn("buyer_moss_first.applied_b(r)", Path(mod.__file__).read_text(encoding="utf-8"), mod.__name__)
+        t0 = 1_794_300_000
+        row = {"ts": t0 - 600, "order": "o-1", "shop": "a", "kind": "goods", "quotes": [{"shop": "a", "ask": 1000}],
+               "asks": [1000], "state": "TASK_STATE_COMPLETED", "price": 900, "passed_to_kit": True,
+               "seconds": {"quotes": 5.0, "end": 15.0}}
+        a = buyer_rank_pg.stats_from_rows([dict(row, moss_first={"arm": "A", "applied": []})], {"o-1": "confirmed"}, t0)
+        b = buyer_rank_pg.stats_from_rows([dict(row, **self.B)], {"o-1": "confirmed"}, t0)
+        self.assertEqual(b["counts"]["excluded_rows"], a["counts"]["excluded_rows"] + 1)
+        prow = {"ts": t0 - 600, "asks": [1000], "limit": 930, "shop": "a", "state": "TASK_STATE_CANCELED", "price": None}
+        self.assertEqual(buyer_shop_profile.profile_from_rows([dict(prow)] * 40, {}, t0), {"a": 107})
+        self.assertEqual(buyer_shop_profile.profile_from_rows([dict(prow, **self.B)] * 40, {}, t0), {})
 
 
 class Wiring(unittest.TestCase):

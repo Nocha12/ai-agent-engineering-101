@@ -16,7 +16,12 @@ goods and the hour differ between those groups, so what 0.90 does to goods talks
   it in "seen" with the offer code would make; arm B makes that offer (oneshot.code_turn: steps[0] of the ask, never over
   my limit). Every later turn is as before in both arms;
 - arm B acts only while the switch still says the same window: turning it off (or another salt) stops arm B at the next
-  turn of an order already running, not only for new orders.
+  turn of an order already running, not only for new orders;
+- the switch file must be written before its start (mtime <= start): a window started in the past, or one edited after its
+  start, is off (independent review 5445a75 M1); the mtime is recorded;
+- an arm B talk the change priced (applied) is left out of what both arms learn, as every buyer A/B here: the trades'
+  prices (priced, item_stats), recent_asks, buyer_shop_profile and buyer_rank_pg (independent review 5445a75 I1). An arm
+  B order whose talk it did not touch is the legacy talk and stays in.
 """
 import hashlib
 import json
@@ -41,6 +46,7 @@ def _num(v):
 def _switch(md):
     try:
         with open(os.path.join(md, SWITCH), encoding="utf-8") as f:
+            mtime = os.fstat(f.fileno()).st_mtime
             d = json.load(f)
     except (OSError, ValueError, TypeError, RecursionError):
         return None
@@ -48,9 +54,9 @@ def _switch(md):
         return None
     salt, start, end = d.get("salt"), d.get("start"), d.get("end")
     if not isinstance(salt, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", salt) or not _num(start) or not _num(end) \
-            or not (0 < start and start + MIN_HOURS * 3600 <= end <= start + MAX_HOURS * 3600):
+            or not (0 < start and start + MIN_HOURS * 3600 <= end <= start + MAX_HOURS * 3600) or not mtime <= start:
         return None
-    return {"salt": salt, "start": start, "end": end}
+    return {"salt": salt, "start": start, "end": end, "written": mtime}
 
 
 def assign(md, order, now=None):
@@ -58,7 +64,8 @@ def assign(md, order, now=None):
     s = _switch(md)
     now = time.time() if now is None else now
     oid = order.get("order") if isinstance(order, dict) else None
-    if s is None or not isinstance(oid, str) or not oid or not _num(now) or not s["start"] <= now < s["end"]:
+    if s is None or not isinstance(oid, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,96}", oid) or not _num(now) \
+            or not s["start"] <= now < s["end"]:
         return None
     arm = "AB"[hashlib.sha256(("buyer_moss_first:" + s["salt"] + ":" + oid).encode()).digest()[0] % 2]
     return dict(s, arm=arm, seen=[], applied=[])
@@ -91,5 +98,22 @@ def turn(d, meta, text, history, limit, steps, quoted, moss, goods, ctx, md, sho
 
 def measurement(ctx):
     return None if not isinstance(ctx, dict) else {"salt": ctx["salt"], "start": ctx["start"], "end": ctx["end"],
-                                                   "arm": ctx["arm"], "seen": list(ctx["seen"]),
+                                                   "written": ctx["written"], "arm": ctx["arm"], "seen": list(ctx["seen"]),
                                                    "applied": list(ctx["applied"])}
+
+
+def trade_mark(order):
+    """What market_buyer writes into the order's trade: "B" when arm B priced its talk, else None."""
+    g = (order or {}).get("_moss_first")
+    return "B" if isinstance(g, dict) and g.get("arm") == "B" and g.get("applied") else None
+
+
+def applied_b(row):
+    """Whether an orders.jsonl row is an arm B talk this study priced: the shop learning both arms read leaves it out."""
+    g = row.get("moss_first") if isinstance(row, dict) else None
+    return isinstance(g, dict) and g.get("arm") == "B" and bool(g.get("applied"))
+
+
+def priced(trades):
+    """The trades whose prices both arms may learn from: without the arm B talks this study priced."""
+    return [t for t in trades if t.get("moss_first") != "B"]
