@@ -35,6 +35,7 @@ import uuid
 import buyer_food_ladder
 import buyer_goods_grade
 import buyer_goods_ladder
+import buyer_saved_floor
 
 SWITCH = "buyer_rank_pg.json"
 CACHE = "buyer_rank_pg_cache.json"
@@ -152,6 +153,9 @@ def stats_from_rows(rows, paid, now):
             counts['excluded_rows'] += 1
             continue
         if buyer_food_ladder.laddered(r):   # food-ladder arm B's 0.8 (C 0.7) openings, the same
+            counts['excluded_rows'] += 1
+            continue
+        if buyer_saved_floor.floored(r):    # saved-floor arm B's floor / no band, the same (GPT Pro 1638 P1)
             counts['excluded_rows'] += 1
             continue
         qs = [q for q in quotes if isinstance(q, dict)] if isinstance(quotes, list) else []

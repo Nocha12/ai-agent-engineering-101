@@ -12,11 +12,12 @@ On, an order's share is max(SAVED_MIN_SHARE, S + margin), at most MAX_SHARE, S t
 not older than buyer_short_warranty.BOARD_MAX_AGE); with band "cap" (the default) the accept band is not used, so
 nothing over the limit is taken. A board that cannot be read leaves the order as before.
 
-Switch: .market/buyer_saved_floor.json {"enabled": true, "margin": 0.0, "band": "cap"|"keep",
+Switch: .market/buyer_saved_floor.json {"enabled": true, "floor": true|false, "margin": 0.0, "band": "cap"|"keep",
 "ab": {"salt": "...", "share": 0.5}, "kinds": ["food", "goods"]}; missing, unreadable or anything else is off, and off is the old behaviour
 exactly. With "ab", only the orders whose sha1(salt|order) falls under share are arm B (the floor); arm A is the
 old behaviour and is still returned so the judgement can count both. BUYER_SAVED_FLOOR=0 in the environment is off
-too. "kinds" (a list) limits it to those order kinds, so it can start on food when the food study ends and on goods
+too. "floor": false keeps SAVED_MIN_SHARE and only turns the band off (GPT Pro 1638 §2.4: the first A/B). Arm B's
+trades and orders rows are left out of the price, rank and shop-profile learning both arms read. "kinds" (a list) limits it to those order kinds, so it can start on food when the food study ends and on goods
 when the goods studies end; an order of another or unknown kind is off. Read at every order (a buyer run is one
 order), so no restart either way. On, it moves what other buyer studies see (goods-grade's limit_a, quote fit, the
 shop profile's band records, food talks without the band): start it on a kind only after that kind's studies end, and
@@ -33,7 +34,7 @@ SWITCH = "buyer_saved_floor.json"
 BASE_SHARE = 0.30          # market_buyer.SAVED_MIN_SHARE
 MAX_SHARE = 0.40           # a board S above this is not trusted: off
 MAX_MARGIN = 0.05
-KEYS = {"enabled", "margin", "band", "ab", "kinds", "by", "since", "why", "source"}   # no start/stop: not enforced, so refused
+KEYS = {"enabled", "floor", "margin", "band", "ab", "kinds", "by", "since", "why", "source"}   # no start/stop: not enforced, so refused
 
 
 def _number(v):
@@ -56,6 +57,10 @@ def config(md, env=None):
     if "margin" in d and not (_number(d["margin"]) and 0 <= d["margin"] <= MAX_MARGIN):
         return None
     if "band" in d and d["band"] not in ("cap", "keep"):
+        return None
+    if "floor" in d and not isinstance(d["floor"], bool):
+        return None
+    if d.get("floor") is False and d.get("band", "cap") == "keep":     # neither the share nor the band: nothing
         return None
     if "ab" in d:
         ab = d["ab"]
@@ -110,9 +115,29 @@ def state(md, order_id, now=None, env=None, base=BASE_SHARE, kind=None):
         S = board_saved(md, now)
         if S is None:
             return None
-        if "ab" in c and arm(c["ab"]["salt"], order_id, c["ab"]["share"]) == "A":
-            return {"arm": "A", "share": base, "band_off": False, "board_saved": S}
-        return {"arm": "B", "share": min(MAX_SHARE, max(base, S + c.get("margin", 0))),
-                "band_off": c.get("band", "cap") == "cap", "board_saved": S}
+        if "ab" in c:
+            if not isinstance(order_id, str) or not order_id:
+                return None
+            if arm(c["ab"]["salt"], order_id, c["ab"]["share"]) == "A":
+                return {"arm": "A", "share": base, "band_off": False, "board_saved": S}
+        share = min(MAX_SHARE, max(base, S + c.get("margin", 0))) if c.get("floor", True) else base
+        return {"arm": "B", "share": share, "band_off": c.get("band", "cap") == "cap", "board_saved": S}
     except Exception:   # noqa: BLE001 - the floor is optional; the order goes on as before
         return None
+
+
+def trade_arm(order):
+    """The arm market_buyer writes into the order's trade: "A", "B" or None (not in the study)."""
+    g = (order or {}).get("_saved_floor")
+    return g.get("arm") if isinstance(g, dict) else None
+
+
+def floored(row):
+    """Whether an orders.jsonl row is an arm B talk: the shop learning both arms read leaves it out."""
+    g = row.get("saved_floor") if isinstance(row, dict) else None
+    return isinstance(g, dict) and g.get("arm") == "B"
+
+
+def priced(trades):
+    """The trades whose prices both arms may learn from: without arm B's (every trade carries its arm from the start)."""
+    return [t for t in trades if t.get("saved_floor") != "B"]
