@@ -958,7 +958,8 @@ def recent_orders(md, now, hours):
 
 def recent_asks(md, now=None, hours=HOPELESS_HOURS):
     """{sku: [asks]} the shops gave me lately, any shop: opening asks of the quotes that were not refusals, the asks of the
-    talks, and the receipt prices."""
+    talks, and the receipt prices. A food-ladder arm B talk gives its opening quotes only: its talk asks and price came
+    down with the 0.8 (C 0.7) ladder and say nothing of arm A's (independent review 0eb0313 I2)."""
     now = time.time() if now is None else now
     out = collections.defaultdict(list)
     num = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool)
@@ -966,7 +967,7 @@ def recent_asks(md, now=None, hours=HOPELESS_HOURS):
         for q in r.get("quotes") or ():
             if isinstance(q, dict) and q.get("sku") and num(q.get("ask")) and not str(q.get("lost") or "").startswith("refused"):
                 out[q["sku"]].append(q["ask"])
-        if r.get("sku"):
+        if r.get("sku") and not buyer_food_ladder.laddered(r):
             out[r["sku"]] += [a for a in r.get("asks") or () if num(a)] + ([r["price"]] if num(r.get("price")) else [])
     return out
 

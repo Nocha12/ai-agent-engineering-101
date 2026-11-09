@@ -204,10 +204,6 @@ class LadderOutcomeTest(unittest.TestCase):
         self.assertTrue(b is None or b <= 5000)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class LearningTest(unittest.TestCase):
     """arm B's talks stay out of the shop learning both arms read (buyer_rank_pg, buyer_shop_profile), as the goods
     ladder's (review 459089c I2): food rows are kind food in rank_pg's cells and have no kind filter in the profile."""
@@ -250,6 +246,24 @@ class LearningTest(unittest.TestCase):
         self.assertEqual((st["shops"]["bjeon01|food"]["n"], st["counts"]["excluded_rows"]), (5, 5))
         rows = [row(i, price=11291) for i in range(5)] + [row(10 + i, g=dict(b, arm="A"), price=10036) for i in range(5)]
         self.assertEqual(rp.stats_from_rows(rows, paid, self.NOW)["shops"]["bjeon01|food"]["n"], 10)
+
+    def test_recent_asks_skip_arm_b_talk_asks_and_prices(self):
+        # independent review 0eb0313 I2: hopeless() reads recent_asks, and arm B's ladder asks and deal prices brought
+        # min(seen) under arm A's limit, so whether arm A's next order gave up moved with arm B. Opening quotes stay:
+        # they come before the ladder. Rows: orders.jsonl 11/09 13:42 bjeon01 G3434758a (arm B, ask 12546, 10036)
+        import time as _time
+        import market_buyer as mb
+        now = _time.time()
+        b = {"study": "s", "arm": "B", "grade": None, "steps": [0.8, 0.9]}
+        rows = [{"ts": now - 60, "sku": "G3434758a", "asks": [12546], "price": 10036, "food_ladder": b,
+                 "quotes": [{"shop": "bjeon01", "sku": "G3434758a", "ask": 12546, "lost": None}]},
+                {"ts": now - 60, "sku": "G3434758a", "asks": [14647, 14354], "price": 14280,
+                 "food_ladder": dict(b, arm="A", steps=[0.9]), "quotes": []}]
+        with tempfile.TemporaryDirectory() as md:
+            os.makedirs(os.path.join(md, "measure"))
+            with open(os.path.join(md, "measure", "orders.jsonl"), "w") as f:
+                f.writelines(json.dumps(r) + "\n" for r in rows)
+            self.assertEqual(sorted(mb.recent_asks(md, now=now)["G3434758a"]), [12546, 14280, 14354, 14647])
 
 
 class TradeMemoryTest(unittest.TestCase):
@@ -340,3 +354,7 @@ class TradeMemoryTest(unittest.TestCase):
 
     def test_hide_never_raises(self):
         self.assertEqual(fl.hide_unmarked("/nonexistent", [None, 3, {"time": 5}]), frozenset())
+
+
+if __name__ == "__main__":
+    unittest.main()
