@@ -45,7 +45,9 @@ def break_trial_arm(u, cfg, now=None):
     against 45.1 expected at the market's SKU x grade rates (11.8% for the grade), so the floor priced them at b 12.2% and
     B furniture lost 9.0M over 02:35-15:15 (sales 95.1M, refunds 24.5M). The trial half of the units (a stable hash of
     salt|unit under share) takes b at least the trial's grade rate; the other half keeps the usual b. Returns ("trial" or
-    "control", the trial's rate) for an eligible unit, so both arms are logged. Fail-closed: None outside
+    "control", the trial's rate) for an eligible unit, so both arms are logged. Optional categories (catalog category
+    prefixes, e.g. ["가구/침구>"]) limit it to those units: the excess was shown for furniture only, non-furniture B broke
+    3 of 36 (Pro check, review/W-20261109-1520-AXPro주기/gptpro-answer.md 2.1). Fail-closed: None outside
     [start_at, stop_at) or when a field is missing or odd, so an expired trial stops by itself."""
     t = cfg.get("grade_break_trial")
     if not isinstance(t, dict) or u.get("kind") != "goods" or not isinstance(t.get("salt"), str) or not t["salt"]:
@@ -60,6 +62,12 @@ def break_trial_arm(u, cfg, now=None):
     g = rates.get(u.get("grade")) if isinstance(rates, dict) else None
     if not _num(g) or not 0 <= g < 1 or not isinstance(u.get("unit"), str) or not u["unit"]:
         return None
+    if "categories" in t:
+        cats = t["categories"]
+        if not isinstance(cats, list) or not cats or not all(isinstance(c, str) and c for c in cats):
+            return None
+        if not isinstance(u.get("category"), str) or not u["category"].startswith(tuple(cats)):
+            return None
     h = hashlib.sha1(f"{t['salt']}|{u['unit']}".encode()).digest()
     return ("trial" if int.from_bytes(h[:4], "big") / 2 ** 32 < share else "control"), g
 
