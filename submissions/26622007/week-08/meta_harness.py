@@ -539,6 +539,12 @@ def commit(message, paths=None):
     return git("rev-parse", "HEAD")
 
 
+def git_prefix():
+    """ROOT from the repository's top ('submissions/26622007/week-08/' on the Mac mini): --cacheinfo takes paths from
+    there, not from the folder git runs in."""
+    return git("rev-parse", "--show-prefix")
+
+
 def commit_staged(message, paths):
     """`git commit -- paths` as the index holds them (that command takes them from the folder): HEAD's tree with these
     paths' staged entries, in a scratch index, so what someone else staged stays out as well."""
@@ -554,7 +560,7 @@ def commit_staged(message, paths):
         for p in paths:
             entry = git("ls-files", "-s", "--", p).split()
             if entry:
-                run("update-index", "--add", "--cacheinfo", f"{entry[0]},{entry[1]},{p}", env=env)
+                run("update-index", "--add", "--cacheinfo", f"{entry[0]},{entry[1]},{git_prefix()}{p}", env=env)
             else:
                 run("update-index", "--force-remove", "--", p, env=env)
         tree = run("write-tree", env=env)
@@ -641,7 +647,9 @@ def put_back(found, paths):
 # left it: never in the harness's commits (person_trial_out).
 TRIAL = "price.grade_break_trial"
 UNKNOWN = object()                  # pricing.json unreadable or without a price object: nobody's switch
-START = {"pricing": None, "since": math.inf}     # pricing.json and the time when the cycle began
+# pricing.json, HEAD's trial, the trial the cycle may start from (trusted_start) and when it began, for the cycle `cid`
+START = {"pricing": None, "head": None, "trusted": None, "since": math.inf, "cid": None}
+PENDING_WAIT = 15           # seconds an undo or the record waits for a person's switch under way (an intent line)
 
 
 def trial_of(p):
@@ -654,20 +662,42 @@ def same_trial(a, b):
     return a is not UNKNOWN and b is not UNKNOWN and hard_limits._same(a, b)
 
 
+def trusted_start():
+    """The trial a cycle may start from: the folder's when it is HEAD's or the person's latest journaled one; else that
+    journaled one, else HEAD's. A trial set out of band between cycles (the model may leave a process behind) is nobody's."""
+    start, head = trial_of(START["pricing"]), START["head"]
+    ever = hard_limits.person_value(TRIAL)
+    if start is not UNKNOWN and (same_trial(start, head) or (ever is not hard_limits.UNPROVED and same_trial(start, ever))):
+        return start
+    return ever if ever is not hard_limits.UNPROVED else head
+
+
+def trial_target():
+    """The trial the folder must hold: what a person's journaled switch since the cycle began left, else the trusted
+    start. UNKNOWN when neither is known (pricing.json unreadable at HEAD and at the start, no journal)."""
+    v = hard_limits.person_value(TRIAL, START["since"])
+    v = START["trusted"] if v is hard_limits.UNPROVED else v
+    return UNKNOWN if v is None else v
+
+
 def persons_trial(v):
-    """v (trial_of) is a person's: as the cycle found it, or left by a journaled person switch since the cycle began."""
-    return v is not UNKNOWN and (same_trial(v, trial_of(START["pricing"]))
-                                 or hard_limits.person_left(TRIAL, v, START["since"]))
+    """v (trial_of) is the one the folder must hold: a person's, not the cycle's."""
+    return v is not UNKNOWN and same_trial(v, trial_target())
 
 
 def trials_from(new):
-    """The pricing.json whose trial the guard compares the cycle's with: the person's when that is what is there now,
-    else the cycle's start (None: HEAD, when the start could not be read)."""
-    now, start = trial_of(new), trial_of(START["pricing"])
-    base = now if now is not UNKNOWN and hard_limits.person_left(TRIAL, now, START["since"]) else start
+    """The pricing.json whose trial the guard compares the cycle's with (trial_target; None: HEAD's, when unknown). A
+    stale rewrite that undoes a person's switch made meanwhile differs from it, and is refused like any other change."""
+    base = trial_target()
     if base is UNKNOWN:
         return None
     return {"price": {} if base is hard_limits._ABSENT else {"grade_break_trial": base}}
+
+
+def wait_for_person():
+    end = time.time() + PENDING_WAIT
+    while hard_limits.person_pending(TRIAL, START["since"]) and time.time() < end:
+        time.sleep(1)
 
 
 def person_trial_out():
@@ -689,43 +719,36 @@ def person_trial_out():
         sha = subprocess.run(["git", "hash-object", "-w", "--stdin"], cwd=ROOT, input=blob, capture_output=True,
                              text=True, check=True).stdout.strip()
         mode = (git("ls-files", "-s", "--", "pricing.json").split() or ["100644"])[0]
-        git("update-index", "--cacheinfo", f"{mode},{sha},pricing.json")
+        git("update-index", "--add", "--cacheinfo", f"{mode},{sha},{git_prefix()}pricing.json")   # from the top
     except (ValueError, RuntimeError, subprocess.CalledProcessError) as e:
         return f"pricing.json: a person's grade_break_trial could not be kept out of the commit: {e}"[:400]
     return None
 
 
 def keep_trial(cid, keep):
-    """After an undo, the person's journaled switch as they left it, with the switch's own checks and backup. Returns
-    what happened, for the record, or None when there was nothing to keep."""
-    if keep is UNKNOWN:
+    """The folder's trial set to `keep` (trial_target) when it is not, with the switch's own checks and backup: a
+    person's switch an undo took back, or one nobody journaled. Returns what happened, for the record, else None."""
+    if keep is UNKNOWN or same_trial(trial_of(pricing_now()), keep):
         return None
-    if same_trial(trial_of(pricing_now()), keep):
-        return "grade_break_trial: the person's switch is in place"
     path, backups = os.path.join(ROOT, "pricing.json"), os.path.join(ROOT, ".market", "grade_break_trial_kept")
     try:
         if hard_limits._at(pricing_now(), TRIAL) is not hard_limits._ABSENT:
             grade_break_trial_switch.switch_off(path, backup_dir=backups, stamp=f"{cid}-off")
         if keep is not hard_limits._ABSENT:
             grade_break_trial_switch.switch_on(path, keep, backup_dir=backups, stamp=f"{cid}-on")
-    except Exception as e:      # the undo stands; the person is told their switch is gone
-        log(f"{cid}: could not put back the grade_break_trial a person switched: {e}")
-        return f"grade_break_trial: could not put back the person's switch, switch it again: {e}"[:400]
-    log(f"{cid}: put back the grade_break_trial a person switched while the cycle ran")
-    return "grade_break_trial: put back the person's switch"
+    except Exception as e:      # the rest stands; the person is told their switch is not in place
+        log(f"{cid}: could not set the grade_break_trial back to the person's: {e}")
+        return f"grade_break_trial: could not set it back to the person's switch, switch it again: {e}"[:400]
+    log(f"{cid}: set the grade_break_trial back to the person's switch (gbt-switch journal / HEAD)")
+    return "grade_break_trial: set back to the person's switch"
 
 
-def try_undo(cid, sha, why, found=None, notes=None):
+def try_undo(cid, sha, why, found=None):
     """undo(), or why it could not (the change then stays as committed). The cycle is recorded either way: an Astra
-    cycle missing from meta/grades.jsonl runs again on the loop's next start. A journaled person switch of the trial made
-    since the cycle began is put back after it; notes (a list) gets what happened to it."""
-    here = trial_of(pricing_now())
-    keep = here if here is not UNKNOWN and hard_limits.person_left(TRIAL, here, START["since"]) else UNKNOWN
+    cycle missing from meta/grades.jsonl runs again on the loop's next start. record() then sets the trial back to the
+    person's (keep_trial)."""
     try:
         undo(sha, why, found)
-        note = keep_trial(cid, keep)
-        if note and notes is not None:
-            notes.append(note)
         return None
     except (RuntimeError, OSError) as e:      # OSError: put_back could not write the file back
         log(f"{cid}: could not undo {sha[:8]}, it stays: {e}")
@@ -733,6 +756,11 @@ def try_undo(cid, sha, why, found=None, notes=None):
 
 
 def record(rec, before=None):
+    if rec.get("cycle") and rec["cycle"] == START["cid"]:       # every way out of a cycle, the discarded secret too
+        wait_for_person()
+        note = keep_trial(rec["cycle"], trial_target())
+        if note:
+            rec["person_trial"] = note
     grade_log(rec)
     with open(os.path.join(ROOT, "meta", "changes.jsonl"), "a", encoding="utf-8") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
@@ -1157,10 +1185,11 @@ def refresh_scorecard():
 def cycle(kind):
     before = dirty_paths()        # what the folder already held: not this cycle's change
     FOUND["pricing"] = pricing_now() if "pricing.json" in before else None
-    START.update(pricing=pricing_now(), since=time.time())
+    START.update(pricing=pricing_now(), head=trial_of(pricing_at_head()), since=time.time(), cid=None)
+    START["trusted"] = trusted_start()
     STAGED["problem"] = None
     found = start_contents(before)
-    cid = f"{kind}-{time.strftime('%m%d-%H%M%S')}"
+    cid = START["cid"] = f"{kind}-{time.strftime('%m%d-%H%M%S')}"
     os.makedirs(os.path.join(ROOT, "meta", "evidence"), exist_ok=True)
     pack = os.path.join(ROOT, "meta", "evidence", f"{cid}.json")
     # The loop can survive code updates for many hours. Load the current score
@@ -1184,7 +1213,6 @@ def cycle(kind):
         log(f"{cid}: study switches changed while the model ran, left as they are: {flipped}")
     paths = stage(before)
     code = [p for p in paths if not p.startswith(NOT_CODE) and not p.startswith(("logs/", "memory/"))]
-    trial_notes = []
 
     if paths and secrets_in_stage(paths):      # nothing goes into history, the attempt included
         git("reset", "-q", "--", *paths)
@@ -1238,9 +1266,9 @@ def cycle(kind):
     title = (answer or {}).get("change_summary") or err or "변경"
     if problems:
         sha = commit(f"wip(week-08): [{cid}] 실패 - {title} / {problems[0]}"[:300], paths)
-        failed = try_undo(cid, sha, f"{cid} 검증 실패: {problems[0]}", found, trial_notes)
+        failed = try_undo(cid, sha, f"{cid} 검증 실패: {problems[0]}", found)
         rec.update(status="rejected_kept" if failed else "rejected", problems=problems + ([failed] if failed else []),
-                   commit=sha, **({"person_trial": trial_notes} if trial_notes else {}))
+                   commit=sha)
         record(rec, before)
         return rec
 
@@ -1260,14 +1288,12 @@ def cycle(kind):
     bad = canary()
     if bad:
         log(f"{cid}: failed the watch: {'; '.join(bad)}")
-        failed = try_undo(cid, sha, f"{cid} 10분 점검 실패: {'; '.join(bad)}", found, trial_notes)
+        failed = try_undo(cid, sha, f"{cid} 10분 점검 실패: {'; '.join(bad)}", found)
         if failed:
             rec.update(status="canary_failed_kept", problems=bad + [failed])
         else:
             restart_seller(code)
             rec.update(status="canary_failed", problems=bad)
-        if trial_notes:
-            rec["person_trial"] = trial_notes
     else:
         note_experiment(cid, answer)    # only a change that stays: one the watch undid took its experiment step with it
         rec.update(status="running")

@@ -246,9 +246,9 @@ def number(v):
 PERSON_TRIALS = ("price.grade_break_trial",)
 _ABSENT = object()
 # Proof that a person switched one (AX 11/10, main 지시 13): the person's launcher (gbt-switch on the host, run as
-# another account) appends {"t", "key", "before", "after" (trial_hash), "by": "person", "status"} here around each
-# switch. The meta-harness and its model run as the market account, which reads this file and cannot write it, so a
-# change of a PERSON_TRIALS key is a person's only when the journal's latest "done" switch since the cycle began left it.
+# another account) appends {"t", "key", "before", "after" (trial_hash), "value" (the setting, null for off), "by":
+# "person", "status": intent|done|failed} here around each switch. The meta-harness and its model run as the market
+# account, which reads this file and cannot write it, so the journal's latest "done" value is the person's trial.
 PERSON_JOURNAL = "/Users/Shared/ax-gbt-switch/journal.jsonl"
 
 
@@ -274,10 +274,10 @@ def _not_ours(st, me, sticky_ok=False):
     return not st.st_mode & 0o022 or (sticky_ok and bool(st.st_mode & stat.S_ISVTX))
 
 
-def person_switches(since, path=None):
-    """The journal's "done" person switches at or after `since`, in the order written. None of them unless the journal,
-    its folder and the folder above belong to another account than this process's and are not writable by it: one the
-    model could write proves nothing."""
+def person_switches(since, path=None, status=("done",)):
+    """The journal's person lines (of `status`) at or after `since`, in the order written. None of them unless the
+    journal, its folder and the folder above belong to another account than this process's and are not writable by it:
+    one the model could write proves nothing."""
     path = PERSON_JOURNAL if path is None else path
     me, folder = _me(), os.path.dirname(path)
     try:
@@ -297,16 +297,35 @@ def person_switches(since, path=None):
             e = json.loads(line)
         except ValueError:
             continue
-        if isinstance(e, dict) and e.get("status") == "done" and e.get("by") == "person" and e.get("key") in PERSON_TRIALS \
+        if isinstance(e, dict) and e.get("status") in status and e.get("by") == "person" and e.get("key") in PERSON_TRIALS \
                 and number(e.get("t")) and e["t"] >= since and isinstance(e.get("after"), str):
             out.append(e)
     return out
 
 
+UNPROVED = object()     # person_value: no done line, or one whose value does not give its hash
+
+
+def person_value(key, since=-math.inf, path=None):
+    """What the latest person switch of `key` at or after `since` left (_ABSENT: off), or UNPROVED."""
+    done = [e for e in person_switches(since, path) if e["key"] == key]
+    if not done:
+        return UNPROVED
+    e = done[-1]
+    v = _ABSENT if e["after"] == "off" and e.get("value") is None else e.get("value", UNPROVED)
+    return v if v is not UNPROVED and trial_hash(v) == e["after"] else UNPROVED
+
+
+def person_pending(key, since, path=None):
+    """The latest person line of `key` since `since` is an intent: a switch is under way."""
+    lines = [e for e in person_switches(since, path, ("intent", "done", "failed")) if e["key"] == key]
+    return bool(lines) and lines[-1]["status"] == "intent"
+
+
 def person_left(key, value, since, path=None):
     """Whether `value` (_ABSENT: no key) is what the latest person switch of `key` since `since` left."""
-    done = [e for e in person_switches(since, path) if e["key"] == key]
-    return bool(done) and done[-1]["after"] == trial_hash(value)
+    left = person_value(key, since, path)
+    return left is not UNPROVED and _same(left, value)
 
 
 def _at(d, dotted):
