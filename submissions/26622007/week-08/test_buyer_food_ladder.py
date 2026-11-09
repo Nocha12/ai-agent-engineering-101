@@ -12,9 +12,13 @@ import buyer_food_shelf as fs      # noqa: E402
 import oneshot                     # noqa: E402
 
 ON = {"enabled": True, "study": "food-ladder-test", "salt": "food-ladder-test"}
-# A food quote as shops write it (logs/market-kit.log 11/09): the ask read from the text, grade named
-TEXT_C = "Kimchi G2f086429, grade C, 31.2 h of shelf life left. Ask: 9800. Reply with your offer."
-TEXT_B = "Kimchi G2f086429, grade B, 120.0 h of shelf life left. Ask: 9800. Reply with your offer."
+# Food quote fragments as shops wrote them (logs/market-kit.log, .market/measure/orders.jsonl 11/09 09:4x)
+TEXT_C = "사세 직화K버팔로윙 1kg (G2560a8c9), grade C, market certificate included, 133 hours of shelf life left, list price 17900."
+TEXT_B = "아삭하고 깊은맛 치즈 (G66ded25b), grade B, 89 h of shelf life left, market certificate included."
+TEXT_EQ_C = "G3434758a grade=C cert=market-signed shelf=31.0h ask=9800"           # dragonash
+TEXT_CAP_C = "G233e6ea4: Grade C (close to its date), 279.1 h shelf life left."   # ddolcom
+TEXT_HELP = "G7fa48eaa, 665 h left | need a shelf life, grade or warranty? say e.g. 'need 48h, grade A/B'"
+TEXT_NO_WORD = "G66ded25b: B (normal shelf life), about 89 h of shelf life left"      # bjeon01: no 'grade' word
 
 
 def switch(md, value):
@@ -30,8 +34,20 @@ def order_in(a, salt=ON["salt"]):
     raise AssertionError
 
 
-def decide(md, order, text=TEXT_C, steps=(0.9,), resume=True, probing=False, ask=9800, env=None):
-    return fl.decide(md, order, {"ask": ask, "text": text}, steps, resume, probing=probing, env=env or {})
+def decide(md, order, text=TEXT_C, steps=(0.9,), resume=True, probing=False, ask=9800, env=None, code_priced=True):
+    return fl.decide(md, order, {"ask": ask, "text": text}, steps, resume, probing=probing, code_priced=code_priced,
+                     env=env or {})
+
+
+class GradeTest(unittest.TestCase):
+    def test_real_formats(self):
+        self.assertEqual(fl.grade(TEXT_C), "C")
+        self.assertEqual(fl.grade(TEXT_B), "B")
+        self.assertEqual(fl.grade(TEXT_EQ_C), "C")
+        self.assertEqual(fl.grade(TEXT_CAP_C), "C")
+        self.assertIsNone(fl.grade(TEXT_HELP))          # a question about grades names none
+        self.assertIsNone(fl.grade(TEXT_NO_WORD))       # left unlabeled by design: the ladder without the C rung
+        self.assertIsNone(fl.grade("grade A, or grade C if you prefer"))
 
 
 class SwitchTest(unittest.TestCase):
@@ -78,6 +94,9 @@ class EligibilityTest(unittest.TestCase):
         self.assertEqual(steps, (0.7, 0.8, 0.9))
         self.assertEqual(rec, {"study": "food-ladder-test", "arm": "B", "grade": "C", "steps": [0.7, 0.8, 0.9]})
 
+    def test_treatment_c_grade_written_with_equals(self):
+        self.assertEqual(decide(self.md, order_in("B"), TEXT_EQ_C)[0], (0.7, 0.8, 0.9))
+
     def test_treatment_other_grade_ladder(self):
         steps, rec = decide(self.md, order_in("B"), TEXT_B)
         self.assertEqual(steps, (0.8, 0.9))
@@ -101,11 +120,14 @@ class EligibilityTest(unittest.TestCase):
             dict(order=dict(b, _one_won_default=True)),
             dict(order=dict(b, _food_quote_yield="B")),
             dict(order=dict(b, _food_shelf={"arm": "B", "would_drop": ["olstjr"]})),
+            dict(order=dict(b, _b3={"applied": False})),   # B3 hold rung on: the two studies stay disjoint
+            dict(order=b, code_priced=False),              # the opening goes to the harness, not the ladder
         ]
         for c in cases:
             steps = c.get("steps", (0.9,))
             got = decide(self.md, c["order"], steps=steps, resume=c.get("resume", True),
-                         probing=c.get("probing", False), ask=c.get("ask", 9800))
+                         probing=c.get("probing", False), ask=c.get("ask", 9800),
+                         code_priced=c.get("code_priced", True))
             self.assertEqual(got, (steps, None), c)
 
     def test_food_shelf_without_would_drop_stays_eligible(self):

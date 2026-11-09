@@ -2087,15 +2087,18 @@ def main():
                 shop["name"] in buyer_goods_first_one.SHOPS and buyer_goods_first_one.first_decision(q, limit, steps):
             goods_first_arm = buyer_goods_first_one.reserve(md, order, shop["name"], key)
         order["_goods_first_one_probe"] = goods_first_arm
-        # buyer_food_ladder arm B: a food talk opens at 0.8 (grade C 0.7) of the first ask and climbs to 0.9 (off: (.9,))
-        steps, order["_food_ladder"] = buyer_food_ladder.decide(
-            md, order, q, steps, resume, probing=bool(probe_arm or discount_arm)) if r3 else (steps, None)
-        if order["_food_ladder"]:
-            log(f"[food-ladder] {shop['name']}: arm {order['_food_ladder']['arm']}, grade {order['_food_ladder']['grade']}")
 
         order["_accept_band_top"] = top if r3 and top > limit else None     # read in the ladder
         on = order["_b3b1_on"] if "_b3b1_on" in order else buyer_b3b1.enabled(md)
         order["_b3"] = {"applied": False} if on else None    # B3 on for this order (read in the ladder)
+        # buyer_food_ladder arm B: a food talk opens at 0.8 (grade C 0.7) of the first ask and climbs to 0.9 (off: (.9,))
+        steps, order["_food_ladder"] = buyer_food_ladder.decide(
+            md, order, q, steps, resume, probing=bool(probe_arm or discount_arm),
+            code_priced=bool(steps and resume and order.get("kind") == "food" and q.get("ask_src") == "text" and
+                             oneshot.turn(None, q.get("text"), [], limit, steps, q.get("ask"), False) is not None)
+        ) if r3 else (steps, None)
+        if order["_food_ladder"]:
+            log(f"[food-ladder] {shop['name']}: arm {order['_food_ladder']['arm']}, grade {order['_food_ladder']['grade']}")
 
         def price_ladder(meta, text, history):
             d = (buyer_opening_discount.turn if discount_arm else opening_probe_turn)(

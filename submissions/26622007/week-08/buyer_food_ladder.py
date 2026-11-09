@@ -10,10 +10,13 @@ Arm B prices the talk with the ladder (0.80, 0.90), or (0.70, 0.80, 0.90) when t
 the accept band and oneshot.code_turn's rules stay as they are, so the last rung is today's 0.9 and the worst case is
 today's price after one or two more turns. Arm A keeps (0.9,). Both arms are recorded in orders.jsonl.
 
-Eligible: a food talk priced by the one-step default (steps == (0.9,)), resumed from a quote with a numeric ask, with
-no opening probe of its own (one-won, opening discount, one-won default, food quote yield), and not an order the food
-shelf study (buyer_food_shelf) changes by arm (would_drop not empty), so the two studies touch disjoint talks.
-Everything else is untouched and unrecorded.
+Eligible: a food talk priced by the one-step default (steps == (0.9,)), resumed from a quote with a numeric ask whose
+opening code prices (code_priced, as the opening probes require), with no opening probe of its own (one-won, opening
+discount, one-won default, food quote yield), without the B3 hold rung (buyer_b3b1: it acts only after a single 0.9
+offer, so it would fire in arm A and never in B), and not an order the food shelf study (buyer_food_shelf) changes by
+arm (would_drop not empty), so the studies touch disjoint talks. Everything else is untouched and unrecorded.
+The grade is read from "grade C" / "grade=C" / "Grade C"; a quote that names it without the word (": C (close to its
+date)") gets the two-rung ladder.
 
 Switch: .market/buyer_food_ladder.json {"enabled": true, "study": "<id>", "salt": "<salt>"}; missing, unreadable or
 anything else is off, and off is the current talk exactly. BUYER_FOOD_LADDER=0 in the environment is off too. Read at
@@ -28,7 +31,7 @@ SWITCH = "buyer_food_ladder.json"
 BASE = (0.9,)
 LADDER = (0.8, 0.9)
 LADDER_C = (0.7, 0.8, 0.9)
-GRADE = re.compile(r"\bgrade\s+([ABC])(?![\w/])", re.I)
+GRADE = re.compile(r"\bgrade\s*[=:]?\s*([ABC])(?![\w/])", re.I)
 
 
 def config(md, env=None):
@@ -62,16 +65,16 @@ def grade(text):
     return found.pop() if len(found) == 1 else None
 
 
-def decide(md, order, q, steps, resume, *, probing, env=None):
+def decide(md, order, q, steps, resume, *, probing, code_priced, env=None):
     """(steps for this talk, record or None). Never raises: any failure is the current talk, unrecorded."""
     try:
         order = order or {}
         q = q or {}
         ask = q.get("ask")
         fsh = order.get("_food_shelf")
-        if (order.get("kind") != "food" or steps != BASE or not resume or probing
+        if (order.get("kind") != "food" or steps != BASE or not resume or probing or not code_priced
                 or not isinstance(ask, (int, float)) or isinstance(ask, bool)
-                or order.get("_one_won_default") or order.get("_food_quote_yield")
+                or order.get("_one_won_default") or order.get("_food_quote_yield") or order.get("_b3") is not None
                 or (isinstance(fsh, dict) and fsh.get("would_drop"))):
             return steps, None
         cfg = config(md, env)
