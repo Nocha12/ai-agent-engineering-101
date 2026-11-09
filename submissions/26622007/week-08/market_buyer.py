@@ -2244,7 +2244,9 @@ def main():
     shipped = receipt_chance(order, offer, rec, lambda sku: market_model.break_chance(ledger_breaks(md, catalog), sku)) \
         if r3 and rec is not None and not problems and not short else None
     if shipped is not None:   # the orders row says which arm-B receipts the recheck held to another SKU's chance
-        order["_saved_floor"]["shipped"] = {"sku": rec.get("item"), "chance": round(shipped, 4)}
+        lp = ((catalog or {}).get(rec.get("item")) or {}).get("list_price")   # over_limit uses it only with a list price
+        order["_saved_floor"]["shipped"] = {"sku": rec.get("item"), "chance": round(shipped, 4),
+                                         "applied": isinstance(lp, (int, float)) and not isinstance(lp, bool)}
     over = over_limit(rec, offer, limit, catalog, args.budget,
                       None if (order.get("_sw_buy") or {}).get("ok") else receipt_band(rec, offer, band_base, band_pct),
                       shipped) \

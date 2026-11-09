@@ -303,12 +303,15 @@ class ShippedSku(unittest.TestCase):
         self.assertIsNone(mb.receipt_chance(order_b, offer, {"item": "G2"}, boom))       # never raises into the run
 
     def test_main_passes_and_records_the_shipped_chance(self):
-        """main() hands receipt_chance's result to over_limit and records it in the order's saved_floor (review N1, N3)."""
-        src = open(mb.__file__, encoding="utf-8").read()
+        """main() hands receipt_chance's result to over_limit and records it in the order's saved_floor (review N1, N3),
+        with whether over_limit could use it (the shipped SKU has a list price; delta review N1)."""
+        with open(mb.__file__, encoding="utf-8") as f:
+            src = f.read()
         i = src.index("def main():")
         j = src.index("shipped = receipt_chance(order, offer, rec,", i)
         k = src.index("over = over_limit(rec, offer, limit, catalog, args.budget,", j)
         self.assertIn('order["_saved_floor"]["shipped"] = {"sku": rec.get("item")', src[j:k])
+        self.assertIn('"applied": isinstance(lp, (int, float))', src[j:k])
         self.assertIn("shipped)", src[k:k + 300])
 
 
