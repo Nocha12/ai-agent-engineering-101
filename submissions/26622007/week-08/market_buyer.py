@@ -59,6 +59,7 @@ import buyer_opening_discount
 import buyer_goods_quote_probe
 import buyer_goods_first_one
 import buyer_quote_alignment
+import buyer_our_ask
 import buyer_stock_evidence
 import buyer_firm_trial
 import buyer_first95_trial
@@ -865,6 +866,46 @@ def list_ask_said(text, sku, list_price):
     return int(m.group(3))
 
 
+OUR_ASK = re.compile(r"(?:(?!list price|Our ask|\basking\b|unit u-)[^\n])+ \((G[0-9a-f]{8})\), grade [ABC], market certificate included, "
+                     r"(?:[0-9]+h full-refund warranty|no warranty|[0-9]+(?:\.[0-9]+)? hours of shelf life left), "
+                     r"list price ([1-9][0-9]{0,11})\. Send the ask or say ok to buy\. Our ask: ([1-9][0-9]{0,11})")
+
+
+def our_ask_said(text, shop):
+    """The ask of a quote that is only "<name> (<SKU>), grade G, market certificate included, <W>, list price L. Send the
+    ask or say ok to buy. Our ask: A" (kimauve, 280 of 280 such quotes 11/09 19:06 to 11/10 00:16; 60 orders had that ask
+    within my limit and read none; W-20261109-2225-AXPro주기), for the SKU and list price quoted, 5% to 100% of list.
+    Read only in buyer_our_ask arm B (default off; quote() checks). Ranking only (ask_src "text_rank"): ask_read reads "Our ask: A", so as a "text" ask it would code-price the first turn
+    and enter the food/goods opening arms; as "text_rank" the talk, the harness note and every arm stay as before."""
+    o = shop.get("_offer") or {}
+    lp = o.get("list_price")
+    m = OUR_ASK.fullmatch((text or "").strip())
+    if not m or m.group(1) != o.get("sku") or isinstance(lp, bool) or not isinstance(lp, (int, float)) or \
+            int(m.group(2)) != lp:
+        return None
+    v = int(m.group(3))
+    return v if TEXT_ASK_MIN_SHARE * lp <= v <= lp else None
+
+
+def quote_row(name, o, q, lim, best):
+    """The orders.jsonl line of one quote. buyer_our_ask arm B (ask_src "text_rank"): the shared fields keep the ask as
+    legacy read it (none), so recent_asks, recent_fits, the food shares and buyer_rank_pg read the same rows in both arms;
+    what arm B read, and how it stood against the limit, is under our_ask."""
+    def lost_fit(a):
+        return (None if name == best else (
+            "refused: " + q["refused"] if q.get("refused") else "no ask (no free unit or no answer)" if not isinstance(a, (int, float))
+            else "over my limit (budget / share / deal cap)" if lim is not None and a > lim
+            else "less expected surplus"),
+            not q.get("refused") and isinstance(a, (int, float)) and lim is not None and a <= lim)
+    ask_, rank = q.get("ask"), q.get("ask_src") == "text_rank"
+    lost, fit = lost_fit(None if rank else ask_)
+    return {"shop": name, "sku": o.get("sku"), "list_price": o.get("list_price"), "ask": None if rank else ask_,
+            "src": q.get("ask_src"), "raw": q.get("text_ask_raw") if q.get("ask_src") == "text_rejected" else None,
+            "lost": lost, "limit": lim, "fit": fit,
+            **({"our_ask": dict(zip(("ask", "lost", "fit"), (ask_,) + lost_fit(ask_)))} if rank else {}),
+            "text": (q.get("text") or "")[:120]}
+
+
 def text_ask_checked(text, shop):
     """buyer.text_ask, kept only when it is a believable price for the SKU quoted (5% to 100% of its list price, and no
     other SKU named in the text). 214 of 214 quotes with both a metadata ask and one text ask agreed (GPT Pro 13:30). The talk
@@ -968,6 +1009,11 @@ def quote(shop, label, key, order, out, ctl=None):
                 q.update(ask=aligned, ask_src="text")
                 order.setdefault("_quote_alignment_applied", []).append(
                     {"shop": shop["name"], "sku": (shop.get("_offer") or {}).get("sku")})
+            if open_ and q["ask"] is None and buyer_our_ask.reads(order.get("_our_ask")):     # off: as before
+                rank_ask = our_ask_said(text, shop)
+                if rank_ask is not None:
+                    q.update(ask=rank_ask, ask_src="text_rank")
+                    order["_our_ask"]["applied"].append({"shop": shop["name"], "ask": rank_ask})
             out[shop["name"]] = dict(q, closed=True) if late else q      # closed before anyone can read it
         if late:
             cancel_quietly(q, shop["name"])
@@ -1515,7 +1561,7 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
             first_scores = [(surplus(s), i, s) for i, s in enumerate(pool) if surplus(s) is not None]
             if first_scores:
                 picked = max(first_scores, key=lambda x: (fits(x[2]), x[0] - rival_deny.penalty(x[2]["name"], rival),
-                             (got.get(x[2]["name"]) or {}).get("ask_src") != "text", -x[1]))[2]
+                             (got.get(x[2]["name"]) or {}).get("ask_src") not in ("text", "text_rank"), -x[1]))[2]
                 o, q = picked["_offer"], got[picked["name"]]
                 cap = min(value_limit(o, budget, picked.get("_b") or 0, cfg), saved_cap(o, picked.get("_b") or 0))
                 order["_goods_extra_quote_baseline"] = {"shop": picked["name"], "sku": o["sku"],
@@ -1532,7 +1578,7 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
             order["_food_shelf"]["error"] = type(e).__name__
     # an ask read from the text ranks after a metadata ask of the same fit and share (a misread or made-up text ask
     # must not take the trade from a shop that stated its price in data; independent review 11/06 13:30)
-    meta = lambda s: (got.get(s["name"]) or {}).get("ask_src") != "text"
+    meta = lambda s: (got.get(s["name"]) or {}).get("ask_src") not in ("text", "text_rank")
     # buyer_short_warranty on: a shop expected to give a 6 h warranty goes before one priced as a short one, as when
     # skip_short_warranty left those out (11/08 20:15-21:2x: 69 of 93 goods orders went to a short one, 4 deals; the
     # other 24, 13; review/W-20261108-1915-AX전부적용/rank-cause.md). Off: every shop is normal, the order as before.
@@ -1904,17 +1950,10 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
             continue
         q = q or {}
         o = s.get("_offer") or {}
-        ask_ = q.get("ask")
         lim = min(value_limit(o, args.budget, 0, buyer_cfg()), saved_cap(o, s.get("_b", 0))) if o.get("list_price") else None
         sc = short_cap(o, s.get("_b"), order, s["name"], q, s) if lim is not None else None
         lim = lim if sc is None else min(lim, sc)     # the quote is recorded against the cap the choice used
-        lost = None if s["name"] == best else (
-            "refused: " + q["refused"] if q.get("refused") else "no ask (no free unit or no answer)" if not isinstance(ask_, (int, float))
-            else "over my limit (budget / share / deal cap)" if lim is not None and ask_ > lim
-            else "less expected surplus")
-        qs.append({"shop": s["name"], "sku": o.get("sku"), "list_price": o.get("list_price"), "ask": ask_, "src": q.get("ask_src"), "raw": q.get("text_ask_raw") if q.get("ask_src") == "text_rejected" else None, "lost": lost,
-                   "limit": lim, "fit": not q.get("refused") and isinstance(ask_, (int, float)) and lim is not None and ask_ <= lim,
-                   "text": (q.get("text") or "")[:120]})
+        qs.append(quote_row(s["name"], o, q, lim, best))
     # the kept shop and the asks within my limit first: with quote_shops 10 a run can hold 30 quotes, and recent_fits and
     # recent_asks (hopeless) read these, so all of them are kept
     qs.sort(key=lambda x: (x["lost"] is not None, not x["fit"]))
@@ -1931,6 +1970,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "food_quote_yield": order.get("_food_quote_yield", order.get("kind") == "food" and quote_yield_arm(order.get("order"))),
         "goods_extra_quote_probe": order.get("_goods_extra_quote_probe"),
         "quote_alignment_arm": (order.get("_quote_alignment") or {}).get("arm"),
+        "our_ask": buyer_our_ask.measurement(order.get("_our_ask")),
         "stock_evidence": buyer_stock_evidence.measurement(order),
         "firm_trial": buyer_firm_trial.measurement(order, out),
         "first95_trial": buyer_first95_trial.measurement(order, out),
@@ -2008,6 +2048,7 @@ def main():
         # Keep a retained invocation start on resume; invalid values fail closed in the trial.
         order.setdefault("_buyer_started_at", time.time())
         order["_food_quote_yield"] = order.get("kind") == "food" and quote_yield_arm(order.get("order"))
+        order["_our_ask"] = buyer_our_ask.assign(md, order, now=order["_buyer_started_at"])
     with open(args.shops, encoding="utf-8") as f:
         shops = [s for s in json.load(f) if s.get("url") and s.get("name")]
     if r3:
@@ -2044,6 +2085,7 @@ def main():
                                          "food_quote_yield": order["_food_quote_yield"],
                                          "goods_extra_quote_probe": order.get("_goods_extra_quote_probe"),
                                          "quote_alignment_arm": (order.get("_quote_alignment") or {}).get("arm"),
+                                         "our_ask": buyer_our_ask.measurement(order.get("_our_ask")),
                                          "stock_evidence": buyer_stock_evidence.measurement(order),
                                          "quotes": [], "quote_attempts_complete": True,
                                          **({"rank_pg": buyer_rank_pg.metadata(rk)} if rk is not None else {}),
@@ -2216,7 +2258,8 @@ def main():
         f"its lowest ask for {label} so far was {low}" if low is not None else "",
         pattern or "",
         f"it opened at {quotes[shop['name']]['ask']}" + (" (read from its text)" if quotes[shop["name"]].get("ask_src") == "text" else "")
-        if isinstance((quotes.get(shop["name"]) or {}).get("ask"), (int, float)) else "")
+        if isinstance((quotes.get(shop["name"]) or {}).get("ask"), (int, float)) and
+        (quotes.get(shop["name"]) or {}).get("ask_src") != "text_rank" else "")
         if x)
     if note:
         log(f"memory note for the harness: {note}")
@@ -2295,7 +2338,7 @@ def main():
 
         def price_ladder(meta, text, history):
             d = (buyer_opening_discount.turn if discount_arm else opening_probe_turn)(
-                meta, text, history, limit, steps, q.get("ask") if resume else None,
+                meta, text, history, limit, steps, q.get("ask") if resume and q.get("ask_src") != "text_rank" else None,
                 order.get("kind") == "goods", discount_arm or probe_arm or
                 ("B" if order.get("_one_won_default") else None))
             result = buyer_goods_first_one.turn(d, history, limit, steps, order.get("kind") == "goods", goods_first_arm)

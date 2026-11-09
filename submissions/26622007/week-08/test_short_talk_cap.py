@@ -2,6 +2,10 @@
 11/08 19:32-20:00: ddolcom asked 60% of the SKU's list for grade C units, the talk capped at p_max(0) of that SKU's
 list and its own chance (limit 660,913 of 1,094,400) and agreed; the receipt check, at the cheapest acceptable list
 and the grade chances, refused all 12 (p 99-162% over p_max 0-31%). 12 of 21 ddolcom orders ended so."""
+import json
+import os
+import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -81,6 +85,183 @@ class LowestPriceSentenceTest(unittest.TestCase):
                   "Our lowest price for this unit: 1570046. Reply ok to take it.",      # over list: a misread
                   "Our lowest price for this unit: 0. Reply ok to take it."):
             self.assertIsNone(market_buyer.text_ask_checked(t, o), t)
+
+
+class OurAskSentenceTest(unittest.TestCase):
+    """kimauve quotes "<name> (<SKU>), grade G, market certificate included, <72h full-refund warranty | no warranty | H hours
+    of shelf life left>, list price L. Send the ask or say ok to buy. Our ask: A" (logs/market-kit.log, 280 of 280 such quotes
+    11/09 19:06 to 11/10 00:16): no "asking", so no ask was read, and 60 of those orders had that ask within my limit
+    (W-20261109-2225-AXPro주기). Read for ranking only (ask_src "text_rank"): the talk and every arm stay as before."""
+    W = ("[자코모]메이트 멀티 4인 기능성 젠위브 패브릭 소파+스툴+쿠션2개 (G8ec51935), grade A, market certificate included, 72h "
+         "full-refund warranty, list price 2320000. Send the ask or say ok to buy. Our ask: 1598572")
+    F = ("하루채움 아로니아 100봉 낱봉 견과류 하루견과 한줌견과 (G1324bb95), grade B, market certificate included, 335 hours of shelf "
+         "life left, list price 54900. Send the ask or say ok to buy. Our ask: 29617")
+    N = ("[자코모]메이트 멀티 4인 기능성 젠위브 패브릭 소파+스툴+쿠션2개 (G8ec51935), grade C, market certificate included, no "
+         "warranty, list price 2320000. Send the ask or say ok to buy. Our ask: 1422136")
+    SW = {"_offer": {"sku": "G8ec51935", "list_price": 2320000}}
+    SF = {"_offer": {"sku": "G1324bb95", "list_price": 54900}}
+
+    def test_read(self):
+        self.assertEqual(market_buyer.our_ask_said(self.W, self.SW), 1598572)
+        self.assertEqual(market_buyer.our_ask_said(self.W + " ", self.SW), 1598572)
+        self.assertEqual(market_buyer.our_ask_said(self.N, self.SW), 1422136)
+        self.assertEqual(market_buyer.our_ask_said(self.F, self.SF), 29617)
+        self.assertEqual(market_buyer.our_ask_said(self.F.replace("335 hours", "71.5 hours"), self.SF), 29617)
+        self.assertEqual(market_buyer.our_ask_said(self.W, {"_offer": {"sku": "G8ec51935", "list_price": 2320000.0}}), 1598572)
+
+    def test_only_that_template_for_the_sku_and_list_quoted(self):
+        for t in (self.W.replace("list price 2320000", "list price 2320001"),     # another list price than the one asked
+                  self.W.replace("(G8ec51935)", "(G24f5f979)"),                  # another SKU
+                  self.W.replace("Our ask: 1598572", "Our ask: 1598572 for two"),
+                  self.W.replace("Our ask: 1598572", "Our ask: 1,598,572"),
+                  self.W.replace("Our ask: 1598572", "Our ask: 2598572"),        # over list
+                  self.W.replace("Our ask: 1598572", "Our ask: 100000"),         # under 5% of list
+                  self.W.replace("Our ask: 1598572", "Our ask: 0"),
+                  self.W.replace("grade A", "grade D"),
+                  self.W.replace("market certificate included", "no certificate"),
+                  self.W.replace("72h full-refund warranty", "72h warranty"),
+                  self.W + " Or 900000 for two.",
+                  "Our ask: 1598572",                                              # the sentence alone
+                  "Was list price 2320000. Our ask: 1. " + self.W,
+                  self.W.replace("[자코모]", "Our ask: 1 "),
+                  self.W.replace("[자코모]", "asking 2000000 ")):
+            self.assertIsNone(market_buyer.our_ask_said(t, self.SW), t)
+        for o in ({"_offer": {"sku": "G8ec51935", "list_price": True}}, {"_offer": {"sku": "G8ec51935"}}, {}):
+            self.assertIsNone(market_buyer.our_ask_said(self.W, o))
+
+    def test_talk_path_unchanged(self):
+        import buyer, oneshot
+        self.assertIsNone(buyer.text_ask(self.W))
+        self.assertIsNone(market_buyer.text_ask_checked(self.W, self.SW))         # never a "text" ask
+        for goods in (False, True):                                                # what the talk gets: quoted None
+            self.assertIsNone(oneshot.turn(None, self.W, [], 2000000, quoted=None, goods=goods))
+            self.assertIsNone(oneshot.turn(None, self.F, [], 40000, quoted=None, goods=goods))
+        import buyer_goods_first_one
+        q = {"ask": 1598572, "ask_src": "text_rank", "text": self.W}
+        self.assertIsNone(buyer_goods_first_one.first_decision(q, 2000000, (.9,)))
+        import inspect
+        src = inspect.getsource(market_buyer.main)
+        self.assertIn('q.get("ask") if resume and q.get("ask_src") != "text_rank" else None', src)
+        self.assertEqual(src.count('q.get("ask_src") == "text" and'), 3)                 # the food arms gate on "text" only
+
+    B = {"arm": "B", "salt": "t", "start": 0, "end": 4e9, "applied": []}
+
+    def _quote(self, text, meta=None, alignment=None, our_ask="B"):
+        from unittest import mock
+        card = mock.Mock()
+        card.json.return_value = {"supportedInterfaces": [{"protocolBinding": "JSONRPC", "protocolVersion": "1.0",
+                                                             "url": "https://k.example/rpc"}]}
+        out = {}
+        with mock.patch.object(market_buyer, "serves_acp", lambda u: True), \
+                mock.patch.object(market_buyer.httpx, "get", lambda *a, **k: card), \
+                mock.patch.object(market_buyer, "buyer_send", lambda *a, **k: {
+                    "id": "t1", "status": {"state": "TASK_STATE_INPUT_REQUIRED"}}), \
+                mock.patch.object(market_buyer, "buyer_message_text", lambda t: text), \
+                mock.patch.object(market_buyer, "buyer_metadata_ask", lambda t: meta), \
+                mock.patch.object(market_buyer, "log"):
+            market_buyer.quote({"name": "kimauve", "url": "https://k.example", "_offer": dict(self.SF["_offer"])},
+                               "견과", "G1324bb95", {"kind": "food", "_quote_alignment": alignment,
+                                                     "_our_ask": dict(self.B, applied=[]) if our_ask == "B" else our_ask}, out)
+        return out["kimauve"]
+
+    def test_quote_end_to_end(self):
+        q = self._quote(self.F)
+        self.assertEqual((q["ask"], q["ask_src"]), (29617, "text_rank"))
+        q = self._quote(self.F, meta=30000)                                          # a metadata ask stays first
+        self.assertEqual((q["ask"], q["ask_src"]), (30000, "metadata"))
+        q = self._quote("asking 30000")
+        self.assertEqual((q["ask"], q["ask_src"]), (30000, "text"))
+        q = self._quote(self.F.replace("Our ask: 29617", "Our ask: 29617 now"))
+        self.assertEqual((q["ask"], q["ask_src"]), (None, None))
+
+    def test_off_arm_a_or_out_of_window_reads_none(self):
+        for ctx in (None, dict(self.B, arm="A"), dict(self.B, start=4e9, end=5e9), dict(self.B, end=1)):
+            q = self._quote(self.F, our_ask=ctx)
+            self.assertEqual((q["ask"], q["ask_src"]), (None, None), ctx)
+
+    def test_sku_guard_counterexamples_from_the_kit_log(self):
+        # GPT Pro 11/10 01:39: o-16659a0f9e8e asked G37bccafb (list 22900) and was quoted G76ba0184 (list 19900) at 15920;
+        # o-3afd8ed40dc3 asked G66ded25b and was quoted G200e39a3
+        t1 = ("아무 상품 (G76ba0184), grade B, market certificate included, 72h full-refund warranty, list price 19900. "
+              "Send the ask or say ok to buy. Our ask: 15920")
+        t2 = ("다른 상품 (G200e39a3), grade A, market certificate included, 120 hours of shelf life left, list price 37900. "
+              "Send the ask or say ok to buy. Our ask: 26530")
+        self.assertIsNone(market_buyer.our_ask_said(t1, {"_offer": {"sku": "G37bccafb", "list_price": 22900}}))
+        self.assertIsNone(market_buyer.our_ask_said(t2, {"_offer": {"sku": "G66ded25b", "list_price": 17900}}))
+        self.assertIsNone(market_buyer.our_ask_said(t1, {"_offer": {"sku": "G76ba0184", "list_price": 22900}}))
+        self.assertEqual(market_buyer.our_ask_said(t1, {"_offer": {"sku": "G76ba0184", "list_price": 19900}}), 15920)
+
+
+class OurAskStudyTest(unittest.TestCase):
+    """buyer_our_ask: default off, a finite window of at most MAX_HOURS, both arms, and shared row fields as legacy."""
+    def switch(self, d, **kw):
+        import buyer_our_ask
+        with open(os.path.join(d, buyer_our_ask.SWITCH), "w") as f:
+            json.dump(dict({"enabled": True, "salt": "our-ask-t", "start": 1000, "end": 2000}, **kw), f)
+
+    def test_assign_only_in_a_finite_window_and_both_arms(self):
+        import buyer_our_ask as oa
+        with tempfile.TemporaryDirectory() as d:
+            self.assertIsNone(oa.assign(d, {"order": "o-1"}, now=1500))                 # no switch: off
+            self.switch(d)
+            arms = {oa.assign(d, {"order": f"o-{i}"}, now=1500)["arm"] for i in range(40)}
+            self.assertEqual(arms, {"A", "B"})
+            self.assertEqual(oa.assign(d, {"order": "o-1"}, now=1500)["arm"], oa.assign(d, {"order": "o-1"}, now=1999)["arm"])
+            for now in (999, 2000, 3000):
+                self.assertIsNone(oa.assign(d, {"order": "o-1"}, now=now), now)
+            for bad in ({"enabled": False}, {"enabled": "true"}, {"end": float("inf")}, {"start": float("nan")},
+                        {"end": 1000 + 13 * 3600 + 1}, {"end": 900}, {"salt": ""}, {"salt": "a b"}, {"salt": 5},
+                        {"start": True}, {"start": 0}, {"end": 10 ** 400}):
+                self.switch(d, **bad)
+                self.assertIsNone(oa.assign(d, {"order": "o-1"}, now=1500), bad)
+            with open(os.path.join(d, oa.SWITCH), "w") as f:
+                f.write("[1, 2")
+            self.assertIsNone(oa.assign(d, {"order": "o-1"}, now=1500))
+            self.switch(d)
+            for o in ({}, {"order": ""}, {"order": 5}, None):
+                self.assertIsNone(oa.assign(d, o, now=1500))
+            ctx = dict(oa.assign(d, {"order": "o-1"}, now=1500), arm="B")
+            self.assertTrue(oa.reads(ctx, now=1999))
+            self.assertFalse(oa.reads(ctx, now=2000))
+            self.assertFalse(oa.reads(dict(ctx, arm="A"), now=1500))
+            self.assertFalse(oa.reads(None, now=1500))
+            self.assertEqual(oa.measurement(ctx), {"salt": "our-ask-t", "arm": "B", "applied": []})
+            self.assertIsNone(oa.measurement(None))
+
+    def test_no_switch_is_committed(self):
+        import buyer_our_ask as oa
+        here = os.path.dirname(os.path.abspath(market_buyer.__file__))
+        self.assertIsNone(oa._switch(os.path.join(here, ".market")))
+
+    def test_row_keeps_shared_fields_as_legacy(self):
+        o = {"sku": "G1324bb95", "list_price": 54900}
+        keys = ("ask", "lost", "fit", "limit", "sku", "list_price")
+        rank = market_buyer.quote_row("kimauve", o, {"ask": 29617, "ask_src": "text_rank", "text": "x"}, 32000, "other")
+        legacy = market_buyer.quote_row("kimauve", o, {"ask": None, "ask_src": None, "text": "x"}, 32000, "other")
+        self.assertEqual({k: rank[k] for k in keys}, {k: legacy[k] for k in keys})
+        self.assertEqual(rank["our_ask"], {"ask": 29617, "lost": "less expected surplus", "fit": True})
+        self.assertNotIn("our_ask", legacy)
+        won = market_buyer.quote_row("kimauve", o, {"ask": 29617, "ask_src": "text_rank"}, 32000, "kimauve")
+        self.assertEqual((won["ask"], won["lost"], won["fit"], won["our_ask"]),
+                         (None, None, False, {"ask": 29617, "lost": None, "fit": True}))
+        over = market_buyer.quote_row("kimauve", o, {"ask": 40000, "ask_src": "text_rank"}, 32000, "other")
+        self.assertEqual(over["our_ask"]["lost"], "over my limit (budget / share / deal cap)")
+        same = market_buyer.quote_row("s", o, {"ask": 30000, "ask_src": "text", "text": "asking 30000"}, 32000, "other")
+        self.assertEqual((same["ask"], same["fit"], "our_ask" in same), (30000, True, False))     # other sources as before
+
+    def test_recent_stats_read_an_arm_b_row_as_legacy(self):
+        o = {"sku": "G1324bb95", "list_price": 54900}
+        outs = []
+        for q in ({"ask": 29617, "ask_src": "text_rank"}, {"ask": None}):
+            row = {"order": "o", "category": "견과", "kind": "food", "budget": 60000, "ts": time.time(), "sku": None,
+                   "quotes": [market_buyer.quote_row("kimauve", o, q, 32000, "other")]}
+            with tempfile.TemporaryDirectory() as d:
+                os.makedirs(os.path.join(d, market_buyer.records.DIR))
+                with open(os.path.join(d, market_buyer.records.DIR, "orders.jsonl"), "w") as f:
+                    f.write(json.dumps(row) + "\n")
+                outs.append((dict(market_buyer.recent_asks(d)), dict(market_buyer.recent_fits(d, "견과"))))
+        self.assertEqual(outs[0], outs[1])
+        self.assertEqual(outs[0], ({}, {}))
 
 
 class ListPriceAskSentenceTest(unittest.TestCase):
