@@ -46,6 +46,10 @@ SHRINK = 20.0
 NEXT_ORDER_SECONDS = 20.0
 REFRESH = 1800
 TAIL_BYTES = 30_000_000
+# With "ledger_cover": true in the switch, the ledger read doubles from TAIL_BYTES until it reaches the oldest
+# paid seq of the order window: on 11/09 the 30 MB tail began at seq 4191008 and left 605 window payments unknown
+# (680 of 1,896 confirmed; a full read leaves 0). The ceiling bounds the read; what it still misses stays unknown.
+LEDGER_MAX_BYTES = 400_000_000
 DONE = "TASK_STATE_COMPLETED"
 
 
@@ -277,14 +281,47 @@ def compute(md, now, buyer='nocha12'):
     # Tail misses remain unknown; full-epoch ITT uses reconcile_itt instead.
     inputs = {'orders': {}, 'payments': {}, 'ledger': {}}
     orders = list(_tail(os.path.join(md, 'measure', 'orders.jsonl'), TAIL_BYTES, inputs['orders']))
-    payments = _tail(os.path.join(md, 'payments.jsonl'), 4_000_000, inputs['payments'])
-    ledger = _tail(os.path.join(md, 'ledger_rows.jsonl'), TAIL_BYTES, inputs['ledger'])
+    cover = (_switch(md) or {}).get('ledger_cover') is True
+    if cover:
+        payments = list(_tail(os.path.join(md, 'payments.jsonl'), 4_000_000, inputs['payments']))
+        need = _need_seq(orders, payments)
+        ledger, nbytes = _ledger_cover(os.path.join(md, 'ledger_rows.jsonl'), need, inputs['ledger'])
+    else:
+        payments = _tail(os.path.join(md, 'payments.jsonl'), 4_000_000, inputs['payments'])
+        need, nbytes = None, TAIL_BYTES
+        ledger = _tail(os.path.join(md, 'ledger_rows.jsonl'), TAIL_BYTES, inputs['ledger'])
     outcomes = payment_outcomes(orders, payments, ledger, buyer)
     result = stats_from_rows(orders, outcomes, now)
     result['counts']['malformed_input_lines'] = sum(v.get('malformed_lines', 0) for v in inputs.values())
     result['observation'] = {'inputs': inputs, 'bounded': True, 'unknown_is_zero': False,
-                             'order_tail_bytes': TAIL_BYTES, 'payment_tail_bytes': 4_000_000, 'ledger_tail_bytes': TAIL_BYTES}
+                             'order_tail_bytes': TAIL_BYTES, 'payment_tail_bytes': 4_000_000, 'ledger_tail_bytes': nbytes,
+                             'ledger_cover': cover, 'ledger_need_seq': need}
     return result
+
+
+def _need_seq(orders, payments):
+    """The oldest ledger seq a paid payment of the window points at (the last payment per order, as payment_outcomes)."""
+    want = {r.get('order') for r in orders if isinstance(r, dict) and isinstance(r.get('order'), str) and r['order']}
+    pays = {}
+    for p in payments:
+        if isinstance(p, dict) and isinstance(p.get('order'), str) and p['order'] in want:
+            pays[p['order']] = p
+    seqs = {_seq(p.get('ledger')) for p in pays.values() if p.get('paid') is True} - {None}
+    return min(seqs) if seqs else None
+
+
+def _ledger_cover(path, need, info):
+    """Ledger rows from a tail that reaches seq `need`, doubling from TAIL_BYTES up to LEDGER_MAX_BYTES."""
+    n = min(TAIL_BYTES, LEDGER_MAX_BYTES)
+    while True:
+        diag = {}
+        rows = list(_tail(path, n, diag))
+        first = diag.get('first_seq')
+        if (not diag.get('truncated') or need is None or (first is not None and first <= need)
+                or n >= LEDGER_MAX_BYTES):
+            info.update(diag)
+            return rows, n
+        n = min(n * 2, LEDGER_MAX_BYTES)
 
 
 def _read_cache(path):
