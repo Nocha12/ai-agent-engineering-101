@@ -875,8 +875,9 @@ def our_ask_said(text, shop):
     """The ask of a quote that is only "<name> (<SKU>), grade G, market certificate included, <W>, list price L. Send the
     ask or say ok to buy. Our ask: A" (kimauve, 280 of 280 such quotes 11/09 19:06 to 11/10 00:16; 60 orders had that ask
     within my limit and read none; W-20261109-2225-AXPro주기), for the SKU and list price quoted, 5% to 100% of list.
-    Read only in buyer_our_ask arm B (default off; quote() checks). Ranking only (ask_src "text_rank"): ask_read reads "Our ask: A", so as a "text" ask it would code-price the first turn
-    and enter the food/goods opening arms; as "text_rank" the talk, the harness note and every arm stay as before."""
+    Read only in buyer_our_ask arm B (default off; quote() checks), as ask_src "text_rank": it compares quotes (ranking,
+    enough fits, TALK_OVER_SHARE) but as a "text" ask it would code-price the first turn and enter the food/goods opening
+    arms, so the talk, the harness note, the price ladder and those arms read none (buyer_our_ask)."""
     o = shop.get("_offer") or {}
     lp = o.get("list_price")
     m = OUR_ASK.fullmatch((text or "").strip())
@@ -889,7 +890,7 @@ def our_ask_said(text, shop):
 
 def quote_row(name, o, q, lim, best):
     """The orders.jsonl line of one quote. buyer_our_ask arm B (ask_src "text_rank"): the shared fields keep the ask as
-    legacy read it (none), so recent_asks, recent_fits, the food shares and buyer_rank_pg read the same rows in both arms;
+    legacy read it (none), so recent_asks, recent_fits and the food shares never take arm B's number for a shop's ask;
     what arm B read, and how it stood against the limit, is under our_ask."""
     def lost_fit(a):
         return (None if name == best else (
@@ -1009,7 +1010,8 @@ def quote(shop, label, key, order, out, ctl=None):
                 q.update(ask=aligned, ask_src="text")
                 order.setdefault("_quote_alignment_applied", []).append(
                     {"shop": shop["name"], "sku": (shop.get("_offer") or {}).get("sku")})
-            if open_ and q["ask"] is None and buyer_our_ask.reads(order.get("_our_ask")):     # off: as before
+            # off: as before; a quote that comes in after the choice cannot rank, so it is not read (nor counted applied)
+            if open_ and q["ask"] is None and not (ctl and ctl.get("done")) and buyer_our_ask.reads(order.get("_our_ask")):
                 rank_ask = our_ask_said(text, shop)
                 if rank_ask is not None:
                     q.update(ask=rank_ask, ask_src="text_rank")
@@ -2207,7 +2209,9 @@ def main():
             close_prefetch(pre)
             raise
         if best is not shop:
-            reason = f"best quote of {len(quotes)} ({quotes[best['name']]['ask']}); first choice was {shop['name']}"
+            bq = quotes[best["name"]]
+            reason = (f"best quote of {len(quotes)} ({'text_rank ' if bq.get('ask_src') == 'text_rank' else ''}{bq['ask']}); "
+                      f"first choice was {shop['name']}")
             shop = best
             log(f"[choose] {shop['url']}: {shop['name']} - {reason}")
         stages["quotes"] = time.time()

@@ -146,22 +146,26 @@ class OurAskSentenceTest(unittest.TestCase):
 
     B = {"arm": "B", "salt": "t", "start": 0, "end": 4e9, "applied": []}
 
-    def _quote(self, text, meta=None, alignment=None, our_ask="B"):
+    def _quote(self, text, meta=None, alignment=None, our_ask="B", ctl=None, order_out=None):
         from unittest import mock
         card = mock.Mock()
         card.json.return_value = {"supportedInterfaces": [{"protocolBinding": "JSONRPC", "protocolVersion": "1.0",
                                                              "url": "https://k.example/rpc"}]}
         out = {}
+        order = {"kind": "food", "_quote_alignment": alignment,
+                 "_our_ask": dict(self.B, applied=[]) if our_ask == "B" else our_ask}
+        if order_out is not None:
+            order_out.append(order)
         with mock.patch.object(market_buyer, "serves_acp", lambda u: True), \
                 mock.patch.object(market_buyer.httpx, "get", lambda *a, **k: card), \
                 mock.patch.object(market_buyer, "buyer_send", lambda *a, **k: {
                     "id": "t1", "status": {"state": "TASK_STATE_INPUT_REQUIRED"}}), \
                 mock.patch.object(market_buyer, "buyer_message_text", lambda t: text), \
                 mock.patch.object(market_buyer, "buyer_metadata_ask", lambda t: meta), \
+                mock.patch.object(market_buyer, "cancel_quietly", lambda *a, **k: None), \
                 mock.patch.object(market_buyer, "log"):
             market_buyer.quote({"name": "kimauve", "url": "https://k.example", "_offer": dict(self.SF["_offer"])},
-                               "견과", "G1324bb95", {"kind": "food", "_quote_alignment": alignment,
-                                                     "_our_ask": dict(self.B, applied=[]) if our_ask == "B" else our_ask}, out)
+                               "견과", "G1324bb95", order, out, ctl=ctl)
         return out["kimauve"]
 
     def test_quote_end_to_end(self):
@@ -173,6 +177,21 @@ class OurAskSentenceTest(unittest.TestCase):
         self.assertEqual((q["ask"], q["ask_src"]), (30000, "text"))
         q = self._quote(self.F.replace("Our ask: 29617", "Our ask: 29617 now"))
         self.assertEqual((q["ask"], q["ask_src"]), (None, None))
+
+    def test_applied_is_recorded_and_a_late_quote_is_not_read(self):
+        orders = []
+        q = self._quote(self.F, order_out=orders)
+        self.assertEqual(orders[0]["_our_ask"]["applied"], [{"shop": "kimauve", "ask": 29617}])
+        import threading
+        for winner in ("kimauve", "other"):     # the choice is made: a quote after it cannot rank (independent review M1)
+            orders = []
+            q = self._quote(self.F, ctl={"done": True, "winner": winner, "lock": threading.Lock()}, order_out=orders)
+            self.assertEqual((q["ask"], q["ask_src"], orders[0]["_our_ask"]["applied"]), (None, None, []), winner)
+
+    def test_best_quote_reason_names_a_text_rank_ask(self):
+        import inspect
+        src = inspect.getsource(market_buyer.main)
+        self.assertIn("'text_rank ' if bq.get('ask_src') == 'text_rank' else ''", src)
 
     def test_off_arm_a_or_out_of_window_reads_none(self):
         for ctx in (None, dict(self.B, arm="A"), dict(self.B, start=4e9, end=5e9), dict(self.B, end=1)):
@@ -220,6 +239,14 @@ class OurAskStudyTest(unittest.TestCase):
             self.switch(d)
             for o in ({}, {"order": ""}, {"order": 5}, None):
                 self.assertIsNone(oa.assign(d, o, now=1500))
+            for now in ("1500", None.__class__, float("nan"), 10 ** 400, True):     # a start time that is not a number: off
+                self.assertIsNone(oa.assign(d, {"order": "o-1"}, now=now), now)
+            self.assertFalse(oa.reads(dict(oa.assign(d, {"order": "o-1"}, now=1500), arm="B"), now="1500"))
+            # keyed apart from the other studies' sha256(salt:order): the same salt does not give the same arms (review M2)
+            import hashlib
+            same = sum(oa.assign(d, {"order": f"o-{i}"}, now=1500)["arm"]
+                       == "AB"[hashlib.sha256(f"our-ask-t:o-{i}".encode()).digest()[0] % 2] for i in range(400))
+            self.assertLess(same, 260)
             ctx = dict(oa.assign(d, {"order": "o-1"}, now=1500), arm="B")
             self.assertTrue(oa.reads(ctx, now=1999))
             self.assertFalse(oa.reads(ctx, now=2000))
