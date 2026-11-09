@@ -385,7 +385,7 @@ def floor_rank(u, pricing):
     b as in quote(): the SKU x grade rate (break_chance, cached 10 min) or the grade's prior."""
     cfg = profit_price.cfg_of(pricing)
     measured = break_chance(u["sku"], u.get("grade")) if u.get("kind") == "goods" else None
-    b = profit_price.unit_break(u, measured, cfg)[0]     # price.grade_break_trial too, as quote() does
+    b = profit_price.break_for(u.get("kind"), measured, cfg, u.get("grade"))
     max_break = ((pricing or {}).get("warranty") or {}).get("max_break", cfg["stress_break"])
     if u.get("kind") == "goods" and isinstance(max_break, (int, float)) and b > max_break:
         return float("inf")     # quote() would refuse it: offer a sellable unit first (independent review)
