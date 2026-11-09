@@ -78,9 +78,15 @@ class HoursForTest(unittest.TestCase):
                      "72 h warranty. \nThis price ships without one.", "72 h warranty! ...Without it 9000",
                      "72 h warranty, three hours for this price", "72 h warranty. grade C: two hours",
                      # review 4 m3, m4
-                     "72 h warranty.\n-\nWithout it 9000", "72 h warranty. … Without it 9000",
+                     "72 h warranty.\n-\nWithout it 9000", "72 h warranty. -. Without it 9000",
                      "72 h warranty, grade C: five minutes", "72 h warranty; this price: delivered within an hour",
-                     "72 h warranty, grade C half an hour", "72 h warranty, a few hours for this price"):
+                     "72 h warranty, grade C half an hour", "72 h warranty, a few hours for this price",
+                     # review 5: twelve minutes is 0.2 h, not 12; a couple/half/several
+                     "72 h warranty, grade C: twelve minutes", "72 h warranty, a couple hours for this price",
+                     "72 h warranty, grade C half-hour", "72 h warranty, several hours for grade C",
+                     # Pro 1930 3-1: another grade's warranty
+                     "72 h warranty for grade A; this unit is grade C.", "72 h warranty for grade A. This one is grade B.",
+                     "A등급 72시간 warranty, C등급 별도"):
             q = quote(text)
             self.assertFalse(q["warranty_said_ok"], text)
             self.assertEqual(sw.hours_for(order_sw("B"), "thisjonghoon", q), 0, text)
@@ -294,6 +300,8 @@ class WiringTest(unittest.TestCase):
         self.assertEqual(src.count('"warranty_said": buyer_warranty_said.trade_mark(order)'), 1)
         self.assertEqual(src.count("buyer_warranty_said.held_out(t, now)"), 1)
         self.assertEqual(src.count('cap0 = short_cap(offer, chance, {**order, "_sw": {**order["_sw"], "said": None}}'), 1)
+        self.assertEqual(src.count("said = warranty_said_row(md, order, offer, chance, shop, quotes, rec, short)"), 1)
+        self.assertEqual(src.count('**({"warranty_said": said} if said else {})'), 1)
 
     def test_a_failing_cap0_keeps_the_row_and_a_failing_note_is_logged(self):
         # review 4 m1/m2: warranty_said_row
