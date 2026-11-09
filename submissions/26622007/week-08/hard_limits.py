@@ -13,6 +13,7 @@ Terra and Astra from Round 3's own numbers, a bounded step at a time.
 meta_harness.py rejects a change that touches a PROTECTED file, removes a line naming this module, or moves a
 pricing.json number further than this file allows. Only a person changes this file.
 """
+import json
 import math
 import re
 import time
@@ -235,6 +236,32 @@ def number(v):
     return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
 
 
+# A study a person switches on and off (grade_break_trial_switch.py, its own window, salt and arms): the meta-harness
+# may not add, remove or change any of it, the window included. AX 11/10 04:29: both ends +1 h kept a valid 9 h window
+# and passed every check above, so a cycle could have moved the trial's absolute hours. A person's switch does not
+# come through check_policy_change and stays free.
+PERSON_TRIALS = ("price.grade_break_trial",)
+_ABSENT = object()
+
+
+def _at(d, dotted):
+    for part in dotted.split("."):
+        if not isinstance(d, dict) or part not in d:
+            return _ABSENT
+        d = d[part]
+    return d
+
+
+def _same(a, b):
+    """Equal as written: 1.0 and 1, true and 1 differ; key order does not (and NaN equals NaN)."""
+    if a is _ABSENT or b is _ABSENT:
+        return a is b
+    try:
+        return json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
+    except (TypeError, ValueError):
+        return False
+
+
 def check_policy_change(old, new, step=MAX_STEP):
     """Problems with moving pricing.json from old to new (dicts). None of them: the change may stand."""
     problems, a, b = [], flat(old), flat(new)
@@ -260,6 +287,11 @@ def check_policy_change(old, new, step=MAX_STEP):
     for key in (*BOUNDS, *FIXED, "markdown.below_cost"):
         if key in a and key not in b:
             problems.append(f"pricing.json {key} was removed (bounded settings stay)")
+    for key in PERSON_TRIALS:
+        was, now = _at(old, key), _at(new, key)
+        if not _same(was, now):
+            what = "added" if was is _ABSENT else "removed" if now is _ABSENT else "changed"
+            problems.append(f"pricing.json {key} {what}: a study a person switches (hard_limits.PERSON_TRIALS)")
     return problems
 
 
