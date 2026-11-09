@@ -19,6 +19,8 @@ import json
 import os
 import time
 
+import buyer_goods_grade
+
 SWITCH = 'buyer_shop_profile.json'
 CACHE = 'buyer_shop_profile_cache.json'
 
@@ -52,14 +54,6 @@ def _num(x):
     return type(x) in (int, float) and x > 0
 
 
-def _lowered(r):
-    """A talk whose limit an A/B arm lowered (buyer_goods_grade arm B): its misses over that limit say nothing of the
-    shop under plan A's limit, and a profile from them would move both arms (independent review d85a9e9 I1)."""
-    g = r.get('goods_grade')
-    return isinstance(g, dict) and g.get('arm') == 'B' and _num(g.get('limit_a')) and _num(r.get('limit')) \
-        and r['limit'] < g['limit_a']
-
-
 def profile_from_rows(rows, paid, now):
     talks = {}
     for r in rows:
@@ -69,7 +63,7 @@ def profile_from_rows(rows, paid, now):
             continue
         if r.get('state') in (None, 'NO_VALUE'):
             continue
-        if _lowered(r):
+        if buyer_goods_grade.lowered(r):   # arm B's lowered limit says nothing of plan A's (review d85a9e9 I1)
             continue
         talks.setdefault(shop, []).append(r)
     out = {}

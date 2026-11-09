@@ -32,6 +32,8 @@ import os
 import time
 import uuid
 
+import buyer_goods_grade
+
 SWITCH = "buyer_rank_pg.json"
 CACHE = "buyer_rank_pg_cache.json"
 HOURS = 24
@@ -139,6 +141,9 @@ def stats_from_rows(rows, paid, now):
             counts['excluded_rows'] += 1
             continue
         if not isinstance(r.get('state'), str):
+            counts['excluded_rows'] += 1
+            continue
+        if buyer_goods_grade.lowered(r):    # arm B's lowered limit: not learned for both arms (review 8ca80f5 I1)
             counts['excluded_rows'] += 1
             continue
         qs = [q for q in quotes if isinstance(q, dict)] if isinstance(quotes, list) else []

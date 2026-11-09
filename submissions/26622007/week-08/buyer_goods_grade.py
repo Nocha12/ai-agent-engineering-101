@@ -10,8 +10,9 @@ grade, so saved_cap's list (1 - 0.30 / (1 - b)) asks a deeper discount of a grad
 reads the grade the same way: "grade C", "Grade C", one grade only). The chance never goes down, so a grade A unit is
 priced as today. Arm A keeps the SKU chance. Both arms are recorded in orders.jsonl ("goods_grade"), with the chance B
 uses and arm A's limit (limit_a), so the eligible set is the same in both; the record's break_chance is the chance the
-limit used (arm B: the grade's). buyer_shop_profile leaves out arm B talks whose limit went down, so the lowered
-limits do not set a shop's accept band for both arms. Only the limit moves: what is bought, the shops asked and the choice
+limit used (arm B: the grade's). buyer_shop_profile and buyer_rank_pg leave out arm B talks whose limit went down
+(lowered()), so the lowered limits set neither a shop's accept band nor its rank for both arms (independent reviews
+d85a9e9 I1, 8ca80f5 I1). Only the limit moves: what is bought, the shops asked and the choice
 among them stay as they are, and a lower limit can only mean fewer or cheaper deals.
 
 Eligible: a round 3 goods order with an id, the chosen shop's quote naming one grade, a SKU chance (enough goods sold),
@@ -64,6 +65,15 @@ def grade(text):
     """The one grade a quote names ("grade C"), else None (none named, or more than one)."""
     found = {g.upper() for g in GRADE.findall(text or "")}
     return found.pop() if len(found) == 1 else None
+
+
+def lowered(row):
+    """Whether an orders.jsonl row is an arm B talk whose limit this study lowered: the shop learning that both arms
+    read leaves it out."""
+    g = row.get("goods_grade") if isinstance(row, dict) else None
+    num = lambda x: isinstance(x, (int, float)) and not isinstance(x, bool)
+    return isinstance(g, dict) and g.get("arm") == "B" and num(g.get("limit_a")) and num(row.get("limit")) \
+        and row["limit"] < g["limit_a"]
 
 
 def _p(x):

@@ -182,6 +182,41 @@ class ShopProfile(unittest.TestCase):
         self.assertEqual(sp.profile_from_rows(self.rows(lambda i: same), {}, now=self.NOW), {"H": 108})
 
 
+class RankLearning(unittest.TestCase):
+    """independent review 8ca80f5 I1: buyer_rank_pg's shop P and final/first ask, read by both arms, skip arm B's
+    lowered talks"""
+    NOW = 1794140000.0
+
+    def row(self, i, g=None, price=None):
+        r = {"ts": self.NOW - 600, "shop": "a", "kind": "goods", "order": f"o-{i}", "limit": 1000,
+             "quotes": [{"shop": "a", "ask": 1200}], "asks": [1200], "price": price, "passed_to_kit": price is not None,
+             "state": "TASK_STATE_COMPLETED" if price else "NO_VALUE", "seconds": {"quotes": 5.0, "end": 15.0}}
+        if g is not None:
+            r["goods_grade"] = g
+        return r
+
+    def test_lowered_b_rows_are_not_learned(self):
+        import buyer_rank_pg as rp
+        b = {"arm": "B", "grade": "C", "limit_a": 1300, "raised": True}
+        rows = [self.row(i, price=1100) for i in range(5)] + [self.row(10 + i, g=b) for i in range(5)]
+        paid = {f"o-{i}": "confirmed" for i in range(5)}
+        st = rp.stats_from_rows(rows, paid, self.NOW)
+        self.assertEqual((st["shops"]["a|goods"]["n"], st["shops"]["a|goods"]["k"]), (5, 5))
+        self.assertEqual(st["counts"]["excluded_rows"], 5)
+        a = dict(b, arm="A", limit_a=1000)
+        rows = [self.row(i, price=1100) for i in range(5)] + [self.row(10 + i, g=a) for i in range(5)]
+        self.assertEqual(rp.stats_from_rows(rows, paid, self.NOW)["shops"]["a|goods"]["n"], 10)
+
+    def test_lowered(self):
+        self.assertTrue(gg.lowered({"limit": 900, "goods_grade": {"arm": "B", "limit_a": 1000}}))
+        self.assertFalse(gg.lowered({"limit": 1000, "goods_grade": {"arm": "B", "limit_a": 1000}}))
+        self.assertFalse(gg.lowered({"limit": 900, "goods_grade": {"arm": "A", "limit_a": 1000}}))
+        self.assertFalse(gg.lowered({"limit": 900, "goods_grade": None}))
+        self.assertFalse(gg.lowered({"limit": 900}))
+        self.assertFalse(gg.lowered(None))
+        self.assertFalse(gg.lowered({"limit": None, "goods_grade": {"arm": "B", "limit_a": 1000}}))
+
+
 class Wiring(unittest.TestCase):
     def test_market_buyer_calls_it_where_the_limit_is_set(self):
         src = open(mb.__file__, encoding="utf-8").read()
