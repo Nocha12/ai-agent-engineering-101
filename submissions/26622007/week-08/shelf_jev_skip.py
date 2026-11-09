@@ -102,7 +102,10 @@ class Trial:
             key = (str(path), st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
             with self._lock:
                 if self._cache is None or self._cache[0] != key:
-                    with path.open("rb") as f:
+                    fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)     # a FIFO swapped in after stat never waits
+                    with os.fdopen(fd, "rb") as f:
+                        if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+                            return None
                         data = f.read(MAX_CONFIG_BYTES + 1)
                     self._cache = (key, None if len(data) > MAX_CONFIG_BYTES else read_config(data))
                 cfg = self._cache[1]
@@ -168,7 +171,7 @@ class Trial:
                        input_sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(), others=self._others(deal))
             self._write(row)
             deal["shelf_jev"] = a
-            deal["shelf_jev_turn"] = dict(skipped=treated, at=now)
+            deal["shelf_jev_turn"] = dict(skipped=treated, at=now, held_before=bool(deal.get("jev_held")))
             return treated
         except Exception:
             deal["shelf_jev_turn"] = dict(skipped=False, error=True)
@@ -184,7 +187,8 @@ class Trial:
             self._write(dict(event="decision", ts=time.time(), task=task, study=a["study"], version=a["version"],
                              arm=a["arm"], mode=a["mode"], jev_skipped=t["skipped"], harness_used=fast is None,
                              fast_why=(fast or {}).get("why"), jev_calls=getattr(reader, "jev_calls", None),
-                             reader_source=getattr(reader, "source", None), jev_held=bool(deal.get("jev_held"))))
+                             reader_source=getattr(reader, "source", None), jev_held=bool(deal.get("jev_held")),
+                             held_this_turn=bool(deal.get("jev_held")) and not t.get("held_before")))
         except Exception:
             pass
 

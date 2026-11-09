@@ -341,6 +341,8 @@ class SellerSeam(unittest.TestCase):
                 self.assertEqual(t["jev"], 1, t["text"])
         self.assertEqual(self.run_mode("off")["rows"], [])
         self.assertTrue(all(r["arm"] == "A" and not r.get("jev_skipped") for r in self.run_mode("A")["rows"]))
+        held = [r for r in self.run_mode("A")["rows"] if r["event"] == "decision" and r["held_this_turn"]]
+        self.assertEqual(len(held), 2)                    # f785d897 and the extra timeout turn hold the ask in A
 
     def test_treatment_skips_jev_with_the_same_reply(self):
         for mode in ("B", "adopted"):
@@ -364,7 +366,7 @@ class SellerSeam(unittest.TestCase):
             decisions = [r for r in rows if r["event"] == "decision"]
             self.assertEqual(len(decisions), len(turns))                          # one decision row per turn row
             self.assertEqual(sum(r["jev_skipped"] for r in decisions), len(CASES) + 1)
-            self.assertTrue(all(r["jev_calls"] == 0 and r["harness_used"] and not r["jev_held"]
+            self.assertTrue(all(r["jev_calls"] == 0 and r["harness_used"] and not r["jev_held"] and not r["held_this_turn"]
                                 for r in decisions if r["jev_skipped"]))
             self.assertEqual(sum(r["event"] == "deal" for r in rows), len(turns))
 

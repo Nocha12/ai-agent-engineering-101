@@ -810,6 +810,7 @@ class Seller(AgentExecutor):
         jev = reader if fast_classify.JEV_ON or reader.arm == "B" else None   # lazy, one call a turn
         shelf_text = SHELF_REPLY.reply(text, deal)
         # R1 A/B: the exact shelf-life question has only hours in it, never an offer; only turns that would call Jev
+        deal.pop("shelf_jev_turn", None)    # this turn's row only, even after a turn that stopped before its decision
         if (jev is not None and reader.jev is not None and shelf_text is None
                 and SHELF_JEV.skip(task.id, text, deal, floor_now)):
             jev = None
