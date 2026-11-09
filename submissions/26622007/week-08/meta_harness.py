@@ -109,7 +109,8 @@ def log(msg):
 
 
 def git(*args, check=True):
-    p = subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True)
+    # literal pathspecs: a file name with * ? [ or a leading : names that file only, never another job's
+    p = subprocess.run(["git", "--literal-pathspecs", *args], cwd=ROOT, capture_output=True, text=True)
     if check and p.returncode:
         raise RuntimeError(f"git {' '.join(args)}: {p.stderr.strip()[:400]}")
     return p.stdout.strip()
@@ -202,6 +203,8 @@ def secret_values():
 
 
 def secrets_in_stage(paths=None):
+    if paths is not None and not paths:      # nothing of the cycle's: another job's staged file is not read
+        return []
     diff = git("diff", "--cached", "--no-color", *(["--", *paths] if paths is not None else []))
     found = [n for n, pat in (("private key", r"BEGIN [A-Z ]*PRIVATE KEY"), ("OpenRouter key", r"sk-or-v1-[0-9a-zA-Z]{20,}"))
              if re.search(r"^\+.*" + pat, diff, re.M)]
@@ -387,7 +390,13 @@ def call_model(kind, cycle, pack):
 
 
 def commit(message, paths=None):
-    """With paths, those alone: what someone else staged stays staged and out of the harness's commit."""
+    """With paths, those alone: what someone else staged stays staged and out of the harness's commit. A path with
+    nothing staged (a file another job staged new and the cycle deleted) is left out, not a pathspec error."""
+    if paths is not None:
+        staged = set(git("diff", "--cached", "--name-only", "--relative", "-z").split("\0"))
+        paths = [p for p in paths if p in staged]
+        if not paths:
+            raise RuntimeError("commit: nothing of this cycle is staged")
     git("commit", "-q", "-m", f"{message}\n\nMeta-Harness: {os.path.basename(__file__)}", *(["--", *paths] if paths else []))
     return git("rev-parse", "HEAD")
 
@@ -459,8 +468,15 @@ def pricing_now():
 SAMPLE = {"settled": 0}      # counted before the model runs, so nothing it writes into the log can widen its own step
 
 
+FOUND = {"pricing": None}    # pricing.json as the cycle found it when another job had left it edited, else None
+
+
 def limit_problems(code):
-    """What hard_limits says about the staged change: settings out of bounds or moved too far, protected files."""
+    """What hard_limits says about the staged change: settings out of bounds or moved too far, protected files.
+    When another job had left pricing.json edited (FOUND) and the cycle did not touch it, the cycle is judged on what it
+    moved from there; otherwise against HEAD, as before."""
+    base = FOUND["pricing"] if "pricing.json" not in code else None
+    head = pricing_at_head() if base is None else base
     new = pricing_now()
     if "_unreadable" in new:
         return [f"pricing.json is not valid JSON: {new['_unreadable']}"]
@@ -469,9 +485,9 @@ def limit_problems(code):
     step = hard_limits.MAX_STEP_STRONG if strong else hard_limits.MAX_STEP
     owner = [f"{p} decides which buyers are refused, an owner's decision (11/05)" for p in code
              if p.split("/")[-1] == "acp_gate.py"]
-    if (pricing_at_head().get("seller") or {}) != (new.get("seller") or {}):
+    if (head.get("seller") or {}) != (new.get("seller") or {}):
         owner.append("pricing.json seller (refuse_buyers, refuse_one_star_at, refuse_exempt) is the owner's setting (11/05)")
-    return owner + hard_limits.check_policy_change(pricing_at_head(), new, step) + \
+    return owner + hard_limits.check_policy_change(head, new, step) + \
         hard_limits.guard_problems(code, git("diff", "--cached", "--no-color", "--", *guarded) if guarded else "")
 
 
@@ -624,7 +640,9 @@ def gap_problems(answer, code, carried=None):
     line that will judge it next cycle. Overnight 11/03-04 Terra ended 8 cycles on "hard to tell" with neither.
     A unit or SKU still missing after GAP_REPEAT cycles (`carried`, open_gaps()) must be measured in this one: named in
     the measurement and quoted from a line that holds it. "G8ec51935 ... 원가 누락 1건" was carried cycle after cycle while
-    measure_r3 held the unit's cost (GPT Pro 11/09 07:38 9-3). An id no longer named as missing is taken as resolved."""
+    measure_r3 held the unit's cost (GPT Pro 11/09 07:38 9-3). A quote from meta/ (the harness's own records, which repeat
+    the earlier gap sentence) does not count, and a carried id dropped from missing needs such a quote too: the line
+    that resolved it."""
     if not answer or code:
         return []
     gap = answer.get("evidence_gap") or {}
@@ -635,11 +653,16 @@ def gap_problems(answer, code, carried=None):
         return ["evidence is missing but no measurement or whole judge line (metric, direction, threshold, min_sample, "
                 "expires, undo) was set (meta/terra.md 'When evidence is short')"]
     out = []
-    quoted = " ".join(str(e.get("excerpt") or "") for e in answer.get("evidence") or [] if isinstance(e, dict))
-    for i in sorted(gap_ids(gap.get("missing")) & set(carried or {})):
-        if i not in (gap.get("measurement") or "") or i not in quoted:
+    quoted = " ".join(str(e.get("excerpt") or "") for e in answer.get("evidence") or []
+                      if isinstance(e, dict) and not str(e.get("ref") or "").startswith("meta/"))
+    still = gap_ids(gap.get("missing"))
+    for i in sorted(carried or {}):
+        if i in still and (i not in (gap.get("measurement") or "") or i not in quoted):
             out.append(f"evidence gap {i} open since {carried[i][0]}: name it in the measurement and quote this cycle's "
-                       f"line of it (unit, cost, supply window or settlement), or no longer list it as missing")
+                       f"line of it outside meta/ (unit, cost, supply window or settlement)")
+        elif i not in still and i not in quoted:
+            out.append(f"evidence gap {i} open since {carried[i][0]} is no longer listed as missing: quote the line "
+                       f"outside meta/ that resolved it")
     return out
 
 
@@ -837,6 +860,7 @@ def refresh_scorecard():
 
 def cycle(kind):
     before = dirty_paths()        # what the folder already held: not this cycle's change
+    FOUND["pricing"] = pricing_now() if "pricing.json" in before else None
     cid = f"{kind}-{time.strftime('%m%d-%H%M%S')}"
     os.makedirs(os.path.join(ROOT, "meta", "evidence"), exist_ok=True)
     pack = os.path.join(ROOT, "meta", "evidence", f"{cid}.json")
@@ -856,7 +880,7 @@ def cycle(kind):
     paths = stage(before)
     code = [p for p in paths if not p.startswith(NOT_CODE) and not p.startswith(("logs/", "memory/"))]
 
-    if secrets_in_stage(paths):      # nothing goes into history, the attempt included
+    if paths and secrets_in_stage(paths):      # nothing goes into history, the attempt included
         git("reset", "-q", "--", *paths)
         subprocess.run(["git", "checkout", "--", *code], cwd=ROOT, check=False)
         for p in code:
@@ -880,7 +904,7 @@ def cycle(kind):
         problems += experiment_problems(kind, answer, view, code)
     problems += limit_problems(code)
     problems += queue_problems(kind, paths)
-    moved = hard_limits.policy_diff(pricing_at_head(), pricing_now())
+    moved = hard_limits.policy_diff(pricing_at_head(), pricing_now()) if "pricing.json" in paths else []
     if moved:
         log(f"{cid}: settings moved: {'; '.join(moved)}")
     docs_only = bool(code) and all(p in DOCS_ONLY for p in code)

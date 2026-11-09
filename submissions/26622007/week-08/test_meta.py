@@ -396,9 +396,10 @@ class HarnessCycleTest(unittest.TestCase):
         # GPT Pro 11/09 07:38 §9-3: "G8ec51935 ... 원가 누락 1건" was left open cycle after cycle, never measured
         grades = os.path.join(self.root, "meta", "grades.jsonl")
         with open(grades, "w", encoding="utf-8") as f:
-            for c in ("terra-1109-062902", "terra-1109-074022"):
+            for c, missing in (("terra-1109-062902", "G8ec51935의 원가 누락 1건, u-d9db11f14a2a 판매"),
+                               ("terra-1109-074022", "G8ec51935의 원가 누락 1건")):
                 f.write(json.dumps({"cycle": c, "time": "2026-11-09T07:00:00+0900", "status": "no_change_unsupported",
-                                    "evidence_gap": {"missing": "G8ec51935의 원가 누락 1건, u-d9db11f14a2a 판매"}}) + "\n")
+                                    "evidence_gap": {"missing": missing}}) + "\n")
         with open(os.path.join(self.root, "logs", "market-kit.log"), "a") as f:
             f.write("10:00:02 [restock] G8ec51935 unit u-0a1b2c3d4e5f cost 4100\n")
         env = {"FAKE_MISSING": "G8ec51935의 원가 누락 1건", "FAKE_MEASUREMENT": "measure_r3 unit cost"}
@@ -406,7 +407,7 @@ class HarnessCycleTest(unittest.TestCase):
             rec = self.go("unsure-planned")
         self.assertEqual(rec["status"], "no_change_unsupported")
         self.assertTrue(any("G8ec51935" in p and "open since terra-1109-062902" in p for p in rec["problems"]), rec["problems"])
-        self.assertFalse(any("u-d9db11f14a2a" in p for p in rec["problems"]))      # no longer named: resolved, no ask
+        self.assertFalse(any("u-d9db11f14a2a" in p for p in rec["problems"]))      # named in one of the two only: not carried
         with open(sorted(os.path.join(self.root, "meta", "evidence", p)
                          for p in os.listdir(os.path.join(self.root, "meta", "evidence")))[-1], encoding="utf-8") as f:
             self.assertEqual(json.load(f)["open_gaps"]["G8ec51935"][0], "terra-1109-062902")
@@ -416,6 +417,37 @@ class HarnessCycleTest(unittest.TestCase):
         with mock.patch.dict(os.environ, env):
             rec = self.go("unsure-planned")
         self.assertEqual(rec["status"], "no_change", rec.get("problems"))
+
+    def test_a_carried_gap_is_not_closed_by_quoting_the_harness_records_or_by_dropping_it(self):
+        # independent review 0738 I3: meta/grades.jsonl repeats the gap sentence, so quoting it proves nothing
+        carried = {"G8ec51935": ["terra-1109-062902", "terra-1109-074022"]}
+        judge = {"metric": "m", "direction": "above", "threshold": "1", "min_sample": "1", "expires": "e", "undo": "u"}
+        gap = {"missing": "G8ec51935 원가", "measurement": "G8ec51935 unit cost", "judge_line": judge}
+        meta_quote = [{"ref": "meta/grades.jsonl:2", "excerpt": "G8ec51935의 원가 누락 1건"}]
+        self.assertTrue(mh.gap_problems({"evidence_gap": gap, "evidence": meta_quote}, [], carried))
+        log_quote = [{"ref": "logs/market-kit.log:3", "excerpt": "G8ec51935 unit u-0a1b2c3d4e5f cost 4100"}]
+        self.assertEqual(mh.gap_problems({"evidence_gap": gap, "evidence": log_quote}, [], carried), [])
+        dropped = {**gap, "missing": "원가 누락 1건", "measurement": "unit cost"}
+        self.assertIn("no longer listed", mh.gap_problems({"evidence_gap": dropped, "evidence": meta_quote}, [], carried)[0])
+        self.assertEqual(mh.gap_problems({"evidence_gap": dropped, "evidence": log_quote}, [], carried), [])
+
+    def test_another_jobs_staged_secret_or_pricing_edit_is_not_the_cycles(self):
+        # independent review 0738 I1/I2: a cycle that changed nothing read the whole index and pricing.json against HEAD
+        with open(os.path.join(self.root, "pricing.json"), "w") as f:
+            f.write('{"seller": {"refuse_buyers": []}}\n')
+        self.git("add", "pricing.json")
+        self.git("commit", "-qm", "pricing")
+        with open(os.path.join(self.root, "pricing.json"), "w") as f:
+            f.write('{"seller": {"refuse_buyers": ["x"]}}\n')                 # another job's owner-setting edit
+        with open(os.path.join(self.root, "other_secret.py"), "w") as f:
+            f.write("k = 'sk-or-v1-" + "b" * 30 + "'\n")
+        self.git("add", "other_secret.py")                                       # another job's staged file
+        rec = self.go("nothing")
+        self.assertEqual(rec["status"], "no_change", rec.get("problems"))
+        self.assertEqual(self.git("diff", "--cached", "--name-only"), "other_secret.py")    # left staged, untouched
+        rec = self.go("good")
+        self.assertEqual((rec["status"], rec["files"], rec["settings"]), ("running", ["changed.py"], []), rec.get("problems"))
+        self.assertIn("pricing.json", self.git("status", "--porcelain"))
 
     def test_the_schedule_survives_a_restart(self):
         grades = os.path.join(self.root, "meta", "grades.jsonl")
