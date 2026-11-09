@@ -209,6 +209,26 @@ class LearningTest(unittest.TestCase):
         self.assertEqual(rp.stats_from_rows(rows, paid, self.NOW)["shops"]["a|goods"]["n"], 10)
 
 
+    def test_recent_asks_skip_arm_b_talk_asks_and_prices(self):
+        # main 11/09 (food-ladder 0eb0313 I2 on this study): hopeless() reads recent_asks, and arm B's 0.8 talk asks and
+        # deal prices brought min(seen) under arm A's limit, so whether arm A's next order gave up moved with arm B.
+        # Opening quotes stay: they come before the ladder. Rows: orders.jsonl 11/09 14:18:39 ddolcom G19a70f63 (arm B,
+        # ask 1003680, then 810722 and the deal at 810722) and the same SKU in an arm A talk
+        import time as _time
+        import market_buyer as mb
+        now = _time.time()
+        b = {"study": "goods-ladder-1338", "arm": "B", "steps": [0.8, 0.9]}
+        rows = [{"ts": now - 60, "order": "o-d8579efbb686", "sku": "G19a70f63", "shop": "ddolcom",
+                 "asks": [1003680, 810722], "price": 810722.0, "limit": 1135794, "goods_ladder": b,
+                 "quotes": [{"shop": "ddolcom", "sku": "G19a70f63", "ask": 1003680, "lost": None}]},
+                {"ts": now - 60, "order": "o-a", "sku": "G19a70f63", "shop": "ddolcom", "asks": [1003680, 990000],
+                 "price": 990000.0, "limit": 1135794, "goods_ladder": dict(b, arm="A", steps=[0.9]), "quotes": []}]
+        with tempfile.TemporaryDirectory() as md:
+            os.makedirs(os.path.join(md, "measure"))
+            with open(os.path.join(md, "measure", "orders.jsonl"), "w") as f:
+                f.writelines(json.dumps(r) + "\n" for r in rows)
+            self.assertEqual(sorted(mb.recent_asks(md, now=now)["G19a70f63"]), [990000, 990000, 1003680, 1003680])
+
 class TradeMemoryTest(unittest.TestCase):
     """review 809 I3: arm B's deals went into memory/market_memory_r3.json with no arm, and rule_choose, gem_names,
     my_avg_price, overpriced and item_stats read their prices for both arms (prod 11/09 14:16-14:4x: 15 arm B deals)."""

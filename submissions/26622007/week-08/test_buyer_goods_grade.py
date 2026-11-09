@@ -324,5 +324,31 @@ class TradeMemory(unittest.TestCase):
         self.assertEqual(gg.hide_unmarked("/nonexistent", [None, 3, {"time": 5}]), frozenset())
 
 
+class RecentAsks(unittest.TestCase):
+    """main 11/09 (food-ladder 0eb0313 I2 on this study): hopeless() reads recent_asks; an arm B talk whose limit this
+    study lowered gives its opening quotes only, its talk asks and deal price came down with the lowered limit"""
+
+    def test_lowered_b_talk_asks_and_price_are_left_out(self):
+        # orders.jsonl 11/09 15:38:48 ddolcom Gc2f7811b: arm B, limit 164860 under arm A's 174054, ask 186480, deal
+        # at 164860; an arm B talk whose limit did not move (raised False) and an arm A talk are kept
+        import time as _time
+        now = _time.time()
+        b = {"study": "goods-grade-b-1033", "arm": "B", "grade": "B", "sku_chance": 0.0853, "grade_chance": 0.1746,
+             "raised": True, "limit_a": 174054}
+        rows = [{"ts": now - 60, "order": "o-0a38f86fbd01", "sku": "Gc2f7811b", "shop": "ddolcom", "asks": [186480],
+                 "price": 164860.0, "limit": 164860, "goods_ladder": None, "goods_grade": b,
+                 "quotes": [{"shop": "ddolcom", "sku": "Gc2f7811b", "ask": 186480, "lost": None}]},
+                {"ts": now - 60, "order": "o-same", "sku": "Gc2f7811b", "shop": "ddolcom", "asks": [180000],
+                 "price": 170000.0, "limit": 174054, "goods_grade": dict(b, raised=False)},
+                {"ts": now - 60, "order": "o-a", "sku": "Gc2f7811b", "shop": "ddolcom", "asks": [181000],
+                 "price": 172000.0, "limit": 174054, "goods_grade": dict(b, arm="A")}]
+        with tempfile.TemporaryDirectory() as md:
+            os.makedirs(os.path.join(md, "measure"))
+            with open(os.path.join(md, "measure", "orders.jsonl"), "w") as f:
+                f.writelines(json.dumps(r) + "\n" for r in rows)
+            self.assertEqual(sorted(mb.recent_asks(md, now=now)["Gc2f7811b"]),
+                             [170000, 172000, 180000, 181000, 186480])
+
+
 if __name__ == "__main__":
     unittest.main()
