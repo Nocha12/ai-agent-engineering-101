@@ -160,8 +160,9 @@ class WarrantyShortTest(unittest.TestCase):
                              "warranty 0 h, I buy goods only with 6 h", w)
 
     def test_finite_hours_as_before(self):
-        for w in (6, 6.0, 72, 73, 1e300):
+        for w in (6, 6.0, 72, 73, 1e300, json.loads("1" + "0" * 400)):     # an int past float range: no OverflowError
             self.assertIsNone(market_buyer.warranty_short({"warranty_hours": w}, self.G), w)
+        self.assertEqual(market_buyer.warranty_short({"warranty_hours": False}, self.G), "warranty 0 h, I buy goods only with 6 h")
         self.assertEqual(market_buyer.warranty_short({"warranty_hours": 5}, self.G), "warranty 5 h, I buy goods only with 6 h")
         self.assertEqual(market_buyer.warranty_short({"warranty_hours": 0.5}, self.G), "warranty 0.5 h, I buy goods only with 6 h")
         self.assertIsNone(market_buyer.warranty_short({"warranty_hours": float("inf")}, {"kind": "food"}))
@@ -336,6 +337,12 @@ class MainZeroTest(unittest.TestCase):
             self.assertFalse(o["passed_to_kit"], w)
             self.assertEqual(reserved, [], w)
             self.assertIn("warranty 0 h, I buy goods only with 6 h", " ".join(o["warnings"]))
+
+    def test_a_huge_int_receipt_is_paid_as_before(self):
+        big = json.loads("1" + "0" * 400)
+        on, off = self.main(self.ON, 6900, big), self.main(None, 6900, big)
+        self.assertIsNotNone(on[0]["receipt"])
+        self.assertEqual((on[0], on[1]), (off[0], off[1]))
 
     def test_switch_off_an_infinite_receipt_is_refused_like_a_0h_one(self):
         inf, zero = self.main(None, 5800, float("inf")), self.main(None, 5800, 0)

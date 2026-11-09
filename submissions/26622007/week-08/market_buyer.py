@@ -781,10 +781,13 @@ def short_warranty_quote(q, text, order, name):
 
 def warranty_short(rec, order):
     """Why a goods receipt cannot be paid for: its warranty is shorter than I require. None when it is fine. Hours that
-    are not a finite number (inf, nan, a bool) are 0: inf >= 6 skipped the short branch and its no_warranty block."""
+    are not a finite number (inf, nan, a bool) are 0: inf >= 6 skipped the short branch and its no_warranty block. An
+    int is kept as it was, past float range too (hard_limits.number would raise OverflowError on it)."""
     if order.get("kind") != "goods" or not isinstance(rec, dict):
         return None
-    w = rec.get("warranty_hours") if hard_limits.number(rec.get("warranty_hours")) else 0
+    w = rec.get("warranty_hours")
+    if isinstance(w, bool) or not isinstance(w, (int, float)) or (isinstance(w, float) and not hard_limits.number(w)):
+        w = 0
     need = hard_limits.BUYER_GOODS_WARRANTY_HOURS
     return None if w >= need else f"warranty {w} h, I buy goods only with {need} h"
 
