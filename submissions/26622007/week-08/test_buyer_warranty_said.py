@@ -124,8 +124,12 @@ class HoursForTest(unittest.TestCase):
         self.assertGreater(price, sw.cap(o["list_price"], 0, 0.03, s["S"]))
         with tempfile.TemporaryDirectory() as md:
             ok, rec, why = sw.receipt_check(s, md, {"warranty_hours": 0, "price": price}, o["list_price"], 0.03)
+            self.assertFalse(ok)
+            self.assertIn("no warranty", why)            # block_zero_nonfood on: refused before any price
+            ok, rec, why = sw.receipt_check(dict(s, block_zero=False), md, {"warranty_hours": 0, "price": price},
+                                            o["list_price"], 0.03)
         self.assertFalse(ok)
-        self.assertIn("p_max", why)
+        self.assertIn("p_max", why)                      # its rollback: over p_max(0 h), as before
 
     def test_stated_ok_readings(self):
         for text in ("72 h warranty", "warranty: 24 h", "six-hour full-refund warranty", "6 h warranty", "warranty of 3 days"):

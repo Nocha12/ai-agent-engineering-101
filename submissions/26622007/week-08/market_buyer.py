@@ -716,8 +716,15 @@ def shop_question_reply(text, order):
 def goods_text_refused(text, order):
     """Why a goods talk ends on this turn by code, with no harness call: the shop's text, on any turn, says the unit comes
     without a warranty, with a 0 h one, or only with one shorter than the 6 h I buy goods with (ask_read.no_warranty).
-    Goods without that warranty are never bought, so walking away here is the whole decision (11/07 09:15)."""
-    if order.get("kind") != "goods" or order.get("_sw") is not None or not ask_read.no_warranty(text):
+    Goods without that warranty are never bought, so walking away here is the whole decision (11/07 09:15).
+    buyer_short_warranty on: a short warranty is priced, so only a text that says none or 0 h ends the talk."""
+    if order.get("kind") != "goods":
+        return None
+    if order.get("_sw") is not None:
+        if buyer_short_warranty.block_zero(order["_sw"]) and warranty_hours_said(text) == 0:
+            return "the shop's text offers this goods unit with no warranty: goods are not bought without one"
+        return None
+    if not ask_read.no_warranty(text):
         return None
     return f"the shop's text offers this goods unit without a {hard_limits.BUYER_GOODS_WARRANTY_HOURS} h warranty"
 
@@ -725,6 +732,19 @@ def goods_text_refused(text, order):
 def quote_refused(text, order):
     """Why the shop's first answer already rules out a deal I would pay for (warranty or shelf life), else None."""
     return warranty_refused(text, order) or shelf_refused(text, order)
+
+
+def short_warranty_quote(q, text, order, name):
+    """buyer_short_warranty on, goods: the warranty a quote names (warranty_h, warranty_said_ok), and the quote refused
+    when the unit is expected with no warranty (buyer_short_warranty.zero_expected), so it is neither priced nor talked to."""
+    if order.get("_sw") is None or order.get("kind") != "goods":
+        return q
+    q["warranty_h"] = warranty_hours_said(text)
+    q["warranty_said_ok"] = buyer_warranty_said.stated_ok(text)
+    zero = buyer_short_warranty.zero_expected(order["_sw"], name, q)
+    if zero and not q.get("refused"):
+        q["refused"] = zero
+    return q
 
 
 def warranty_short(rec, order):
@@ -751,7 +771,12 @@ def short_terms(order, md, catalog, key, shop=None):
 
 def short_warranty_receipt(rec, order, md, catalog, key, chance, short, shop=None):
     """buyer_short_warranty on: None when this short-warranty receipt is within p_max(h) of its SKU and the hour's
-    exposure (order["_sw_buy"] then says so), else short with the reason added. Fails closed."""
+    exposure (order["_sw_buy"] then says so), else short with the reason added. Fails closed. A receipt with no warranty
+    hours over 0 is refused before any price or reservation (buyer_short_warranty.block_zero)."""
+    w = rec.get("warranty_hours")
+    if buyer_short_warranty.block_zero(order["_sw"]) and not (hard_limits.number(w) and w > 0):
+        order["_sw_buy"] = {"h": 0, "ok": False, "blocked": "no_warranty"}
+        return f"{short}; no warranty: goods are not bought without one"
     try:
         lp, by_grade = short_terms(order, md, catalog, rec.get("item") or key, shop)
         w = rec.get("warranty_hours")
@@ -867,9 +892,7 @@ def quote(shop, label, key, order, out, ctl=None):
         q = {"ask": ask, "ask_src": src if ask is not None or src == "text_rejected" else None,
              "text_ask_raw": raw, "text": text[:300], "url": iface["url"], "task": t,
              "refused": quote_refused(text, order)}
-        if order.get("_sw") is not None and order.get("kind") == "goods":
-            q["warranty_h"] = warranty_hours_said(text)
-            q["warranty_said_ok"] = buyer_warranty_said.stated_ok(text)
+        short_warranty_quote(q, text, order, shop["name"])
         lock = (ctl or {}).get("lock")
         # Journal IO must never own the decision/termination lock.
         aligned = buyer_quote_alignment.read_quote(
@@ -1902,7 +1925,7 @@ def main():
         MEMORY = "memory/test_memory.json" if test else "memory/market_memory.json"
     order = load_json(args.order, {}) if args.order else {}
     if isinstance(order, dict):
-        for k in ("_sw", "_sw_buy", "_sw_h_est", "_rank_pg", "_rank_selection", "_saved_floor"):  # internal state, never read in
+        for k in ("_sw", "_sw_buy", "_sw_h_est", "_sw_zero", "_rank_pg", "_rank_selection", "_saved_floor"):  # internal state, never read in
             order.pop(k, None)
     md = os.path.dirname(args.shops) or "."
     rk = buyer_rank_pg.state(md, order) if args.order else None
@@ -2108,7 +2131,13 @@ def main():
     band_base, band_pct = accept_percent(md, shop["name"], offer, chance, limit, args.budget) if r3 else (None, None)
     if r3 and (order.get("_saved_floor") or {}).get("band_off"):   # a deal over the floor would lower Saved
         band_base, band_pct = None, None
-    if sw_h is not None:      # a short warranty expected: p_max(h) is the ceiling, no accept band (owner 7955)
+    zero = buyer_short_warranty.zero_expected(order.get("_sw"), shop["name"], quotes.get(shop["name"])) \
+        if r3 and order.get("_sw") is not None else None
+    if zero:                  # no warranty expected: never bought, so no price and no talk (limit 0 below)
+        limit, band_base, band_pct = 0, None, None
+        order["_sw_zero"] = zero
+        log(f"[short-warranty] {shop['name']}: {zero}: no talk")
+    elif sw_h is not None:    # a short warranty expected: p_max(h) is the ceiling, no accept band (owner 7955)
         limit = min(limit, short_cap(offer, chance, order, shop["name"], quotes.get(shop["name"]), shop))
         band_base, band_pct = None, None
         order["_sw_h_est"] = sw_h
@@ -2338,7 +2367,10 @@ def main():
                                          "quote_alignment_applied": list(order.get("_quote_alignment_applied", [])),
                                          **({"short_warranty_buy": order["_sw_buy"]} if order.get("_sw_buy") else {}),
                                          **({"short_warranty": {"S": order["_sw"]["S"], "h_est": order.get("_sw_h_est"),
-                                                                "shops": order["_sw"]["hist"]}}
+                                                                "shops": order["_sw"]["hist"],
+                                                                "block_zero": buyer_short_warranty.block_zero(order["_sw"]),
+                                                                **({"zero": order["_sw_zero"]}
+                                                                   if order.get("_sw_zero") else {})}}
                                             if order.get("_sw") is not None else {}),
                                          **({"warranty_said": said} if said else {}),
                                          **({"rank_pg": buyer_rank_pg.metadata(order["_rank_pg"])}

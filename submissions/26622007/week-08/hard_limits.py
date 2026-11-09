@@ -147,7 +147,8 @@ MARKDOWN_REASONS = ("food_expiry", "stale_goods", "round_end")
 # 대표님 7955 승인 (2026-11-08 17:55, "일단 너가 찾은 수식으로 해"): 기대값 상한 내 예외. With the switch
 # .market/buyer_short_warranty.json on, a goods receipt with a shorter warranty is paid only at a price/list at or under
 # p_max(h) = 1 - (S + q) / (1 - b), q = b * max(0, 6 - h) / 6 (a break outside the warranty counts -1, agent.md 229),
-# under an hourly exposure cap (buyer_short_warranty.py). With the
+# under an hourly exposure cap (buyer_short_warranty.py). A receipt or quote with no warranty (0 h, none, unnamed) is
+# never bought with the switch on either (block_zero_nonfood, default on; 2026-11-09 decision ax-0h-nonfood-block). With the
 # switch off this 6 h holds exactly as before. The other lines here (bankruptcy, cash buffer, budget) are unchanged.
 BUYER_GOODS_WARRANTY_HOURS = 6
 SELLER_GOODS_WARRANTY_HOURS = 72

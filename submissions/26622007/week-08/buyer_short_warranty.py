@@ -22,9 +22,18 @@ shop also picks the unit, and a C unit breaks far more often than the SKU's mean
 here): only the grades whose own break chance keeps p <= p_max(h) are accepted (the kit checks the unit's certificate
 against accept.grades), and b is the worst of those.
 
-Switch: .market/buyer_short_warranty.json {"enabled": true, "cash_buffer": <won>}; missing, unreadable or anything
-else is off, and off is the old behaviour exactly (6 h or no deal). BUYER_SHORT_WARRANTY=0 in the environment is off
-too. Read at every order, so no restart either way.
+No warranty at all is never bought (fixed rule: no goods without a warranty; decision ax-0h-nonfood-block, 11/09 22:44).
+The switch used to price a unit expected with none at p_max(0 h) and pay a 0 h or unnamed receipt under it (9 such
+receipts passed to the kit 11/08-11/09 12:09). Now, before any price: a quote that says none / 0 h, or a shop whose last
+goods receipts were short with a quote that names no warranty hours (hist; zero_expected), is refused and no talk is
+started; a talk text that says none ends the talk; and receipt_check refuses a receipt whose warranty_hours is not a
+number over 0 before pricing or reserving. p_max(h) is not touched. A quote naming only 6 h or more
+(buyer_warranty_said.stated_ok) is never blocked by the history, in any arm; one naming 0 < h < 6 is priced as before.
+
+Switch: .market/buyer_short_warranty.json {"enabled": true, "cash_buffer": <won>, "block_zero_nonfood": true}; missing,
+unreadable or anything else is off, and off is the old behaviour exactly (6 h or no deal). BUYER_SHORT_WARRANTY=0 in the
+environment is off too. block_zero_nonfood is on unless it is JSON false (the rollback: the 11/08 behaviour exactly).
+Read at every order, so no restart either way.
 """
 import fcntl
 import json
@@ -46,6 +55,9 @@ BUFFER_MAX = 40000000           # a switch-file cash_buffer above this is cut to
 GRADES = ("A", "B", "C")
 EXPOSURE_FILE = "buyer_short_warranty_exposure.jsonl"    # one line per short-warranty deal passed to the kit
 ME = ("nocha12",)               # my buyer's name on the board, compared lowercased
+BLOCK_ZERO = "block_zero_nonfood"   # switch field; only JSON false turns the no-warranty block off
+ZERO_QUOTE = "no warranty expected: the quote says none"
+ZERO_HIST = "no warranty expected: the shop's last goods receipts were short"
 
 
 def config(md, env=None):
@@ -129,7 +141,30 @@ def state(md, order, now=None, env=None):
     buf = cfg.get("cash_buffer")
     return {"S": board_saved(md, now),
             "buffer": min(buf, BUFFER_MAX) if number(buf) and buf > 0 else hard_limits.STOP_BUYING_BELOW,
-            "hist": {}}
+            "hist": {}, "block_zero": cfg.get(BLOCK_ZERO) is not False}
+
+
+def block_zero(sw):
+    """Whether goods with no warranty are refused on this order: the switch on and block_zero not False (a state without
+    the key blocks: fails closed)."""
+    return isinstance(sw, dict) and sw.get("block_zero", True) is not False
+
+
+def zero_expected(sw, shop, quote=None):
+    """Why this shop's goods unit is expected with no warranty, so it is refused before any price, else None: the quote
+    says none or 0 h, or names no warranty hours (neither short nor 6 h or more) while the shop's last goods receipts
+    were short (hist, taken as 0 h). A quote naming 0 < h < 6 is priced as before (hours_for), and one naming only 6 h or
+    more is never blocked by the history (buyer_warranty_said, either arm or off)."""
+    if not block_zero(sw):
+        return None
+    q = quote or {}
+    w = q.get("warranty_h")
+    if number(w):
+        return ZERO_QUOTE if w <= 0 else None
+    if q.get("warranty_said_ok") is True:
+        return None
+    h = (sw.get("hist") or {}).get(shop)
+    return ZERO_HIST if number(h) and h <= 0 else None
 
 
 def hours_for(sw, shop, quote=None):
@@ -202,6 +237,8 @@ def receipt_check(sw, md, rec, list_price, b, order=None, now=None):
     b: worst() over the SKUs the shop may ship."""
     w = rec.get("warranty_hours")
     h = w if number(w) and w > 0 else 0
+    if block_zero(sw) and h <= 0:      # none, 0 h or not a number: never bought, before any price or reservation
+        return False, {"h": 0, "ok": False, "blocked": "no_warranty"}, "no warranty: goods are not bought without one"
     price = rec.get("price")
     b = min(b, 1.0) if number(b) and b >= 0 else FALLBACK_BREAK
     S = sw["S"]

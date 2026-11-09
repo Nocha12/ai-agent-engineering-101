@@ -81,8 +81,10 @@ class SwitchAndBoardTest(unittest.TestCase):
 
 
 class ReceiptCheckTest(unittest.TestCase):
+    """The p_max and exposure checks at 0 h, with block_zero_nonfood off (its rollback): on, a 0 h receipt is refused
+    before them (test_buyer_zero_block)."""
     def st(self, buffer=34000000):
-        return {"S": 0.2955, "buffer": buffer, "hist": {}}
+        return {"S": 0.2955, "buffer": buffer, "hist": {}, "block_zero": False}
 
     def test_within_p_max_is_paid_over_is_not(self):
         with tempfile.TemporaryDirectory() as d:
@@ -188,17 +190,21 @@ class BuyerHooksTest(unittest.TestCase):
         self.assertIsNone(sw.hours_for(on["_sw"], "t"))
 
     def test_text_refusals_off_unchanged_on_priced(self):
-        off, on = {"kind": "goods"}, {"kind": "goods", "_sw": {"S": .3, "buffer": 1e6, "hist": {}}}
+        off, on = {"kind": "goods"}, {"kind": "goods", "_sw": {"S": .3, "buffer": 1e6, "hist": {}, "block_zero": False}}
+        blocked = {"kind": "goods", "_sw": {"S": .3, "buffer": 1e6, "hist": {}}}     # block_zero_nonfood on (default)
         for text, h in (("Warranty: 0 hours. Price 9000", 0), ("three-hour full-refund warranty, 9000", 3),
                         ("sold without a warranty", 0), ("no warranty on this unit", 0)):
             self.assertIsNotNone(market_buyer.quote_refused(text, off) or market_buyer.goods_text_refused(text, off), text)
             self.assertIsNone(market_buyer.quote_refused(text, on), text)
             self.assertIsNone(market_buyer.goods_text_refused(text, on), text)
             self.assertEqual(market_buyer.warranty_hours_said(text), h, text)
+            # on: none / 0 h ends the talk, a short warranty is still priced
+            self.assertEqual(market_buyer.goods_text_refused(text, blocked) is not None, h == 0, text)
         self.assertIsNone(market_buyer.warranty_hours_said("6-hour full-refund warranty, 9000"))
         self.assertIsNone(market_buyer.warranty_hours_said("72 h warranty"))
         self.assertIsNone(market_buyer.warranty_hours_said("price 9000"))
 
+    @mock.patch.dict(market_buyer._SW_CTX, clear=True)       # no run context: the cap of the quoted SKU's own list
     def test_quote_ranking_uses_the_short_cap(self):
         o = {"sku": "G1", "list_price": 10000}
         on = {"kind": "goods", "_sw": {"S": .3, "buffer": 1e6, "hist": {}}}
@@ -212,7 +218,9 @@ class BuyerHooksTest(unittest.TestCase):
 
 
 class MainTest(unittest.TestCase):
-    """market_buyer.main end to end with a 0 h goods receipt: off withholds it as before, on pays it at p_max(0)."""
+    """market_buyer.main end to end with a 0 h goods receipt: off withholds it as before, on with block_zero_nonfood false
+    (its rollback) pays it at p_max(0); on by default refuses it (test_buyer_zero_block)."""
+    RB = {"block_zero_nonfood": False}
     CATALOG = {"G1": {"kind": "goods", "category": "가전>컵", "list_price": 10000}}
     ORDER = {"order": "o-1", "item": "컵", "budget": 16000, "acceptable": ["G1"], "kind": "goods", "category": "가전>컵"}
     CFG = {}
@@ -278,7 +286,7 @@ class MainTest(unittest.TestCase):
         self.assertIn("warranty 0 h", " ".join(o["warnings"]))
 
     def test_on_pays_a_0h_receipt_within_p_max_and_tells_the_kit(self):
-        out, calls, o = self.run_main({"enabled": True, "cash_buffer": 34000000}, 5800, 0)
+        out, calls, o = self.run_main({"enabled": True, "cash_buffer": 34000000, **self.RB}, 5800, 0)
         self.assertIsNotNone(out["receipt"])
         self.assertEqual(out["accept"], {"warranty_hours": 0, "grades": ["A", "B", "C"]})   # no ledger: b = p90 for all
         s = o["short_warranty_buy"]
@@ -291,14 +299,14 @@ class MainTest(unittest.TestCase):
         # G2 (list 7,000) is acceptable too: the kit may ship it at the agreed 6,000, 85.7% of its list
         self.CATALOG = dict(self.CATALOG, G2={"kind": "goods", "category": "가전>컵", "list_price": 7000})
         self.ORDER = dict(self.ORDER, acceptable=["G1", "G2"])
-        out, calls, o = self.run_main({"enabled": True}, 6000, 0)
+        out, calls, o = self.run_main({"enabled": True, **self.RB}, 6000, 0)
         self.assertIsNone(out["receipt"])
         self.assertEqual((o["short_warranty_buy"]["list"], o["short_warranty_buy"]["ok"]), (7000, False))
-        out, calls, o = self.run_main({"enabled": True}, 4000, 0)      # 57.1% of 7,000: under p_max(0) 58.1% at b .0837
+        out, calls, o = self.run_main({"enabled": True, **self.RB}, 4000, 0)      # 57.1% of 7,000: under p_max(0) 58.1% at b .0837
         self.assertIsNotNone(out["receipt"])
 
     def test_on_refuses_a_0h_receipt_over_p_max(self):
-        out, calls, o = self.run_main({"enabled": True}, 6900, 0)     # 69% of list: under the 6 h cap 70%, over p_max(0)
+        out, calls, o = self.run_main({"enabled": True, **self.RB}, 6900, 0)     # 69% of list: under the 6 h cap 70%, over p_max(0)
         self.assertIsNone(out["receipt"])
         self.assertEqual(out["accept"], {"warranty_hours": 6})
         self.assertFalse(o["short_warranty_buy"]["ok"])
@@ -319,8 +327,8 @@ class MainTest(unittest.TestCase):
             with open(os.path.join(d, "m.json"), "w") as f:
                 json.dump(mem, f)
             with open(os.path.join(d, "buyer_accept_band.json"), "w") as f:
-                json.dump({"enabled": True}, f)
-        on = self.run_main({"enabled": True}, 6000, 0, setup)
+                json.dump({"enabled": True, **self.RB}, f)
+        on = self.run_main({"enabled": True, **self.RB}, 6000, 0, setup)
         limit = on[1][0][0][2]
         self.assertEqual(limit, sw.cap(10000, 0, on[2]["short_warranty_buy"]["b"], 0.3))
         self.assertIsNone(on[1][0][1]["ceiling"])                    # no 105% band over p_max(h)
@@ -337,11 +345,11 @@ class MainTest(unittest.TestCase):
             with open(os.path.join(d, "m.json"), "w") as f:
                 json.dump(mem, f)
         self.CFG = {"max_price_share": 0.5}
-        on = self.run_main({"enabled": True}, 5000, 0, setup)
+        on = self.run_main({"enabled": True, **self.RB}, 5000, 0, setup)
         self.assertEqual(on[1][0][0][2], 5000)
         self.CFG = {}
         self.ORDER = dict(self.ORDER, budget=4000)
-        on = self.run_main({"enabled": True}, 4000, 0, setup)
+        on = self.run_main({"enabled": True, **self.RB}, 4000, 0, setup)
         self.assertEqual(on[1][0][0][2], 4000)
 
 
