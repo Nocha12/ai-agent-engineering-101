@@ -1,0 +1,2502 @@
+[
+{
+"time": "2026-11-09T09:04:26",
+"task": "f20d8c5d-bceb-42e3-a633-a628959b54a2",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11903,
+"arm": null,
+"asks": [
+11546
+],
+"offers": [
+11546
+],
+"warranty": null,
+"result": "agreed",
+"price": 11546
+},
+{
+"time": "2026-11-09T09:06:32",
+"task": "f20d8c5d-bceb-42e3-a633-a628959b54a2",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11903,
+"arm": null,
+"asks": [
+11546
+],
+"offers": [
+11546
+],
+"warranty": null,
+"result": "unpaid",
+"price": 11546
+},
+{
+"time": "2026-11-09T09:07:00",
+"task": "704bfd31-502e-466b-a3be-0de07a6e2436",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11903,
+"arm": null,
+"asks": [
+11546,
+11353,
+10669
+],
+"offers": [
+7500,
+9000,
+10669
+],
+"warranty": null,
+"result": "agreed",
+"price": 10669
+},
+{
+"time": "2026-11-09T09:09:02",
+"task": "704bfd31-502e-466b-a3be-0de07a6e2436",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11903,
+"arm": null,
+"asks": [
+11546,
+11353,
+10669
+],
+"offers": [
+7500,
+9000,
+10669
+],
+"warranty": null,
+"result": "unpaid",
+"price": 10669
+},
+{
+"time": "2026-11-09T09:14:58",
+"task": "46f4db77-caec-450e-8039-5bdbaa0d7dc1",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11903,
+"arm": null,
+"asks": [
+11546
+],
+"offers": [
+11546
+],
+"warranty": null,
+"result": "agreed",
+"price": 11546
+},
+{
+"time": "2026-11-09T09:17:05",
+"task": "46f4db77-caec-450e-8039-5bdbaa0d7dc1",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11903,
+"arm": null,
+"asks": [
+11546
+],
+"offers": [
+11546
+],
+"warranty": null,
+"result": "unpaid",
+"price": 11546
+},
+{
+"time": "2026-11-09T09:31:08",
+"task": "c83bc112-ef88-48a8-a032-bb4e01e7a595",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11903,
+"arm": null,
+"asks": [
+11546,
+11353,
+10669
+],
+"offers": [
+8500,
+9200,
+10669
+],
+"warranty": null,
+"result": "agreed",
+"price": 10669
+},
+{
+"time": "2026-11-09T09:33:10",
+"task": "c83bc112-ef88-48a8-a032-bb4e01e7a595",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11903,
+"arm": null,
+"asks": [
+11546,
+11353,
+10669
+],
+"offers": [
+8500,
+9200,
+10669
+],
+"warranty": null,
+"result": "unpaid",
+"price": 10669
+},
+{
+"time": "2026-11-09T09:39:20",
+"task": "12bf22f0-57ea-4fb2-a539-6dc961d9511c",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11900,
+"arm": null,
+"asks": [
+11543,
+11350
+],
+"offers": [
+8500,
+11350
+],
+"warranty": null,
+"result": "agreed",
+"price": 11350
+},
+{
+"time": "2026-11-09T09:41:21",
+"task": "12bf22f0-57ea-4fb2-a539-6dc961d9511c",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11900,
+"arm": null,
+"asks": [
+11543,
+11350
+],
+"offers": [
+8500,
+11350
+],
+"warranty": null,
+"result": "unpaid",
+"price": 11350
+},
+{
+"time": "2026-11-09T09:41:27",
+"task": "a18c2e90-f4ac-455c-bfe4-84cd2215318e",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11900,
+"arm": null,
+"asks": [
+11543
+],
+"offers": [
+11543
+],
+"warranty": null,
+"result": "agreed",
+"price": 11543
+},
+{
+"time": "2026-11-09T09:43:27",
+"task": "a18c2e90-f4ac-455c-bfe4-84cd2215318e",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11900,
+"arm": null,
+"asks": [
+11543
+],
+"offers": [
+11543
+],
+"warranty": null,
+"result": "unpaid",
+"price": 11543
+},
+{
+"time": "2026-11-09T09:43:40",
+"task": "672c8d11-9e94-43b5-aa90-f386d2a8db80",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11900,
+"arm": null,
+"asks": [
+11543,
+11350
+],
+"offers": [
+8000,
+11350
+],
+"warranty": null,
+"result": "agreed",
+"price": 11350
+},
+{
+"time": "2026-11-09T09:45:54",
+"task": "672c8d11-9e94-43b5-aa90-f386d2a8db80",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11900,
+"arm": null,
+"asks": [
+11543,
+11350
+],
+"offers": [
+8000,
+11350
+],
+"warranty": null,
+"result": "unpaid",
+"price": 11350
+},
+{
+"time": "2026-11-09T09:46:57",
+"task": "27796522-fa78-4160-a308-eb45aef3f00b",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11900,
+"arm": null,
+"asks": [
+11543,
+11350
+],
+"offers": [
+8000,
+11350
+],
+"warranty": null,
+"result": "agreed",
+"price": 11350
+},
+{
+"time": "2026-11-09T09:49:08",
+"task": "27796522-fa78-4160-a308-eb45aef3f00b",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11900,
+"arm": null,
+"asks": [
+11543,
+11350
+],
+"offers": [
+8000,
+11350
+],
+"warranty": null,
+"result": "unpaid",
+"price": 11350
+},
+{
+"time": "2026-11-09T09:49:45",
+"task": "9f71203d-0409-4398-a8df-bd12e96b78f4",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11896,
+"arm": null,
+"asks": [
+11539
+],
+"offers": [
+11539
+],
+"warranty": null,
+"result": "agreed",
+"price": 11539
+},
+{
+"time": "2026-11-09T09:52:06",
+"task": "9f71203d-0409-4398-a8df-bd12e96b78f4",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11896,
+"arm": null,
+"asks": [
+11539
+],
+"offers": [
+11539
+],
+"warranty": null,
+"result": "unpaid",
+"price": 11539
+},
+{
+"time": "2026-11-09T09:52:51",
+"task": "831bcc76-5c19-4b2e-a0fe-6c0129744c53",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11900,
+"arm": null,
+"asks": [
+11543,
+11350
+],
+"offers": [
+8500,
+11350
+],
+"warranty": null,
+"result": "agreed",
+"price": 11350
+},
+{
+"time": "2026-11-09T09:54:52",
+"task": "831bcc76-5c19-4b2e-a0fe-6c0129744c53",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11900,
+"arm": null,
+"asks": [
+11543,
+11350
+],
+"offers": [
+8500,
+11350
+],
+"warranty": null,
+"result": "unpaid",
+"price": 11350
+},
+{
+"time": "2026-11-09T09:55:34",
+"task": "809fa7f0-9941-422b-8f3b-14f651f0f726",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11873,
+"arm": null,
+"asks": [
+11517,
+11326
+],
+"offers": [
+8500,
+11326
+],
+"warranty": null,
+"result": "agreed",
+"price": 11326
+},
+{
+"time": "2026-11-09T09:57:37",
+"task": "809fa7f0-9941-422b-8f3b-14f651f0f726",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11873,
+"arm": null,
+"asks": [
+11517,
+11326
+],
+"offers": [
+8500,
+11326
+],
+"warranty": null,
+"result": "unpaid",
+"price": 11326
+},
+{
+"time": "2026-11-09T09:58:13",
+"task": "e0b44acd-aa9d-42c3-9473-86da5ca7c1ff",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11896,
+"arm": null,
+"asks": [
+11539
+],
+"offers": [
+11539
+],
+"warranty": null,
+"result": "agreed",
+"price": 11539
+},
+{
+"time": "2026-11-09T10:00:15",
+"task": "e0b44acd-aa9d-42c3-9473-86da5ca7c1ff",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11896,
+"arm": null,
+"asks": [
+11539
+],
+"offers": [
+11539
+],
+"warranty": null,
+"result": "unpaid",
+"price": 11539
+},
+{
+"time": "2026-11-09T10:04:52",
+"task": "33766362-01cf-4fe1-832f-aec07ee64b68",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11850,
+"arm": null,
+"asks": [
+11494,
+11304
+],
+"offers": [
+8000,
+11304
+],
+"warranty": null,
+"result": "agreed",
+"price": 11304
+},
+{
+"time": "2026-11-09T10:06:53",
+"task": "33766362-01cf-4fe1-832f-aec07ee64b68",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11850,
+"arm": null,
+"asks": [
+11494,
+11304
+],
+"offers": [
+8000,
+11304
+],
+"warranty": null,
+"result": "unpaid",
+"price": 11304
+},
+{
+"time": "2026-11-09T10:08:11",
+"task": "65ac01d0-daaa-4eb0-8705-e45e707de5b4",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11850,
+"arm": null,
+"asks": [
+11494,
+11304
+],
+"offers": [
+8000,
+11304
+],
+"warranty": null,
+"result": "agreed",
+"price": 11304
+},
+{
+"time": "2026-11-09T10:10:15",
+"task": "65ac01d0-daaa-4eb0-8705-e45e707de5b4",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11850,
+"arm": null,
+"asks": [
+11494,
+11304
+],
+"offers": [
+8000,
+11304
+],
+"warranty": null,
+"result": "unpaid",
+"price": 11304
+},
+{
+"time": "2026-11-09T10:16:11",
+"task": "49cfafd2-6c49-4f50-9fd9-708d1b8b52ca",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11838,
+"arm": null,
+"asks": [
+11483
+],
+"offers": [
+11483
+],
+"warranty": null,
+"result": "agreed",
+"price": 11483
+},
+{
+"time": "2026-11-09T10:18:17",
+"task": "49cfafd2-6c49-4f50-9fd9-708d1b8b52ca",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11838,
+"arm": null,
+"asks": [
+11483
+],
+"offers": [
+11483
+],
+"warranty": null,
+"result": "unpaid",
+"price": 11483
+},
+{
+"time": "2026-11-09T10:18:52",
+"task": "d21c3761-aaf1-4af3-97d9-1cf39fb837f3",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11826,
+"arm": null,
+"asks": [
+11471,
+11283
+],
+"offers": [
+8500,
+11283
+],
+"warranty": null,
+"result": "agreed",
+"price": 11283
+},
+{
+"time": "2026-11-09T10:20:54",
+"task": "d21c3761-aaf1-4af3-97d9-1cf39fb837f3",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11826,
+"arm": null,
+"asks": [
+11471,
+11283
+],
+"offers": [
+8500,
+11283
+],
+"warranty": null,
+"result": "unpaid",
+"price": 11283
+},
+{
+"time": "2026-11-09T10:21:07",
+"task": "59db6d7d-6540-435a-a41c-9d85c0de4779",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11826,
+"arm": null,
+"asks": [
+11471,
+11283
+],
+"offers": [
+8600,
+11283
+],
+"warranty": null,
+"result": "agreed",
+"price": 11283
+},
+{
+"time": "2026-11-09T10:23:09",
+"task": "59db6d7d-6540-435a-a41c-9d85c0de4779",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11826,
+"arm": null,
+"asks": [
+11471,
+11283
+],
+"offers": [
+8600,
+11283
+],
+"warranty": null,
+"result": "unpaid",
+"price": 11283
+},
+{
+"time": "2026-11-09T10:23:19",
+"task": "1f92cfb5-fd4d-44b5-86db-b074117140d4",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11640,
+"arm": null,
+"asks": [
+11291,
+11116
+],
+"offers": [
+8500,
+11116
+],
+"warranty": null,
+"result": "agreed",
+"price": 11116
+},
+{
+"time": "2026-11-09T10:25:22",
+"task": "1f92cfb5-fd4d-44b5-86db-b074117140d4",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11640,
+"arm": null,
+"asks": [
+11291,
+11116
+],
+"offers": [
+8500,
+11116
+],
+"warranty": null,
+"result": "unpaid",
+"price": 11116
+},
+{
+"time": "2026-11-09T10:25:56",
+"task": "035b67ab-c68c-4a39-834b-46f051d82dcd",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11640,
+"arm": null,
+"asks": [
+11291,
+11116
+],
+"offers": [
+8500,
+11116
+],
+"warranty": null,
+"result": "agreed",
+"price": 11116
+},
+{
+"time": "2026-11-09T10:28:01",
+"task": "035b67ab-c68c-4a39-834b-46f051d82dcd",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11640,
+"arm": null,
+"asks": [
+11291,
+11116
+],
+"offers": [
+8500,
+11116
+],
+"warranty": null,
+"result": "unpaid",
+"price": 11116
+},
+{
+"time": "2026-11-09T10:28:17",
+"task": "12604634-8ab0-4acb-b9a9-9259c84cd37f",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11640,
+"arm": null,
+"asks": [
+11291,
+11116
+],
+"offers": [
+8500,
+11116
+],
+"warranty": null,
+"result": "agreed",
+"price": 11116
+},
+{
+"time": "2026-11-09T10:30:26",
+"task": "12604634-8ab0-4acb-b9a9-9259c84cd37f",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11640,
+"arm": null,
+"asks": [
+11291,
+11116
+],
+"offers": [
+8500,
+11116
+],
+"warranty": null,
+"result": "unpaid",
+"price": 11116
+},
+{
+"time": "2026-11-09T10:30:47",
+"task": "b8857d43-e58c-4f9c-abb4-72f84359970c",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11640,
+"arm": null,
+"asks": [
+11291,
+11116
+],
+"offers": [
+8000,
+11116
+],
+"warranty": null,
+"result": "agreed",
+"price": 11116
+},
+{
+"time": "2026-11-09T10:32:47",
+"task": "b8857d43-e58c-4f9c-abb4-72f84359970c",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11640,
+"arm": null,
+"asks": [
+11291,
+11116
+],
+"offers": [
+8000,
+11116
+],
+"warranty": null,
+"result": "unpaid",
+"price": 11116
+},
+{
+"time": "2026-11-09T10:33:54",
+"task": "6753fab3-808b-476d-860b-75caeeb0a35b",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11640,
+"arm": null,
+"asks": [
+11291,
+11116,
+10484
+],
+"offers": [
+7500,
+9000,
+10484
+],
+"warranty": null,
+"result": "agreed",
+"price": 10484
+},
+{
+"time": "2026-11-09T10:35:55",
+"task": "6753fab3-808b-476d-860b-75caeeb0a35b",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11640,
+"arm": null,
+"asks": [
+11291,
+11116,
+10484
+],
+"offers": [
+7500,
+9000,
+10484
+],
+"warranty": null,
+"result": "unpaid",
+"price": 10484
+},
+{
+"time": "2026-11-09T10:37:12",
+"task": "c7dce06f-557f-43a4-89a8-c50ef22bf3c5",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11607,
+"arm": null,
+"asks": [
+11259,
+11086
+],
+"offers": [
+8500,
+11086
+],
+"warranty": null,
+"result": "agreed",
+"price": 11086
+},
+{
+"time": "2026-11-09T10:39:14",
+"task": "c7dce06f-557f-43a4-89a8-c50ef22bf3c5",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11607,
+"arm": null,
+"asks": [
+11259,
+11086
+],
+"offers": [
+8500,
+11086
+],
+"warranty": null,
+"result": "unpaid",
+"price": 11086
+},
+{
+"time": "2026-11-09T10:39:46",
+"task": "bc0517a0-6057-4e14-9866-c31a1d4a8dde",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11607,
+"arm": null,
+"asks": [
+11259,
+11086
+],
+"offers": [
+8000,
+11086
+],
+"warranty": null,
+"result": "agreed",
+"price": 11086
+},
+{
+"time": "2026-11-09T10:41:47",
+"task": "bc0517a0-6057-4e14-9866-c31a1d4a8dde",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11607,
+"arm": null,
+"asks": [
+11259,
+11086
+],
+"offers": [
+8000,
+11086
+],
+"warranty": null,
+"result": "unpaid",
+"price": 11086
+},
+{
+"time": "2026-11-09T10:59:05",
+"task": "0775d2ef-fb8c-4739-90de-b375161dbeb5",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11546,
+"arm": null,
+"asks": [
+11200,
+11031
+],
+"offers": [
+7500,
+11031
+],
+"warranty": null,
+"result": "agreed",
+"price": 11031
+},
+{
+"time": "2026-11-09T11:01:11",
+"task": "0775d2ef-fb8c-4739-90de-b375161dbeb5",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11546,
+"arm": null,
+"asks": [
+11200,
+11031
+],
+"offers": [
+7500,
+11031
+],
+"warranty": null,
+"result": "unpaid",
+"price": 11031
+},
+{
+"time": "2026-11-09T11:06:24",
+"task": "4e42321d-d4f1-4e53-b10d-841798996dc8",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11546,
+"arm": null,
+"asks": [
+11200
+],
+"offers": [
+11200
+],
+"warranty": null,
+"result": "agreed",
+"price": 11200
+},
+{
+"time": "2026-11-09T11:08:25",
+"task": "4e42321d-d4f1-4e53-b10d-841798996dc8",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11546,
+"arm": null,
+"asks": [
+11200
+],
+"offers": [
+11200
+],
+"warranty": null,
+"result": "unpaid",
+"price": 11200
+},
+{
+"time": "2026-11-09T11:09:34",
+"task": "cef0962d-970f-43d1-b628-d93818a3752d",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11546,
+"arm": null,
+"asks": [
+11200,
+11031
+],
+"offers": [
+6000,
+11031
+],
+"warranty": null,
+"result": "agreed",
+"price": 11031
+},
+{
+"time": "2026-11-09T11:11:42",
+"task": "cef0962d-970f-43d1-b628-d93818a3752d",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 8135,
+"open": 11546,
+"arm": null,
+"asks": [
+11200,
+11031
+],
+"offers": [
+6000,
+11031
+],
+"warranty": null,
+"result": "unpaid",
+"price": 11031
+},
+{
+"time": "2026-11-09T11:12:23",
+"task": "78c33877-4fe0-4295-a5ff-cf1d46a4fadf",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 7938,
+"open": 11296,
+"arm": null,
+"asks": [
+10957
+],
+"offers": [
+10957
+],
+"warranty": null,
+"result": "agreed",
+"price": 10957
+},
+{
+"time": "2026-11-09T11:14:27",
+"task": "78c33877-4fe0-4295-a5ff-cf1d46a4fadf",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 7938,
+"open": 11296,
+"arm": null,
+"asks": [
+10957
+],
+"offers": [
+10957
+],
+"warranty": null,
+"result": "unpaid",
+"price": 10957
+},
+{
+"time": "2026-11-09T11:24:32",
+"task": "c10f3029-417c-4825-9e3b-2ab9a7d9b39a",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 7163,
+"open": 10194,
+"arm": null,
+"asks": [
+9888,
+9737
+],
+"offers": [
+5500,
+9737
+],
+"warranty": null,
+"result": "agreed",
+"price": 9737
+},
+{
+"time": "2026-11-09T11:26:34",
+"task": "c10f3029-417c-4825-9e3b-2ab9a7d9b39a",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 7163,
+"open": 10194,
+"arm": null,
+"asks": [
+9888,
+9737
+],
+"offers": [
+5500,
+9737
+],
+"warranty": null,
+"result": "unpaid",
+"price": 9737
+},
+{
+"time": "2026-11-09T11:26:46",
+"task": "29e6904c-51f3-4cba-af27-73fd01b58f55",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 7015,
+"open": 9984,
+"arm": null,
+"asks": [
+9684
+],
+"offers": [
+9684
+],
+"warranty": null,
+"result": "agreed",
+"price": 9684
+},
+{
+"time": "2026-11-09T11:28:54",
+"task": "29e6904c-51f3-4cba-af27-73fd01b58f55",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 7015,
+"open": 9984,
+"arm": null,
+"asks": [
+9684
+],
+"offers": [
+9684
+],
+"warranty": null,
+"result": "unpaid",
+"price": 9684
+},
+{
+"time": "2026-11-09T11:29:24",
+"task": "c08caf44-2ced-490c-9904-63fc4fcb632d",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 6848,
+"open": 9746,
+"arm": null,
+"asks": [
+9454
+],
+"offers": [
+9454
+],
+"warranty": null,
+"result": "agreed",
+"price": 9454
+},
+{
+"time": "2026-11-09T11:31:25",
+"task": "c08caf44-2ced-490c-9904-63fc4fcb632d",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 6848,
+"open": 9746,
+"arm": null,
+"asks": [
+9454
+],
+"offers": [
+9454
+],
+"warranty": null,
+"result": "unpaid",
+"price": 9454
+},
+{
+"time": "2026-11-09T11:31:36",
+"task": "6dc466cc-59eb-42a5-bcd0-95caee1d52ed",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 6709,
+"open": 9548,
+"arm": null,
+"asks": [
+9262,
+9120
+],
+"offers": [
+6500,
+9120
+],
+"warranty": null,
+"result": "agreed",
+"price": 9120
+},
+{
+"time": "2026-11-09T11:33:37",
+"task": "6dc466cc-59eb-42a5-bcd0-95caee1d52ed",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 6709,
+"open": 9548,
+"arm": null,
+"asks": [
+9262,
+9120
+],
+"offers": [
+6500,
+9120
+],
+"warranty": null,
+"result": "unpaid",
+"price": 9120
+},
+{
+"time": "2026-11-09T11:36:11",
+"task": "b0cb70d6-870a-4f78-8b91-e443a4307c51",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 6417,
+"open": 9133,
+"arm": null,
+"asks": [
+8859,
+8724
+],
+"offers": [
+6000,
+8724
+],
+"warranty": null,
+"result": "agreed",
+"price": 8724
+},
+{
+"time": "2026-11-09T11:38:17",
+"task": "b0cb70d6-870a-4f78-8b91-e443a4307c51",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 6417,
+"open": 9133,
+"arm": null,
+"asks": [
+8859,
+8724
+],
+"offers": [
+6000,
+8724
+],
+"warranty": null,
+"result": "unpaid",
+"price": 8724
+},
+{
+"time": "2026-11-09T11:38:48",
+"task": "85309d8e-1ce4-4422-8e33-6a33d0928060",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 6242,
+"open": 8883,
+"arm": null,
+"asks": [
+8617
+],
+"offers": [
+8617
+],
+"warranty": null,
+"result": "agreed",
+"price": 8617
+},
+{
+"time": "2026-11-09T11:40:51",
+"task": "85309d8e-1ce4-4422-8e33-6a33d0928060",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 6242,
+"open": 8883,
+"arm": null,
+"asks": [
+8617
+],
+"offers": [
+8617
+],
+"warranty": null,
+"result": "unpaid",
+"price": 8617
+},
+{
+"time": "2026-11-09T11:47:07",
+"task": "fa75b466-9e04-4373-9d77-94cdda41736f",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 5709,
+"open": 8125,
+"arm": null,
+"asks": [
+7881
+],
+"offers": [
+7881
+],
+"warranty": null,
+"result": "agreed",
+"price": 7881
+},
+{
+"time": "2026-11-09T11:49:11",
+"task": "fa75b466-9e04-4373-9d77-94cdda41736f",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 5709,
+"open": 8125,
+"arm": null,
+"asks": [
+7881
+],
+"offers": [
+7881
+],
+"warranty": null,
+"result": "unpaid",
+"price": 7881
+},
+{
+"time": "2026-11-09T11:50:03",
+"task": "0e6d0e25-3c96-4071-9e4b-73d40578065c",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 5516,
+"open": 7849,
+"arm": null,
+"asks": [
+7614
+],
+"offers": [
+7614
+],
+"warranty": null,
+"result": "agreed",
+"price": 7614
+},
+{
+"time": "2026-11-09T11:52:10",
+"task": "0e6d0e25-3c96-4071-9e4b-73d40578065c",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 5516,
+"open": 7849,
+"arm": null,
+"asks": [
+7614
+],
+"offers": [
+7614
+],
+"warranty": null,
+"result": "unpaid",
+"price": 7614
+},
+{
+"time": "2026-11-09T11:52:56",
+"task": "81ab2388-8dd4-4789-b197-056386433bfa",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 5343,
+"open": 7603,
+"arm": null,
+"asks": [
+7375,
+7262
+],
+"offers": [
+5000,
+7262
+],
+"warranty": null,
+"result": "agreed",
+"price": 7262
+},
+{
+"time": "2026-11-09T11:54:57",
+"task": "81ab2388-8dd4-4789-b197-056386433bfa",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 5343,
+"open": 7603,
+"arm": null,
+"asks": [
+7375,
+7262
+],
+"offers": [
+5000,
+7262
+],
+"warranty": null,
+"result": "unpaid",
+"price": 7262
+},
+{
+"time": "2026-11-09T11:55:39",
+"task": "222d3ff2-c397-403f-bb3e-7b4a1bb845b3",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 5157,
+"open": 7339,
+"arm": null,
+"asks": [
+7119
+],
+"offers": [
+7119
+],
+"warranty": null,
+"result": "agreed",
+"price": 7119
+},
+{
+"time": "2026-11-09T11:57:47",
+"task": "222d3ff2-c397-403f-bb3e-7b4a1bb845b3",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 5157,
+"open": 7339,
+"arm": null,
+"asks": [
+7119
+],
+"offers": [
+7119
+],
+"warranty": null,
+"result": "unpaid",
+"price": 7119
+},
+{
+"time": "2026-11-09T11:58:34",
+"task": "7ab50d63-5377-4899-802e-4add9507757b",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 4974,
+"open": 7078,
+"arm": null,
+"asks": [
+6866
+],
+"offers": [
+6866
+],
+"warranty": null,
+"result": "agreed",
+"price": 6866
+},
+{
+"time": "2026-11-09T12:00:37",
+"task": "7ab50d63-5377-4899-802e-4add9507757b",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 4974,
+"open": 7078,
+"arm": null,
+"asks": [
+6866
+],
+"offers": [
+6866
+],
+"warranty": null,
+"result": "unpaid",
+"price": 6866
+},
+{
+"time": "2026-11-09T12:08:10",
+"task": "b5130f73-4daf-4544-b2d4-dda6b70a277c",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 4360,
+"open": 6204,
+"arm": null,
+"asks": [
+6018
+],
+"offers": [
+6018
+],
+"warranty": null,
+"result": "agreed",
+"price": 6018
+},
+{
+"time": "2026-11-09T12:10:11",
+"task": "b5130f73-4daf-4544-b2d4-dda6b70a277c",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 4360,
+"open": 6204,
+"arm": null,
+"asks": [
+6018
+],
+"offers": [
+6018
+],
+"warranty": null,
+"result": "unpaid",
+"price": 6018
+},
+{
+"time": "2026-11-09T12:10:30",
+"task": "eaf9f5a4-5f1d-4dbb-85ae-ad9f9a684848",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 4212,
+"open": 5994,
+"arm": null,
+"asks": [
+5814
+],
+"offers": [
+5814
+],
+"warranty": null,
+"result": "agreed",
+"price": 5814
+},
+{
+"time": "2026-11-09T12:12:35",
+"task": "eaf9f5a4-5f1d-4dbb-85ae-ad9f9a684848",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 4212,
+"open": 5994,
+"arm": null,
+"asks": [
+5814
+],
+"offers": [
+5814
+],
+"warranty": null,
+"result": "unpaid",
+"price": 5814
+},
+{
+"time": "2026-11-09T12:18:44",
+"task": "0971051a-a712-4e1a-87e6-a451d6cb5959",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 3689,
+"open": 5249,
+"arm": null,
+"asks": [
+5092,
+5014
+],
+"offers": [
+3200,
+5014
+],
+"warranty": null,
+"result": "agreed",
+"price": 5014
+},
+{
+"time": "2026-11-09T12:20:44",
+"task": "0971051a-a712-4e1a-87e6-a451d6cb5959",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 3689,
+"open": 5249,
+"arm": null,
+"asks": [
+5092,
+5014
+],
+"offers": [
+3200,
+5014
+],
+"warranty": null,
+"result": "unpaid",
+"price": 5014
+},
+{
+"time": "2026-11-09T12:24:18",
+"task": "e1f02bb5-d2e4-42a6-8643-3b482ffe4314",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 3323,
+"open": 4728,
+"arm": null,
+"asks": [
+4586
+],
+"offers": [
+4586
+],
+"warranty": null,
+"result": "agreed",
+"price": 4586
+},
+{
+"time": "2026-11-09T12:26:18",
+"task": "e1f02bb5-d2e4-42a6-8643-3b482ffe4314",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 3323,
+"open": 4728,
+"arm": null,
+"asks": [
+4586
+],
+"offers": [
+4586
+],
+"warranty": null,
+"result": "unpaid",
+"price": 4586
+},
+{
+"time": "2026-11-09T12:29:04",
+"task": "928956af-b094-4c80-b52a-9121a1f25a54",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 3024,
+"open": 4285,
+"arm": null,
+"asks": [
+4156,
+4094
+],
+"offers": [
+3000,
+4094
+],
+"warranty": null,
+"result": "agreed",
+"price": 4094
+},
+{
+"time": "2026-11-09T12:31:04",
+"task": "928956af-b094-4c80-b52a-9121a1f25a54",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 3024,
+"open": 4285,
+"arm": null,
+"asks": [
+4156,
+4094
+],
+"offers": [
+3000,
+4094
+],
+"warranty": null,
+"result": "unpaid",
+"price": 4094
+},
+{
+"time": "2026-11-09T12:31:28",
+"task": "e1f86c46-2268-41a0-a900-9af7bba49578",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 2863,
+"open": 4057,
+"arm": null,
+"asks": [
+3935
+],
+"offers": [
+3935
+],
+"warranty": null,
+"result": "agreed",
+"price": 3935
+},
+{
+"time": "2026-11-09T12:33:28",
+"task": "e1f86c46-2268-41a0-a900-9af7bba49578",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 2863,
+"open": 4057,
+"arm": null,
+"asks": [
+3935
+],
+"offers": [
+3935
+],
+"warranty": null,
+"result": "unpaid",
+"price": 3935
+},
+{
+"time": "2026-11-09T12:34:28",
+"task": "c5794811-44ba-4a3b-a217-b391b27e3c4c",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 2690,
+"open": 3790,
+"arm": null,
+"asks": [
+3676,
+3622
+],
+"offers": [
+2800,
+3622
+],
+"warranty": null,
+"result": "agreed",
+"price": 3622
+},
+{
+"time": "2026-11-09T12:36:29",
+"task": "c5794811-44ba-4a3b-a217-b391b27e3c4c",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 2690,
+"open": 3790,
+"arm": null,
+"asks": [
+3676,
+3622
+],
+"offers": [
+2800,
+3622
+],
+"warranty": null,
+"result": "unpaid",
+"price": 3622
+},
+{
+"time": "2026-11-09T12:36:47",
+"task": "0e4be328-8f80-4828-9c65-43c9ff39467b",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 2690,
+"open": 3572,
+"arm": null,
+"asks": [
+3465
+],
+"offers": [
+3465
+],
+"warranty": null,
+"result": "agreed",
+"price": 3465
+},
+{
+"time": "2026-11-09T12:38:48",
+"task": "0e4be328-8f80-4828-9c65-43c9ff39467b",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 2690,
+"open": 3572,
+"arm": null,
+"asks": [
+3465
+],
+"offers": [
+3465
+],
+"warranty": null,
+"result": "unpaid",
+"price": 3465
+},
+{
+"time": "2026-11-09T12:41:41",
+"task": "f31fb3d0-be84-4ad2-a89d-2359c5eb033f",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 2690,
+"open": 3130,
+"arm": null,
+"asks": [
+3036
+],
+"offers": [
+3036
+],
+"warranty": null,
+"result": "agreed",
+"price": 3036
+},
+{
+"time": "2026-11-09T12:44:09",
+"task": "f31fb3d0-be84-4ad2-a89d-2359c5eb033f",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 2690,
+"open": 3130,
+"arm": null,
+"asks": [
+3036
+],
+"offers": [
+3036
+],
+"warranty": null,
+"result": "unpaid",
+"price": 3036
+},
+{
+"time": "2026-11-09T12:46:33",
+"task": "d4f326e5-1006-4aa5-bbf0-57e8b83a1b33",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 2690,
+"open": 2690,
+"arm": null,
+"asks": [
+2690,
+2690
+],
+"offers": [
+1345,
+2690
+],
+"warranty": null,
+"result": "agreed",
+"price": 2690
+},
+{
+"time": "2026-11-09T12:48:49",
+"task": "d4f326e5-1006-4aa5-bbf0-57e8b83a1b33",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 2690,
+"open": 2690,
+"arm": null,
+"asks": [
+2690,
+2690
+],
+"offers": [
+1345,
+2690
+],
+"warranty": null,
+"result": "unpaid",
+"price": 2690
+},
+{
+"time": "2026-11-09T12:49:06",
+"task": "86573165-5d2e-4c36-8cc5-a0bae3770b05",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 2690,
+"open": 2690,
+"arm": null,
+"asks": [
+2690
+],
+"offers": [
+2690
+],
+"warranty": null,
+"result": "agreed",
+"price": 2690
+},
+{
+"time": "2026-11-09T12:51:27",
+"task": "86573165-5d2e-4c36-8cc5-a0bae3770b05",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 2690,
+"open": 2690,
+"arm": null,
+"asks": [
+2690
+],
+"offers": [
+2690
+],
+"warranty": null,
+"result": "unpaid",
+"price": 2690
+},
+{
+"time": "2026-11-09T12:52:06",
+"task": "525baa17-176d-4061-adc4-98d8bc51ada4",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 2690,
+"open": 2690,
+"arm": null,
+"asks": [
+2690,
+2690
+],
+"offers": [
+1200,
+2690
+],
+"warranty": null,
+"result": "agreed",
+"price": 2690
+},
+{
+"time": "2026-11-09T12:54:13",
+"task": "525baa17-176d-4061-adc4-98d8bc51ada4",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 2690,
+"open": 2690,
+"arm": null,
+"asks": [
+2690,
+2690
+],
+"offers": [
+1200,
+2690
+],
+"warranty": null,
+"result": "unpaid",
+"price": 2690
+},
+{
+"time": "2026-11-09T12:54:36",
+"task": "bcf9dd66-5c27-470a-84da-e031d6249733",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 2690,
+"open": 2690,
+"arm": null,
+"asks": [
+2690,
+2690
+],
+"offers": [
+1500,
+2690
+],
+"warranty": null,
+"result": "agreed",
+"price": 2690
+},
+{
+"time": "2026-11-09T12:56:35",
+"task": "bcf9dd66-5c27-470a-84da-e031d6249733",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 2690,
+"open": 2690,
+"arm": null,
+"asks": [
+2690,
+2690
+],
+"offers": [
+1500,
+2690
+],
+"warranty": null,
+"result": "unpaid",
+"price": 2690
+},
+{
+"time": "2026-11-09T13:12:05",
+"task": "0138175f-b427-43cd-95a2-0f6910756c35",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 2690,
+"open": 2690,
+"arm": null,
+"asks": [
+2690
+],
+"offers": [
+2690
+],
+"warranty": null,
+"result": "agreed",
+"price": 2690
+},
+{
+"time": "2026-11-09T13:14:05",
+"task": "0138175f-b427-43cd-95a2-0f6910756c35",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 2690,
+"open": 2690,
+"arm": null,
+"asks": [
+2690
+],
+"offers": [
+2690
+],
+"warranty": null,
+"result": "unpaid",
+"price": 2690
+},
+{
+"time": "2026-11-09T13:16:40",
+"task": "0138175f-b427-43cd-95a2-0f6910756c35",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-4912584c4958",
+"cost": 8113,
+"reserve": 2690,
+"open": 2690,
+"arm": null,
+"asks": [
+2690
+],
+"offers": [
+2690
+],
+"warranty": null,
+"result": "unpaid",
+"price": 2690
+},
+{
+"time": "2026-11-09T21:56:23",
+"task": "5bf9da09-ae71-48ed-a07c-5c6ee78343ee",
+"item": "신선과일(부패주의)",
+"sku": "Gef4d3036",
+"unit": "u-c71f6e36f282",
+"cost": 20541,
+"reserve": 20594,
+"open": 21576,
+"arm": null,
+"asks": [
+20929
+],
+"offers": [
+20929
+],
+"warranty": null,
+"result": "agreed",
+"price": 20929
+},
+{
+"time": "2026-11-09T21:56:34",
+"task": "5bf9da09-ae71-48ed-a07c-5c6ee78343ee",
+"item": "신선과일(부패주의)",
+"sku": "Gef4d3036",
+"unit": "u-c71f6e36f282",
+"cost": 20541,
+"reserve": 20594,
+"open": 21576,
+"arm": null,
+"asks": [
+20929
+],
+"offers": [
+20929
+],
+"warranty": null,
+"result": "deal",
+"price": 20929
+},
+{
+"time": "2026-11-09T21:56:43",
+"task": "ec0415fe-515b-4fac-94ca-b856883a9d09",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-33a0b856a5ac",
+"cost": 18648,
+"reserve": 18696,
+"open": 18696,
+"arm": null,
+"asks": [
+18696
+],
+"offers": [
+18696
+],
+"warranty": null,
+"result": "agreed",
+"price": 18696
+},
+{
+"time": "2026-11-09T21:56:45",
+"task": "ec0415fe-515b-4fac-94ca-b856883a9d09",
+"item": "즉석조리식품",
+"sku": "Gb2392fa9",
+"unit": "u-33a0b856a5ac",
+"cost": 18648,
+"reserve": 18696,
+"open": 18696,
+"arm": null,
+"asks": [
+18696
+],
+"offers": [
+18696
+],
+"warranty": null,
+"result": "deal",
+"price": 18696
+},
+{
+"time": "2026-11-09T23:17:23",
+"task": "b10cd6ac-a0f6-4560-9814-40ead6962d5d",
+"item": "김치",
+"sku": "G200e39a3",
+"unit": "u-b25bc0dd1452",
+"cost": 30211,
+"reserve": 31722,
+"open": 31722,
+"arm": null,
+"asks": [
+31722,
+31722
+],
+"offers": [
+31603,
+31722
+],
+"warranty": null,
+"result": "agreed",
+"price": 31722,
+"food_margin": {
+"study": "food-margin-2040",
+"arm": "B",
+"share": 0.05,
+"usual_reserve": 30288,
+"usual_ask": 30288,
+"reserve": 31722,
+"ask": 31722,
+"list": 37900,
+"cost": 30211,
+"sku": "G200e39a3",
+"grade": "A",
+"unit": "u-b25bc0dd1452",
+"stop_at": 1794275749.604962
+}
+},
+{
+"time": "2026-11-09T23:17:26",
+"task": "b10cd6ac-a0f6-4560-9814-40ead6962d5d",
+"item": "김치",
+"sku": "G200e39a3",
+"unit": "u-b25bc0dd1452",
+"cost": 30211,
+"reserve": 31722,
+"open": 31722,
+"arm": null,
+"asks": [
+31722,
+31722
+],
+"offers": [
+31603,
+31722
+],
+"warranty": null,
+"result": "deal",
+"price": 31722,
+"food_margin": {
+"study": "food-margin-2040",
+"arm": "B",
+"share": 0.05,
+"usual_reserve": 30288,
+"usual_ask": 30288,
+"reserve": 31722,
+"ask": 31722,
+"list": 37900,
+"cost": 30211,
+"sku": "G200e39a3",
+"grade": "A",
+"unit": "u-b25bc0dd1452",
+"stop_at": 1794275749.604962
+}
+},
+{
+"time": "2026-11-09T23:18:51",
+"task": "31d2fe92-eefa-47c3-b7b2-d14c5aa71d69",
+"item": "김치",
+"sku": "G200e39a3",
+"unit": "u-68e75e7a6685",
+"cost": 30605,
+"reserve": 30683,
+"open": 30683,
+"arm": null,
+"asks": [
+30683,
+30683
+],
+"offers": [
+52689,
+30683
+],
+"warranty": null,
+"result": "agreed",
+"price": 30683,
+"food_margin": {
+"study": "food-margin-2040",
+"arm": "A",
+"share": 0.05,
+"usual_reserve": 30683,
+"usual_ask": 30683,
+"reserve": 30683,
+"ask": 30683,
+"list": 37900,
+"cost": 30605,
+"sku": "G200e39a3",
+"grade": "A",
+"unit": "u-68e75e7a6685",
+"stop_at": 1794275749.604962
+}
+},
+{
+"time": "2026-11-09T23:18:56",
+"task": "31d2fe92-eefa-47c3-b7b2-d14c5aa71d69",
+"item": "김치",
+"sku": "G200e39a3",
+"unit": "u-68e75e7a6685",
+"cost": 30605,
+"reserve": 30683,
+"open": 30683,
+"arm": null,
+"asks": [
+30683,
+30683
+],
+"offers": [
+52689,
+30683
+],
+"warranty": null,
+"result": "deal",
+"price": 30683,
+"food_margin": {
+"study": "food-margin-2040",
+"arm": "A",
+"share": 0.05,
+"usual_reserve": 30683,
+"usual_ask": 30683,
+"reserve": 30683,
+"ask": 30683,
+"list": 37900,
+"cost": 30605,
+"sku": "G200e39a3",
+"grade": "A",
+"unit": "u-68e75e7a6685",
+"stop_at": 1794275749.604962
+}
+}
+]
