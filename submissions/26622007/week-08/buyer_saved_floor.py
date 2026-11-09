@@ -33,7 +33,7 @@ SWITCH = "buyer_saved_floor.json"
 BASE_SHARE = 0.30          # market_buyer.SAVED_MIN_SHARE
 MAX_SHARE = 0.40           # a board S above this is not trusted: off
 MAX_MARGIN = 0.05
-KEYS = {"enabled", "margin", "band", "ab", "kinds", "by", "since", "why", "start_at", "stop_at", "source"}
+KEYS = {"enabled", "margin", "band", "ab", "kinds", "by", "since", "why", "source"}   # no start/stop: not enforced, so refused
 
 
 def _number(v):
