@@ -119,6 +119,7 @@ Every cycle, in this order:
    312,728, the same under either cap; GPT Pro 07:30 §9).
 4. Act (`action_kind`), the change most likely to move that part, chosen to serve the current strategy:
    - settings: pricing.json, inside hard_limits, except seller.refuse_buyers, seller.refuse_one_star_at and seller.refuse_exempt (a person's decision: leave them)
+     and except price.grade_break_trial (an A/B study with its own [start_at, stop_at) window, W-20261109-1520: leave it as it is)
      (one step per cycle; a bigger step is allowed once the log holds a real
      sample of settled deals, see hard_limits.STRONG_SAMPLE);
    - tool_new: a tool in tools/<name>/ (manifest.json with "selftest", tool.py, a test) for a question the agents keep

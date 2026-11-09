@@ -116,7 +116,7 @@ def unit_break(u, measured, cfg, max_break=None, now=None):
     if t is None:
         return b, None
     arm, g = t
-    if arm == "trial" and (not _num(max_break) or max(b, g) <= max_break):
+    if arm == "trial" and (not _trial_num(max_break) or max(b, g) <= max_break):   # 10**400: no raise, no crash
         b = max(b, g)
     return b, arm
 

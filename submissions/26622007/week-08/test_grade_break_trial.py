@@ -20,6 +20,9 @@ def in_half(uid, salt="gbt-test", share=0.5):
 
 
 UIDS = [f"u-{i:04d}" for i in range(400)]
+# (floor at b .122 = OFF, floor at b .19) for two real units, cost 353,335 / list 545,930 and 871,152 / 1,776,000
+FLOORS = {"u-21a880c0efac": {"trial": (403_439, 437_308), "control": (403_439, 403_439)},
+          "u-36474c9458ac": {"trial": (994_683, 1_078_187), "control": (994_683, 994_683)}}
 TREAT = [u for u in UIDS if in_half(u)]
 CTRL = [u for u in UIDS if not in_half(u)]
 
@@ -149,12 +152,21 @@ class GradeBreakTrial(unittest.TestCase):
             self.assertEqual(q["b_trial"], want)
             self.assertEqual(q["b"], 0.19 if want == "trial" else 0.122)
             self.assertEqual(q["floor"], profit_price.floor(u["cost"], u["list_price"], "goods", q["b"], profit_price.cfg_of(p)))
+            # by hand: ceil((C + .0025 C + 1) / (1 - b)), review/W-20261109-1520-AXPro주기/gbt-activate-1110/plan.md 3
+            self.assertEqual((off["floor"], q["floor"]), FLOORS[u["unit"]][want])
             self.assertFalse(q["refuse"])
             self.assertEqual(off["b"], 0.122)
             self.assertIn(f"grade_break_trial {want}", profit_price.line(u, q))
             a = {**u, "grade": "A"}
             with mock.patch.object(profit_price.time, "time", return_value=NOW):
                 self.assertEqual(profit_price.quote(a, pricing=p), profit_price.quote(a, pricing=pricing()))
+
+    def test_huge_max_break_does_not_raise(self):
+        # restock.log_prices passes pricing as it is (seller clamps max_break, restock does not): review eb9f836 M1
+        p = {**pricing(**TRIAL), "warranty": {"max_break": 10 ** 400}}
+        with mock.patch.object(profit_price.time, "time", return_value=NOW):
+            q = profit_price.quote(unit(TREAT[0]), median=700_000, pricing=p)
+        self.assertEqual((q["b"], q["b_trial"]), (0.19, "trial"))
 
 
 class Switch(unittest.TestCase):
@@ -177,7 +189,15 @@ class Switch(unittest.TestCase):
         with open(self.path, encoding="utf-8") as f:
             live = "grade_break_trial" in json.load(f)["price"]
         if live:      # the shop's file while a trial runs (the meta harness tests there): start from it without one
-            sw.switch_off(self.path, backup_dir=self.bak, stamp="setup")
+            try:
+                sw.switch_off(self.path, backup_dir=self.bak, stamp="setup")
+            except ValueError:    # the line was reformatted: drop the key the plain way (the format tests then see json)
+                with open(self.path, encoding="utf-8") as f:
+                    d = json.load(f)
+                del d["price"]["grade_break_trial"]
+                with open(self.path, "w", encoding="utf-8") as f:
+                    json.dump(d, f, ensure_ascii=False, indent=2)
+                    f.write("\n")
 
     def setting(self, **kw):
         return self.sw.setting(**{"salt": "grade-break-furn-b-test-v1", "start_at": NOW, "hours": 9,
@@ -234,6 +254,19 @@ class Switch(unittest.TestCase):
             self.assertEqual(f.read(), raw)
         with self.assertRaises(ValueError):
             self.sw.switch_off(self.path, backup_dir=self.bak, stamp="t4")
+
+    def test_off_refuses_a_reformatted_trial(self):
+        import json
+        self.sw.switch_on(self.path, self.setting(), backup_dir=self.bak, stamp="t1")
+        with open(self.path, encoding="utf-8") as f:
+            d = json.load(f)
+        text = json.dumps(d, ensure_ascii=False, indent=2) + "\n"     # the trial is now over several lines
+        with open(self.path, "w", encoding="utf-8") as f:
+            f.write(text)
+        with self.assertRaises(ValueError):
+            self.sw.switch_off(self.path, backup_dir=self.bak, stamp="t2")
+        with open(self.path, encoding="utf-8") as f:
+            self.assertEqual(f.read(), text)
 
     def test_on_leaves_the_file_when_refused(self):
         with open(self.path, encoding="utf-8") as f:
