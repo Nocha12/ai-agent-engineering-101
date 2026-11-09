@@ -69,6 +69,14 @@ class FixtureShape(Base):
             self.assertGreaterEqual((c["expires_at"] - c["ts"]) / 3600, c["required"])   # the unit could last
             self.assertEqual(round((c["expires_at"] - c["ts"]) / 3600, 2), c["left_h"])
         self.assertEqual(sum(c["harness_negative"] for c in CASES), 6)
+        for c in CASES:                                   # every derived field read back from the original lines
+            unit = json.loads(c["raw_units_in"])
+            self.assertEqual((unit["unit"], unit["sku"], unit["kind"], unit["expires_at"], unit["cost"]),
+                             (c["unit"], c["sku"], c["kind"], c["expires_at"], c["cost"]))
+            q, h, e = (c["raw_log"][k] for k in sorted(c["raw_log"], key=int))
+            self.assertIn(f"seller task {c['task'][:8]} <- '{c['text']}'", q)
+            self.assertIn(c["harness_message"], h)
+            self.assertIn(c["end"], e)
         self.assertTrue(all("shelf life" in c["harness_message"] for c in CASES if c["harness_negative"]))
 
 
@@ -204,6 +212,49 @@ class R1Protection(Base):
         self.trial.answer(c["task"], c["text"], deal, now=c["ts"])
         self.assertEqual(self.rows()[0]["others"]["shelf_jev"], dict(study="r1", version=1, arm="B"))   # OTHER_FIELDS
 
+    def test_r1_rows_carry_the_s_shelf_assignment(self):
+        self.on(share=1.0)
+        c = CASES[0]
+        deal = deal_of(c)
+        self.trial.answer(c["task"], c["text"], deal, now=c["ts"])
+        self.assertEqual(shelf_jev_skip.Trial._others(deal)["shelf_fact"],
+                         dict(study="s-shelf-test", version=1, epoch="2026-11-10T06:10", arm="B"))
+        self.assertNotIn("shelf_fact", self.rows()[0]["others"])
+
+    def test_a_talk_in_the_old_shelf_life_trial_is_left_alone(self):
+        self.on(share=1.0)
+        c = CASES[0]
+        deal = deal_of(c, shelf_life=dict(id="shelf-old", arm="A"))
+        self.assertIsNone(self.trial.answer(c["task"], c["text"], deal, now=c["ts"]))
+        self.assertNotIn("shelf_fact", deal)
+        deal = deal_of(c, shelf_life=dict(id=None, arm="A"))      # not enrolled there: answered here
+        self.assertIsNotNone(self.trial.answer(c["task"], c["text"], deal, now=c["ts"]))
+
+    def test_a_new_epoch_or_salt_reassigns(self):
+        self.on()
+        c = CASES[0]
+        deal = deal_of(c)
+        self.trial.answer(c["task"], c["text"], deal, now=c["ts"])
+        first = deal["shelf_fact"]
+        self.on(salt="t2")
+        self.trial.answer(c["task"], c["text"], deal, now=c["ts"] + 1)
+        self.assertEqual(deal["shelf_fact"]["arm"], self.arm_of(c["task"], config(salt="t2")))
+        self.assertNotEqual(deal["shelf_fact"]["salt_sha256"], first["salt_sha256"])
+        self.on(salt="t2", epoch="other")
+        self.trial.answer(c["task"], c["text"], deal, now=c["ts"] + 2)
+        self.assertEqual(deal["shelf_fact"]["assigned_at"], c["ts"] + 2)
+
+    def test_food_margin_floor_and_a_open_assignments_are_kept_for_the_cross_table(self):
+        self.on(share=1.0)
+        c = CASES[0]
+        deal = deal_of(c, food_margin=dict(study="food-margin-2040", arm="B", share=0.05, usual_reserve=1),
+                       floor_margin=dict(study="floor", arm="A"), a_open=dict(study="a-open", arm="B"))
+        self.trial.answer(c["task"], c["text"], deal, now=c["ts"])
+        others = self.rows()[0]["others"]
+        self.assertEqual(others["food_margin"], dict(study="food-margin-2040", arm="B"))
+        self.assertEqual(others["floor_margin"], dict(study="floor", arm="A"))
+        self.assertEqual(others["a_open"], dict(study="a-open", arm="B"))
+
 
 class Journal(Base):
     def test_a_failed_write_keeps_the_original_path(self):
@@ -245,8 +296,9 @@ class SellerWiring(unittest.TestCase):
     def test_seller_asks_s_shelf_only_when_the_old_shelf_trial_did_not_answer(self):
         src = (HERE / "seller.py").read_text()
         i = src.index("shelf_text = SHELF_REPLY.reply(text, deal)")
-        self.assertIn("if shelf_text is None:\n            shelf_text = SHELF_FACT.answer(task.id, text, deal)",
-                      src[i:i + 200])
+        self.assertIn("if shelf_text is None:\n            shelf_text = SHELF_FACT.answer(task.id, text, deal, now=shelf_now)",
+                      src[i:i + 300])
+        self.assertIn("SHELF_JEV.skip(task.id, text, deal, floor_now, now=shelf_now)", src[i:i + 900])   # one clock
         self.assertIn("SHELF_FACT = shelf_fact.Trial(r1=SHELF_JEV)", src)
         self.assertIn("SHELF_FACT.event(task_id, deal, result, price, observed_at)", src)
 

@@ -17,9 +17,12 @@ turn and journaled (event "turn") before a B answer is given, so the analysis is
 turn; a failed write keeps the original path. Outcome rows (seller.remember: deal, unpaid, canceled, ...) for every
 assigned task.
 
-R1 (shelf_jev_skip) protection: while R1's configuration is active this module never answers and never writes, so the
-two are never on together (R1's B leaves Jev out of the same turn that S-shelf B would answer by code; with both on,
-R1's contrast would exist only inside S-shelf A).
+R1 (shelf_jev_skip) protection: while R1's configuration is active this module never answers and never assigns or
+writes a turn row, so the two treatments are never on together (R1's B leaves Jev out of the same turn that S-shelf B
+would answer by code; with both on, R1's contrast would exist only inside S-shelf A). A talk assigned before R1 came
+on still gets its outcome rows (ITT), and R1's rows carry the talk's S-shelf assignment (shelf_jev_skip.OTHER_TRIALS).
+seller.py hands both the same clock for the turn. Talks enrolled in the old shelf_life trial (SHELF_REPLY, an id on
+deal["shelf_life"]) are left alone so its control arm is never answered by this one.
 
 Window: start_at < stop_at and stop_at - start_at <= 20 h; outside it, or absent/invalid/disabled configuration: the
 original path. Talks assigned earlier keep their arm for later eligible turns only inside the window, and still get
@@ -35,6 +38,9 @@ import shelf_jev_skip
 from shelf_life_reply import factual_answer
 
 MAX_WINDOW = 20 * 3600
+# assignments on the deal besides shelf_jev_skip.OTHER_TRIALS, kept on each row for the cross table (food_margin is
+# unit-hashed, this trial task-hashed: independent, both on food talks)
+MORE_TRIALS = ("shelf_jev", "food_margin", "floor_margin", "a_open")
 
 
 class Trial(shelf_jev_skip.Trial):
@@ -49,9 +55,11 @@ class Trial(shelf_jev_skip.Trial):
     @staticmethod
     def _others(deal):
         out = shelf_jev_skip.Trial._others(deal)
-        v = deal.get("shelf_jev")
-        if isinstance(v, dict):
-            out["shelf_jev"] = {f: v[f] for f in shelf_jev_skip.OTHER_FIELDS if isinstance(v.get(f), (str, int, float, bool))}
+        out.pop("shelf_fact", None)      # its own assignment is on the row already
+        for k in MORE_TRIALS:
+            v = deal.get(k)
+            if isinstance(v, dict):
+                out[k] = {f: v[f] for f in shelf_jev_skip.OTHER_FIELDS if isinstance(v.get(f), (str, int, float, bool))}
         return out
 
     def config(self, now=None):
@@ -69,13 +77,17 @@ class Trial(shelf_jev_skip.Trial):
             cfg = self.config(now)
             if cfg is None or self.r1.config(now) is not None:
                 return None
+            if (deal.get("shelf_life") or {}).get("id"):
+                return None
             fact = factual_answer(text, deal, now)
             if fact is None:
                 return None
             a = deal.get("shelf_fact")
             if not (isinstance(a, dict) and a.get("study") == cfg["study"] and a.get("version") == cfg["version"]
-                    and a.get("mode") == cfg["mode"]):
+                    and a.get("mode") == cfg["mode"] and a.get("epoch") == cfg["epoch"]
+                    and a.get("salt_sha256") == hashlib.sha256(cfg["salt"].encode()).hexdigest()):
                 a = dict(study=cfg["study"], version=cfg["version"], epoch=cfg["epoch"], mode=cfg["mode"],
+                         salt_sha256=hashlib.sha256(cfg["salt"].encode()).hexdigest(),
                          arm=self._arm(cfg, task), assigned_at=now, randomization_unit="task")
             treated = a["arm"] in ("B", "adopted")
             self._write(dict(event="turn", ts=now, task=task, study=a["study"], version=a["version"],

@@ -38,7 +38,7 @@ MAX_CONFIG_BYTES = 16 * 1024
 MAX_RECORD_BYTES = 16 * 1024
 # assignments of the other seller experiments a talk can carry, kept on each row for the cross table
 OTHER_TRIALS = ("sol_margin", "warranty_trial", "food_opening", "deep_lowball", "at_floor_exact", "exact_accept",
-                "exact_counter", "shelf_life", "grade_preference", "reader_trial", "jev_transport")
+                "exact_counter", "shelf_life", "grade_preference", "reader_trial", "jev_transport", "shelf_fact")
 OTHER_FIELDS = ("study", "study_id", "id", "version", "epoch", "arm", "assigned_arm", "cell", "reason")
 
 

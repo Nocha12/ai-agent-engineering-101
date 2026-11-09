@@ -841,12 +841,13 @@ class Seller(AgentExecutor):
         deal["reader_trial_floor"] = floor_now
         jev = reader if fast_classify.JEV_ON or reader.arm == "B" else None   # lazy, one call a turn
         shelf_text = SHELF_REPLY.reply(text, deal)
+        shelf_now = time.time()     # one clock for S-shelf and R1 this turn: never both rows across R1's start
         if shelf_text is None:
-            shelf_text = SHELF_FACT.answer(task.id, text, deal)
+            shelf_text = SHELF_FACT.answer(task.id, text, deal, now=shelf_now)
         # R1 A/B: the exact shelf-life question has only hours in it, never an offer; only turns that would call Jev
         deal.pop("shelf_jev_turn", None)    # this turn's row only, even after a turn that stopped before its decision
         if (jev is not None and reader.jev is not None and shelf_text is None
-                and SHELF_JEV.skip(task.id, text, deal, floor_now)):
+                and SHELF_JEV.skip(task.id, text, deal, floor_now, now=shelf_now)):
             jev = None
         exact_decision = EXACT_ACCEPT.decide(text, deal, floor_now)
         counter_decision = EXACT_COUNTER.decide(text, deal, floor_now, MAX_ROUNDS)
