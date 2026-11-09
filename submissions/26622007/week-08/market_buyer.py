@@ -59,6 +59,7 @@ import buyer_opening_discount
 import buyer_goods_quote_probe
 import buyer_goods_first_one
 import buyer_quote_alignment
+import buyer_moss_first
 import buyer_our_ask
 import buyer_stock_evidence
 import buyer_firm_trial
@@ -1989,6 +1990,8 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "goods_extra_quote_probe": order.get("_goods_extra_quote_probe"),
         "quote_alignment_arm": (order.get("_quote_alignment") or {}).get("arm"),
         "our_ask": buyer_our_ask.measurement(order.get("_our_ask")),
+        "moss_first": buyer_moss_first.measurement(order.get("_moss_first")),
+        "final_m1": order.get("_final_m1"),
         "stock_evidence": buyer_stock_evidence.measurement(order),
         "firm_trial": buyer_firm_trial.measurement(order, out),
         "first95_trial": buyer_first95_trial.measurement(order, out),
@@ -2067,6 +2070,8 @@ def main():
         order.setdefault("_buyer_started_at", time.time())
         order["_food_quote_yield"] = order.get("kind") == "food" and quote_yield_arm(order.get("order"))
         order["_our_ask"] = buyer_our_ask.assign(md, order, now=order["_buyer_started_at"])
+        order["_moss_first"] = buyer_moss_first.assign(md, order, now=order["_buyer_started_at"])
+        order["_final_m1"] = [] if oneshot.final_m1_on(md) else None      # default off: the turns it took, when on
     with open(args.shops, encoding="utf-8") as f:
         shops = [s for s in json.load(f) if s.get("url") and s.get("name")]
     if r3:
@@ -2104,6 +2109,8 @@ def main():
                                          "goods_extra_quote_probe": order.get("_goods_extra_quote_probe"),
                                          "quote_alignment_arm": (order.get("_quote_alignment") or {}).get("arm"),
                                          "our_ask": buyer_our_ask.measurement(order.get("_our_ask")),
+                                         "moss_first": buyer_moss_first.measurement(order.get("_moss_first")),
+                                         "final_m1": order.get("_final_m1"),
                                          "stock_evidence": buyer_stock_evidence.measurement(order),
                                          "quotes": [], "quote_attempts_complete": True,
                                          **({"rank_pg": buyer_rank_pg.metadata(rk)} if rk is not None else {}),
@@ -2361,6 +2368,21 @@ def main():
                 meta, text, history, limit, steps, q.get("ask") if resume and q.get("ask_src") != "text_rank" else None,
                 order.get("kind") == "goods", discount_arm or probe_arm or
                 ("B" if order.get("_one_won_default") else None))
+            # buyer_moss_first arm B (default off): moss-and-oak's whole quote, first turn, priced by code, not the harness
+            if order.get("_moss_first"):
+                moss = buyer_moss_first.turn(d, meta, text, history, limit, steps,
+                                             q.get("ask") if resume and q.get("ask_src") == "text" else None,
+                                             also_in_stock_only(text, key, q.get("ask")), order.get("kind") == "goods",
+                                             order["_moss_first"], md, shop["name"])
+                if moss is not d:
+                    log(f"[moss-first] {shop['name']}: arm B, the quote's ask {moss['shop_price']} -> offer {moss['price']} by code")
+                d = moss
+            if order.get("_final_m1") is not None:      # oneshot.final_m1 (default off): a Final price at my last offer
+                m1 = oneshot.final_m1(d, meta, text, history, limit, steps)
+                if m1 is not d:
+                    order["_final_m1"].append({"shop": shop["name"], "price": m1["price"]})
+                    log(f"[final-m1] {shop['name']}: Final price {m1['price']} is my last offer, offers spent: taken")
+                d = m1
             result = buyer_goods_first_one.turn(d, history, limit, steps, order.get("kind") == "goods", goods_first_arm)
             if goods_first_arm and d and d.get("action") == "offer" and not any(who == "you offered" for who, _ in history):
                 order["_goods_first_one_original"] = d["price"]

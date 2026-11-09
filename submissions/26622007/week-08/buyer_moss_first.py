@@ -1,0 +1,95 @@
+"""Default-OFF order-level A/B: moss-and-oak's first turn priced by code (arm B) or by the harness (arm A, legacy).
+
+moss-and-oak quotes "<name> (<SKU>), <grade, warranty>, market certificate attached. Also in stock in this category:
+<SKUs>. Send your offer as a number, or reply 'accept' to buy now. Asking: N." market_buyer reads N (also_in_stock_only),
+but ask_read reads one SKU's quotes only, so oneshot.text_price leaves that first turn to the harness: 77 of 127 moss
+talks 11/09 01:33 - 11/10 05:30 opened by the harness at a median 0.673 of the ask, 26 ending in a deal; the 50 opened by
+code (a metadata ask) at 0.90, 50 deals, 46 of them food (GPT Pro mw9q5kxg §2, W-20261109-2225-AXPro주기). Food against
+goods and the hour differ between those groups, so what 0.90 does to goods talks is not known: this study measures it.
+- switch .market/buyer_moss_first.json {"enabled": true, "salt": "...", "start": epoch, "end": epoch}; anything else, or a
+  window that is not finite, not started, over, shorter than MIN_HOURS or longer than MAX_HOURS, is off. The end is fixed
+  before the start (GPT Pro mw9q5kxg §4.1: 9 h minimum, 12 h maximum);
+- arm = sha256("buyer_moss_first:" + salt + ":" + order)[0] % 2 (A legacy, B code); every order started in the window is
+  assigned (ITT), whatever shop it picks;
+- only the first turn of a talk on moss's whole quote that code left to the harness (no metadata ask, no code answer, the
+  ask read is the quote's "Asking: N"), and not goods whose text says no warranty (as oneshot.text_price): both arms note
+  it in "seen" with the offer code would make; arm B makes that offer (oneshot.code_turn: steps[0] of the ask, never over
+  my limit). Every later turn is as before in both arms;
+- arm B acts only while the switch still says the same window: turning it off (or another salt) stops arm B at the next
+  turn of an order already running, not only for new orders.
+"""
+import hashlib
+import json
+import math
+import os
+import re
+import time
+
+import ask_read
+import oneshot
+
+SWITCH = "buyer_moss_first.json"
+MIN_HOURS = 9
+MAX_HOURS = 12
+
+
+def _num(v):
+    """A finite epoch-sized number; 10**400 is not one (and raises no OverflowError here)."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and abs(v) < 1e12 and math.isfinite(v)
+
+
+def _switch(md):
+    try:
+        with open(os.path.join(md, SWITCH), encoding="utf-8") as f:
+            d = json.load(f)
+    except (OSError, ValueError, TypeError, RecursionError):
+        return None
+    if not isinstance(d, dict) or d.get("enabled") is not True:
+        return None
+    salt, start, end = d.get("salt"), d.get("start"), d.get("end")
+    if not isinstance(salt, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", salt) or not _num(start) or not _num(end) \
+            or not (0 < start and start + MIN_HOURS * 3600 <= end <= start + MAX_HOURS * 3600):
+        return None
+    return {"salt": salt, "start": start, "end": end}
+
+
+def assign(md, order, now=None):
+    """{"arm", "salt", "start", "end", "seen": [], "applied": []} for an order started inside the window, else None."""
+    s = _switch(md)
+    now = time.time() if now is None else now
+    oid = order.get("order") if isinstance(order, dict) else None
+    if s is None or not isinstance(oid, str) or not oid or not _num(now) or not s["start"] <= now < s["end"]:
+        return None
+    arm = "AB"[hashlib.sha256(("buyer_moss_first:" + s["salt"] + ":" + oid).encode()).digest()[0] % 2]
+    return dict(s, arm=arm, seen=[], applied=[])
+
+
+def live(md, ctx, now=None):
+    """Arm B still acts: the switch says the same window and now is inside it."""
+    now = time.time() if now is None else now
+    s = _switch(md)
+    return isinstance(ctx, dict) and s is not None and _num(now) and \
+        (s["salt"], s["start"], s["end"]) == (ctx.get("salt"), ctx.get("start"), ctx.get("end")) and s["start"] <= now < s["end"]
+
+
+def turn(d, meta, text, history, limit, steps, quoted, moss, goods, ctx, md, shop, now=None):
+    """The turn as the ladder priced it (d), or in arm B code's first offer on moss's whole quote; see the module text."""
+    if d is not None or meta is not None or not isinstance(ctx, dict) or not moss or not steps or history:
+        return d
+    if not isinstance(quoted, int) or isinstance(quoted, bool) or quoted <= 0 or (goods and ask_read.no_warranty(text)):
+        return d
+    code = oneshot.code_turn(quoted, history, limit, steps)
+    if not code or code.get("action") != "offer":
+        return d
+    note = {"shop": shop, "ask": quoted, "offer": code["price"]}
+    ctx["seen"].append(note)
+    if ctx.get("arm") != "B" or not live(md, ctx, now):
+        return d
+    ctx["applied"].append(dict(note))
+    return code
+
+
+def measurement(ctx):
+    return None if not isinstance(ctx, dict) else {"salt": ctx["salt"], "start": ctx["start"], "end": ctx["end"],
+                                                   "arm": ctx["arm"], "seen": list(ctx["seen"]),
+                                                   "applied": list(ctx["applied"])}

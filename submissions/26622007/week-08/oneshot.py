@@ -20,6 +20,7 @@ is priced by code only when ask_read reads the same ask market_buyer read from i
 (quoted); on the 2,613 harness turns logged 11/04-11/07 it read 87.9% of the quotes and 89.5% of later turns, every one
 the price the harness read (review/W-20261107-0840-AX호가정규식).
 """
+import json
 import os
 import re
 
@@ -46,6 +47,39 @@ def final_text(text):
     (independent reviews of the change, I1 and M1)."""
     m = TEMPLATE.fullmatch(text or "")
     return bool(m and m.group("final"))
+
+
+FINAL_M1_SWITCH = "buyer_final_m1.json"
+
+
+def final_m1_on(md, env=None):
+    """final_m1 on: .market/buyer_final_m1.json {"enabled": true}; missing, unreadable, anything else, or BUYER_FINAL_M1=0
+    is off (default off). Read at every order, so no restart either way."""
+    env = os.environ if env is None else env
+    if str(env.get("BUYER_FINAL_M1") or "").strip().lower() in ("0", "false", "no", "off"):
+        return False
+    try:
+        with open(os.path.join(md, FINAL_M1_SWITCH), encoding="utf-8") as f:
+            d = json.load(f)
+    except (OSError, ValueError, TypeError, RecursionError):
+        return False
+    return isinstance(d, dict) and d.get("enabled") is True
+
+
+def final_m1(d, meta, text, history, limit, steps):
+    """code_turn walks once the steps and both last offers are spent, before it looks at an ask at or under my last offer;
+    so a text-only "Final price: N" at my last offer ends the talk unbought (GPT Pro mw9q5kxg §1.5, §4.1 M1; 0 such
+    talks 04:49:42 - 05:30). With final_m1 on, that walk alone is an offer of N: the same price I offered last, never over
+    my limit. A shop that did not take its own ask (my last offer was that ask) still gets the walk, and every other
+    turn is as code_turn left it."""
+    if not d or d.get("action") != "walk_away" or meta is not None or not final_text(text):
+        return d
+    mine = [p for who, p in history if who == "you offered"]
+    p = d.get("shop_price")
+    if not mine or not isinstance(p, int) or isinstance(p, bool) or p <= 0 or p != mine[-1] or p > limit \
+            or len(mine) < len(steps or ()) + 2 or history[-2:] == [("shop asked", p), ("you offered", p)]:
+        return d
+    return {"shop_price": p, "action": "offer", "price": p}
 
 
 def enabled(cfg, env=None):
