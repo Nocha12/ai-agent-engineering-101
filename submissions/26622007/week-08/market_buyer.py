@@ -66,6 +66,7 @@ import buyer_cap95_trial
 import buyer_b3b1
 import buyer_accept_band
 import buyer_quote_deadline
+import buyer_food_ladder
 import buyer_food_shelf
 import buyer_rank_pg
 import buyer_shop_profile
@@ -1796,6 +1797,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "rank_selection": order.get("_rank_selection"),
         "food_sku_trial": order.get("_food_sku_trial"),
         "food_shelf": buyer_food_shelf.measurement(order.get("_food_shelf"), best),
+        "food_ladder": order.get("_food_ladder"),
         "turns": dict(out.get("turns") or {}),
         "goods_extra_quote_started": order.get("_goods_extra_quote_started"),
         "goods_extra_quote_added": order.get("_goods_extra_quote_added", 0),
@@ -2085,6 +2087,11 @@ def main():
                 shop["name"] in buyer_goods_first_one.SHOPS and buyer_goods_first_one.first_decision(q, limit, steps):
             goods_first_arm = buyer_goods_first_one.reserve(md, order, shop["name"], key)
         order["_goods_first_one_probe"] = goods_first_arm
+        # buyer_food_ladder arm B: a food talk opens at 0.8 (grade C 0.7) of the first ask and climbs to 0.9 (off: (.9,))
+        steps, order["_food_ladder"] = buyer_food_ladder.decide(
+            md, order, q, steps, resume, probing=bool(probe_arm or discount_arm)) if r3 else (steps, None)
+        if order["_food_ladder"]:
+            log(f"[food-ladder] {shop['name']}: arm {order['_food_ladder']['arm']}, grade {order['_food_ladder']['grade']}")
 
         order["_accept_band_top"] = top if r3 and top > limit else None     # read in the ladder
         on = order["_b3b1_on"] if "_b3b1_on" in order else buyer_b3b1.enabled(md)

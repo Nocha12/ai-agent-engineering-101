@@ -60,8 +60,8 @@ RUNTIME = ("seller_warranty_trial.json", ".market/")
 # Each module's "Switch: .market/<x>.json" is here (test_meta checks it); not .market/ as a whole, whose state files move.
 SWITCHES = ("seller_warranty_trial.json", ".market/sol_seller_margin_v2/controller.json", ".market/quote_hold/config.json",
             ".market/seller_concession_trial.json", ".market/seller_reader_trial.json") + tuple(
-    f".market/buyer_{n}.json" for n in ("accept_band", "b3b1", "food_shelf", "quote_deadline", "rank_pg", "shop_profile",
-                                        "short_warranty"))
+    f".market/buyer_{n}.json" for n in ("accept_band", "b3b1", "food_ladder", "food_shelf", "quote_deadline", "rank_pg",
+                                        "shop_profile", "short_warranty"))
 
 
 # A study's root/"adopted" forces arm B and root/"disabled" stops it (late_concession, opening_cue, at_floor_exact, ...):
