@@ -18,7 +18,9 @@ exactly. With "ab", only the orders whose sha1(salt|order) falls under share are
 old behaviour and is still returned so the judgement can count both. BUYER_SAVED_FLOOR=0 in the environment is off
 too. "kinds" (a list) limits it to those order kinds, so it can start on food when the food study ends and on goods
 when the goods studies end; an order of another or unknown kind is off. Read at every order (a buyer run is one
-order), so no restart either way.
+order), so no restart either way. On, it moves what other buyer studies see (goods-grade's limit_a, quote fit, the
+shop profile's band records, food talks without the band): start it on a kind only after that kind's studies end, and
+every order it touched carries "saved_floor" in its measure record (review I3).
 """
 import hashlib
 import json
@@ -29,8 +31,9 @@ import buyer_short_warranty
 
 SWITCH = "buyer_saved_floor.json"
 BASE_SHARE = 0.30          # market_buyer.SAVED_MIN_SHARE
-MAX_SHARE = 0.40           # a board S above this is not trusted as a floor
+MAX_SHARE = 0.40           # a board S above this is not trusted: off
 MAX_MARGIN = 0.05
+KEYS = {"enabled", "margin", "band", "ab", "kinds", "by", "since", "why", "start_at", "stop_at", "source"}
 
 
 def _number(v):
@@ -38,6 +41,8 @@ def _number(v):
 
 
 def config(md, env=None):
+    """The switch file as a dict when it is on and every setting in it is good, else None (review I2: a broken
+    setting never turns the floor on)."""
     env = os.environ if env is None else env
     if str(env.get("BUYER_SAVED_FLOOR") or "").strip().lower() in ("0", "false", "no", "off"):
         return None
@@ -46,11 +51,25 @@ def config(md, env=None):
             d = json.load(f)
     except (OSError, ValueError, TypeError):
         return None
-    return d if isinstance(d, dict) and d.get("enabled") is True else None
+    if not isinstance(d, dict) or d.get("enabled") is not True or set(d) - KEYS:
+        return None
+    if "margin" in d and not (_number(d["margin"]) and 0 <= d["margin"] <= MAX_MARGIN):
+        return None
+    if "band" in d and d["band"] not in ("cap", "keep"):
+        return None
+    if "ab" in d:
+        ab = d["ab"]
+        if not isinstance(ab, dict) or not isinstance(ab.get("salt"), str) or not ab["salt"] \
+                or not _number(ab.get("share")) or not 0 < ab["share"] <= 1:
+            return None
+    if "kinds" in d and not (isinstance(d["kinds"], list) and d["kinds"]
+                             and all(k in ("food", "goods") for k in d["kinds"])):
+        return None
+    return d
 
 
 def board_saved(md, now=None):
-    """My Saved on the newest board snapshot, or None when it is missing, stale or unreadable."""
+    """My Saved on the newest board snapshot, or None when it is missing, stale, over MAX_SHARE or unreadable."""
     now = now or time.time()
     try:
         with open(os.path.join(md, "board_history.jsonl"), "rb") as f:
@@ -65,11 +84,12 @@ def board_saved(md, now=None):
         except ValueError:
             continue
         if not isinstance(d, dict) or not _number(d.get("ts")) \
-                or not -300 <= now - d["ts"] <= buyer_short_warranty.BOARD_MAX_AGE:
+                or not -300 <= now - d["ts"] <= buyer_short_warranty.BOARD_MAX_AGE \
+                or not isinstance(d.get("buyers"), dict):
             return None
-        for name, row in (d.get("buyers") or {}).items():
+        for name, row in d["buyers"].items():
             if str(name).lower() in buyer_short_warranty.ME and isinstance(row, list) and row \
-                    and _number(row[0]) and 0 < row[0] < 1:
+                    and _number(row[0]) and 0 < row[0] <= MAX_SHARE:
                 return float(row[0])
         return None
     return None
@@ -81,26 +101,18 @@ def arm(salt, order_id, share):
 
 
 def state(md, order_id, now=None, env=None, base=BASE_SHARE, kind=None):
-    """None when off; else {"arm", "share", "band_off", "board_saved"}: arm A keeps base and the band."""
-    c = config(md, env)
-    if c is None:
-        return None
-    if "kinds" in c and (not isinstance(c["kinds"], list) or kind not in c["kinds"]):
-        return None
-    S = board_saved(md, now)
-    if S is None:
-        return None
-    ab = c.get("ab")
-    if ab is not None:
-        if not isinstance(ab, dict) or not isinstance(ab.get("salt"), str) or not ab["salt"] \
-                or not _number(ab.get("share")) or not 0 < ab["share"] <= 1:
+    """None when off; else {"arm", "share", "band_off", "board_saved"}: arm A keeps base and the band.
+    Never raises into the buyer run (review I1): anything unexpected is off."""
+    try:
+        c = config(md, env)
+        if c is None or ("kinds" in c and kind not in c["kinds"]):
             return None
-        a = arm(ab["salt"], order_id, ab["share"])
-    else:
-        a = "B"
-    if a == "A":
-        return {"arm": "A", "share": base, "band_off": False, "board_saved": S}
-    m = c.get("margin", 0)
-    m = m if _number(m) and 0 <= m <= MAX_MARGIN else 0
-    return {"arm": "B", "share": min(MAX_SHARE, max(base, S + m)), "band_off": c.get("band", "cap") != "keep",
-            "board_saved": S}
+        S = board_saved(md, now)
+        if S is None:
+            return None
+        if "ab" in c and arm(c["ab"]["salt"], order_id, c["ab"]["share"]) == "A":
+            return {"arm": "A", "share": base, "band_off": False, "board_saved": S}
+        return {"arm": "B", "share": min(MAX_SHARE, max(base, S + c.get("margin", 0))),
+                "band_off": c.get("band", "cap") == "cap", "board_saved": S}
+    except Exception:   # noqa: BLE001 - the floor is optional; the order goes on as before
+        return None
