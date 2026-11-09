@@ -328,7 +328,7 @@ def classify(memory, ledger_rows, units_rows, *, study, salt, start, stop, asof,
     if not inside(cov, min(main_from, start - DAY), asof):
         warnings.append("the ledger read does not cover the day before start through asof without a gap")
     if shop_["no_harm"] is not None and not shop_["talk_cost_compared"]:
-        warnings.append("shop: a sale with no known cost and no single talk cost (or an ambiguous sale) in a span; "
+        warnings.append("shop: a sale with no known cost and no single talk cost (or an ambiguous / also-expired sale) in a span; "
                         "no_harm read on the scaled point only")
     if malformed or malformed_units:
         warnings.append(f"{malformed + malformed_units} malformed rows skipped")
@@ -499,7 +499,8 @@ def compare(rows):
 
 def shop_net(r):
     """A sale's net for the shop spans: the unit's net, or for a sale of a known-cost unit outside main's statuses
-    (uncovered: supplied before the ledger read) its price - cost - refunds; None when its cost is unknown."""
+    (uncovered: supplied before the ledger read) its price - cost - refunds until settle + MATURE; None when its
+    cost is unknown or the unit also has an expire row (sold and expired: which one happened is not known)."""
     if r["net"] is not None:
         return r["net"]
     if r["status"] == "uncovered" and not r.get("expire_rows") and _num(r.get("amount")) and _num(r.get("cost")):
@@ -508,7 +509,8 @@ def shop_net(r):
 
 
 def shop_talk_net(r):
-    """A sale with no known cost at the cost its talks name (None without one or without a single price)."""
+    """A sale with no known cost at the cost its talks name (None without one, without a single price, or when the
+    unit also has an expire row)."""
     c = r.get("talk_cost")
     if (_num(r.get("amount")) and _num(c) and r["status"] in ("sold", "uncovered")
             and not r.get("expire_rows")):

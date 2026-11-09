@@ -555,6 +555,19 @@ class ShopAndGates(unittest.TestCase):
         self.assertEqual((b["status"], b["amount"]), ("uncovered", 31722))      # supplied in the gap
         self.assertEqual(v.shop_net(b), 31722 - 30211)
 
+    def test_an_uncovered_sale_subtracts_its_refunds_until_settle_plus_mature(self):
+        mem, led, units = real()
+        s = settle_of(led, B_SOLD)
+        for dt, refunded in ((3600, 12000), (v.MATURE + 1, 7000)):        # the second one is past maturity
+            led.append({"seq": 1, "ts": s["ts"] + dt, "kind": "broken", "round": 3,
+                        "data": {"order": s["data"]["order"], "unit": B_SOLD, "refunded": refunded}})
+        b = unit_row(go(mem, led, units, asof=s["ts"] + v.MATURE + 600, ledger_end=s["ts"] + v.MATURE + 600,
+                        coverage=[(START - 2 * DAY, START), (START + 2000, s["ts"] + v.MATURE + 600)]), B_SOLD)
+        self.assertEqual((b["status"], b["refund"]), ("uncovered", 12000))
+        self.assertEqual(v.shop_net(b), 31722 - 30211 - 12000)
+        b["talk_cost"] = 30000
+        self.assertEqual(v.shop_talk_net(b), 31722 - 30000 - 12000)
+
     def test_a_span_without_the_talk_cost_figure_is_flagged_and_warned(self):
         mem, led, units = real()
         units[:] = [u for u in units if u["unit"] != B_SOLD]
