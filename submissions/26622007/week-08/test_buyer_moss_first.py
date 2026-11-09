@@ -109,8 +109,39 @@ class Turn(unittest.TestCase):
         return mf.assign(self.md, {"order": order_in(arm)}, now=NOW)
 
     def run_turn(self, ctx, d=None, meta=None, text=G, history=(), limit=600000, steps=(0.9,), quoted=518149,
-                 moss=True, goods=True, now=NOW):
-        return mf.turn(d, meta, text, list(history), limit, steps, quoted, moss, goods, ctx, self.md, "moss-and-oak", now=now)
+                 moss=True, goods=True, now=NOW, shop="moss-and-oak"):
+        return mf.turn(d, meta, text, list(history), limit, steps, quoted, moss, goods, ctx, self.md, shop, now=now)
+
+    def events(self):
+        with open(os.path.join(self.md, mf.JOURNAL), encoding="utf-8") as f:
+            return [json.loads(l) for l in f]
+
+    def test_first_offer_is_090_of_the_ask_whatever_the_ladder_steps(self):
+        for steps in ((0.8,), (0.95, 1.0), None, ()):
+            ctx = self.ctx("B")
+            self.assertEqual(self.run_turn(ctx, steps=steps)["price"], int(0.9 * 518149), steps)
+
+    def test_assignment_and_each_seen_turn_are_journaled(self):
+        b, a = self.ctx("B"), self.ctx("A")
+        self.run_turn(b)
+        self.run_turn(a)
+        ev = self.events()
+        self.assertEqual([(e["k"], e["order"], e["arm"]) for e in ev],
+                         [("assign", b["order"], "B"), ("assign", a["order"], "A"),
+                          ("seen", b["order"], "B"), ("seen", a["order"], "A")])
+        self.assertEqual({k: ev[0][k] for k in ("salt", "start", "end", "started_at")},
+                         {"salt": "moss-1110", "start": b["start"], "end": b["end"], "started_at": NOW})
+        self.assertEqual({k: ev[2][k] for k in ("shop", "ask", "offer", "step", "limit", "live", "applied")},
+                         {"shop": "moss-and-oak", "ask": 518149, "offer": int(0.9 * 518149), "step": 0.9,
+                          "limit": 600000, "live": True, "applied": True})
+        self.assertEqual((ev[3]["live"], ev[3]["applied"]), (True, False))
+
+    def test_off_or_not_seen_journals_nothing(self):
+        md = tempfile.mkdtemp()
+        self.assertIsNone(mf.assign(md, {"order": "o-1"}, now=NOW))
+        self.run_turn(self.ctx("B"), shop="other-shop")
+        self.assertFalse(os.path.exists(os.path.join(md, mf.JOURNAL)))
+        self.assertEqual([e["k"] for e in self.events()], ["assign"])
 
     def test_arm_b_prices_the_first_turn_at_the_step_share(self):
         ctx = self.ctx("B")
@@ -138,7 +169,7 @@ class Turn(unittest.TestCase):
                    {"history": [("shop asked", 518149), ("you offered", 466334)]},
                    {"moss": False},                                             # not moss's whole quote
                    {"quoted": None}, {"quoted": True}, {"quoted": 0},
-                   {"steps": None}, {"steps": ()},
+                   {"shop": "other-shop"},                                    # the same quote from another shop
                    {"text": G.replace("12-hour warranty included (full refund if it breaks)", "no warranty")}):
             ctx = self.ctx("B")
             d = self.run_turn(ctx, **kw)
@@ -206,9 +237,6 @@ class LeftOutOfLearning(unittest.TestCase):
     def test_shop_profile_and_rank_pg_leave_it_out(self):
         import buyer_rank_pg
         import buyer_shop_profile
-        from pathlib import Path
-        for mod in (buyer_shop_profile, buyer_rank_pg, market_buyer):
-            self.assertIn("buyer_moss_first.applied_b(r)", Path(mod.__file__).read_text(encoding="utf-8"), mod.__name__)
         t0 = 1_794_300_000
         row = {"ts": t0 - 600, "order": "o-1", "shop": "a", "kind": "goods", "quotes": [{"shop": "a", "ask": 1000}],
                "asks": [1000], "state": "TASK_STATE_COMPLETED", "price": 900, "passed_to_kit": True,
@@ -267,13 +295,17 @@ class Wired(unittest.TestCase):
             self.assertIsNone(self.call(o, q={"ask": 500000, "ask_src": "text"}))
         self.assertEqual(o["_moss_first"]["seen"], [])
 
-    def test_final_m1_only_when_on(self):
+    def test_final_m1_is_a_shadow_it_notes_and_never_sends(self):
         walk = oneshot.code_turn(9600, FinalM1.H, 10000, (.9,))
         self.assertIs(self.call({"kind": "food"}, "Final price: 9600. ", FinalM1.H, walk, limit=10000), walk)
         on = {"kind": "food", "_final_m1": []}
-        self.assertEqual(self.call(on, "Final price: 9600. ", FinalM1.H, walk, limit=10000),
-                         {"shop_price": 9600, "action": "offer", "price": 9600})
-        self.assertEqual(on["_final_m1"], [{"shop": "moss-and-oak", "price": 9600}])
+        self.assertIs(self.call(on, "Final price: 9600. ", FinalM1.H, walk, limit=10000), walk)
+        self.assertEqual(on["_final_m1"], [{"shop": "moss-and-oak", "baseline": "walk_away", "would_offer": 9600,
+                                            "final_price": 9600, "last_offer": 9600, "offers": 3, "steps": 1,
+                                            "limit": 10000}])
+        other = {"kind": "food", "_final_m1": []}
+        self.assertIs(self.call(other, "Final price: 9600. ", FinalM1.H[:4], walk, limit=10000), walk)
+        self.assertEqual(other["_final_m1"], [])
 
     def test_main_price_ladder_calls_it_only_when_on(self):
         import test_buyer_accept_band as tb

@@ -11,10 +11,14 @@ goods and the hour differ between those groups, so what 0.90 does to goods talks
   before the start (GPT Pro mw9q5kxg §4.1: 9 h minimum, 12 h maximum);
 - arm = sha256("buyer_moss_first:" + salt + ":" + order)[0] % 2 (A legacy, B code); every order started in the window is
   assigned (ITT), whatever shop it picks;
-- only the first turn of a talk on moss's whole quote that code left to the harness (no metadata ask, no code answer, the
-  ask read is the quote's "Asking: N"), and not goods whose text says no warranty (as oneshot.text_price): both arms note
-  it in "seen" with the offer code would make; arm B makes that offer (oneshot.code_turn: steps[0] of the ask, never over
-  my limit). Every later turn is as before in both arms;
+- only the first turn of a talk with moss-and-oak (the shop I picked, by its name in my shop list, not by its text) on its
+  whole quote that code left to the harness (no metadata ask, no code answer, the ask read is the quote's "Asking: N"),
+  and not goods whose text says no warranty (as oneshot.text_price): both arms note it in "seen" with the offer code would
+  make; arm B makes that offer (oneshot.code_turn at STEP, 0.90 of the ask whatever the ladder's steps, never over my
+  limit). Every later turn is as before in both arms. "applied" is that decision, not what was sent or paid: the kit log
+  has the send, the ledger the payment (GPT Pro mw9tn6kj code review M);
+- the assignment (order, arm, started_at) and every seen turn (live, applied) go to JOURNAL as they happen, before any
+  send, so an order that never writes its orders.jsonl row is still in the ITT list (GPT Pro mw9tn6kj code review I);
 - arm B acts only while the switch still says the same window: turning it off (or another salt) stops arm B at the next
   turn of an order already running, not only for new orders;
 - the switch file must be written before its start (mtime <= start): a window started in the past, or one edited after its
@@ -34,8 +38,11 @@ import ask_read
 import oneshot
 
 SWITCH = "buyer_moss_first.json"
+JOURNAL = os.path.join("buyer_moss_first", "events.jsonl")
 MIN_HOURS = 9
 MAX_HOURS = 12
+SHOP = "moss-and-oak"
+STEP = 0.9
 
 
 def _num(v):
@@ -59,6 +66,16 @@ def _switch(md):
     return {"salt": salt, "start": start, "end": end, "written": mtime}
 
 
+def _journal(md, event):
+    """One line in JOURNAL; a write that fails is left as it is (the orders row still has the study's record)."""
+    try:
+        os.makedirs(os.path.join(md, os.path.dirname(JOURNAL)), exist_ok=True)
+        with open(os.path.join(md, JOURNAL), "a", encoding="utf-8") as f:
+            f.write(json.dumps(dict(event, at=time.time()), ensure_ascii=False) + "\n")
+    except (OSError, TypeError, ValueError):
+        pass
+
+
 def assign(md, order, now=None):
     """{"arm", "salt", "start", "end", "seen": [], "applied": []} for an order started inside the window, else None."""
     s = _switch(md)
@@ -68,7 +85,9 @@ def assign(md, order, now=None):
             or not s["start"] <= now < s["end"]:
         return None
     arm = "AB"[hashlib.sha256(("buyer_moss_first:" + s["salt"] + ":" + oid).encode()).digest()[0] % 2]
-    return dict(s, arm=arm, seen=[], applied=[])
+    _journal(md, {"k": "assign", "order": oid, "arm": arm, "salt": s["salt"], "start": s["start"], "end": s["end"],
+                  "written": s["written"], "started_at": now})
+    return dict(s, order=oid, arm=arm, seen=[], applied=[])
 
 
 def live(md, ctx, now=None):
@@ -81,16 +100,20 @@ def live(md, ctx, now=None):
 
 def turn(d, meta, text, history, limit, steps, quoted, moss, goods, ctx, md, shop, now=None):
     """The turn as the ladder priced it (d), or in arm B code's first offer on moss's whole quote; see the module text."""
-    if d is not None or meta is not None or not isinstance(ctx, dict) or not moss or not steps or history:
+    if d is not None or meta is not None or not isinstance(ctx, dict) or not moss or shop != SHOP or history:
         return d
     if not isinstance(quoted, int) or isinstance(quoted, bool) or quoted <= 0 or (goods and ask_read.no_warranty(text)):
         return d
-    code = oneshot.code_turn(quoted, history, limit, steps)
+    code = oneshot.code_turn(quoted, history, limit, (STEP,))
     if not code or code.get("action") != "offer":
         return d
     note = {"shop": shop, "ask": quoted, "offer": code["price"]}
     ctx["seen"].append(note)
-    if ctx.get("arm") != "B" or not live(md, ctx, now):
+    on = live(md, ctx, now)
+    apply = ctx.get("arm") == "B" and on
+    _journal(md, dict(note, k="seen", order=ctx.get("order"), arm=ctx.get("arm"), step=STEP, limit=limit,
+                      goods=bool(goods), live=on, applied=apply))
+    if not apply:
         return d
     ctx["applied"].append(dict(note))
     return code

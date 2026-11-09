@@ -69,9 +69,10 @@ def final_m1_on(md, env=None):
 def final_m1(d, meta, text, history, limit, steps):
     """code_turn walks once the steps and both last offers are spent, before it looks at an ask at or under my last offer;
     so a text-only "Final price: N" at my last offer ends the talk unbought (GPT Pro mw9q5kxg §1.5, §4.1 M1; 0 such
-    talks 04:49:42 - 05:30). With final_m1 on, that walk alone is an offer of N: the same price I offered last, never over
-    my limit. A shop that did not take its own ask (my last offer was that ask) still gets the walk, and every other
-    turn is as code_turn left it."""
+    talks 04:49:42 - 05:30). This returns what M1 would do: that walk alone becomes an offer of N, the same price I
+    offered last, never over my limit. A shop that did not take its own ask (my last offer was that ask) still gets the
+    walk, and every other turn is as code_turn left it. market_buyer only notes it (a shadow, GPT Pro mw9tn6kj: 0 such
+    Final turns in 118): the turn sent is code_turn's."""
     if not d or d.get("action") != "walk_away" or meta is not None or not final_text(text):
         return d
     mine = [p for who, p in history if who == "you offered"]

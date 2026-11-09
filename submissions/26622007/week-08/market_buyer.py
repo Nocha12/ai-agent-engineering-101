@@ -1947,8 +1947,10 @@ def choose_path(reason):
 
 def moss_first_and_final_m1(d, meta, text, history, limit, steps, q, resume, sku, order, md, shop):
     """The ladder's turn after buyer_moss_first (arm B: moss-and-oak's whole quote, first turn, priced by code) and
-    oneshot.final_m1 (a text-only Final price at my last offer once my offers are spent, taken); both default off, and
-    with both off (no order["_moss_first"], order["_final_m1"] None) the turn is d, unchanged."""
+    oneshot.final_m1, a shadow: what it would do with a text-only Final price at my last offer once my offers are spent is
+    noted in order["_final_m1"], and the turn sent stays d (GPT Pro mw9tn6kj: 0 such Final turns in 118 since 11/10
+    04:49, so a 30-60 min check of the branch, no sends). Both default off, and with both off (no order["_moss_first"],
+    order["_final_m1"] None) the turn is d, unchanged."""
     if order.get("_moss_first"):
         moss = buyer_moss_first.turn(d, meta, text, history, limit, steps,
                                      q.get("ask") if resume and q.get("ask_src") == "text" else None,
@@ -1960,9 +1962,12 @@ def moss_first_and_final_m1(d, meta, text, history, limit, steps, q, resume, sku
     if order.get("_final_m1") is not None:
         m1 = oneshot.final_m1(d, meta, text, history, limit, steps)
         if m1 is not d:
-            order["_final_m1"].append({"shop": shop, "price": m1["price"]})
-            log(f"[final-m1] {shop}: Final price {m1['price']} is my last offer, offers spent: taken")
-        d = m1
+            mine = [p for who, p in history if who == "you offered"]
+            order["_final_m1"].append({"shop": shop, "baseline": d["action"], "would_offer": m1["price"],
+                                       "final_price": d["shop_price"], "last_offer": mine[-1], "offers": len(mine),
+                                       "steps": len(steps or ()), "limit": limit})
+            log(f"[final-m1 shadow] {shop}: Final price {m1['price']} is my last offer, offers spent: would offer it, "
+                f"walking as before")
     return d
 
 
@@ -2093,7 +2098,7 @@ def main():
         order["_food_quote_yield"] = order.get("kind") == "food" and quote_yield_arm(order.get("order"))
         order["_our_ask"] = buyer_our_ask.assign(md, order, now=order["_buyer_started_at"])
         order["_moss_first"] = buyer_moss_first.assign(md, order, now=order["_buyer_started_at"])
-        order["_final_m1"] = [] if oneshot.final_m1_on(md) else None      # default off: the turns it took, when on
+        order["_final_m1"] = [] if oneshot.final_m1_on(md) else None      # default off: when on, the turns it would take (shadow)
     with open(args.shops, encoding="utf-8") as f:
         shops = [s for s in json.load(f) if s.get("url") and s.get("name")]
     if r3:
