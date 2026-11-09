@@ -52,6 +52,14 @@ def _num(x):
     return type(x) in (int, float) and x > 0
 
 
+def _lowered(r):
+    """A talk whose limit an A/B arm lowered (buyer_goods_grade arm B): its misses over that limit say nothing of the
+    shop under plan A's limit, and a profile from them would move both arms (independent review d85a9e9 I1)."""
+    g = r.get('goods_grade')
+    return isinstance(g, dict) and g.get('arm') == 'B' and _num(g.get('limit_a')) and _num(r.get('limit')) \
+        and r['limit'] < g['limit_a']
+
+
 def profile_from_rows(rows, paid, now):
     talks = {}
     for r in rows:
@@ -60,6 +68,8 @@ def profile_from_rows(rows, paid, now):
                 and isinstance(asks, list) and asks and all(_num(a) for a in asks)):
             continue
         if r.get('state') in (None, 'NO_VALUE'):
+            continue
+        if _lowered(r):
             continue
         talks.setdefault(shop, []).append(r)
     out = {}

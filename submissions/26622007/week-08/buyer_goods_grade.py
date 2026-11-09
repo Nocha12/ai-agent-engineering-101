@@ -9,7 +9,9 @@ Arm B takes max(SKU chance, market_model.unit_break_chance(stats, sku, grade)) w
 grade, so saved_cap's list (1 - 0.30 / (1 - b)) asks a deeper discount of a grade B or C unit (the short warranty cap
 reads the grade the same way: "grade C", "Grade C", one grade only). The chance never goes down, so a grade A unit is
 priced as today. Arm A keeps the SKU chance. Both arms are recorded in orders.jsonl ("goods_grade"), with the chance B
-uses, so the eligible set is the same in both. Only the limit moves: what is bought, the shops asked and the choice
+uses and arm A's limit (limit_a), so the eligible set is the same in both; the record's break_chance is the chance the
+limit used (arm B: the grade's). buyer_shop_profile leaves out arm B talks whose limit went down, so the lowered
+limits do not set a shop's accept band for both arms. Only the limit moves: what is bought, the shops asked and the choice
 among them stay as they are, and a lower limit can only mean fewer or cheaper deals.
 
 Eligible: a round 3 goods order with an id, the chosen shop's quote naming one grade, a SKU chance (enough goods sold),

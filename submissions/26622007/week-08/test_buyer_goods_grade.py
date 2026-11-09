@@ -156,6 +156,32 @@ class Treatment(unittest.TestCase):
         self.assertEqual((chance, rec), (SKU_CHANCE, None))
 
 
+class ShopProfile(unittest.TestCase):
+    """independent review d85a9e9 I1: arm B's lowered limit must not set a shop's accept band for both arms"""
+    NOW = 1_800_000_000.0
+
+    def rows(self, gg_of):
+        import buyer_shop_profile as sp  # noqa: F401
+        out = []
+        for i in range(20):        # a holding shop that ends 8% over my limit when arm B lowered it to 1000 from 1080
+            out.append({"ts": self.NOW - 60, "order": f"f{i}", "shop": "H", "limit": 1000, "asks": [1080, 1080],
+                        "state": "TASK_STATE_CANCELED", "price": None, "goods_grade": gg_of(i)})
+        for i in range(10):
+            out.append({"ts": self.NOW - 60, "order": f"d{i}", "shop": "H", "limit": 1000, "asks": [1000, 1000],
+                        "state": "TASK_STATE_COMPLETED", "price": 1000, "passed_to_kit": True})
+        return out
+
+    def test_arm_b_rows_with_a_lowered_limit_are_left_out(self):
+        import buyer_shop_profile as sp
+        b = {"study": "s", "arm": "B", "grade": "C", "raised": True, "limit_a": 1080}
+        self.assertEqual(sp.profile_from_rows(self.rows(lambda i: b), {}, now=self.NOW), {})
+        self.assertEqual(sp.profile_from_rows(self.rows(lambda i: None), {}, now=self.NOW), {"H": 108})
+        a = dict(b, arm="A", limit_a=1000)
+        self.assertEqual(sp.profile_from_rows(self.rows(lambda i: a), {}, now=self.NOW), {"H": 108})
+        same = dict(b, limit_a=1000)                   # B raised the chance but the limit did not move (value_limit)
+        self.assertEqual(sp.profile_from_rows(self.rows(lambda i: same), {}, now=self.NOW), {"H": 108})
+
+
 class Wiring(unittest.TestCase):
     def test_market_buyer_calls_it_where_the_limit_is_set(self):
         src = open(mb.__file__, encoding="utf-8").read()
@@ -163,6 +189,9 @@ class Wiring(unittest.TestCase):
         j = src.index("limit = min(value_limit(offer, args.budget, chance, buyer_cfg()), saved_cap(offer, chance))", i)
         self.assertIn("buyer_goods_grade.adjust(", src[i:j])
         self.assertIn('"goods_grade": order.get("_goods_grade")', src)
+        k = src.index('order["_goods_grade"]["limit_a"] = min(value_limit(offer, args.budget, sku_chance, buyer_cfg()),', j)
+        self.assertLess(k - j, 300)      # right after the limit, before the accept band reads it
+        self.assertLess(k, src.index("band_base, band_pct = accept_percent(", j))
 
 
 if __name__ == "__main__":

@@ -2015,7 +2015,7 @@ def main():
     sw_h = buyer_short_warranty.hours_for(order.get("_sw"), shop["name"], quotes.get(shop["name"])) if r3 else None
     order["_goods_grade"] = None
     if r3 and order.get("kind") == "goods":
-        chance = market_model.break_chance(ledger_breaks(md, catalog), key)
+        chance = sku_chance = market_model.break_chance(ledger_breaks(md, catalog), key)
         # buyer_goods_grade arm B: a quote naming grade B/C prices the unit by that grade's chance (off: the SKU's)
         chance, order["_goods_grade"] = buyer_goods_grade.adjust(md, order, quotes.get(shop["name"]),
                                                                  ledger_breaks(md, catalog), key, chance, sw_h)
@@ -2023,6 +2023,9 @@ def main():
             log(f"[goods-grade] {shop['name']}: arm {order['_goods_grade']['arm']}, grade {order['_goods_grade']['grade']}"
                 f" (SKU {order['_goods_grade']['sku_chance']:.1%}, grade {order['_goods_grade']['grade_chance']:.1%})")
     limit = min(value_limit(offer, args.budget, chance, buyer_cfg()), saved_cap(offer, chance)) if r3 else args.budget
+    if order["_goods_grade"]:     # arm A's limit too, for the judgement and to keep arm B out of the shop profiles
+        order["_goods_grade"]["limit_a"] = min(value_limit(offer, args.budget, sku_chance, buyer_cfg()),
+                                               saved_cap(offer, sku_chance))
     # plan A: a counter up to 105% of the limit is taken; more with a shop that holds its ask (buyer_shop_profile)
     band_base, band_pct = accept_percent(md, shop["name"], offer, chance, limit, args.budget) if r3 else (None, None)
     if sw_h is not None:      # a short warranty expected: p_max(h) is the ceiling, no accept band (owner 7955)
