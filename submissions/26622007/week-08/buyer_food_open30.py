@@ -1,4 +1,4 @@
-"""Explicit food scope, .89 instead of .90 first offer; journaled 30-minute pilot, default OFF.
+"""Explicit food scopes, .89 or .88 vs .90 first offer; finite pilot, default OFF.
 
 The old food-ladder switch/history is never changed. Notes use food_ladder so its
 existing B-trade learning exclusions also exclude this pilot's changed prices.
@@ -18,6 +18,8 @@ POLICY = 'food-first-089'
 SHOP = 'cheapest-in-town'
 SKU = 'G2108d9bc'
 RETRY_SCOPE = 'food-code90-five-shops-v2'
+SPEED_SCOPE = 'food-code90-five-shops-088-v3'
+SPEED_POLICY = 'food-first-088'
 RETRY_SHOPS = frozenset(('cheapest-in-town', 'YAHO1212', 'thisjonghoon', 'choo-chu', 'olstjr'))
 MAX_SECONDS = 1800
 MAX_ORDERS = 12
@@ -42,7 +44,7 @@ def config(md, env=None, now=None):
         if not isinstance(d, dict) or d.get('enabled') is not True:
             return None
         start, end = d.get('start'), d.get('end')
-        if d.get('scope') not in (None, RETRY_SCOPE):
+        if d.get('scope') not in (None, RETRY_SCOPE, SPEED_SCOPE):
             return None
         if not (_epoch(start) and _epoch(end) and 0 < start < end <= start + MAX_SECONDS
                 and mtime <= start <= now < end
@@ -51,7 +53,7 @@ def config(md, env=None, now=None):
             return None
         return {k: d[k] for k in ('study', 'salt', 'start', 'end')} | {
             'config_sha256': hashlib.sha256(raw.encode()).hexdigest()} | (
-            {'scope': RETRY_SCOPE} if d.get('scope') == RETRY_SCOPE else {})
+            {'scope': d['scope']} if d.get('scope') in (RETRY_SCOPE, SPEED_SCOPE) else {})
     except (OSError, ValueError, TypeError, RecursionError):
         return None
 
@@ -61,9 +63,17 @@ def _arm(cfg, order_id):
 
 
 def _target(cfg, shop, sku):
-    if cfg.get('scope') == RETRY_SCOPE:
+    if cfg.get('scope') in (RETRY_SCOPE, SPEED_SCOPE):
         return shop in RETRY_SHOPS and isinstance(sku, str) and re.fullmatch(r'G[0-9a-f]{8}', sku) is not None
     return shop == SHOP and sku == SKU
+
+
+def _policy(cfg):
+    return SPEED_POLICY if cfg.get('scope') == SPEED_SCOPE else POLICY
+
+
+def _candidate(cfg, ask):
+    return int(ask) * 88 // 100 if cfg.get('scope') == SPEED_SCOPE else int(.89 * ask)
 
 
 def _valid_row(order_id, row, cfg, *, journal=True):
@@ -74,7 +84,7 @@ def _valid_row(order_id, row, cfg, *, journal=True):
                   'order', 'quote_task', 'limit'}
         if (not isinstance(row, dict) or not fields.issubset(row)
                 or not isinstance(order_id, str) or re.fullmatch(r'[A-Za-z0-9_-]{1,96}', order_id) is None
-                or row['order'] != order_id or row['policy'] != POLICY or not _target(cfg, row['shop'], row['sku'])
+                or row['order'] != order_id or row['policy'] != _policy(cfg) or not _target(cfg, row['shop'], row['sku'])
                 or row.get('scope') != cfg.get('scope')
                 or row['arm'] != _arm(cfg, order_id) or row['grade'] is not None or row['steps'] != [.9]
                 or any(row[k] != cfg[k] for k in ('study', 'start', 'end', 'config_sha256'))
@@ -86,7 +96,7 @@ def _valid_row(order_id, row, cfg, *, journal=True):
         return (_epoch(ask) and int(ask) == ask and ask > 0 and _epoch(limit) and limit >= 1
                 and type(row['baseline']) is int and type(row['candidate']) is int
                 and row['baseline'] == min(int(.90 * ask), int(ask), int(limit))
-                and row['candidate'] == int(.89 * ask) and 0 < row['candidate'] < row['baseline'])
+                and row['candidate'] == _candidate(cfg, ask) and 0 < row['candidate'] < row['baseline'])
     except (ValueError, TypeError, OverflowError):
         return False
 
@@ -122,7 +132,7 @@ def assign(md, order, shop, quote, steps, resume, *, probing, code_priced, limit
                 or not isinstance(order.get('order'), str)
                 or re.fullmatch(r'[A-Za-z0-9_-]{1,96}', order['order']) is None):
             return None
-        baseline, candidate = min(int(.90 * ask), int(ask), int(limit)), int(.89 * ask)
+        baseline, candidate = min(int(.90 * ask), int(ask), int(limit)), _candidate(cfg, ask)
         if not 0 < candidate < baseline:
             return None
         path = os.path.join(md, JOURNAL)
@@ -151,7 +161,7 @@ def assign(md, order, shop, quote, steps, resume, *, probing, code_priced, limit
                 if len(rows) >= MAX_ORDERS or sum(x['arm'] == 'B' for x in rows.values()) >= MAX_B:
                     return None   # exposure bound, not a model-call cap; stop both arms together
                 note = {k: cfg[k] for k in ('study', 'start', 'end', 'config_sha256')}
-                note.update(policy=POLICY, arm=_arm(cfg, order['order']), grade=None, steps=[.9], shop=shop, sku=sku,
+                note.update(policy=_policy(cfg), arm=_arm(cfg, order['order']), grade=None, steps=[.9], shop=shop, sku=sku,
                             ask=ask, limit=limit, baseline=baseline, candidate=candidate, applied=False, assigned_at=now,
                             order=order['order'], quote_task=task_id)
                 if cfg.get('scope'):
@@ -184,7 +194,7 @@ def assign(md, order, shop, quote, steps, resume, *, probing, code_priced, limit
 
 def apply(decision, history, limit, steps, note, *, md=None, env=None, now=None):
     """Only lower the original, code-priced first offer; later turns/expired/OFF are identical."""
-    if not isinstance(note, dict) or note.get('policy') != POLICY or md is None:
+    if not isinstance(note, dict) or note.get('policy') not in (POLICY, SPEED_POLICY) or md is None:
         return decision
     cfg = config(md, env, now)
     if (cfg is None or not _valid_row(note.get('order'), note, cfg, journal=False)

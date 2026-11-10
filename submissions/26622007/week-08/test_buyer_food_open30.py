@@ -231,5 +231,92 @@ class FoodOpen30JournalContract(FoodOpen30Guards):
         self.assertIsNotNone(self.assign())
 
 
+class FoodOpen88Test(unittest.TestCase):
+    # The agreed seams are config/assign/apply and buyer.talk first send.
+    setUp = FoodOpen30Guards.setUp
+    assign = FoodOpen30Guards.assign
+    flag = FoodOpen30Guards.flag
+    SCOPE = 'food-code90-five-shops-088-v3'
+
+    def test_explicit_88_scope_has_separate_policy_and_exact_integer_price(self):
+        self.flag(scope=self.SCOPE)
+        cfg = pilot.config(self.md, {}, 2000000001)
+        self.assertIsNotNone(cfg)
+        self.assertEqual(cfg['scope'], self.SCOPE)
+        note = self.assign()
+        self.assertIsNotNone(note)
+        self.assertEqual(note['policy'], 'food-first-088')
+        self.assertEqual(note['candidate'], 8634)
+        self.assertEqual(note['baseline'], 8830)
+        self.assertEqual(pilot.apply(self.baseline, [], 13230, (.9,), note,
+            md=self.md, env={}, now=2000000001)['price'], 8634)
+
+    def test_worked_prices_and_low_limit(self):
+        for ask, limit, expected, baseline in ((9812, 13230, 8634, 8830),
+                (10000, 13230, 8800, 9000), (9812, 8700, 8634, 8700)):
+            with self.subTest(ask=ask, limit=limit):
+                self.flag(scope=self.SCOPE)
+                q = dict(self.quote, ask=ask)
+                n = self.assign(quote=q, limit=limit)
+                self.assertEqual((n['candidate'], n['baseline']), (expected, baseline))
+                os.unlink(os.path.join(self.md, pilot.JOURNAL))
+        self.assertIsNone(self.assign(limit=8600))
+
+    def test_A_OFF_expiry_and_followup_remain_baseline(self):
+        self.flag(scope=self.SCOPE)
+        a = self.assign(order=dict(self.order, order='o-food30-2'))
+        self.assertEqual(a['arm'], 'A')
+        self.assertEqual(pilot.apply(self.baseline, [], 13230, (.9,), a,
+            md=self.md, env={}, now=2000000001), self.baseline)
+        b = self.assign()
+        for now in (1999999999, 2000001800):
+            self.assertEqual(pilot.apply(self.baseline, [], 13230, (.9,), b,
+                md=self.md, env={}, now=now), self.baseline)
+        self.assertEqual(pilot.apply(self.baseline, [('you offered', 8634)], 13230, (.9,), b,
+            md=self.md, env={}, now=2000000001), self.baseline)
+        self.flag(scope=self.SCOPE, enabled=False)
+        self.assertEqual(pilot.apply(self.baseline, [], 13230, (.9,), b,
+            md=self.md, env={}, now=2000000001), self.baseline)
+
+    def test_scope_guards_and_durability_and_old_journal_are_fail_closed(self):
+        from unittest.mock import patch
+        self.flag(scope=self.SCOPE)
+        for changes in (dict(order=dict(self.order, kind='goods')), dict(probing=True),
+                dict(code_priced=False), dict(quote=dict(self.quote, ask=None)),
+                dict(quote=dict(self.quote, text=self.quote['text']+' G2560a8c9')),
+                dict(shop='not-allowed'), dict(order=dict(self.order, _food_ladder={'arm':'B'}))):
+            with self.subTest(changes=changes):
+                self.assertIsNone(self.assign(**changes))
+        self.assertIsNone(pilot.assign(self.md, self.order, 'cheapest-in-town', self.quote,
+            (.8,.9), True, probing=False, code_priced=True, limit=13230, env={}, now=2000000001))
+        with patch.object(pilot.os, 'fsync', side_effect=OSError('fixture persistence failure')):
+            self.assertIsNone(self.assign())
+        self.assertFalse(os.path.exists(os.path.join(self.md, pilot.JOURNAL)))
+        self.flag(scope=pilot.RETRY_SCOPE)
+        old = self.assign()
+        self.flag(scope=self.SCOPE)
+        self.assertIsNone(self.assign())
+        self.assertEqual(pilot.apply(self.baseline, [], 13230, (.9,), old,
+            md=self.md, env={}, now=2000000001), self.baseline)
+        self.flag(scope='unsupported-scope')
+        self.assertIsNone(pilot.config(self.md, {}, 2000000001))
+
+    def test_new_policy_cannot_reuse_tampered_price_or_policy(self):
+        self.flag(scope=self.SCOPE)
+        n = self.assign()
+        for changes in (dict(candidate=1), dict(candidate=8732), dict(policy=pilot.POLICY),
+                dict(scope=pilot.RETRY_SCOPE), dict(limit=8700)):
+            self.assertEqual(pilot.apply(self.baseline, [], 13230, (.9,), dict(n, **changes),
+                md=self.md, env={}, now=2000000001), self.baseline)
+
+    def test_five_shops_accept_only_canonical_single_sku(self):
+        self.flag(scope=self.SCOPE)
+        for shop in sorted(pilot.RETRY_SHOPS):
+            n = self.assign(shop=shop)
+            self.assertEqual(n['shop'], shop)
+            os.unlink(os.path.join(self.md, pilot.JOURNAL))
+        self.assertIsNone(self.assign(quote=dict(self.quote, sku='Ginvalid')))
+
+
 if __name__ == '__main__':
     unittest.main()
