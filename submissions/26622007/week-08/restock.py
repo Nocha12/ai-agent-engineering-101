@@ -923,6 +923,8 @@ def window_fast_arm(state, cfg, inv, now=None):
     """(arm, label) for the supply window inventory.json names: ("B", "default") when pricing.json restock.window_fast
     is true (the rule for every window since window-fast-1110-v2's verdict: 13.8 SKU lines a window against 12.2 over
     32 windows), else the study's arm and name while its switch is on, else (None, None)."""
+    if str(os.environ.get("RESTOCK_WINDOW_FAST") or "").strip().lower() in ("0", "false", "no", "off"):
+        return None, None       # the stop in the environment holds for the rule as for the study (review 9d5c7b1 M4)
     if cfg.get("window_fast") is True:
         return "B", "default"
     r = inv.get("restock") if isinstance(inv, dict) else None
@@ -1023,6 +1025,9 @@ def main():
               f"than held ({sum(m['held'] - m['counted'] for m in moved.values())} units waited past "
               f"{cfg['fresh_slots']['hours']:g} h): "
               + ", ".join(f"{k} {m['held']}->{m['counted']}" for k, m in sorted(moved.items())), file=sys.stderr, flush=True)
+    arm_, label = window_fast_arm(args.state, cfg, inv)       # (None, None) when off
+    window_arm = "default" if label == "default" else arm_     # measure's tag: the rule is told from a study's arm B
+    fast_b = arm_ == "B"
     fast_note = {}
     fast = window_fast(args.state, inv, pricing, cfg, catalog, note=fast_note)      # restock_window_fast, default off: None
     if fast is not None:
@@ -1031,10 +1036,8 @@ def main():
             fast = {**fast, "cash": cash}
         print(json.dumps(fast, ensure_ascii=False), flush=True)
         measure.tick(args.state, inv, fast["buy"][:10], pricing, skip_sales=True,     # the 6 h sales wait for the usual run
-                     window_arm="B-fast")
+                     window_arm=f"{window_arm}-fast")
         return 0
-    window_arm = window_fast_arm(args.state, cfg, inv)[0]       # None when off
-    fast_b = window_arm == "B"
     demand, model = load(os.path.join(args.state, "demand.json"), []), read_model(args.state, catalog, cfg)
     loss_watch.check(args.state, rows=rows_of(args.state))     # after read_model: the ledger rows are fresh
     breaks = read_breaks(args.state, catalog)

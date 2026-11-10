@@ -6,6 +6,7 @@ life of a unit's lock, the floor and first ask, the restock guard over held + wa
 import contextlib
 import io
 import json
+import math
 import os
 import sys
 import tempfile
@@ -389,6 +390,33 @@ class PriceTest(unittest.TestCase):
         self.assertEqual(profit_price.quote(over, pricing=on)["floor"], profit_price.quote(over, pricing=base)["floor"])
         self.assertEqual(profit_price.grade_profit_share({"grade_profit_share": {"B": 0.15}}, "goods", "B"), 0.15)
 
+    def test_the_share_is_not_for_a_capped_or_scarce_unit_nor_for_one_that_has_waited(self):
+        # independent review 9d5c7b1 I1: 12 of the 91 ask-capped units held would have got a floor over their cap
+        price = {"min_profit": 1, "min_profit_share": 0.0, "goods_break": 0.035, "grade_break": {"A": 0.03, "B": 0.15},
+                 "grade_profit_share": {"A": 0.08, "B": 0.08}, "grade_profit_hours": 6}
+        now = 1794350000.0
+        u = {"sku": "G1", "unit": "u", "kind": "goods", "grade": "A", "cost": 575000, "list_price": 1000000, "supplied_at": now - 600}
+        with mock.patch.object(profit_price.time, "time", return_value=now):
+            self.assertEqual(profit_price.quote(u, pricing={"price": price})["floor"], 680247)
+            capped = {"price": {**price, "ask_caps": {"G1": {"A": 650000}}}}
+            q = profit_price.quote(u, median=700000, pricing=capped)
+            self.assertEqual((q["floor"], q["open"]), (597346, 650000))                 # the cap still caps: break-even under it
+            self.assertEqual(profit_price.quote({**u, "grade": "B", "cost": 450000}, pricing=capped)["floor"],
+                             math.ceil((450000 + 1125 + 80000) / 0.85))                 # the cap is grade A's only
+            scarce = {"price": {**price, "scarce_asks": {"G1": 900000}}}
+            self.assertEqual(profit_price.quote(u, pricing=scarce)["floor"], 597346)
+            # 대표님 11/11 00:26: what has waited goes at cost + expected refund, never under it
+            self.assertEqual(profit_price.quote({**u, "supplied_at": now - 6 * 3600 + 1}, pricing={"price": price})["floor"], 680247)
+            for waited in (now - 6 * 3600, now - 80 * 3600):
+                self.assertEqual(profit_price.quote({**u, "supplied_at": waited}, pricing={"price": price})["floor"], 597346)
+            for unknown in (None, "x", float("nan"), True):                                 # no arrival time: a new unit
+                self.assertEqual(profit_price.quote({**u, "supplied_at": unknown}, pricing={"price": price})["floor"], 680247)
+            for off in (None, 0, -1, "6", True):                                            # no hours: the share for every age
+                p = {"price": {**price, "grade_profit_hours": off}}
+                self.assertEqual(profit_price.quote({**u, "supplied_at": now - 80 * 3600}, pricing=p)["floor"], 680247, off)
+        self.assertEqual(profit_price.grade_profit_share(price, "goods", "A", u, now=now), 0.08)
+        self.assertEqual(profit_price.grade_profit_share(price, "goods", "A", {**u, "supplied_at": now - 7 * 3600}, now=now), 0.0)
+
     def test_shipped_settings(self):
         with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
             p = json.load(f)
@@ -404,7 +432,11 @@ class PriceTest(unittest.TestCase):
         self.assertEqual(profit_price.cfg_of(p)["grade_break"], {"A": 0.03, "B": 0.15, "C": 0.344})
         b_unit = {"sku": "G85a1a856", "unit": "u", "kind": "goods", "grade": "B", "cost": 500000, "list_price": 922000}
         # goods-margin-1110 kept (11/11): every grade's floor keeps 8% of list after the expected refund
-        self.assertEqual(profit_price.cfg_of(p)["grade_profit_share"], {"A": 0.08, "B": 0.08, "C": 0.08})
+        self.assertEqual(profit_price.cfg_of(p)["grade_profit_share"], {"A": 0.08, "B": 0.08})     # C: not proven, break-even
+        self.assertEqual(profit_price.cfg_of(p)["grade_profit_hours"], 6)
+        c_unit = {"sku": "G85a1a856", "unit": "u", "kind": "goods", "grade": "C", "cost": 350000, "list_price": 922000}
+        self.assertEqual(profit_price.quote(c_unit, median=None, measured=None, pricing=p)["floor"],
+                         math.ceil((350000 + 875 + 1) / (1 - 0.344)))
         # (500,000 + 1,250 + 0.08 x 922,000) / 0.85 = 676,482.4 -> 676,483 (break-even at b 0.15: 589,708; at 0.122: 570,900)
         self.assertEqual(profit_price.quote(b_unit, median=None, measured=0.12, pricing=p)["floor"], 676483)
         a_unit = {"sku": "G03d0199f", "unit": "u", "kind": "goods", "grade": "A", "cost": 575000, "list_price": 1000000}

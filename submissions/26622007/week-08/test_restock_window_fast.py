@@ -342,7 +342,7 @@ class FastRunTest(unittest.TestCase):
         self.assertEqual(len(ticks), 1)
         self.assertEqual(ticks[0][0][2], [{"sku": "G2", "qty": 2}])
         self.assertIs(ticks[0][1].get("skip_sales"), True)
-        self.assertEqual(ticks[0][1].get("window_arm"), "B-fast")
+        self.assertEqual(ticks[0][1].get("window_arm"), "B-fast")                  # a study's fast run; the rule's: default-fast
         self.assertTrue(os.path.isdir(here))
 
 
@@ -416,7 +416,9 @@ class MainSlowRunTest(unittest.TestCase):
         buy, carry = self.run_main()
         self.assertEqual([b["sku"] for b in buy], [f"G{i}" for i in range(1, 11)])
         self.assertEqual([b["sku"] for b in carry], [f"G{i}" for i in range(11, 21)])
-        self.assertEqual(self.ticks[-1].get("window_arm"), "B")
+        self.assertEqual(self.ticks[-1].get("window_arm"), "default")              # told from a study's arm B
+        with mock.patch.dict(os.environ, {"RESTOCK_WINDOW_FAST": "off"}):          # the stop in the environment holds
+            self.assertEqual(restock.window_fast_arm(self.md, {**restock.DEFAULTS, "window_fast": True}, self.inv), (None, None))
 
     def test_off_and_arm_a_print_todays_nine_and_leave_no_carry(self):
         os.remove(os.path.join(self.md, wf.SWITCH))
