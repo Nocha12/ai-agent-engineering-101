@@ -887,7 +887,8 @@ class Seller(AgentExecutor):
         trial_started = time.monotonic()
         deal["reader_trial_input_sha"] = hashlib.sha256(text.encode()).hexdigest()
         deal["reader_trial_template_offer"] = seller_reader_trial.template_offer(text)
-        reader = seller_reader_trial.Reader(JEV_TRANSPORT.reader(deal) if fast_classify.JEV_ON else None,
+        transport_reader = JEV_TRANSPORT.reader(deal)  # reset exposure even when Jev is off/lazy
+        reader = seller_reader_trial.Reader(transport_reader if fast_classify.JEV_ON else None,
                                             READER_TRIAL.arm(deal.get("reader_trial") or {}), market_ref=MARKET_REF)
         deal["reader_trial_floor"] = floor_now
         jev = reader if fast_classify.JEV_ON or reader.arm == "B" else None   # lazy, one call a turn

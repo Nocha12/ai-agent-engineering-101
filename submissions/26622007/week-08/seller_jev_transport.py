@@ -37,29 +37,51 @@ class JevTransport(OpeningCue):
             raise ValueError("invalid trial window or seed")
         return dict(enabled=True,id=trial_id,start=start,end=end,seed=seed,stop=False)
 
-    def _treatment_active(self,deal):
+    def _dispatch_choice(self,deal):
         # ITT enrollment stays immutable; only actual transport exposure expires.
+        now=time.time()
+        reason="invalid"
         try:
             a=deal.get("jev_transport") or {}
-            if not a.get("id") or self.arm(a)!="B" or (self.root/"disabled").exists():
-                return False
-            c=self.config()
-            now=time.time()
-            return bool(c and not c.get("stop") and c.get("id")==a["id"]
-                        and math.isfinite(now) and c["start"] <= now < c["end"])
+            if not a.get("id"): reason="not-enrolled"
+            elif self.arm(a)!="B": reason="control-or-contaminated"
+            elif (self.root/"disabled").exists(): reason="disabled"
+            else:
+                c=self.config()
+                if not c: reason="config-unavailable"
+                elif c.get("stop"): reason="stop"
+                elif c.get("id")!=a["id"]: reason="id-changed"
+                elif not math.isfinite(now) or not c["start"] <= now < c["end"]: reason="outside-window"
+                else: reason="active"
         except Exception:
-            return False
+            pass
+        return dict(arm="B" if reason=="active" else "A",
+                    ts=now if math.isfinite(now) else None,reason=reason)
 
     def reader(self,deal):
+        # One fresh state per turn, including lazy/no-Jev turns. Old closures own
+        # their old state and cannot contaminate the next turn or another talk.
+        state={"dispatches":[]}
+        deal["jev_transport_turn"]=state
         def post(*args,**kwargs):
-            # Recheck at dispatch too: classification may outlive reader creation.
-            send=self.pool.post if self._treatment_active(deal) else httpx.post
+            choice=self._dispatch_choice(deal)
+            # This selection is logical dispatch/in-flight, NOT physical socket
+            # send or cancellation. Record before send, even if it raises.
+            send=self.pool.post if choice["arm"]=="B" else httpx.post
+            state["dispatches"].append(choice)
             return send(*args,**kwargs)
         def read(text):
-            if self._treatment_active(deal):
-                return fast_classify.jev_offer(text,post=post)
-            return fast_classify.jev_offer(text)
+            # Baseline must pass through the same observation callback too.
+            return fast_classify.jev_offer(text,post=post)
         return read
 
     def event(self,task,deal,event,price=None,now=None,**fields):
+        if event=="turn":
+            dispatches=list((deal.get("jev_transport_turn") or {}).get("dispatches",[]))
+            arms={d["arm"] for d in dispatches}
+            actual=next(iter(arms)) if len(arms)==1 else ("mixed" if arms else "no-dispatch")
+            fields.update(effective_arm=actual,dispatches=dispatches,exposure_scope="turn")
+        else:
+            # Quote/terminal are ITT outcomes, not the last turn's exposure.
+            fields.update(effective_arm=None,dispatches=[],exposure_scope="itt-only")
         super().event(task,dict(deal,opening_cue=deal.get("jev_transport") or {}),event,price,now,**fields)

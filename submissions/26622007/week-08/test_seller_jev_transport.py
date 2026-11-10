@@ -13,7 +13,7 @@ class TransportTrialTest(unittest.TestCase):
                 b=self.deal();t.quote("treatment-2",b,1001)
             before={k:b[k] for k in ("ask","reserve","open","warranty","cost")}
             with patch("seller_jev_transport.time.time",return_value=1100),patch("fast_classify.jev_offer",return_value=(150,.95)) as read:
-                self.assertEqual(t.reader(a)("input"),(150,.95));self.assertEqual(read.call_args.kwargs,{})
+                self.assertEqual(t.reader(a)("input"),(150,.95));self.assertTrue(callable(read.call_args.kwargs["post"]))
                 self.assertEqual(t.reader(b)("input"),(150,.95));self.assertTrue(callable(read.call_args.kwargs["post"]))
             self.assertEqual({k:b[k] for k in before},before)
             again=self.deal();t.quote("control",again,1002);self.assertEqual(again["jev_transport"]["arm"],"A")
