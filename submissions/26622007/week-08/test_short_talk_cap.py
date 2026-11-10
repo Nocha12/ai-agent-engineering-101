@@ -205,7 +205,9 @@ class OurAskSentenceTest(unittest.TestCase):
         self.assertIn("'text_rank ' if bq.get('ask_src') == 'text_rank' else ''", src)
 
     def test_off_arm_a_or_out_of_window_reads_none(self):
-        for ctx in (None, dict(self.B, arm="A"), dict(self.B, start=4e9, end=5e9), dict(self.B, end=1)):
+        live = self._live_b()     # with its market dir and switch: off because of the arm or the window, not a missing md
+        for ctx in (None, dict(live, arm="A"), dict(live, start=4e9, end=4e9 + 9 * 3600), dict(live, end=live["start"] + 1),
+                    dict(self.B, start=4e9, end=5e9)):
             q = self._quote(self.F, our_ask=ctx)
             self.assertEqual((q["ask"], q["ask_src"]), (None, None), ctx)
 

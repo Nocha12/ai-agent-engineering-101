@@ -159,11 +159,25 @@ class Journal(unittest.TestCase):
 
 
 class Wired(unittest.TestCase):
-    def test_quote_records_a_read_through_applied(self):
+    def test_quote_reads_the_switch_and_journals_outside_its_lock(self):
         import inspect
         src = inspect.getsource(market_buyer.quote)
-        self.assertIn('buyer_our_ask.applied(order["_our_ask"], shop["name"], rank_ask)', src)
+        lock_at = src.index("with lock if lock is not None")
+        self.assertLess(src.index('buyer_our_ask.reads(order.get("_our_ask"))'), lock_at)
+        self.assertGreater(src.index('our_ask_read = buyer_our_ask.note(order["_our_ask"], shop["name"], rank_ask)'), lock_at)
+        self.assertGreater(src.index('buyer_our_ask.journal(order["_our_ask"], our_ask_read)'),
+                           src.index('out[shop["name"]] = dict(q, closed=True) if late else q'))
         self.assertNotIn('order["_our_ask"]["applied"].append', src)
+
+    def test_note_does_no_file_io(self):
+        md = tempfile.mkdtemp()
+        write(md)
+        ctx = oa.assign(md, {"order": order_in("B")}, now=NOW)
+        n = len(events(md))
+        read = oa.note(ctx, "kimauve", 5)
+        self.assertEqual((read, ctx["applied"], len(events(md))), ({"shop": "kimauve", "ask": 5}, [read], n))
+        oa.journal(ctx, read)
+        self.assertEqual(events(md)[-1]["k"], "applied")
 
     def test_registered_with_the_meta_harness_switches(self):
         import meta_harness

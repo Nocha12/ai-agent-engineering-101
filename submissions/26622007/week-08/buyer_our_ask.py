@@ -7,7 +7,8 @@ The quote_alignment study (11/07, buyer_quote_alignment) reads the same text but
   before the start: a file written after its start is off (written <= start), so the window cannot be cut short or moved;
 - arm = sha256("buyer_our_ask:" + salt + ":" + order)[0] % 2 (A legacy, B reads); every order started in the window is assigned (ITT),
   and the assignment is journaled in JOURNAL when it is made, so an order that never writes its orders.jsonl row is still
-  in the ITT list; so is each arm B read (applied);
+  in the ITT list; so is each arm B read (applied). An order run again journals its assignment again (same arm): the
+  analysis takes each order's first assign line;
 - arm B reads only while the switch still says the same salt and window (read again each quote): turning it off, or any
   change, stops arm B in orders already running;
 - an arm B read counts as that shop's opening ask wherever quotes are compared: the ranking (surplus, fits, rank_pg
@@ -90,11 +91,21 @@ def reads(ctx, now=None):
         and s["start"] <= now < s["end"]
 
 
+def note(ctx, shop, ask):
+    """An arm B read, kept on the order (market_buyer.quote calls it under the quote lock: no file IO here)."""
+    read = {"shop": shop, "ask": ask}
+    ctx["applied"].append(read)
+    return read
+
+
+def journal(ctx, read):
+    """The read in JOURNAL (after the quote lock is let go)."""
+    _journal(ctx.get("md"), {"k": "applied", "order": ctx.get("order"), "arm": ctx.get("arm"), "salt": ctx.get("salt"), **read})
+
+
 def applied(ctx, shop, ask):
-    """An arm B read: kept on the order and journaled."""
-    ctx["applied"].append({"shop": shop, "ask": ask})
-    _journal(ctx.get("md"), {"k": "applied", "order": ctx.get("order"), "arm": ctx.get("arm"), "salt": ctx.get("salt"),
-                             "shop": shop, "ask": ask})
+    """note and journal at once."""
+    journal(ctx, note(ctx, shop, ask))
 
 
 def measurement(ctx):
