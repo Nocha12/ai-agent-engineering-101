@@ -136,16 +136,29 @@ class Turn(unittest.TestCase):
                           "limit": 600000, "live": True, "applied": True})
         self.assertEqual((ev[3]["live"], ev[3]["applied"]), (True, False))
 
-    def test_a_journal_that_cannot_be_written_changes_nothing(self):
+    def test_an_assignment_that_cannot_be_journaled_is_not_treated(self):
+        # GPT Pro mwa48k8z I: with the journal gone, arm B still priced the turn, and an order cut off before its
+        # orders.jsonl row would leave the ITT list. Now the arm stays, untreated, and the row says journaled false.
         md = tempfile.mkdtemp()
         write(md)
         with open(os.path.join(md, os.path.dirname(mf.JOURNAL)), "w") as f:     # a file where its folder goes
             f.write("x")
         ctx = mf.assign(md, {"order": order_in("B")}, now=NOW)
-        self.assertEqual(ctx["arm"], "B")
-        d = mf.turn(None, None, G, [], 600000, (0.9,), 518149, True, True, ctx, md, "moss-and-oak", now=NOW)
-        self.assertEqual(d["price"], int(0.9 * 518149))
-        self.assertEqual(len(ctx["applied"]), 1)
+        self.assertEqual((ctx["arm"], ctx["journaled"]), ("B", False))
+        self.assertIsNone(mf.turn(None, None, G, [], 600000, (0.9,), 518149, True, True, ctx, md, "moss-and-oak", now=NOW))
+        self.assertEqual((len(ctx["seen"]), ctx["applied"]), (1, []))
+        self.assertFalse(mf.live(md, ctx, now=NOW))
+        self.assertIs(mf.measurement(ctx)["journaled"], False)
+
+    def test_a_seen_turn_that_cannot_be_journaled_is_not_treated(self):
+        ctx = self.ctx("B")
+        os.chmod(os.path.join(self.md, mf.JOURNAL), 0o400)          # the assign line is in; the seen line cannot be
+        try:
+            self.assertIsNone(self.run_turn(ctx))
+            self.assertEqual(ctx["applied"], [])
+        finally:
+            os.chmod(os.path.join(self.md, mf.JOURNAL), 0o600)
+        self.assertEqual(self.run_turn(ctx)["action"], "offer")      # journal back: treated
 
     def test_off_or_not_seen_journals_nothing(self):
         md = tempfile.mkdtemp()
@@ -215,6 +228,7 @@ class Turn(unittest.TestCase):
         self.assertEqual((m["arm"], m["salt"], m["start"], m["end"], m["written"]),
                          ("B", "moss-1110", ctx["start"], ctx["end"], ctx["start"] - 1))
         self.assertEqual(len(m["applied"]), 1)
+        self.assertIs(m["journaled"], True)
         json.dumps(m)
 
 

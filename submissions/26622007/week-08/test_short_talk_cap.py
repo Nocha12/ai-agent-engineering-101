@@ -155,7 +155,7 @@ class OurAskSentenceTest(unittest.TestCase):
         with open(p, "w") as f:
             json.dump({"enabled": True, "salt": "t", "start": start, "end": start + 9 * 3600}, f)
         os.utime(p, (start - 1, start - 1))
-        return dict(salt="t", start=start, end=start + 9 * 3600, written=start - 1, order="o-t", md=md, arm="B", applied=[])
+        return dict(salt="t", start=start, end=start + 9 * 3600, written=start - 1, journaled=True, order="o-t", md=md, arm="B", applied=[])
 
     def _quote(self, text, meta=None, alignment=None, our_ask="B", ctl=None, order_out=None):
         from unittest import mock
@@ -270,7 +270,7 @@ class OurAskStudyTest(unittest.TestCase):
             self.assertFalse(oa.reads(ctx, now=END))
             self.assertFalse(oa.reads(dict(ctx, arm="A"), now=1500))
             self.assertFalse(oa.reads(None, now=1500))
-            self.assertEqual(oa.measurement(ctx), {"salt": "our-ask-t", "start": 1000, "end": END, "written": 999,
+            self.assertEqual(oa.measurement(ctx), {"salt": "our-ask-t", "start": 1000, "end": END, "written": 999, "journaled": True,
                                                    "arm": "B", "applied": []})
             self.assertIsNone(oa.measurement(None))
 

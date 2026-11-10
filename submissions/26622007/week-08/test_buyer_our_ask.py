@@ -140,21 +140,32 @@ class Journal(unittest.TestCase):
         self.assertIsNone(oa.assign(self.md, {"order": "o-1"}, now=NOW))
         self.assertEqual(events(self.md), [])
 
-    def test_a_journal_that_cannot_be_written_changes_nothing(self):
+    def test_an_assignment_that_cannot_be_journaled_is_not_treated(self):
+        # GPT Pro mwa48k8z I: arm B read on with no assign line; an order cut off before its orders.jsonl row would
+        # leave the ITT list. Now the arm stays, untreated, and the row says journaled false.
         os.makedirs(os.path.join(self.md, os.path.dirname(oa.JOURNAL)))
         os.chmod(os.path.join(self.md, os.path.dirname(oa.JOURNAL)), 0o500)
         try:
             ctx = oa.assign(self.md, {"order": order_in("B")}, now=NOW)
-            self.assertEqual(ctx["arm"], "B")
-            oa.applied(ctx, "kimauve", 1)
+            self.assertEqual((ctx["arm"], ctx["journaled"]), ("B", False))
+            self.assertFalse(oa.reads(ctx, now=NOW))
+            self.assertIs(oa.measurement(ctx)["journaled"], False)
+            oa.applied(ctx, "kimauve", 1)          # a read journal that fails afterwards changes nothing more
             self.assertEqual(ctx["applied"], [{"shop": "kimauve", "ask": 1}])
         finally:
             os.chmod(os.path.join(self.md, os.path.dirname(oa.JOURNAL)), 0o700)
+        self.assertTrue(oa.reads(oa.assign(self.md, {"order": order_in("B")}, now=NOW), now=NOW))
+
+    def test_a_context_not_journaled_reads_none(self):
+        ctx = oa.assign(self.md, {"order": order_in("B")}, now=NOW)
+        for j in (False, None, "true", 1):
+            self.assertFalse(oa.reads(dict(ctx, journaled=j), now=NOW), j)
+        self.assertFalse(oa.reads({k: v for k, v in ctx.items() if k != "journaled"}, now=NOW))
 
     def test_measurement_has_no_market_dir(self):
         ctx = oa.assign(self.md, {"order": order_in("B")}, now=NOW)
         self.assertEqual(oa.measurement(ctx), {"salt": "our-ask-1110", "start": NOW - 60, "end": NOW - 60 + 9 * 3600,
-                                               "written": NOW - 61, "arm": "B", "applied": []})
+                                               "written": NOW - 61, "journaled": True, "arm": "B", "applied": []})
         self.assertIsNone(oa.measurement(None))
 
 

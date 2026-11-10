@@ -7,7 +7,8 @@ The quote_alignment study (11/07, buyer_quote_alignment) reads the same text but
   before the start: a file written after its start is off (written <= start), so the window cannot be cut short or moved;
 - arm = sha256("buyer_our_ask:" + salt + ":" + order)[0] % 2 (A legacy, B reads); every order started in the window is assigned (ITT),
   and the assignment is journaled in JOURNAL when it is made, so an order that never writes its orders.jsonl row is still
-  in the ITT list; so is each arm B read (applied). An order run again journals its assignment again (same arm): the
+  in the ITT list; so is each arm B read (applied). An assignment that cannot be journaled leaves arm B untreated
+  (journaled false in the row: assigned, not treated). An order run again journals its assignment again (same arm): the
   analysis takes each order's first assign line;
 - arm B reads only while the switch still says the same salt and window (read again each quote): turning it off, or any
   change, stops arm B in orders already running;
@@ -58,13 +59,16 @@ def _switch(md):
 
 
 def _journal(md, event):
-    """One line in JOURNAL; a write that fails is left as it is (the orders row still has the study's record)."""
+    """One line in JOURNAL; whether it was written. A write that fails raises nothing: the caller leaves arm B
+    untreated (fail closed, GPT Pro mwa48k8z I), so no treatment goes without its line, and the orders row says
+    journaled false."""
     try:
         os.makedirs(os.path.join(md, os.path.dirname(JOURNAL)), exist_ok=True)
         with open(os.path.join(md, JOURNAL), "a", encoding="utf-8") as f:
             f.write(json.dumps(dict(event, at=time.time()), ensure_ascii=False) + "\n")
+        return True
     except (OSError, TypeError, ValueError):
-        pass
+        return False
 
 
 def assign(md, order, now=None):
@@ -76,15 +80,17 @@ def assign(md, order, now=None):
             or not s["start"] <= now < s["end"]:
         return None     # a start time that is not a number: off for this order, not an error
     arm = "AB"[hashlib.sha256(("buyer_our_ask:" + s["salt"] + ":" + oid).encode()).digest()[0] % 2]
-    _journal(md, {"k": "assign", "order": oid, "arm": arm, "salt": s["salt"], "start": s["start"], "end": s["end"],
-                  "written": s["written"], "started_at": now})
-    return dict(s, order=oid, md=md, arm=arm, applied=[])
+    journaled = _journal(md, {"k": "assign", "order": oid, "arm": arm, "salt": s["salt"], "start": s["start"],
+                              "end": s["end"], "written": s["written"], "started_at": now})
+    return dict(s, journaled=journaled, order=oid, md=md, arm=arm, applied=[])
 
 
 def reads(ctx, now=None):
-    """Whether this order reads "Our ask" now: arm B, and the switch still says the same window with now inside it."""
+    """Whether this order reads "Our ask" now: arm B with its assignment journaled, and the switch still says the same
+    window with now inside it."""
     now = time.time() if now is None else now
-    if not isinstance(ctx, dict) or ctx.get("arm") != "B" or not isinstance(ctx.get("md"), str) or not _num(now):
+    if not isinstance(ctx, dict) or ctx.get("arm") != "B" or ctx.get("journaled") is not True \
+            or not isinstance(ctx.get("md"), str) or not _num(now):
         return False
     s = _switch(ctx["md"])
     return s is not None and (s["salt"], s["start"], s["end"]) == (ctx.get("salt"), ctx.get("start"), ctx.get("end")) \
@@ -110,4 +116,5 @@ def applied(ctx, shop, ask):
 
 def measurement(ctx):
     return None if not isinstance(ctx, dict) else {"salt": ctx["salt"], "start": ctx["start"], "end": ctx["end"],
-                                                   "written": ctx["written"], "arm": ctx["arm"], "applied": list(ctx["applied"])}
+                                                   "written": ctx["written"], "journaled": ctx.get("journaled") is True,
+                                                   "arm": ctx["arm"], "applied": list(ctx["applied"])}

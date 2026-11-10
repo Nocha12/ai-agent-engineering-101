@@ -67,13 +67,16 @@ def _switch(md):
 
 
 def _journal(md, event):
-    """One line in JOURNAL; a write that fails is left as it is (the orders row still has the study's record)."""
+    """One line in JOURNAL; whether it was written. A write that fails raises nothing: the caller leaves arm B
+    untreated (fail closed, GPT Pro mwa48k8z I), so no treatment goes without its line, and the orders row says
+    journaled false."""
     try:
         os.makedirs(os.path.join(md, os.path.dirname(JOURNAL)), exist_ok=True)
         with open(os.path.join(md, JOURNAL), "a", encoding="utf-8") as f:
             f.write(json.dumps(dict(event, at=time.time()), ensure_ascii=False) + "\n")
+        return True
     except (OSError, TypeError, ValueError):
-        pass
+        return False
 
 
 def assign(md, order, now=None):
@@ -85,16 +88,16 @@ def assign(md, order, now=None):
             or not s["start"] <= now < s["end"]:
         return None
     arm = "AB"[hashlib.sha256(("buyer_moss_first:" + s["salt"] + ":" + oid).encode()).digest()[0] % 2]
-    _journal(md, {"k": "assign", "order": oid, "arm": arm, "salt": s["salt"], "start": s["start"], "end": s["end"],
-                  "written": s["written"], "started_at": now})
-    return dict(s, order=oid, arm=arm, seen=[], applied=[])
+    journaled = _journal(md, {"k": "assign", "order": oid, "arm": arm, "salt": s["salt"], "start": s["start"],
+                              "end": s["end"], "written": s["written"], "started_at": now})
+    return dict(s, journaled=journaled, order=oid, arm=arm, seen=[], applied=[])
 
 
 def live(md, ctx, now=None):
-    """Arm B still acts: the switch says the same window and now is inside it."""
+    """Arm B still acts: its assignment was journaled, the switch says the same window and now is inside it."""
     now = time.time() if now is None else now
     s = _switch(md)
-    return isinstance(ctx, dict) and s is not None and _num(now) and \
+    return isinstance(ctx, dict) and ctx.get("journaled") is True and s is not None and _num(now) and \
         (s["salt"], s["start"], s["end"]) == (ctx.get("salt"), ctx.get("start"), ctx.get("end")) and s["start"] <= now < s["end"]
 
 
@@ -111,8 +114,9 @@ def turn(d, meta, text, history, limit, steps, quoted, moss, goods, ctx, md, sho
     ctx["seen"].append(note)
     on = live(md, ctx, now)
     apply = ctx.get("arm") == "B" and on
-    _journal(md, dict(note, k="seen", order=ctx.get("order"), arm=ctx.get("arm"), step=STEP, limit=limit,
-                      goods=bool(goods), live=on, applied=apply))
+    if not _journal(md, dict(note, k="seen", order=ctx.get("order"), arm=ctx.get("arm"), step=STEP, limit=limit,
+                             goods=bool(goods), live=on, applied=apply)):
+        apply = False           # a treated turn always has its line (fail closed)
     if not apply:
         return d
     ctx["applied"].append(dict(note))
@@ -121,7 +125,8 @@ def turn(d, meta, text, history, limit, steps, quoted, moss, goods, ctx, md, sho
 
 def measurement(ctx):
     return None if not isinstance(ctx, dict) else {"salt": ctx["salt"], "start": ctx["start"], "end": ctx["end"],
-                                                   "written": ctx["written"], "arm": ctx["arm"], "seen": list(ctx["seen"]),
+                                                   "written": ctx["written"], "journaled": ctx.get("journaled") is True,
+                                                   "arm": ctx["arm"], "seen": list(ctx["seen"]),
                                                    "applied": list(ctx["applied"])}
 
 
