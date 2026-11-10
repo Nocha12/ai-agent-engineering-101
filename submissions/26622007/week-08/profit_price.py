@@ -121,6 +121,19 @@ def unit_break(u, measured, cfg, max_break=None, now=None):
     return b, arm
 
 
+GRADE_SHARE_MAX = 0.15      # as seller_goods_margin.SHARE_HIGH: the most of list price a grade's floor may keep
+
+
+def grade_profit_share(cfg, kind, grade):
+    """price.grade_profit_share {grade: share of list price}: the profit a goods unit of that grade keeps at its floor
+    after the expected warranty refund, on top of break-even (goods-margin-1110's arm B as the default rule for a grade,
+    W-20261110-1346-AXFable검토). 0 for food, a grade not named, or a share that is not a number in (0, GRADE_SHARE_MAX]:
+    the floor then is today's."""
+    by_grade = (cfg or {}).get("grade_profit_share")
+    s = by_grade.get(grade) if kind == "goods" and isinstance(by_grade, dict) and isinstance(grade, str) else None
+    return s if isinstance(s, (int, float)) and not isinstance(s, bool) and 0 < s <= GRADE_SHARE_MAX else 0.0
+
+
 def floor(cost, list_price, kind, b, cfg=None):
     cfg = cfg or DEFAULTS
     c = math.ceil(cost)
@@ -191,6 +204,9 @@ def quote(u, median=None, measured=None, paid=(), pricing=None):
     max_break = ((pricing or {}).get("warranty") or {}).get("max_break", cfg["stress_break"])
     b, trial_arm_ = unit_break(u, measured, cfg, max_break)
     f = floor(cost, lp, kind, b, cfg)
+    share = grade_profit_share(cfg, kind, u.get("grade"))
+    if share and lp > 0:      # never over the list price unless break-even already is, never under break-even
+        f = max(f, min(floor(cost, lp, kind, b, {**cfg, "min_profit": 1, "min_profit_share": share}), math.ceil(lp)))
     scarce = (cfg.get("scarce_asks") or {}).get(u.get("sku")) if isinstance(cfg.get("scarce_asks"), dict) else None
     if isinstance(scarce, bool) or not isinstance(scarce, (int, float)) or scarce <= 0:
         scarce = None       # a bad setting never stops a sale; the list price still caps a good one

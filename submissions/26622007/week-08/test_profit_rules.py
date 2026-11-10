@@ -354,6 +354,32 @@ class PriceTest(unittest.TestCase):
         self.assertEqual(len(set(r["priority_skus"])), len(r["priority_skus"]))
         self.assertEqual(r["sku_target_units"]["G2c023a8c"], 3)      # Restore after g2-loss-target-1110
 
+    def test_a_grades_profit_share_lifts_only_that_grades_goods_floor(self):
+        # goods-margin-1110's arm B as a grade's default: floor = (C + 0.0025 C + share x L) / (1 - b)
+        base = {"price": {"min_profit": 1, "min_profit_share": 0.0, "goods_break": 0.035,
+                          "grade_break": {"A": 0.03, "B": 0.15, "C": 0.344}}}
+        on = {"price": {**base["price"], "grade_profit_share": {"B": 0.08}}}
+        b_unit = {"sku": "G85a1a856", "unit": "u", "kind": "goods", "grade": "B", "cost": 500000, "list_price": 922000}
+        self.assertEqual(profit_price.quote(b_unit, pricing=base)["floor"], 589708)             # (500,000 + 1,250 + 1) / 0.85
+        # (500,000 + 1,250 + 73,760) / 0.85 = 676,482.4 -> 676,483: after a 15% refund chance 73,760 = 8% of list is kept
+        q = profit_price.quote(b_unit, pricing=on)
+        self.assertEqual(q["floor"], 676483)
+        self.assertAlmostEqual((q["floor"] * 0.85 - 500000 * 1.0025) / 922000, 0.08, places=4)
+        self.assertGreaterEqual(q["open"], q["floor"])
+        for other in ({**b_unit, "grade": "A"}, {**b_unit, "grade": "C"}, {**b_unit, "grade": None},
+                      {**b_unit, "kind": "food", "expires_at": None}):
+            self.assertEqual(profit_price.quote(other, pricing=on)["floor"], profit_price.quote(other, pricing=base)["floor"], other)
+        for bad in (0, -0.1, 0.2, True, "0.08", None, float("nan")):                               # not a share: today's floor
+            p = {"price": {**base["price"], "grade_profit_share": {"B": bad}}}
+            self.assertEqual(profit_price.quote(b_unit, pricing=p)["floor"], 589708, bad)
+        self.assertEqual(profit_price.quote(b_unit, pricing={"price": {**base["price"], "grade_profit_share": [0.08]}})["floor"], 589708)
+        dear = {**b_unit, "cost": 760000}                    # break-even 896,354; + 8% would be 983,130, over the 922,000 list
+        self.assertEqual(profit_price.quote(dear, pricing=base)["floor"], 896355)
+        self.assertEqual(profit_price.quote(dear, pricing=on)["floor"], 922000)
+        over = {**b_unit, "cost": 800000}                    # break-even already over list: it stays, nothing is lowered
+        self.assertEqual(profit_price.quote(over, pricing=on)["floor"], profit_price.quote(over, pricing=base)["floor"])
+        self.assertEqual(profit_price.grade_profit_share({"grade_profit_share": {"B": 0.15}}, "goods", "B"), 0.15)
+
     def test_shipped_settings(self):
         with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
             p = json.load(f)
