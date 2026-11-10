@@ -7,18 +7,22 @@ window by hand that has no end, starts in the past, or runs past the study's max
   a salt for the A/B studies (none for the final_m1 shadow), and a start after now: the file is written before its
   window, so its mtime is before the start, as the readers require. now is the real clock, never an earlier one the
   caller gives (independent review 7b17f3f I);
-- never writes over a window that is running (started, not over): a running window is not moved, cut or extended; one
-  not yet started can be replaced by another future one;
+- never writes over a window that is running (started, not over) or starts within SOON seconds: a running window is not
+  moved, cut or extended; one not yet started can be replaced by another future one (review 523fd38 N1);
 - keeps every window it writes and every off in HISTORY, append-only, so what ran is known whatever the switch file now
   says (review 77cdbef I1, M1: a record kept only in the switch was lost when the next window was written). A window
-  ran if it started before it was stopped, replaced or over. Then a later window of the same study:
+  ran if it started before it was stopped, replaced or over. Each write line keeps the window it replaced and each off
+  line the window it stopped, so a window written by hand is not forgotten by off or by the next write (review 523fd38
+  M1); with HISTORY gone the switch's stopped record stands in, and a switch with neither is refused (N3). Then a
+  later window of the same study:
   - an A/B study (moss_first, our_ask) never reuses the salt of a window that ran: the same arms again would be the same
     study made longer; with a new salt it may start before the old end only if new_study (--new-study) says so;
   - final_m1 starts only after the end of every window that ran, and then only with new_study (review 77cdbef M2: off
     and on again gave a 24 h shadow);
 - writes a temporary file in the same directory and renames it over the switch, then reads it back with the study's
   own reader at the start; if that reader would not take it, or HISTORY cannot take the line, the old file is put back
-  and it is refused. The file keeps the switch's mode (0644 when new) so the buyer reads it as before (review 7b17f3f M3);
+  and it is refused; if putting it back fails too, the switch is removed (off for every reader), so no window stays
+  without its HISTORY line, and the command exits 2 (review 523fd38 M2). The file keeps the switch's mode (0644 when new) so the buyer reads it as before (review 7b17f3f M3);
 - off writes {"enabled": false} (with the window it stopped), always allowed: stopping a study is never refused, and
   its HISTORY line is written if it can be.
 
@@ -43,6 +47,7 @@ import buyer_our_ask
 import oneshot
 
 HISTORY = os.path.join("buyer_switch_write", "history.jsonl")
+SOON = 10   # s: a window starting this soon counts as running, so the guard and the rename cannot straddle its start
 STUDIES = {
     "final_m1": {"file": oneshot.FINAL_M1_SWITCH, "min_hours": 0, "max_hours": oneshot.FINAL_M1_MAX_HOURS, "salt": False,
                  "reads": lambda md, start: oneshot.final_m1_on(md, env={}, now=start)},
@@ -69,6 +74,19 @@ def _study(name):
     return STUDIES[name]
 
 
+def _stopped(path):
+    """The window an off wrote into the switch ({"start", "end", "salt", "stop"}), or None."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+    except (OSError, ValueError, RecursionError):
+        return None
+    s = d.get("stopped") if isinstance(d, dict) else None
+    if isinstance(s, dict) and _epoch(s.get("start")) and _epoch(s.get("end")) and _epoch(s.get("at")):
+        return {"start": s["start"], "end": s["end"], "salt": s.get("salt"), "stop": s["at"]}
+    return None
+
+
 def _current(path):
     """(the switch's bytes or None, its enabled window as a dict or None)."""
     try:
@@ -76,13 +94,20 @@ def _current(path):
             raw = f.read()
     except FileNotFoundError:
         return None, None
+    return raw, _current_window(raw)
+
+
+def _current_window(raw):
+    """The enabled window in switch bytes as {"start", "end", "salt"?}, or None."""
+    if raw is None:
+        return None
     try:
         d = json.loads(raw)
     except (ValueError, RecursionError):
-        return raw, None
+        return None
     if isinstance(d, dict) and d.get("enabled") is True and _epoch(d.get("start")) and _epoch(d.get("end")):
-        return raw, d
-    return raw, None
+        return {"start": d["start"], "end": d["end"], **({"salt": d["salt"]} if "salt" in d else {})}
+    return None
 
 
 def _history(md, name):
@@ -106,33 +131,49 @@ def _history(md, name):
     return out
 
 
-def _ran(events, current, now):
-    """The windows that ran: [{"start", "end", "salt", "stop"}], from HISTORY and the switch as it is now (a window
-    written by hand counts once it started)."""
-    wins, last = [], None
+def _ran(events, current, now, stopped=None):
+    """The windows that ran: [{"start", "end", "salt", "stop"}], from HISTORY (each write, the window it replaced
+    and the window each off stopped, hand-written ones too), the switch as it is now and its stopped record."""
+    wins = {}
+
+    def add(start, end, salt, stop):
+        if _epoch(start) and _epoch(end) and _epoch(stop):
+            k = (start, end, salt)
+            wins[k] = min(wins.get(k, stop), stop)
+
+    last = None
     for e in events:
-        if e.get("k") == "write" and _epoch(e.get("start")) and _epoch(e.get("end")) and _epoch(e.get("at")):
-            if last is not None:
-                last["stop"] = min(last["stop"], e["at"])
-            last = {"start": e["start"], "end": e["end"], "salt": e.get("salt"), "stop": e["end"]}
-            wins.append(last)
-        elif e.get("k") == "off" and _epoch(e.get("at")) and last is not None:
-            last["stop"] = min(last["stop"], e["at"])
+        at = e.get("at")
+        for key in ("replaces", "window"):
+            w = e.get(key)
+            if isinstance(w, dict):
+                add(w.get("start"), w.get("end"), w.get("salt"), at)
+        if last is not None and _epoch(at):
+            add(*last, at)
             last = None
-    if current is not None and not any((w["start"], w["end"], w["salt"]) == (current["start"], current["end"],
-                                                                             current.get("salt")) for w in wins):
-        wins.append({"start": current["start"], "end": current["end"], "salt": current.get("salt"),
-                     "stop": current["end"]})
-    return [w for w in wins if w["start"] < min(w["stop"], now)]
+        if e.get("k") == "write" and _epoch(e.get("start")) and _epoch(e.get("end")):
+            add(e["start"], e["end"], e.get("salt"), e["end"])
+            last = (e["start"], e["end"], e.get("salt"))
+    if current is not None:
+        add(current["start"], current["end"], current.get("salt"), current["end"])
+    if stopped is not None:
+        add(stopped["start"], stopped["end"], stopped["salt"], stopped["stop"])
+    return [{"start": s, "end": e, "salt": salt, "stop": stop} for (s, e, salt), stop in wins.items()
+            if s < min(stop, now)]
 
 
 def _guard(md, name, path, start, salt, new_study):
     """The old switch bytes, or Refused: a running window, or a later window that would make one that ran longer."""
     old, window = _current(path)
     now = time.time()
-    if window is not None and window["start"] <= now < window["end"]:
-        raise Refused(f"a window is running ({window['start']} to {window['end']}): it is not moved, cut or extended")
-    for w in _ran(_history(md, name), window, now):
+    if window is not None and window["start"] <= now + SOON and now < window["end"]:
+        raise Refused(f"a window is running or about to ({window['start']} to {window['end']}): it is not moved, cut "
+                      "or extended")
+    events = _history(md, name)
+    stopped = _stopped(path)
+    if old is not None and window is None and stopped is None and not os.path.exists(os.path.join(md, HISTORY)):
+        raise Refused("the switch is there but the history is not: what ran is not known")
+    for w in _ran(events, window, now, stopped):
         if STUDIES[name]["salt"]:
             if salt == w["salt"]:
                 raise Refused(f"salt {salt!r} is a window that ran ({w['start']} to {w['end']}): the same arms again "
@@ -204,14 +245,22 @@ def write(md, name, start, end, salt=None, new_study=False):
     _replace(path, (json.dumps(d) + "\n").encode())
     written = os.stat(path).st_mtime
     ok = written <= start and s["reads"](md, start)
+    replaces = _current_window(old)
     if ok and not _log(md, {"k": "write", "study": name, "at": time.time(), "start": start, "end": end,
-                            "salt": salt, "new_study": bool(new_study)}):
+                            "salt": salt, "new_study": bool(new_study),
+                            **({"replaces": replaces} if replaces is not None else {})}):
         ok = False
     if not ok:
-        if old is None:
-            os.unlink(path)
-        else:
-            _replace(path, old)
+        try:
+            if old is None:
+                os.unlink(path)
+            else:
+                _replace(path, old)
+        except OSError:
+            try:
+                os.unlink(path)        # no switch is off for every reader; a window without history never stays
+            except FileNotFoundError:
+                pass
         raise Refused(f"the study's reader or the history would not take it (written {written}, start {start}); "
                       "put back as it was")
     return {"path": path, "body": d, "written": written}
@@ -228,7 +277,7 @@ def off(md, name):
         d["stopped"] = {"start": window["start"], "end": window["end"], "at": at,
                         **({"salt": window["salt"]} if isinstance(window.get("salt"), str) else {})}
     _replace(path, (json.dumps(d) + "\n").encode())
-    logged = _log(md, {"k": "off", "study": name, "at": at, **({"window": d["stopped"]} if window is not None else {})})
+    logged = _log(md, {"k": "off", "study": name, "at": time.time(), **({"window": d["stopped"]} if window is not None else {})})
     return {"path": path, "body": d, "written": os.stat(path).st_mtime, "history": logged}
 
 
@@ -245,7 +294,7 @@ def main(argv=None):
     try:
         out = off(a.market_dir, a.study) if a.off else write(a.market_dir, a.study, a.start, a.end, salt=a.salt,
                                                              new_study=a.new_study)
-    except Refused as e:
+    except (Refused, OSError) as e:
         print(json.dumps({"refused": str(e)}, ensure_ascii=False))
         return 2
     print(json.dumps(out, ensure_ascii=False))

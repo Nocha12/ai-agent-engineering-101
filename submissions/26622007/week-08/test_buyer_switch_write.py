@@ -120,6 +120,61 @@ class Write(unittest.TestCase):
             sw.write(self.md, "our_ask", self.t + 600, self.t + 600 + 9 * H, salt="hand")
         sw.write(self.md, "our_ask", self.t + 600, self.t + 600 + 9 * H, salt="new")
 
+    def test_a_window_by_hand_is_not_forgotten_by_off_or_overwriting(self):    # review 523fd38 M1
+        p = os.path.join(self.md, sw.STUDIES["our_ask"]["file"])
+        with open(p, "w") as f:
+            json.dump({"enabled": True, "salt": "x", "start": self.t - 13 * H, "end": self.t - 4 * H}, f)
+        sw.off(self.md, "our_ask")
+        with self.assertRaises(sw.Refused):
+            sw.write(self.md, "our_ask", self.t + 600, self.t + 600 + 9 * H, salt="x")
+        with open(p, "w") as f:
+            json.dump({"enabled": True, "salt": "x", "start": self.t - 13 * H, "end": self.t - 4 * H}, f)
+        sw.write(self.md, "our_ask", self.t + 600, self.t + 600 + 9 * H, salt="y")
+        with at(self.t + 600 + 10 * H):
+            with self.assertRaises(sw.Refused):
+                sw.write(self.md, "our_ask", self.t + 11 * H, self.t + 20 * H, salt="x")
+
+    def test_the_stopped_record_stands_in_for_lost_history(self):              # review 523fd38 N3
+        start = self.t + 600
+        sw.write(self.md, "final_m1", start, start + 1800)
+        with at(start + 60):
+            sw.off(self.md, "final_m1")
+        os.unlink(os.path.join(self.md, sw.HISTORY))
+        with at(start + 120):
+            with self.assertRaises(sw.Refused):
+                sw.write(self.md, "final_m1", start + 600, start + 12 * H)
+        with open(os.path.join(self.md, sw.STUDIES["final_m1"]["file"]), "w") as f:
+            json.dump({"enabled": False}, f)                                   # history gone, nothing to go on
+        with self.assertRaises(sw.Refused):
+            sw.write(self.md, "final_m1", self.t + 13 * H, self.t + 14 * H, new_study=True)
+
+    def test_a_window_about_to_start_is_not_overwritten(self):                 # review 523fd38 N1
+        start = self.t + 600
+        sw.write(self.md, "final_m1", start, start + 1800)
+        with at(start - 2):
+            with self.assertRaises(sw.Refused):
+                sw.write(self.md, "final_m1", start + 60, start + 1800)
+
+    def test_a_put_back_that_fails_leaves_the_switch_off(self):                # review 523fd38 M2
+        sw.off(self.md, "final_m1")                                           # an old switch to put back
+        real = sw._replace
+        calls = []
+
+        def replace(path, data):
+            calls.append(data)
+            if len(calls) > 1:
+                raise OSError(28, "No space left on device")
+            return real(path, data)
+        with unittest.mock.patch.object(sw, "_log", return_value=False), \
+                unittest.mock.patch.object(sw, "_replace", side_effect=replace):
+            with self.assertRaises(sw.Refused):
+                sw.write(self.md, "final_m1", self.t + 600, self.t + 1200)
+        self.assertEqual(len(calls), 2)
+        self.assertFalse(oneshot.final_m1_on(self.md, env={}, now=self.t + 700))
+        with unittest.mock.patch.object(sw, "_replace", side_effect=OSError(28, "No space left on device")):
+            self.assertEqual(sw.main(["--market-dir", self.md, "final_m1", "--start", str(self.t + 600),
+                                      "--end", str(self.t + 1200)]), 2)
+
     def test_history_that_cannot_be_read_or_written_refuses(self):
         os.makedirs(os.path.join(self.md, sw.HISTORY))             # a directory where the file goes
         with self.assertRaises(sw.Refused):
