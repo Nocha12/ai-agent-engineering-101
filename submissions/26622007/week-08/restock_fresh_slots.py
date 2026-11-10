@@ -22,9 +22,10 @@ buyer pays its floor; nothing is sold cheaper for this. Not while the SKU is in 
 would be dear ones), not food, not a SKU without a target or off the proven / priority lists. Only the target reads
 this count: max_units_per_sku and the high-price and surge caps still count every unit held (so a target of 12 holds
 at most 20), and the cash buffer, stock cost and break guards apply to the lines as before. A SKU that already holds
-its target and is asked again only for this goes after every other line of the run (restock.urgent_listed), so today's
-lines keep their places in a window's ~14-18 supply calls; a SKU under its target keeps its place and asks a larger
-line (independent review 8023a19 I1-I3). Arm A counts as today.
+its target and is asked again only for this goes after every other line of the run, listed or not, the agent's and
+the small food top-ups too (restock.fresh_extra in plan, urgent_listed and main), so today's lines keep their places
+in a window's ~14-18 supply calls; a SKU under its target keeps its place and asks a larger line (independent reviews
+8023a19 I1-I3, 798955a I4). Arm A counts as today.
 Arms by SKU, sha256("fresh-slots|salt|sku"): the first four bytes under treat (0.7 by default, 0.3-1.0) is B, an axis
 of its own (goods-margin hashes SKU x grade under its own salt).
 
@@ -139,7 +140,8 @@ def counted(units, cfg, catalog, factors=None, now=None):
     """(Counter: the units of each SKU as restock's unit caps count them, {sku: {"held", "fresh", "aged", "counted"}}
     for the SKUs counted lower than held). units: the live units held (dicts with "sku" and "supplied_at"); cfg: restock's
     settings with "fresh_slots" as config() read it (absent, None or past its window: every unit counts). A unit with
-    no usable arrival time counts as fresh. Never raises: on any trouble every unit counts."""
+    no usable arrival time counts as fresh. On any trouble inside, every unit counts (a unit whose sku cannot be
+    hashed fails here as it did in restock's own count)."""
     plain = collections.Counter(u.get("sku") for u in units or () if isinstance(u, dict))
     try:
         now = time.time() if now is None else now

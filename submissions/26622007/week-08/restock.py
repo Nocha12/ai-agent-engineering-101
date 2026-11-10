@@ -129,6 +129,24 @@ def listed(cfg):
     return out
 
 
+def fresh_extra(cfg, inv, catalog, waiting=(), now=None):
+    """restock_fresh_slots (default off: empty): the SKUs that hold their target, units on their way included, and are
+    asked again only because units of theirs waited. Their lines go after every other line of a run, listed or not,
+    the agent's too (plan, urgent_listed, main), so today's lines keep their places in the window's ~14-18 calls
+    (independent reviews 8023a19 I1, 798955a I4). Never raises: empty on any trouble."""
+    try:
+        now = now or time.time()
+        live = [u for u in inv.get("units") or [] if isinstance(u, dict) and not gone(u, now)]
+        have = collections.Counter(u.get("sku") for u in live)
+        for w in waiting or ():
+            have[w.get("sku")] += w.get("qty") or 0
+        targets = cfg.get("sku_target_units") if isinstance(cfg.get("sku_target_units"), dict) else {}
+        return {s for s in restock_fresh_slots.counted(live, cfg, catalog, surge(inv), now)[1]
+                if type(targets.get(s)) is int and have[s] >= targets[s]}
+    except Exception:   # noqa: BLE001 - the order of today
+        return set()
+
+
 def urgent_listed(cfg, inv, catalog, waiting=(), model=None):
     """listed(cfg) with the SKUs that have no live unit held or on its way first (food before goods), then the refills
     (food before goods), each in list order. With the demand model the refills go by the hours their stock lasts at
@@ -143,12 +161,7 @@ def urgent_listed(cfg, inv, catalog, waiting=(), model=None):
     have = collections.Counter(u.get("sku") for u in live)
     for w in waiting or ():
         have[w.get("sku")] += w.get("qty") or 0
-    # restock_fresh_slots (default off: none): a SKU that holds its target and is asked again only because its units
-    # waited goes after every other line, so the lines of today's order keep their places in the window's ~14-18 calls
-    # (independent review 8023a19 I1: ordered by the units that count, such SKUs went ahead of food refills)
-    targets = cfg.get("sku_target_units") if isinstance(cfg.get("sku_target_units"), dict) else {}
-    extra = {s for s in restock_fresh_slots.counted(live, cfg, catalog, surge(inv), now)[1]
-             if type(targets.get(s)) is int and have[s] >= targets[s]}
+    extra = fresh_extra(cfg, inv, catalog, waiting, now)     # default off: none; last among the listed SKUs
     food = lambda s: (catalog.get(s) or {}).get("kind") == "food"
     skus = (model or {}).get("skus") if isinstance(model, dict) else None
 
@@ -219,7 +232,9 @@ def plan(inv, catalog, demand, cfg, model=None, breaks=None, waiting=()):
         # ranked per won a mattress came below the cut (04:59 run left out G1515d951 that the guard allowed 3 of, and
         # G75f11c19 got 0 room in every run 04:44-05:02), and proven_first() only sees the lines plan() returns
         first = urgent_listed(cfg, inv, catalog, waiting, model)
-        ranked.sort(key=lambda r: first.index(r[1]) if r[1] in first else len(first))     # stable: the rest keep their order
+        extra = fresh_extra(cfg, inv, catalog, waiting, now)      # default off: none; after the unlisted lines too
+        ranked.sort(key=lambda r: len(first) + 1 if r[1] in extra else first.index(r[1]) if r[1] in first
+                    else len(first))                                                      # stable: the rest keep their order
         fit = guard([{"sku": sku, "qty": qty} for _, sku, qty in ranked], inv, catalog, cfg, breaks, waiting)
         picks = [(0, b["sku"], b["qty"]) for b in fit[:cfg["max_lines"] - cfg["explore_lines"]]]
     picked = {sku for _, sku, _ in picks}
@@ -758,8 +773,8 @@ def batch(agent_lines, fill_lines, formula_lines, keep, cfg, order=None, last=No
     agent_skus = {b.get("sku") for b in agent_lines}
     first = set(cfg.get("high_price_proven_skus") or ()) | set(cfg.get("priority_skus") or ())
     kept = with_formula(proven_first(agent_lines, formula_lines, cfg, order), fill_lines, keep, None)
-    if last is not None:
-        kept = [b for b in kept if not last(b)] + [b for b in kept if last(b)]
+    if last is not None:        # False/0 first, then True/1 (small_food), then 2 (main: fresh_extra), each in its order
+        kept = sorted(kept, key=lambda b: int(last(b)))
     n = cfg["max_lines"]
     return kept[:n], [b for b in kept[n:] if b["sku"] in agent_skus and b["sku"] not in first]
 
@@ -919,9 +934,10 @@ def main():
             queued = load(os.path.join(args.state, "restock_queue.json"), {}).get("lines") or []
             # the formula fills only once the agent's queue is sent, except the proven / priority SKUs it proposes:
             # those go first in either case (proven_first); agent lines they push past max_lines are queued again
+            extra, small = fresh_extra(cfg, inv, catalog, waiting), small_food(catalog, inv, waiting)
             send, back = batch(lines, [] if queued else out["buy"], out["buy"], keep, cfg,
                                urgent_listed(cfg, inv, catalog, waiting, model if model and model.get("active") else None),
-                               small_food(catalog, inv, waiting))
+                               lambda b: 2 if b.get("sku") in extra else int(small(b)))    # extra: after the agent's too
             agent_skus = {x.get("sku") for x in lines}
             if hold and not trial:         # agent lines for the trial's SKUs wait in the queue until the trial ends
                 back += [x for x in send if x["sku"] in hold and x["sku"] in agent_skus]

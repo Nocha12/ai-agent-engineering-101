@@ -195,6 +195,41 @@ class RestockTest(unittest.TestCase):
         self.assertEqual({b["sku"]: b["qty"] for b in off}["G2"], 1)
         self.assertEqual({b["sku"]: b["qty"] for b in on}, {"G3": 2, "F1": 6, "G2": 4, "G1": 3})    # G2: 1 + step
 
+    def test_the_extra_lines_go_after_unlisted_and_agent_lines_too(self):
+        # independent review 798955a I4: plan put them before the formula's unlisted lines, batch before the agent's
+        cat = {**CATALOG, "F2": {"kind": "food", "category": "식품>밥", "list_price": 20000, "shelf_hours": 720}}
+        cfg = {**self.cfg, "priority_skus": ["G1", "F1"], "sku_target_units": {"G1": 4}, "max_lines": 2,
+               "max_units_per_sku": 20, "min_expected": 0.1, "high_price_listed_only": False}
+        model = {"active": True, "cats": set(), "skus": {s: {"rate": 5.0, "my_share": 0.5, "price_ratio": 0.9}
+                                                         for s in ("G1", "F2", "U1")}}
+        inv = self.inv(units("G1", 0, 4, self.now))
+        off = restock.plan(inv, cat, [], cfg, model)["buy"]
+        on = restock.plan(inv, cat, [], {**cfg, "fresh_slots": self.on}, model)["buy"]
+        self.assertEqual(len(off), 2)
+        self.assertNotIn("G1", [b["sku"] for b in off])
+        self.assertEqual(on, off)                                   # max_lines 2: today's two lines, G1 behind them
+        more = restock.plan(inv, cat, [], {**cfg, "fresh_slots": self.on, "max_lines": 3}, model)["buy"]
+        self.assertEqual(more, off + [{"sku": "G1", "qty": 3}])
+        on_cfg = {**self.cfg, "fresh_slots": self.on, "max_lines": 3}
+        extra = restock.fresh_extra(on_cfg, inv, CATALOG)
+        self.assertEqual(extra, {"G1"})
+        self.assertEqual(restock.fresh_extra(self.cfg, inv, CATALOG), set())
+        self.assertEqual(restock.fresh_extra(on_cfg, self.inv(units("G1", 0, 3, self.now)), CATALOG), set())   # under target
+        self.assertEqual(restock.fresh_extra(on_cfg, {"units": 5}, CATALOG), set())
+        food_inv = self.inv(units("G1", 0, 4, self.now) + units("F1", 5, 0, self.now, "food"))
+        small = restock.small_food(CATALOG, food_inv)
+        last = lambda b: 2 if b.get("sku") in extra else int(small(b))
+        agent, formula = [{"sku": "U1", "qty": 2}], [{"sku": "G1", "qty": 3}, {"sku": "F1", "qty": 2}, {"sku": "G2", "qty": 1}]
+        order = restock.urgent_listed(on_cfg, food_inv, CATALOG)
+        send, back = restock.batch(agent, formula, formula, lambda lines: lines, on_cfg, order, last)
+        self.assertEqual([b["sku"] for b in send], ["G2", "U1", "F1"])      # the agent's and the food top-up before G1
+        self.assertEqual(back, [])
+        send, _ = restock.batch(agent, formula, formula, lambda lines: lines, {**on_cfg, "max_lines": 9}, order, last)
+        self.assertEqual([b["sku"] for b in send], ["G2", "U1", "F1", "G1"])
+        send, _ = restock.batch(agent, formula, formula, lambda lines: lines, {**self.cfg, "max_lines": 9},
+                                restock.urgent_listed(self.cfg, food_inv, CATALOG), small)      # off: as before
+        self.assertEqual([b["sku"] for b in send], ["G2", "G1", "U1", "F1"])
+
     def test_the_other_unit_caps_count_every_unit_held(self):
         # independent review 8023a19 I2: only the target reads the fresh count
         inv, buy = self.inv(units("G1", 0, 4, self.now)), [{"sku": "G1", "qty": 4}]
