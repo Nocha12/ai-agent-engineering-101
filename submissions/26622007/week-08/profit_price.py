@@ -122,6 +122,7 @@ def unit_break(u, measured, cfg, max_break=None, now=None):
 
 
 GRADE_SHARE_MAX = 0.15      # as seller_goods_margin.SHARE_HIGH: the most of list price a grade's floor may keep
+GRADE_PROFIT_MAX_HOURS = 12
 
 
 def grade_profit_share(cfg, kind, grade, u=None, now=None):
@@ -131,7 +132,8 @@ def grade_profit_share(cfg, kind, grade, u=None, now=None):
     the floor then is break-even. With the unit u, also 0, as in that study (seller_goods_margin.decide; independent
     review 9d5c7b1 I1), for a SKU x grade with an ask cap or a SKU with a scarce ask (a cap under the new floor would
     stop capping), and for a unit that has waited price.grade_profit_hours or more since it was supplied (대표님 11/11
-    00:26: stock that waits goes at cost + expected refund, never under it; a unit with no arrival time is new)."""
+    00:26: stock that waits goes at cost + expected refund, never under it; a unit with no arrival time is new).
+    The end must be after now and no more than GRADE_PROFIT_MAX_HOURS ahead; a farther end is break-even."""
     cfg = cfg or {}
     by_grade = cfg.get("grade_profit_share")
     s = by_grade.get(grade) if kind == "goods" and isinstance(by_grade, dict) and isinstance(grade, str) else None
@@ -140,7 +142,7 @@ def grade_profit_share(cfg, kind, grade, u=None, now=None):
     # price.grade_profit_until (epoch): the rule ends by itself there, and it is on only with a usable end (work-state
     # instructions 3, 4 and 7 of 11/11: no open-ended default before the economics are confirmed; renew it to keep it)
     until, at_now = cfg.get("grade_profit_until"), time.time() if now is None else now
-    if not _num(until) or not _num(at_now) or at_now >= until:
+    if not _num(until) or not _num(at_now) or not at_now < until <= at_now + GRADE_PROFIT_MAX_HOURS * 3600:
         return 0.0
     if isinstance(u, dict):
         scarce = cfg.get("scarce_asks") if isinstance(cfg.get("scarce_asks"), dict) else {}

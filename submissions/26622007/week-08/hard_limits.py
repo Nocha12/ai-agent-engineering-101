@@ -89,8 +89,12 @@ META_FLOOR = {"restock.max_stock_cost": 10000000, "restock.keep_cash": 3000000}
 # Settings the meta-harness may not change at all (a person may): unlisted dear goods stay out of the explore lines,
 # whose price bound is now 10M.
 # buyer.oneshot: the talk priced by code instead of the harness (oneshot.py) is the owner's switch, not a cycle's step
+# 11/11, work-state instruction 8: the profit window and fast restock switch are a person's decisions.
 FIXED = {"restock.high_price_listed_only": True, "buyer.oneshot": True, "negotiate.engine": "llm",
-         "negotiate.formula": "share", "negotiate.counter_share": []}   # values unused: the keys are a person's switches
+         "negotiate.formula": "share", "negotiate.counter_share": [], "restock.window_fast": False,
+         "price.grade_profit_until": 0, "price.grade_profit_hours": 0}   # values unused: the keys are a person's switches
+FIXED_NEW = ("restock.window_fast", "price.grade_profit_until", "price.grade_profit_hours")
+GRADE_PROFIT_PREFIX = "price.grade_profit_share."
 
 # path in pricing.json -> (lowest, highest). Outside these the shop's own data has not earned the risk.
 BOUNDS = {
@@ -251,7 +255,10 @@ def check_policy_change(old, new, step=MAX_STEP):
             problems.append(f"pricing.json {key} {was} -> {v} moves more than {move:.0%} in one cycle")
         if key in META_FLOOR and number(v) and number(was) and was >= META_FLOOR[key] > v:
             problems.append(f"pricing.json {key} {was} -> {v} goes under {META_FLOOR[key]} (hard_limits.META_FLOOR, a person's line)")
-        if key in FIXED and key in a and not (type(v) is type(was) and v == was):     # true -> 1 is a change too
+        if key not in a and (key in FIXED_NEW or key.startswith(GRADE_PROFIT_PREFIX)):
+            problems.append(f"pricing.json {key} was added (hard_limits.FIXED, a person's setting)")
+        if (key in FIXED or key.startswith(GRADE_PROFIT_PREFIX)) and key in a \
+                and not (type(v) is type(was) and v == was):     # true -> 1 is a change too
             problems.append(f"pricing.json {key} {was!r} -> {v!r} is a person's setting (hard_limits.FIXED)")
         if key == "markdown.below_cost" and (not isinstance(v, list) or any(r not in MARKDOWN_REASONS for r in v)):
             problems.append(f"pricing.json markdown.below_cost {v} is not a list of {MARKDOWN_REASONS}")
@@ -259,7 +266,11 @@ def check_policy_change(old, new, step=MAX_STEP):
             problems.append(f"pricing.json {key}={v!r} must stay a number")
     for key in (*BOUNDS, *FIXED, "markdown.below_cost"):
         if key in a and key not in b:
-            problems.append(f"pricing.json {key} was removed (bounded settings stay)")
+            reason = "hard_limits.FIXED, a person's setting" if key in FIXED_NEW else "bounded settings stay"
+            problems.append(f"pricing.json {key} was removed ({reason})")
+    for key in a:
+        if key.startswith(GRADE_PROFIT_PREFIX) and key not in b:
+            problems.append(f"pricing.json {key} was removed (hard_limits.FIXED, a person's setting)")
     return problems
 
 

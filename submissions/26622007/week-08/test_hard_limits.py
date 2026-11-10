@@ -24,7 +24,55 @@ class HardLimitsTest(unittest.TestCase):
             return json.load(f)
 
     def test_the_shipped_settings_are_inside_the_bounds(self):
-        self.assertEqual(hl.check_policy_change({}, self.pricing()), [])
+        shipped = self.pricing()
+        problems = hl.check_policy_change({}, shipped)
+        added = ("restock.window_fast", "price.grade_profit_until", "price.grade_profit_hours",
+                 "price.grade_profit_share.A")
+        expected = {f"pricing.json {key} was added (hard_limits.FIXED, a person's setting)" for key in added}
+        self.assertEqual(set(problems), expected)
+        self.assertEqual(len(problems), len(expected))
+        self.assertEqual(hl.check_policy_change(shipped, shipped), [])
+
+    def test_the_meta_cannot_move_person_decided_seller_settings(self):
+        old = self.pricing()
+
+        def changed(section, key, value):
+            new = json.loads(json.dumps(old))
+            new[section][key] = value
+            return new
+
+        for section, key, value in (("price", "grade_profit_until", 10 ** 11),
+                                    ("price", "grade_profit_hours", 600),
+                                    ("restock", "window_fast", True)):
+            with self.subTest(key=key, value=value):
+                self.assertTrue(any(f"{section}.{key}" in p for p in hl.check_policy_change(old, changed(section, key, value))))
+
+        for grade, share in (("B", 0.08), ("C", 0.15), ("A", 0.1)):
+            new = json.loads(json.dumps(old))
+            new["price"]["grade_profit_share"][grade] = share
+            with self.subTest(grade=grade):
+                self.assertTrue(any(f"price.grade_profit_share.{grade}" in p for p in hl.check_policy_change(old, new)))
+
+        for section, key in (("price", "grade_profit_until"), ("price", "grade_profit_hours"),
+                             ("restock", "window_fast")):
+            new = json.loads(json.dumps(old))
+            del new[section][key]
+            with self.subTest(removed=key):
+                self.assertTrue(any(f"{section}.{key}" in p and "removed" in p for p in hl.check_policy_change(old, new)))
+            absent = json.loads(json.dumps(old))
+            del absent[section][key]
+            with self.subTest(added=key):
+                self.assertTrue(any(f"{section}.{key}" in p for p in hl.check_policy_change(absent, old)))
+
+        new = json.loads(json.dumps(old))
+        del new["price"]["grade_profit_share"]["A"]
+        self.assertTrue(any("price.grade_profit_share.A" in p and "removed" in p for p in hl.check_policy_change(old, new)))
+        self.assertEqual(hl.check_policy_change(old, old), [])
+        self.assertEqual(hl.check_policy_change(old, changed("price", "some_new_note", "ok")), [])
+        target = json.loads(json.dumps(old))
+        sku = next(iter(target["restock"]["sku_target_units"]))
+        target["restock"]["sku_target_units"][sku] += 1
+        self.assertEqual(hl.check_policy_change(old, target), [])
 
     def test_never_spends_into_the_bankruptcy_zone(self):
         self.assertEqual(hl.spendable(900000), 0)

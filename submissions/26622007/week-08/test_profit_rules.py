@@ -368,10 +368,11 @@ class PriceTest(unittest.TestCase):
         self.assertEqual(len(set(r["priority_skus"])), len(r["priority_skus"]))
         self.assertEqual(r["sku_target_units"]["G2c023a8c"], 3)      # Restore after g2-loss-target-1110
 
-    def test_a_grades_profit_share_lifts_only_that_grades_goods_floor(self):
+    @mock.patch.object(profit_price.time, "time", return_value=1794350000.0)
+    def test_a_grades_profit_share_lifts_only_that_grades_goods_floor(self, _clock):
         # goods-margin-1110's arm B as a grade's default: floor = (C + 0.0025 C + share x L) / (1 - b)
         base = {"price": {"min_profit": 1, "min_profit_share": 0.0, "goods_break": 0.035,
-                          "grade_break": {"A": 0.03, "B": 0.15, "C": 0.344}, "grade_profit_until": 10 ** 11}}
+                          "grade_break": {"A": 0.03, "B": 0.15, "C": 0.344}, "grade_profit_until": 1794350000.0 + 3600}}
         on = {"price": {**base["price"], "grade_profit_share": {"B": 0.08}}}
         # on only with an end that has not come: no end, a bad one or a past one is break-even (no open-ended default)
         for until in (None, "x", True, float("nan"), 1.0):
@@ -400,8 +401,16 @@ class PriceTest(unittest.TestCase):
         self.assertEqual(profit_price.quote(dear, pricing=on)["floor"], 922000)
         over = {**b_unit, "cost": 800000}                    # break-even already over list: it stays, nothing is lowered
         self.assertEqual(profit_price.quote(over, pricing=on)["floor"], profit_price.quote(over, pricing=base)["floor"])
-        self.assertEqual(profit_price.grade_profit_share({"grade_profit_share": {"B": 0.15}, "grade_profit_until": 10 ** 11},
+        self.assertEqual(profit_price.grade_profit_share({"grade_profit_share": {"B": 0.15}, "grade_profit_until": 1794350000.0 + 3600},
                                                          "goods", "B"), 0.15)
+
+    def test_grade_profit_end_must_be_within_twelve_hours(self):
+        now = 1794350000.0
+        for seconds, expected in ((12 * 3600 + 1, 0.0), (12 * 3600, 0.08),
+                                  (10 ** 11 - now, 0.0), (1794393000000 - now, 0.0)):
+            cfg = {"grade_profit_share": {"A": 0.08}, "grade_profit_until": now + seconds}
+            with self.subTest(seconds=seconds):
+                self.assertEqual(profit_price.grade_profit_share(cfg, "goods", "A", now=now), expected)
 
     def test_the_share_is_not_for_a_capped_or_scarce_unit_nor_for_one_that_has_waited(self):
         # independent review 9d5c7b1 I1: 12 of the 91 ask-capped units held would have got a floor over their cap
