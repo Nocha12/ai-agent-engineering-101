@@ -1,1 +1,0 @@
-{"kind": "food_demand_probe", "catalog_candidates": 463, "paid_skus_12h": 51, "own_shelf_72h_under_100k_with_paid": [], "basis": "category substring and public settled SKU match; budget 9만원대 interpreted <100000; current inventory observed after pack, not cutoff inventory; no purchase or message; list is not an accepted offer"}
