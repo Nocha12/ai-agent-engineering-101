@@ -1,51 +1,56 @@
 {
   "changed": false,
-  "hypothesis": "현재 증거에서는 진행 중인 조사와 식품 구매 실험의 효과를 분리할 수 있어야 추가 정책 변경의 Players 기여를 판단할 수 있다.",
-  "change_summary": "운영 코드와 설정은 변경하지 않았다. 전체 회귀 검사를 실행하고 원본을 meta/evidence/terra-1111-023023-tests.log에 저장했다. 검사는 아직 실행 중이므로 통과 여부는 미확정이다.",
-  "target_metric": "Players 점수와 Gc2f7811b 조사 기준 충족 여부",
-  "expected": "운영 정책의 직접적인 변화는 없다. 진행 중인 조사에서 후보의 결제 수, 구매자 수와 가정상 보증 하한을 계속 측정한다.",
+  "hypothesis": "현재 관측만으로는 기존 정책보다 추가 Players 점수를 높일 변경을 입증할 수 없다.",
+  "change_summary": "운영 코드와 설정은 변경하지 않았다. 호출 유형별 캐시 비교와 하네스 조건의 전체 회귀 결과를 meta/evidence에 기록했다.",
+  "target_metric": "Players 순위와 구매자 Saved",
+  "expected": "이번 정책 변경에 따른 추가 ΔPlayers는 0이다. 진행 중인 조사 실험은 09:55에 원래 기준으로 판정한다.",
   "evidence": [
     {
-      "ref": "meta/evidence/terra-1111-023023.json:28312",
-      "excerpt": "\"settled_as_shop\": 337,",
-      "meaning": "직전 주기 이후 상점 정산은 337건이었다."
+      "ref": "meta/evidence/terra-1111-034311.json:4",
+      "excerpt": "llm_cache: cached input share 0.085 over 83 calls in the last hour, 0.1 over 437 in the 6 h before (floor 0.1); look at what changed in the prompts, never cut calls",
+      "meaning": "캐시 경보는 비용 진단이며 호출 수 제한이 아니다."
     },
     {
-      "ref": "meta/evidence/terra-1111-023023.json:28319",
-      "excerpt": "\"no_stock\": 16,",
-      "meaning": "같은 비교 구간의 품절 기록은 16건이었다."
+      "ref": "meta/evidence/terra-1111-034311-cache.jsonl:3",
+      "excerpt": "{\"period\": \"last_hour\", \"tag\": \"forum-agent\", \"calls\": 13, \"prompt_tokens\": 62558, \"cached_tokens\": 11151, \"ratio\": 0.1783}",
+      "meaning": "포럼 호출의 최근 시간 캐시 비율은 17.83%다."
     },
     {
-      "ref": "meta/evidence/terra-1111-023023.json:28467",
-      "excerpt": "\"profit_if_stock_sells_at_cost\": 340247441,",
-      "meaning": "현재 재고를 원가로 평가한 book은 340,247,441원이다."
+      "ref": "meta/evidence/terra-1111-034311-cache.jsonl:9",
+      "excerpt": "{\"period\": \"previous_6h\", \"tag\": \"forum-agent\", \"calls\": 86, \"prompt_tokens\": 453464, \"cached_tokens\": 93759, \"ratio\": 0.2068}",
+      "meaning": "직전 6시간의 동일 유형 비율은 20.68%였지만 접두부 변경은 확인되지 않았다."
     },
     {
-      "ref": "meta/evidence/terra-1111-023023.json:22524",
-      "excerpt": "\"tool\": \"market_opportunity\",",
-      "meaning": "직전 지침 이후 실제 조사에서 서지와 가정상 보증 하한을 제공하는 도구가 호출됐다."
+      "ref": "meta/evidence/terra-1111-034311.json:111",
+      "excerpt": "\"rival_value\": 0.3243,",
+      "meaning": "Saved 다음 상대는 0.3243이며 현재 0.3238에서 0.0005가 필요하다."
     },
     {
-      "ref": "meta/evidence/terra-1111-023023.json:232",
-      "excerpt": "\"above\": 0.023,",
-      "meaning": "최근 6.2시간 바로 위 경쟁자의 Players 증가량은 0.023으로, 우리의 0.013보다 높다."
+      "ref": "meta/evidence/terra-1111-034311.json:22881",
+      "excerpt": "\"reason\": \"The targeted research is complete. Gc2f7811b has real, recent paid sales across distinct buyers, but its 2-hour snapshot price median (180,000) is below both hypothetical warranty floors (229,102 and 259,649); those floors are scenarios, not proof of rival margins, so I will not treat this as a buy signal. The prior decision record shows repeated paid sales for Gef4d3036, G200e39a3, and G66ded25b, while the latest small top-ups of the latter two also sold. The record does not establish SKU-specific matured net losses or repeated extra units remaining across two supply windows for the formula’s other lines, so I will not cut the overall proposal on inventory exposure alone.\",",
+      "meaning": "최근 조사는 가정상 하한을 확인했으나 신규 매입의 성공 근거는 아니다."
+    },
+    {
+      "ref": "meta/evidence/terra-1111-034311-isolated-tests.log:13",
+      "excerpt": "AssertionError: 0.15026999998372048 not less than 0.15",
+      "meaning": "하네스 격리 회귀에서 SQLite 동시성 시간 제한 검사 하나가 실패했다."
     }
   ],
   "evidence_gap": {
-    "missing": "변경 후 조사 3건과 후보별 결제 10건의 실험 표본, 그리고 전체 회귀 검사의 최종 결과가 없다.",
-    "measurement": "직전 지침 뒤 조사 1건에서 두 조사 도구의 호출과 2시간 결제 6건·구매자 5명, 가정상 하한 229,102원을 확인했다. 전체 회귀 원본은 meta/evidence/terra-1111-023023-tests.log에 기록 중이다. 실험의 나머지 조사와 숙성 시간은 09:55 KST에 판정한다.",
+    "missing": "진행 중 조사 실험의 세 차례 조사와 후보별 유효 결제·독립 구매자 표본, 그리고 캐시 접두부 변화의 원인이 확정되지 않았다.",
+    "measurement": "이번 주기 조사 판단과 호출 유형별 토큰을 집계했다. 실험은 남은 시간 동안 같은 조사 기록을 수집하고, 캐시는 다음 주기에 같은 유형의 토큰 비율과 접두부 변화를 비교한다.",
     "judge_line": {
-      "metric": "조사 3건에서 후보별 독립 구매자·실제 결제와 정가 이하 지급의 가정상 보증 하한 충족 후보 수",
+      "metric": "정가 이하 지급이 가정상 보증 하한을 넘는 유효 탐색 후보 수",
       "direction": "above",
-      "threshold": "유효 후보 0개 초과",
-      "min_sample": "조사 3건과 후보별 결제 10건·구매자 3명",
+      "threshold": "0개",
+      "min_sample": "조사 3건, 후보별 결제 10건과 독립 구매자 3명",
       "expires": "2026-11-11 09:55 KST",
       "undo": "기준 미달 또는 표본 부족이면 실험의 Gc2f7811b 조사 지침 문장만 제거한다."
     }
   },
   "previous_verdict": "keep",
-  "previous_reason": "직전 지침 이후 확인된 조사 1건에서 market_opportunity와 조사 도구를 호출했고, 2시간 결제 6건·구매자 5명과 가정상 하한 229,102원을 확인했다. 세 판단의 최종 판정은 아직 아니지만 누락됐던 하한 확인은 관찰됐다.",
-  "grade_summary": "Players는 1.643→1.645, 68명 중 7위이며 선두와 0.097 차이다. Shop ALL 0.846, Buyer ALL 0.799이고 두 board_drift는 0이다. 새 패치와 경보는 없다. 직전 비교 구간에 상점 정산 337건, 구매 결제 114건, 품절 16건, 구매 결제 거절 2건, 체크아웃 거절 12건, 정산 거절 1건이었다. 현재 로그 표본의 원가 미만 제안·보증 거절·포럼 게시 및 투표 거절은 각 0건이고 누락 도구는 없다. Book은 339,908,201→340,247,441원이며 24시간 초과 재고는 62개·70,212,995원이다. 보관 손실 누계 5,711,945원, 등급 하락 204건·0원, 폐기 1건·8,113원이다. 환불 추정 누계 419,575,784원에는 과거 연결 오류가 포함돼 SKU 축소 근거로 사용하지 않았다.",
+  "previous_reason": "직전 Terra의 조사 지침 이후 실제 판단에서 조사 도구와 market_opportunity를 함께 호출했고 가정상 하한을 확인했다. 다만 실험 자체는 아직 성공으로 판정하지 않는다. 이후 Astra 변경은 별도 회귀 실패로 자동 반려됐다.",
+  "grade_summary": "Players는 1.645→1.646, 68명 중 7위다. Shop ALL 0.845, Buyer ALL 0.801이며 양쪽 board_drift는 0, 선두와의 Players 격차는 0.086이다. 새 패치는 없다. 직전 구간 상점 정산 319건, 구매 결제 129건, 품절 28건, 구매 결제 거절 3건, 체크아웃 거절 20건이다. 현재 로그 표본에서 원가 미만 제안·보증 거절·포럼 게시 및 투표 거절은 각 0건이고 누락 도구는 없다. Book은 340,247,441→338,634,679원이며 24시간 초과 재고는 62개·70,212,995원이다. 보관 손실 누계는 5,778,850원, 등급 하락 208건·0원, 폐기 1건·8,113원이다. 환불 추정 누계 425,106,844원은 과거 연결 오류를 포함하므로 SKU 축소 근거로 사용하지 않았다. alert llm_cache: 포럼 유형은 직전 6시간 20.68%에서 최근 17.83%로 하락했지만 접두부 변화가 확인되지 않아 수정하지 않는다. 다음 주기에 유형별 비율과 접두부를 재확인한다. 하네스 격리 전체 회귀는 2,018개 중 test_sol_seller_margin.MarginTest.test_sqlite_writer_does_not_stall_final_gate_or_another_quote 한 건이 150ms 한도 대비 150.270ms로 실패했다. 앞선 Astra의 보증 테스트 시간 초과와는 다른 실패다. 실시간 디렉터리에서 먼저 실행한 검사는 간섭 가능성 때문에 중단했으며 원본 로그를 보존했다.",
   "weakest": [
     "구매자 Saved",
     "상점 book"
@@ -54,12 +59,12 @@
     "current": "인증·정직한 등급·72시간 상품 보증을 내세운 폭넓은 식품과 생활용품 및 검증된 고가 가구·침구 판매와 Saved 중심 구매",
     "gap_cause": "unclear",
     "keep_or_shift": "watch",
-    "reason": "최근 6.2시간 Players 변화는 우리 +0.013, 바로 위 +0.023이며 12.7시간은 각각 -0.005와 +0.046이다. 선두는 방문 47,464회·거래 31,188건·매출 9.171B원·book 1.141B원이고 우리는 방문 47,372회·거래 29,895건·매출 5.207B원·book 0.340B원이다. 양쪽 카드가 인증과 보증을 내세우지만 상대 원가는 공개되지 않는다. 최근 재입고 판단은 김치 두 SKU를 보충하고 소파 후보의 2시간 결제 6건·구매자 5명과 가정상 하한을 확인했다. Saved 다음 상대 0.3238까지 0.0002가 필요해 통과 시 조건부 +0.00794점이며 book은 다음 상대 376,369,172원까지 36,131,447원이 필요하다. 수익성 있는 판매 확대를 계속 감시하되, 현행 대비 처리군의 추가 점수와 숙성 20건이 확인되지 않아 전환하지 않는다."
+    "reason": "최근 6.1시간 Players 증가는 우리 0.011, 바로 위 0.022이고 12.7시간은 각각 0.005와 0.046이다. 다만 최근 3.6시간은 우리 0.006, 위 −0.002여서 전략 문서의 두 기간 동시 열세 전환 조건을 확인하지 못했다. 선두는 방문 47,699회·거래 31,291건·매출 9.187B원·book 1.141B원이고 우리는 방문 47,789회·거래 30,209건·매출 5.240B원·book 0.339B원이다. 선두 카드도 인증과 A/B 72시간 보증을 내세우며 경쟁자 원가는 공개되지 않는다. 최근 재입고 판단은 김치·과일 판매와 후보 보증 하한을 확인했고, 포럼은 개별 정산을 인용했다. Saved 다음 상대 0.3243까지 0.0005가 필요하며 통과 시 조건부 0.00794점이다. Book 다음 상대 376,743,720원까지 38,121,547원이 필요하고 이번 시간 book은 감소했다. 기존 정책 대비 숙성 처리군의 추가 점수가 확인되면 수익성 있는 판매 확대 방향을 재판정한다."
   },
   "action_kind": "none",
   "experiment": {
     "id": "concentration-probe-1110",
     "step": "continue",
-    "result": "종료 시각 11월 11일 09:55 전이다. 최근 2시간 후보 결제는 6건·구매자 5명으로 결제 10건 기준에 미달하며, 중앙 지급액 181,500원은 가정상 15% 보증 하한 229,102원보다 낮다. 실험 성공으로 판정하지 않는다."
+    "result": "09:55 만료 전이다. 최근 조사에서 후보 중앙 결제액 180,000원은 가정상 15% 보증 하한 229,102원보다 낮았다. 조사 3건 및 후보별 유효 결제 10건·구매자 3명의 최종 표본을 아직 확인하지 못해 성공으로 판정하지 않는다."
   }
 }
