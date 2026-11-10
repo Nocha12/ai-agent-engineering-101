@@ -61,26 +61,35 @@ def _epoch(v):
 
 
 def final_m1_on(md, env=None, now=None):
+    """Whether final_m1 is on now: final_m1_window is not None."""
+    return final_m1_window(md, env, now) is not None
+
+
+def final_m1_window(md, env=None, now=None):
     """final_m1 on: .market/buyer_final_m1.json {"enabled": true, "start": epoch, "end": epoch} with start <= now < end,
     0 < end - start <= FINAL_M1_MAX_HOURS, and the file written before its start (mtime <= start), so the window has a
     fixed end and cannot be moved once it began (ax-pro-cycle step 5, main instruction 10: the shadow had no end and
     stopped only when turned off by hand). Missing, unreadable, no window, anything else, or BUYER_FINAL_M1=0 is off
-    (default off). Read at every order and again at each turn it would note, so no restart either way."""
+    (default off). Read at every order and again at each turn it would note, so no restart either way. Returns the
+    window [start, end] when on, else None: an order keeps the window it started in and notes only while that same
+    window is on (GPT Pro mwa9krfw M-1: an order from window A resumed in window B noted into B)."""
     env = os.environ if env is None else env
     now = time.time() if now is None else now
     if str(env.get("BUYER_FINAL_M1") or "").strip().lower() in ("0", "false", "no", "off") or not _epoch(now):
-        return False
+        return None
     try:
         with open(os.path.join(md, FINAL_M1_SWITCH), encoding="utf-8") as f:
             mtime = os.fstat(f.fileno()).st_mtime
             d = json.load(f)
     except (OSError, ValueError, TypeError, RecursionError):
-        return False
+        return None
     if not isinstance(d, dict) or d.get("enabled") is not True:
-        return False
+        return None
     start, end = d.get("start"), d.get("end")
-    return _epoch(start) and _epoch(end) and 0 < start < end <= start + FINAL_M1_MAX_HOURS * 3600 \
-        and mtime <= start and start <= now < end
+    if _epoch(start) and _epoch(end) and 0 < start < end <= start + FINAL_M1_MAX_HOURS * 3600 \
+            and mtime <= start and start <= now < end:
+        return [start, end]
+    return None
 
 
 def final_m1(d, meta, text, history, limit, steps):

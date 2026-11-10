@@ -16,6 +16,9 @@ G = ("안내를 요청해 주셔서 반갑습니다, 고객님—항상 신뢰�
 NOW = 1_794_300_000.0
 
 
+W1 = [NOW - 60, NOW - 60 + 1800]      # m1_write's default window, as an order keeps it
+
+
 def m1_write(md, mtime=None, **kw):
     """buyer_final_m1.json with a window (30 min from NOW - 60 unless given), its file dated start - 1 unless given."""
     d = {"enabled": True, "start": NOW - 60, "end": NOW - 60 + 1800, **kw}
@@ -341,12 +344,12 @@ class Wired(unittest.TestCase):
     def _shadow(self):
         walk = oneshot.code_turn(9600, FinalM1.H, 10000, (.9,))
         self.assertIs(self.call({"kind": "food"}, "Final price: 9600. ", FinalM1.H, walk, limit=10000), walk)
-        on = {"kind": "food", "_final_m1": []}
+        on = {"kind": "food", "_final_m1": [], "_final_m1_window": W1}
         self.assertIs(self.call(on, "Final price: 9600. ", FinalM1.H, walk, limit=10000), walk)
         self.assertEqual(on["_final_m1"], [{"shop": "moss-and-oak", "baseline": "walk_away", "would_offer": 9600,
                                             "final_price": 9600, "last_offer": 9600, "offers": 3, "steps": 1,
                                             "limit": 10000}])
-        other = {"kind": "food", "_final_m1": []}
+        other = {"kind": "food", "_final_m1": [], "_final_m1_window": W1}
         self.assertIs(self.call(other, "Final price: 9600. ", FinalM1.H[:4], walk, limit=10000), walk)
         self.assertEqual(other["_final_m1"], [])
 
@@ -444,7 +447,7 @@ class FinalM1(unittest.TestCase):
         md = tempfile.mkdtemp()
         m1_write(md)
         walk = oneshot.code_turn(9600, self.H, 10000, (0.9,))
-        on = {"kind": "food", "_final_m1": []}
+        on = {"kind": "food", "_final_m1": [], "_final_m1_window": W1}
         call = lambda: market_buyer.moss_first_and_final_m1(walk, None, "Final price: 9600. ", list(self.H), 10000,
                                                              (0.9,), {}, False, "G1", on, md, "kimauve")
         with unittest.mock.patch.object(oneshot.time, "time", return_value=NOW - 60 + 1800):
@@ -458,6 +461,27 @@ class FinalM1(unittest.TestCase):
         with unittest.mock.patch.object(oneshot.time, "time", return_value=NOW):
             self.assertIs(call(), walk)
         self.assertEqual(len(on["_final_m1"]), 1)
+
+    def test_an_order_notes_only_in_the_window_it_started_in(self):          # GPT Pro mwa9krfw M-1
+        md = tempfile.mkdtemp()
+        m1_write(md)
+        with unittest.mock.patch.object(oneshot.time, "time", return_value=NOW):
+            self.assertEqual(oneshot.final_m1_window(md), W1)
+            self.assertTrue(oneshot.final_m1_on(md))
+        walk = oneshot.code_turn(9600, self.H, 10000, (0.9,))
+        on = {"kind": "food", "_final_m1": [], "_final_m1_window": W1}
+        call = lambda: market_buyer.moss_first_and_final_m1(walk, None, "Final price: 9600. ", list(self.H), 10000,
+                                                             (0.9,), {}, False, "G1", on, md, "kimauve")
+        m1_write(md, start=NOW + 1800, end=NOW + 3600, mtime=NOW - 120)       # window B, the order is from A
+        with unittest.mock.patch.object(oneshot.time, "time", return_value=NOW + 1900):
+            self.assertTrue(oneshot.final_m1_on(md))
+            self.assertIs(call(), walk)
+        self.assertEqual(on["_final_m1"], [])
+        old = {"kind": "food", "_final_m1": []}                              # resumed from before: no window kept
+        with unittest.mock.patch.object(oneshot.time, "time", return_value=NOW + 1900):
+            market_buyer.moss_first_and_final_m1(walk, None, "Final price: 9600. ", list(self.H), 10000,
+                                                 (0.9,), {}, False, "G1", old, md, "kimauve")
+        self.assertEqual(old["_final_m1"], [])
 
 
 if __name__ == "__main__":

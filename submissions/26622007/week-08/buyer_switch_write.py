@@ -28,9 +28,12 @@ window by hand that has no end, starts in the past, or runs past the study's max
     study made longer; with a new salt it may start before the old end only if new_study (--new-study) says so;
   - final_m1 starts only after the end of every window that ran, and then only with new_study (review 77cdbef M2: off
     and on again gave a 24 h shadow);
-- writes a temporary file in the same directory and renames it over the switch, then reads it back with the study's
-  own reader at the start; if that reader would not take it, or HISTORY cannot take the line, the old file is put back
-  and it is refused; if putting it back fails too, the switch is removed (off for every reader), so no window stays
+- writes and syncs a temporary file in the same directory, then writes its HISTORY line, checks again that no window
+  started and the switch did not change, and only then renames it over the switch, so no reader sees a window HISTORY
+  does not have and a slow disk cannot cut a window that started meanwhile (GPT Pro mwa9krfw I-1, I-2); then it reads
+  it back with the study's own reader at the start; if that reader would not take it, the old file is put back, an
+  abort line ends the window in HISTORY and it is refused; HISTORY that cannot take the line refuses with nothing
+  written; if putting it back fails too, the switch is removed (off for every reader), so no window stays
   without its HISTORY line, and the command exits 2 (review 523fd38 M2). The file keeps the switch's mode (0644 when new) so the buyer reads it as before (review 7b17f3f M3);
 - off writes {"enabled": false} (with the window it stopped), always allowed: stopping a study is never refused, and
   its HISTORY line is written if it can be.
@@ -224,7 +227,9 @@ def _guard(md, name, path, start, salt, new_study):
     return old
 
 
-def _replace(path, data):
+def _prepare(path, data):
+    """A temporary file beside the switch with data written and synced, the switch's mode (0644 when new): the slow part,
+    done before the last checks (GPT Pro mwa9krfw I-1)."""
     try:
         mode = os.stat(path).st_mode & 0o777
     except FileNotFoundError:
@@ -236,7 +241,21 @@ def _replace(path, data):
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+    return tmp
+
+
+def _publish(tmp, path):
+    os.replace(tmp, path)
+
+
+def _replace(path, data):
+    tmp = _prepare(path, data)
+    try:
+        _publish(tmp, path)
     except BaseException:
         if os.path.exists(tmp):
             os.unlink(tmp)
@@ -320,19 +339,29 @@ def _write(md, name, s, start, end, salt, new_study):
     if not start > time.time():
         raise Refused("the start must be after now: the file is written before its window")
     d = {"enabled": True, **({"salt": salt} if s["salt"] else {}), "start": start, "end": end}
-    again, window = _current(path)                 # the running check again just before the rename (F4)
-    now = time.time()
-    if again != old or (window is not None and window["start"] <= now + SOON and now < window["end"]):
-        raise Refused("the switch changed or its window started while this was checked: nothing written")
-    _replace(path, (json.dumps(d) + "\n").encode())
+    tmp = _prepare(path, (json.dumps(d) + "\n").encode())     # the slow write and fsync before the last checks (I-1)
+    try:
+        replaces = _current_window(old)
+        # the HISTORY line first, so no reader sees a window HISTORY does not have (GPT Pro mwa9krfw I-2)
+        if not _log(md, {"k": "write", "study": name, "at": time.time(), "start": start, "end": end,
+                         "salt": salt, "new_study": bool(new_study),
+                         **({"replaces": replaces} if replaces is not None else {}),
+                         **({"replaced_stopped": old_stopped} if old_stopped is not None else {})}):
+            raise Refused("the history would not take the line: nothing written")
+        again, window = _current(path)             # the running check again just before the rename (F4, I-1)
+        now = time.time()
+        if again != old or not start > now or (window is not None and window["start"] <= now + SOON
+                                               and now < window["end"]):
+            _log(md, {"k": "abort", "study": name, "at": now})
+            raise Refused("the switch changed, a window started or the start passed while this was checked: "
+                          "nothing written")
+        _publish(tmp, path)
+        tmp = None
+    finally:
+        if tmp is not None and os.path.exists(tmp):
+            os.unlink(tmp)
     written = os.stat(path).st_mtime
     ok = written <= start and s["reads"](md, start)
-    replaces = _current_window(old)
-    if ok and not _log(md, {"k": "write", "study": name, "at": time.time(), "start": start, "end": end,
-                            "salt": salt, "new_study": bool(new_study),
-                            **({"replaces": replaces} if replaces is not None else {}),
-                            **({"replaced_stopped": old_stopped} if old_stopped is not None else {})}):
-        ok = False
     if not ok:
         back = "put back as it was"
         try:
@@ -349,8 +378,8 @@ def _write(md, name, s, start, end, salt, new_study):
             except OSError as e2:
                 back = f"putting it back failed ({e}) and removing it failed ({e2}): run --off now"
                 print(json.dumps({"warning": back}, ensure_ascii=False), file=sys.stderr)
-        raise Refused(f"the study's reader or the history would not take it (written {written}, start {start}); "
-                      + back)
+        _log(md, {"k": "abort", "study": name, "at": time.time()})   # the write line's window ends here
+        raise Refused(f"the study's reader would not take it (written {written}, start {start}); " + back)
     return {"path": path, "body": d, "written": written}
 
 

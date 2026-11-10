@@ -295,6 +295,50 @@ class Write(unittest.TestCase):
                 sw.write(self.md, "final_m1", t + 30, t + 1800)
         self.assertEqual(body(self.md, "final_m1")["start"], t + 15)
 
+    def test_a_slow_disk_never_replaces_a_window_that_started(self):          # GPT Pro mwa9krfw I-1
+        t = self.t
+        sw.write(self.md, "final_m1", t + 15, t + 1800)
+        now = [t]
+        real = sw._prepare
+
+        def slow(path, data):                       # the write and fsync take until after the old start
+            out = real(path, data)
+            now[0] = t + 16
+            return out
+        with unittest.mock.patch.object(sw.time, "time", side_effect=lambda: now[0]), \
+                unittest.mock.patch.object(sw, "_prepare", side_effect=slow):
+            with self.assertRaises(sw.Refused):
+                sw.write(self.md, "final_m1", t + 30, t + 1800)
+        self.assertEqual(body(self.md, "final_m1")["start"], t + 15)
+        self.assertEqual([n for n in os.listdir(self.md) if n.startswith(".")], [])     # no temp file left
+
+    def test_the_history_line_is_there_before_any_reader_sees_the_window(self):   # GPT Pro mwa9krfw I-2
+        start = self.t + 600
+        seen = []
+        real = sw._publish
+
+        def publish(tmp, path):
+            with open(os.path.join(self.md, sw.HISTORY)) as f:
+                seen.append([json.loads(l)["k"] for l in f])
+            return real(tmp, path)
+        with unittest.mock.patch.object(sw, "_publish", side_effect=publish):
+            sw.write(self.md, "moss_first", start, start + 9 * H, salt="a")
+        self.assertEqual(seen, [["write"]])
+        with unittest.mock.patch.object(sw, "_log", return_value=False):          # no line: the switch is untouched
+            with self.assertRaises(sw.Refused):
+                sw.write(self.md, "final_m1", start, start + 1800)
+        self.assertFalse(os.path.exists(os.path.join(self.md, sw.STUDIES["final_m1"]["file"])))
+
+    def test_a_window_the_reader_refused_is_closed_in_the_history(self):
+        start = self.t + 600
+        with unittest.mock.patch.dict(sw.STUDIES["moss_first"], {"reads": lambda md, s: False}):
+            with self.assertRaises(sw.Refused):
+                sw.write(self.md, "moss_first", start, start + 9 * H, salt="a")
+        self.assertFalse(os.path.exists(os.path.join(self.md, sw.STUDIES["moss_first"]["file"])))
+        with open(os.path.join(self.md, sw.HISTORY)) as f:
+            self.assertEqual([json.loads(l)["k"] for l in f], ["write", "abort"])
+        sw.write(self.md, "moss_first", start, start + 9 * H, salt="a")         # never ran: may be written again
+
     def test_a_window_about_to_start_is_not_overwritten(self):                 # review 523fd38 N1
         start = self.t + 600
         sw.write(self.md, "final_m1", start, start + 1800)
@@ -304,21 +348,19 @@ class Write(unittest.TestCase):
 
     def test_a_put_back_that_fails_leaves_the_switch_off(self):                # review 523fd38 M2
         sw.off(self.md, "final_m1")                                           # an old switch to put back
-        real = sw._replace
         calls = []
 
-        def replace(path, data):
+        def replace(path, data):                   # since GPT Pro mwa9krfw the window goes by _publish, put-back by this
             calls.append(data)
-            if len(calls) > 1:
-                raise OSError(28, "No space left on device")
-            return real(path, data)
-        with unittest.mock.patch.object(sw, "_log", return_value=False), \
+            raise OSError(28, "No space left on device")
+        with unittest.mock.patch.dict(sw.STUDIES["final_m1"], {"reads": lambda md, s: False}), \
                 unittest.mock.patch.object(sw, "_replace", side_effect=replace):
             with self.assertRaises(sw.Refused):
                 sw.write(self.md, "final_m1", self.t + 600, self.t + 1200)
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(os.path.exists(os.path.join(self.md, sw.STUDIES["final_m1"]["file"])))   # removed: off
         self.assertFalse(oneshot.final_m1_on(self.md, env={}, now=self.t + 700))
-        with unittest.mock.patch.object(sw, "_replace", side_effect=OSError(28, "No space left on device")):
+        with unittest.mock.patch.object(sw, "_prepare", side_effect=OSError(28, "No space left on device")):
             self.assertEqual(sw.main(["--market-dir", self.md, "final_m1", "--start", str(self.t + 600),
                                       "--end", str(self.t + 1200)]), 2)
 
