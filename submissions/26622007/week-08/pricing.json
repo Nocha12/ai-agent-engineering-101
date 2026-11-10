@@ -146,14 +146,7 @@
       "G66ded25b",
       "G1465c678",
       "G0e4deffc",
-      "G147ae4e7",
-      "G53b150b5",
-      "Gf3e749a1",
-      "Gea0cca52",
-      "G2af689a3",
-      "Gbf98024f",
-      "Gfbf7f983",
-      "G28bd9142"
+      "G147ae4e7"
     ],
     "sku_target_units": {
       "G1515d951": 12,
@@ -195,14 +188,7 @@
       "G7978c65e": 2,
       "G9357d6c2": 3,
       "G0e4deffc": 1,
-      "G147ae4e7": 3,
-      "G53b150b5": 3,
-      "Gf3e749a1": 2,
-      "Gea0cca52": 2,
-      "G2af689a3": 2,
-      "Gbf98024f": 2,
-      "Gfbf7f983": 3,
-      "G28bd9142": 2
+      "G147ae4e7": 3
     },
     "high_price_listed_only": true,
     "food_max_stock_cost": 3000000,

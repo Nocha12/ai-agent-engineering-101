@@ -29,7 +29,7 @@ def unit(uid, sku="G1", hours=500.0, grade="A", kind="food", cost=6000, list_pri
 
 
 
-# scale 11 (W-20261110-1155-AXBook근본): restock breadth, last in priority_skus
+# scale 11 (W-20261110-1155-AXBook근본): restock breadth 7 SKUs, taken back out at the breadth-1110 max (11/11 01:41)
 SCALE_11 = {"G53b150b5": 3, "Gf3e749a1": 2, "Gea0cca52": 2, "G2af689a3": 2, "Gbf98024f": 2, "Gfbf7f983": 3,
             "G28bd9142": 2}     # G57d8dfa6, G04ee8423, Gc44de87c net <= +0.011 of list at our 0.66 (independent review)
 
@@ -337,19 +337,18 @@ class PriceTest(unittest.TestCase):
         new = {"G0e4deffc": 1, "G147ae4e7": 3}      # G0e4deffc 1: its median is one buyer at one shop (independent review)
         i = r["priority_skus"].index("G0e4deffc")
         self.assertEqual(r["priority_skus"][i:i + 2], list(new))  # after the food and every older line (243a8f7 order)
-        self.assertEqual(r["priority_skus"][i + 2:], list(SCALE_11))   # scale 11 only after them
+        self.assertEqual(r["priority_skus"][i + 2:], [])   # scale 11 taken back out: nothing after them
         self.assertEqual(r["priority_skus"][:3], ["Gef4d3036", "Gb2392fa9", "G200e39a3"])
         self.assertEqual({k: r["sku_target_units"][k] for k in new}, new)
         self.assertFalse(set(new) & set(r["skip_skus"]))
 
-    def test_breadth_scale_11_lists_ten_unlisted_goods_last(self):
-        # W-20261110-1155-AXBook근본 (11/10 13:3x): 7 unlisted goods still positive at our 0.66 of list with the mature-cohort
-        # break (+0.012 to +0.071 of list), 2-3 units each, after every older line in the list
+    def test_breadth_scale_11_taken_back_out(self):
+        # W-20261110-1155-AXBook근본: the 7 breadth SKUs (11/10 13:41) leave priority_skus and sku_target_units at the
+        # breadth-1110 max; units already held stay on sale, no other SKU or target changes
         with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
             r = json.load(f)["restock"]
-        self.assertEqual(r["priority_skus"][-len(SCALE_11):], list(SCALE_11))
-        self.assertEqual({k: r["sku_target_units"][k] for k in SCALE_11}, SCALE_11)
-        self.assertFalse(set(SCALE_11) & set(r["skip_skus"]))
+        self.assertFalse(set(SCALE_11) & (set(r["priority_skus"]) | set(r["sku_target_units"])))
+        self.assertEqual(r["priority_skus"][-2:], ["G0e4deffc", "G147ae4e7"])
         self.assertIn("G07ec17d5", r["skip_skus"])
         self.assertFalse({"G57d8dfa6", "G04ee8423", "Gc44de87c"} & (set(r["priority_skus"]) | set(r["sku_target_units"])))
         self.assertEqual(len(set(r["priority_skus"])), len(r["priority_skus"]))
