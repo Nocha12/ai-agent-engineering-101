@@ -958,6 +958,35 @@ def our_ask_said(text, shop):
     return v if TEXT_ASK_MIN_SHARE * lp <= v <= lp else None
 
 
+FIRM_FOOD_ASK = re.compile(
+    r"\(grade [ABC], [0-9]{1,12}(?:\.[0-9]{1,6})?h shelf life left\): "
+    r"list ([1-9][0-9]{0,11}), firm price ([1-9][0-9]{0,11}), ([0-9]{1,3})% below list\. "
+    r"Market certificate attached\. This price holds for 10 min and does not change at checkout\. "
+    r"Reply with ([1-9][0-9]{0,11}) to buy\.")
+
+
+def firm_food_ask_said(text, label, sku, list_price):
+    """Exact food quote, bound to the requested catalogue name, SKU and list price.
+    Only quote()'s food path calls this fallback; shelf/receipt checks still decide
+    eligibility. It does not add a talk grammar or change the first offer.
+    """
+    if not isinstance(text, str) or len(text) > 2000 or not isinstance(label, str) or not label \
+            or not isinstance(sku, str) or isinstance(list_price, bool) or not isinstance(list_price, (int, float)):
+        return None
+    text = text.strip()
+    prefix = f"{label} ({sku}) "
+    if not text.startswith(prefix) or set(re.findall(r"\bG[0-9a-f]{8}\b", text)) - {sku}:
+        return None
+    m = FIRM_FOOD_ASK.fullmatch(text[len(prefix):])
+    if not m:
+        return None
+    lp, price, discount, reply = map(int, m.groups())
+    if lp != list_price or price != reply or not TEXT_ASK_MIN_SHARE * lp <= price <= lp \
+            or not 0 <= discount <= 100 or abs(discount - 100 * (1 - price / lp)) > 1:
+        return None
+    return price
+
+
 def quote_row(name, o, q, lim, best):
     """The orders.jsonl line of one quote. buyer_our_ask arm B (ask_src "text_rank"): the shared fields keep the ask as
     legacy read it (none), so recent_asks, recent_fits and the food shares never take arm B's number for a shop's ask;
@@ -1072,6 +1101,8 @@ def quote(shop, label, key, order, out, ctl=None):
         if open_ and ask is None:
             raw = buyer_text_ask(text)
             ask, src = text_ask_checked(text, shop), "text"
+            if ask is None and order.get("kind") == "food":
+                ask = firm_food_ask_said(text, label, key, (shop.get("_offer") or {}).get("list_price"))
             if ask is None and raw is not None:
                 src = "text_rejected"       # a number read but outside 5%..100% of list: kept for the record only
         q = {"ask": ask, "ask_src": src if ask is not None or src == "text_rejected" else None,
