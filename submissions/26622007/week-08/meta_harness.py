@@ -60,7 +60,7 @@ RUNTIME = ("seller_warranty_trial.json", ".market/")
 # Each module's "Switch: .market/<x>.json" is here (test_meta checks it); not .market/ as a whole, whose state files move.
 SWITCHES = ("seller_warranty_trial.json", ".market/sol_seller_margin_v2/controller.json", ".market/quote_hold/config.json",
             ".market/seller_concession_trial.json", ".market/seller_reader_trial.json", ".market/seller_a_open.json",
-            ".market/seller_floor_margin.json", ".market/seller_goods_margin.json", ".market/seller_food_margin.json", ".market/shelf_jev_skip/config.json",
+            ".market/seller_floor_margin.json", ".market/seller_goods_margin.json", ".market/seller_market_floor.json", ".market/seller_food_margin.json", ".market/shelf_jev_skip/config.json",
             ".market/shelf_fact/config.json", ".market/warranty_fact/config.json",
             ".market/grade_read/config.json", ".market/restock_fresh_slots.json",
             ".market/restock_window_fast.json") + tuple(

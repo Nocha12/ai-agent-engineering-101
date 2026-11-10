@@ -71,6 +71,7 @@ import seller_opening_cue
 import seller_a_open
 import seller_floor_margin
 import seller_goods_margin
+import seller_market_floor
 import seller_food_margin
 import seller_late_speed
 import seller_jev_transport
@@ -609,6 +610,16 @@ class Seller(AgentExecutor):
             if goods_margin:
                 log(f"GOODS_MARGIN {u['sku']} unit {u['unit']} grade {u.get('grade')} arm {goods_margin['arm']}:"
                     f" reserve {reserve} ask {ask_price} (usual {goods_margin['usual_reserve']} / {goods_margin['usual_ask']})")
+        market_floor = None
+        if keep >= 1:         # goods never under the SKU x grade median A/B (seller_market_floor, default off): not a goods-margin talk
+            reserve, ask_price, market_floor = seller_market_floor.decide(
+                u, q, reserve=reserve, ask=ask_price, keep=keep,
+                median=sku_median(u["sku"], u.get("list_price"), u.get("grade")), margin_assignment=margin_assignment,
+                a_open=a_open, floor_margin=floor_margin, goods_margin=goods_margin, pricing=pricing)
+            if market_floor:
+                log(f"MARKET_FLOOR {u['sku']} unit {u['unit']} grade {u.get('grade')} arm {market_floor['arm']}:"
+                    f" reserve {reserve} ask {ask_price} (usual {market_floor['usual_reserve']} / {market_floor['usual_ask']},"
+                    f" median {market_floor['median']})")
         food_margin = None
         if keep >= 1:         # food reserve margin A/B (seller_food_margin, default off): never a markdown talk
             reserve, ask_price, food_margin = seller_food_margin.decide(
@@ -626,6 +637,8 @@ class Seller(AgentExecutor):
             deal["floor_margin"] = floor_margin
         if goods_margin:
             deal["goods_margin"] = goods_margin
+        if market_floor:
+            deal["market_floor"] = market_floor
         if food_margin:
             deal["food_margin"] = food_margin
         if grade_read_assignment is not None:
@@ -1105,6 +1118,7 @@ class Seller(AgentExecutor):
                                 **({"a_open": deal["a_open"]} if deal.get("a_open") else {}),
                                 **({"floor_margin": deal["floor_margin"]} if deal.get("floor_margin") else {}),
                                 **({"goods_margin": deal["goods_margin"]} if deal.get("goods_margin") else {}),
+                                **({"market_floor": deal["market_floor"]} if deal.get("market_floor") else {}),
                                 **({"food_margin": deal["food_margin"]} if deal.get("food_margin") else {})})
         except Exception as e:  # noqa: BLE001 - in the writer thread nobody else would see it
             MEMORY_FAILURES.append(True)
