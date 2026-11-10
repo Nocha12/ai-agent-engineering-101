@@ -30,8 +30,8 @@ def unit(uid, sku="G1", hours=500.0, grade="A", kind="food", cost=6000, list_pri
 
 
 # scale 11 (W-20261110-1155-AXBook근본): restock breadth, last in priority_skus
-SCALE_11 = {"G04ee8423": 2, "G53b150b5": 3, "Gf3e749a1": 2, "Gea0cca52": 2, "Gc44de87c": 2, "G2af689a3": 2,
-            "G57d8dfa6": 3, "Gbf98024f": 2, "Gfbf7f983": 3, "G28bd9142": 2}
+SCALE_11 = {"G53b150b5": 3, "Gf3e749a1": 2, "Gea0cca52": 2, "G2af689a3": 2, "Gbf98024f": 2, "Gfbf7f983": 3,
+            "G28bd9142": 2}     # G57d8dfa6, G04ee8423, Gc44de87c net <= +0.011 of list at our 0.66 (independent review)
 
 class NeedsTest(unittest.TestCase):
     def test_reads_what_real_buyers_wrote(self):
@@ -343,14 +343,15 @@ class PriceTest(unittest.TestCase):
         self.assertFalse(set(new) & set(r["skip_skus"]))
 
     def test_breadth_scale_11_lists_ten_unlisted_goods_last(self):
-        # W-20261110-1155-AXBook근본 (11/10 13:5x): 10 unlisted goods with a positive net over the grade mix in 24 h of
-        # ledger rows (0.044-0.108 of list, break 1.7-10.2%), 2-3 units each, after every older line
+        # W-20261110-1155-AXBook근본 (11/10 13:3x): 7 unlisted goods still positive at our 0.66 of list with the mature-cohort
+        # break (+0.012 to +0.071 of list), 2-3 units each, after every older line in the list
         with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
             r = json.load(f)["restock"]
         self.assertEqual(r["priority_skus"][-len(SCALE_11):], list(SCALE_11))
         self.assertEqual({k: r["sku_target_units"][k] for k in SCALE_11}, SCALE_11)
         self.assertFalse(set(SCALE_11) & set(r["skip_skus"]))
         self.assertIn("G07ec17d5", r["skip_skus"])
+        self.assertFalse({"G57d8dfa6", "G04ee8423", "Gc44de87c"} & (set(r["priority_skus"]) | set(r["sku_target_units"])))
         self.assertEqual(len(set(r["priority_skus"])), len(r["priority_skus"]))
         self.assertEqual(r["sku_target_units"]["G2c023a8c"], 2)      # Terra g2-loss-target-1110 stays as it is
 
