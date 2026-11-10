@@ -190,6 +190,9 @@ def _openrouter_key():
 
 # Top-level OpenRouter body keys the outer_json diagnostic may name; any other key is only counted.
 BODY_KEYS = ("choices", "created", "error", "id", "model", "object", "provider", "system_fingerprint", "usage")
+CHOICE_KEYS = ("delta", "error", "finish_reason", "index", "logprobs", "message", "native_finish_reason")
+MESSAGE_KEYS = ("content", "reasoning", "refusal", "role", "tool_calls")
+FINISH_REASONS = ("content_filter", "error", "length", "stop", "tool_calls")
 
 
 def _body_shape(body):
@@ -205,6 +208,17 @@ def _body_shape(body):
         shape["error_code"] = code
     if isinstance(body.get("choices"), list):
         shape["choices"] = len(body["choices"])
+        first = body["choices"][0] if body["choices"] else None
+        if isinstance(first, dict):   # an upstream failure mid-answer comes as choices[0].error / finish_reason "error"
+            shape["choice_keys"] = sorted(k for k in first if k in CHOICE_KEYS)
+            shape["choice_other_keys"] = sum(1 for k in first if k not in CHOICE_KEYS)
+            code = first["error"].get("code") if isinstance(first.get("error"), dict) else None
+            if type(code) is int and 100 <= code <= 999:
+                shape["choice_error_code"] = code
+            if "finish_reason" in first:
+                shape["finish_reason"] = first["finish_reason"] if first["finish_reason"] in FINISH_REASONS else "other"
+            if isinstance(first.get("message"), dict):
+                shape["message_keys"] = sorted(k for k in first["message"] if k in MESSAGE_KEYS)
     return shape
 
 
@@ -303,8 +317,9 @@ def _ask_openrouter(prompt, schema, system, tag, timeout=None):
                 answer = validate(decoded, schema)
             except (KeyError, IndexError, TypeError, ValueError, HarnessError) as e:
                 last = f"invalid answer: {stage}"
+                elapsed = time.time() - started
                 _parse_diagnostic(stage, e, tag, r if stage == "outer_json" else None)
-                record_call(tag, prompt, system, time.time() - started, False)
+                record_call(tag, prompt, system, elapsed, False)
                 continue
             record_call(tag, prompt, system, time.time() - started, True, r.json().get("usage"))
             log(tag, f"openrouter {OR_MODEL} response_format=json_schema(strict) {time.time() - started:.1f}s "

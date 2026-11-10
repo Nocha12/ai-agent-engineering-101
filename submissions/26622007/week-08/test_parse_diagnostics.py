@@ -51,7 +51,7 @@ class ParseDiagnostics(unittest.TestCase):
             (envelope(CANARY), "inner_json"),
             (envelope('{"price":"'+CANARY+'"}'), "schema_validation"),
         ]
-        allowed={"stage","role","kind","pos","lineno","colno","chars","sha256","tail_kind","exc","body_keys","other_keys","error_code","choices"}
+        allowed={"stage","role","kind","pos","lineno","colno","chars","sha256","tail_kind","exc","body_keys","other_keys","error_code","choices","choice_keys","choice_other_keys","choice_error_code","finish_reason","message_keys"}
         for payload,stage in cases:
             with self.subTest(stage=stage):
                 value,error,messages,records,n=self.call([payload])
@@ -123,3 +123,38 @@ class OuterShape(unittest.TestCase):
     def test_retry_count_and_answer_unchanged_after_a_provider_error(self):
         value,error,messages,records,n=self.call([b'{"error":{"code":502}}',envelope(GOOD)])
         self.assertEqual((value,error,records,n),({"price":100},None,[False,True],2))
+
+    def test_an_error_inside_the_first_choice_names_its_code_and_finish(self):
+        m=self.meta(json.dumps({"choices":[{"error":{"code":502,"message":CANARY},"finish_reason":"error",CANARY:1}]}).encode())
+        self.assertEqual((m["choices"],m["choice_keys"],m["choice_other_keys"],m["choice_error_code"],m["finish_reason"]),
+                         (1,["error","finish_reason"],1,502,"error"))
+        self.assertNotIn("message_keys",m)
+
+    def test_a_message_without_content_names_its_keys_only(self):
+        m=self.meta(json.dumps({"choices":[{"message":{"refusal":CANARY,"role":"assistant",CANARY:CANARY},"finish_reason":CANARY}]}).encode())
+        self.assertEqual((m["choice_keys"],m["message_keys"],m["finish_reason"]),(["finish_reason","message"],["refusal","role"],"other"))
+
+    def test_known_keys_carry_no_values_and_an_empty_choice_is_counted(self):
+        m=self.meta(json.dumps({"model":CANARY,"provider":CANARY,"choices":[{}]}).encode())
+        self.assertEqual((m["body_keys"],m["choices"],m["choice_keys"],m["choice_other_keys"]),(["choices","model","provider"],1,[],0))
+
+    def test_a_body_the_diagnostic_cannot_parse_keeps_the_line(self):
+        for payload in (b'{"choices":[]}\xff', b'{"choices":' + b"9" * 5000 + b"}"):
+            with self.subTest(n=len(payload)):
+                value,error,messages,records,n=self.call([payload])
+                self.assertEqual((value,records,n),(None,[False],1))
+                meta=[json.loads(m[11:]) for m in messages if m.startswith("parse_diag ")]
+                self.assertEqual(len(meta),1)
+                self.assertEqual(meta[0]["stage"],"outer_json")
+                self.assertNotIn("body_keys",meta[0])
+
+    def test_failed_call_seconds_exclude_the_diagnostic(self):
+        seconds=[]
+        client=httpx.Client
+        with mock.patch.object(harness,"_body_shape",side_effect=lambda body:(__import__("time").sleep(0.3),{})[1]):
+            with mock.patch.object(harness,"record_call",side_effect=lambda *a,**k:seconds.append(a[3])):
+                with mock.patch.object(harness,"BACKEND","openrouter"), mock.patch.object(harness,"_openrouter_key",return_value="offline"), mock.patch.object(harness,"RETRIES",1), mock.patch.object(harness,"OR_MAX_CALLS_PER_HOUR",0), mock.patch.object(harness,"_log_wire",return_value=lambda request:None), mock.patch.object(harness,"log"), mock.patch.object(harness.httpx,"Client",side_effect=lambda **kw:client(transport=httpx.MockTransport(lambda r:httpx.Response(200,content=b'{"choices":[]}')),**kw)):
+                    with self.assertRaises(harness.HarnessError):
+                        harness.ask("offline",SCHEMA,"offline",tag="restock-agent")
+        self.assertEqual(len(seconds),1)
+        self.assertLess(seconds[0],0.25)
