@@ -184,12 +184,13 @@ class FastRunTest(unittest.TestCase):
             self.assertEqual(restock.window_fast_arm(self.md, {**self.cfg, "window_fast": True}, self.inv), ("B", "default"))
             self.assertEqual(restock.window_fast_arm(self.md, self.cfg, self.inv), ("A", "wf-test"))
 
-    def test_the_shipped_settings_make_it_the_rule(self):
+    def test_the_shipped_settings_leave_the_rule_off(self):
         with open(os.path.join(os.path.dirname(os.path.abspath(restock.__file__)), "pricing.json"), encoding="utf-8") as f:
             shipped = hard_limits.clamp_cfg("restock", {**restock.DEFAULTS, **json.load(f)["restock"]})
-        self.assertIs(shipped.get("window_fast"), True)            # window-fast-1110-v2: 13.8 lines a window against 12.2
-        os.remove(os.path.join(self.md, wf.SWITCH))
-        self.assertEqual(restock.window_fast_arm(self.md, shipped, self.inv), ("B", "default"))
+        self.assertIs(shipped.get("window_fast"), False)           # off: more lines a window is not yet an economic keep
+        os.remove(os.path.join(self.md, wf.SWITCH))                # (work-state instruction 7, 11/11 05:35)
+        self.assertEqual(restock.window_fast_arm(self.md, shipped, self.inv), (None, None))
+        self.assertEqual(restock.window_fast_arm(self.md, {**shipped, "window_fast": True}, self.inv), ("B", "default"))
 
     def test_it_is_the_usual_run_whenever_anything_is_off(self):
         lines = [{"sku": "G1", "qty": 1}]

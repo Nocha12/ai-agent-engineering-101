@@ -308,14 +308,18 @@ class PriceTest(unittest.TestCase):
         self.assertEqual(q["open"], max(q["floor"], round(0.97 * 2070000)))
         cheap = {**u, "cost": 1500000}
         self.assertEqual(profit_price.quote(cheap, median=2070000, pricing=be)["open"], round(0.97 * 2070000))
-        # shipped since 11/11 (goods-margin-1110 kept, grade_profit_share 0.08): the dear draw's floor keeps 8% of list
+        # shipped 11/11 until price.grade_profit_until (grade A's 0.08): the dear draw's floor keeps 8% of list
         # after the refund chance, (1,980,000 + 4,950 + 240,000) / 0.965 = 2,305,648, over the median: it opens there
         # and waits (arm B sold 78% of its grade A units against 87%, and still kept +0.062 of list a unit against -0.007)
-        q = profit_price.quote(u, median=2070000, measured=None, pricing=p)
-        self.assertEqual((q["floor"], q["open"]), (2305648, 2305648))
-        # the cheap draw's floor (1,806,995) is under 0.97 x the median: the first ask is the market's, as before
-        q = profit_price.quote(cheap, median=2070000, pricing=p)
-        self.assertEqual((q["floor"], q["open"]), (1806995, round(0.97 * 2070000)))
+        until = p["price"]["grade_profit_until"]
+        with mock.patch.object(profit_price.time, "time", return_value=until - 3600):
+            q = profit_price.quote(u, median=2070000, measured=None, pricing=p)
+            self.assertEqual((q["floor"], q["open"]), (2305648, 2305648))
+            # the cheap draw's floor (1,806,995) is under 0.97 x the median: the first ask is the market's, as before
+            q = profit_price.quote(cheap, median=2070000, pricing=p)
+            self.assertEqual((q["floor"], q["open"]), (1806995, round(0.97 * 2070000)))
+        with mock.patch.object(profit_price.time, "time", return_value=until):     # the rule has ended: break-even again
+            self.assertEqual(profit_price.quote(u, median=2070000, pricing=p), profit_price.quote(u, median=2070000, pricing=be))
 
     def test_selling_food_comes_first_and_dear_skus_we_do_not_sell_are_left_out(self):
         # 메인 11/07 01:25 (가게 협상 점검 4번): Gb2392fa9 was cut 106 times by "cash kept" behind the dear lines while it
@@ -367,8 +371,16 @@ class PriceTest(unittest.TestCase):
     def test_a_grades_profit_share_lifts_only_that_grades_goods_floor(self):
         # goods-margin-1110's arm B as a grade's default: floor = (C + 0.0025 C + share x L) / (1 - b)
         base = {"price": {"min_profit": 1, "min_profit_share": 0.0, "goods_break": 0.035,
-                          "grade_break": {"A": 0.03, "B": 0.15, "C": 0.344}}}
+                          "grade_break": {"A": 0.03, "B": 0.15, "C": 0.344}, "grade_profit_until": 10 ** 11}}
         on = {"price": {**base["price"], "grade_profit_share": {"B": 0.08}}}
+        # on only with an end that has not come: no end, a bad one or a past one is break-even (no open-ended default)
+        for until in (None, "x", True, float("nan"), 1.0):
+            ended = {"price": {**on["price"], "grade_profit_until": until}}
+            self.assertEqual(profit_price.quote({"sku": "G", "unit": "u", "kind": "goods", "grade": "B", "cost": 500000,
+                                                 "list_price": 922000}, pricing=ended)["floor"], 589708, until)
+        no_key = {"price": {k: v for k, v in on["price"].items() if k != "grade_profit_until"}}
+        self.assertEqual(profit_price.quote({"sku": "G", "unit": "u", "kind": "goods", "grade": "B", "cost": 500000,
+                                             "list_price": 922000}, pricing=no_key)["floor"], 589708)
         b_unit = {"sku": "G85a1a856", "unit": "u", "kind": "goods", "grade": "B", "cost": 500000, "list_price": 922000}
         self.assertEqual(profit_price.quote(b_unit, pricing=base)["floor"], 589708)             # (500,000 + 1,250 + 1) / 0.85
         # (500,000 + 1,250 + 73,760) / 0.85 = 676,482.4 -> 676,483: after a 15% refund chance 73,760 = 8% of list is kept
@@ -388,12 +400,13 @@ class PriceTest(unittest.TestCase):
         self.assertEqual(profit_price.quote(dear, pricing=on)["floor"], 922000)
         over = {**b_unit, "cost": 800000}                    # break-even already over list: it stays, nothing is lowered
         self.assertEqual(profit_price.quote(over, pricing=on)["floor"], profit_price.quote(over, pricing=base)["floor"])
-        self.assertEqual(profit_price.grade_profit_share({"grade_profit_share": {"B": 0.15}}, "goods", "B"), 0.15)
+        self.assertEqual(profit_price.grade_profit_share({"grade_profit_share": {"B": 0.15}, "grade_profit_until": 10 ** 11},
+                                                         "goods", "B"), 0.15)
 
     def test_the_share_is_not_for_a_capped_or_scarce_unit_nor_for_one_that_has_waited(self):
         # independent review 9d5c7b1 I1: 12 of the 91 ask-capped units held would have got a floor over their cap
         price = {"min_profit": 1, "min_profit_share": 0.0, "goods_break": 0.035, "grade_break": {"A": 0.03, "B": 0.15},
-                 "grade_profit_share": {"A": 0.08, "B": 0.08}, "grade_profit_hours": 6}
+                 "grade_profit_share": {"A": 0.08, "B": 0.08}, "grade_profit_hours": 6, "grade_profit_until": 1794350000.0 + 3600}
         now = 1794350000.0
         u = {"sku": "G1", "unit": "u", "kind": "goods", "grade": "A", "cost": 575000, "list_price": 1000000, "supplied_at": now - 600}
         with mock.patch.object(profit_price.time, "time", return_value=now):
@@ -431,17 +444,23 @@ class PriceTest(unittest.TestCase):
         # B 0.122 -> 0.15 (11/10): our own grade B breaks 14.3% over the round, 15.2% over the last 72 h (market 11.6-11.9%)
         self.assertEqual(profit_price.cfg_of(p)["grade_break"], {"A": 0.03, "B": 0.15, "C": 0.344})
         b_unit = {"sku": "G85a1a856", "unit": "u", "kind": "goods", "grade": "B", "cost": 500000, "list_price": 922000}
-        # goods-margin-1110 kept (11/11): every grade's floor keeps 8% of list after the expected refund
-        self.assertEqual(profit_price.cfg_of(p)["grade_profit_share"], {"A": 0.08, "B": 0.08})     # C: not proven, break-even
+        # goods-margin-1110 (11/11): grade A's floor keeps 8% of list after the expected refund, to a written end;
+        # B and C were not proven and stay at break-even (work-state instructions 3, 4: no open-ended default)
+        self.assertEqual(profit_price.cfg_of(p)["grade_profit_share"], {"A": 0.08})
         self.assertEqual(profit_price.cfg_of(p)["grade_profit_hours"], 6)
+        until = profit_price.cfg_of(p)["grade_profit_until"]
+        self.assertTrue(isinstance(until, int) and 1794349000 < until <= 1794349000 + 13 * 3600)    # an end within hours
         c_unit = {"sku": "G85a1a856", "unit": "u", "kind": "goods", "grade": "C", "cost": 350000, "list_price": 922000}
-        self.assertEqual(profit_price.quote(c_unit, median=None, measured=None, pricing=p)["floor"],
-                         math.ceil((350000 + 875 + 1) / (1 - 0.344)))
-        # (500,000 + 1,250 + 0.08 x 922,000) / 0.85 = 676,482.4 -> 676,483 (break-even at b 0.15: 589,708; at 0.122: 570,900)
-        self.assertEqual(profit_price.quote(b_unit, median=None, measured=0.12, pricing=p)["floor"], 676483)
         a_unit = {"sku": "G03d0199f", "unit": "u", "kind": "goods", "grade": "A", "cost": 575000, "list_price": 1000000}
-        # (575,000 + 1,437.5 + 80,000) / 0.965 = 680,246.1 -> 680,247 (break-even 597,346): 0.68 of list, what buyers pay
-        self.assertEqual(profit_price.quote(a_unit, median=None, measured=None, pricing=p)["floor"], 680247)
+        with mock.patch.object(profit_price.time, "time", return_value=until - 3600):
+            self.assertEqual(profit_price.quote(c_unit, median=None, measured=None, pricing=p)["floor"],
+                             math.ceil((350000 + 875 + 1) / (1 - 0.344)))
+            # (500,000 + 1,250 + 1) / 0.85 = 589,707.06 -> 589,708 (at b 0.122: 570,900): grade B at break-even
+            self.assertEqual(profit_price.quote(b_unit, median=None, measured=0.12, pricing=p)["floor"], 589708)
+            # (575,000 + 1,437.5 + 80,000) / 0.965 = 680,246.1 -> 680,247 (break-even 597,346): 0.68 of list, what buyers pay
+            self.assertEqual(profit_price.quote(a_unit, median=None, measured=None, pricing=p)["floor"], 680247)
+        with mock.patch.object(profit_price.time, "time", return_value=until):
+            self.assertEqual(profit_price.quote(a_unit, median=None, measured=None, pricing=p)["floor"], 597346)
         food = {"sku": "F", "unit": "u", "kind": "food", "grade": "A", "cost": 6000, "list_price": 10000}
         self.assertEqual(profit_price.quote(food, median=None, measured=None, pricing=p)["floor"], 6016)      # food: break-even
         self.assertEqual(profit_price.quote(b_unit, median=None, measured=0.2, pricing=p)["b"], 0.2)   # a higher measured rate wins

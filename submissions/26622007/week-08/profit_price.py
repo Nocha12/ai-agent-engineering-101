@@ -137,12 +137,17 @@ def grade_profit_share(cfg, kind, grade, u=None, now=None):
     s = by_grade.get(grade) if kind == "goods" and isinstance(by_grade, dict) and isinstance(grade, str) else None
     if not (isinstance(s, (int, float)) and not isinstance(s, bool) and 0 < s <= GRADE_SHARE_MAX):
         return 0.0
+    # price.grade_profit_until (epoch): the rule ends by itself there, and it is on only with a usable end (work-state
+    # instructions 3, 4 and 7 of 11/11: no open-ended default before the economics are confirmed; renew it to keep it)
+    until, at_now = cfg.get("grade_profit_until"), time.time() if now is None else now
+    if not _num(until) or not _num(at_now) or at_now >= until:
+        return 0.0
     if isinstance(u, dict):
         scarce = cfg.get("scarce_asks") if isinstance(cfg.get("scarce_asks"), dict) else {}
         if u.get("sku") in scarce or ask_cap(cfg, u) is not None:
             return 0.0
         hours, at = cfg.get("grade_profit_hours"), u.get("supplied_at")
-        if _num(hours) and hours > 0 and _num(at) and (time.time() if now is None else now) - at >= hours * 3600:
+        if _num(hours) and hours > 0 and _num(at) and at_now - at >= hours * 3600:
             return 0.0
     return s
 
