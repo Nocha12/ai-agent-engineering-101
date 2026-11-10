@@ -531,11 +531,16 @@ class Seller(AgentExecutor):
         grade_kwargs = dict(allow_grade_preference=True, selection=grade_selection) if GRADE_PREFERENCE.arm(grade_assignment) == "B" else {}
         grade_read_assignment, grade_add = await asyncio.to_thread(GRADE_READ.assign, task.id, text)
         u, miss = self.stock.pick(text, rank=lambda x: floor_rank(x, ranked), add_grades=grade_add, **grade_kwargs)
-        await asyncio.to_thread(GRADE_READ.selected, task.id, grade_read_assignment, u, miss)
+        grade_read_alt = (self.stock.pick(text, rank=lambda x: floor_rank(x, ranked),    # the other arm, same stock
+                                          add_grades=None if grade_add else {"B"},
+                                          **(dict(grade_kwargs, selection={}) if grade_kwargs else {}))[0]
+                          if grade_read_assignment is not None else None)
+        await asyncio.to_thread(GRADE_READ.selected, task.id, grade_read_assignment, u, miss, alt=grade_read_alt)
         GRADE_PREFERENCE.selected(task.id, grade_assignment, u, miss, grade_selection)
         if u is None:
             await asyncio.to_thread(MARGIN_STUDY.selection_miss, task.id)
             GRADE_PREFERENCE.emit(task.id, grade_assignment, "rejected", reason="selection")
+            await asyncio.to_thread(GRADE_READ.rejected, task.id, grade_read_assignment, "selection", u)
             await up.reject(say("Sorry, we have none of that in stock." if miss == "not in stock" else
                                 f"Sorry, none of our units fits your order: {miss}."))
             log(f"task {task.id[:8]} -> REJECTED ({miss})")
@@ -549,6 +554,7 @@ class Seller(AgentExecutor):
         if q["refuse"]:
             await asyncio.to_thread(MARGIN_STUDY.event, task.id, margin_assignment, "warranty_refused")
             GRADE_PREFERENCE.emit(task.id, grade_assignment, "rejected", reason="warranty")
+            await asyncio.to_thread(GRADE_READ.rejected, task.id, grade_read_assignment, "warranty", u)
             await up.reject(say("Sorry, we cannot sell this item with a fair warranty right now."))
             log(f"task {task.id[:8]} -> REJECTED (break chance {q['b']:.0%} above the warranty limit; no sale without one)")
             return
@@ -557,6 +563,7 @@ class Seller(AgentExecutor):
         if not self.stock.available(u["unit"], task.id):
             await asyncio.to_thread(MARGIN_STUDY.event, task.id, margin_assignment,
                                     'selection_lost', reason='unit_unavailable')
+            await asyncio.to_thread(GRADE_READ.rejected, task.id, grade_read_assignment, "unit_unavailable", u)
             await up.reject(say("That unit is no longer available; please start a new request."))
             return
         hold_token = self.stock.hold(u["unit"], task.id)

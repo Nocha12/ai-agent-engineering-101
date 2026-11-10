@@ -79,6 +79,39 @@ class Eligible(unittest.TestCase):
         self.assertEqual(u["unit"], "u-a")     # no grade asked: add_grades changes nothing
 
 
+class EligibleOnlyTheExternalForm(unittest.TestCase):
+    """The opening exactly as the outside buyer writes it (33 of 33 in market-kit.log + .1, 08:49-13:41 11/10: 'I want to buy
+    <name> (<SKU>). <sentence> Please quote your cheapest unit that way.'); any other word about grades stays untreated
+    (independent review 889d594 M3), and each guard is the only one that stops its case (M4)."""
+
+    def test_real_forms(self):
+        for hours in ("6", "6.5", "48"):
+            self.assertEqual(grade_read.extra_grades(REAL.replace("at least 6 hours", f"at least {hours} hours")), {"B"})
+        other = REAL.replace("[자코모]메이트 멀티 4인 기능성 젠위브 패브릭 소파+스툴+쿠션2개 (G8ec51935)",
+                             "지누스 그린티 럭스S 하이브리드 매트리스 20cm Q 퀸 (G1515d951)")
+        self.assertEqual(grade_read.extra_grades(other), {"B"})
+
+    def test_opposite_words_untreated(self):
+        for t in (REAL + " No damaged box units, please.",
+                  REAL.replace("Please quote", "Do not send me the B (damaged box) one. Please quote"),
+                  REAL + " Only C (refurbished), actually.",
+                  "grade A only. " + REAL,
+                  REAL.replace("소파+스툴", "소파 grade A+스툴"),
+                  REAL.replace("소파+스툴", "소파 B 스툴"),
+                  REAL.replace(" Please quote your cheapest unit that way.", ""),
+                  REAL.split(". ", 1)[1]):
+            self.assertIsNone(grade_read.extra_grades(t), t)
+
+    def test_quote_or_brace_in_the_name(self):
+        for t in (REAL.replace("[자코모]", '[자코모"]'), REAL.replace("[자코모]", "{자코모}")):
+            self.assertIsNone(grade_read.extra_grades(t), t)
+
+    def test_too_long(self):
+        t = REAL.replace("[자코모]", "가" * 1200)
+        self.assertGreater(len(t), grade_read.MAX_TEXT)
+        self.assertIsNone(grade_read.extra_grades(t))
+
+
 class Assign(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -149,12 +182,113 @@ class Assign(unittest.TestCase):
         self.assertEqual(r[2]["price"], 1546976)
         self.assertEqual(r[2]["others"]["floor_margin"]["arm"], "A")
 
+    def test_window_cap_12h(self):
+        now = time.time()
+        write_cfg(self.root, start_at=now - 60, stop_at=now - 60 + 12 * 3600)
+        self.assertIsNotNone(self.t.config(now))
+        write_cfg(self.root, start_at=now - 60, stop_at=now - 60 + 12 * 3600 + 1)
+        self.assertIsNone(self.t.config(now))
+
+    def test_window_edges(self):
+        now = time.time()
+        write_cfg(self.root, start_at=now, stop_at=now + 9 * 3600)
+        self.assertIsNotNone(self.t.config(now))                 # [start, stop): the start is in
+        self.assertIsNone(self.t.config(now - 0.001))           # not started
+        self.assertIsNone(self.t.config(now + 9 * 3600))         # the stop is out
+        self.assertIsNotNone(self.t.config(now + 9 * 3600 - 0.001))
+
+    def test_bad_values_off(self):
+        now = time.time()
+        d = Path(self.root) / "grade_read"
+        base = dict(study="g", salt="s", version=1, epoch=now, enabled=True, mode="ab", share=0.5,
+                    start_at=now - 60, stop_at=now + 3600)
+        raw = json.dumps(base)
+        cases = [raw.replace(f'"stop_at": {json.dumps(base["stop_at"])}', '"stop_at": NaN'),
+                 raw.replace(f'"stop_at": {json.dumps(base["stop_at"])}', '"stop_at": Infinity'),
+                 raw.replace(f'"start_at": {json.dumps(base["start_at"])}', '"start_at": -Infinity'),
+                 raw.replace(f'"start_at": {json.dumps(base["start_at"])}', '"start_at": true'),
+                 raw.replace(f'"stop_at": {json.dumps(base["stop_at"])}', '"stop_at": 1' + "0" * 400),
+                 raw.replace('"enabled": true', '"enabled": 1'),
+                 raw.replace('"share": 0.5', '"share": 1.5'),
+                 raw.replace('"mode": "ab"', '"mode": "B"'),
+                 json.dumps({k: v for k, v in base.items() if k != "stop_at"}),
+                 json.dumps({k: v for k, v in base.items() if k != "start_at"}),
+                 json.dumps(dict(base, start_at=now + 60, stop_at=now + 3600)),
+                 "[]", "", "{"]
+        for c in cases:
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "config.json").write_text(c)
+            self.t._cache = None
+            self.assertIsNone(self.t.config(now), c[:120])
+            self.assertEqual(self.t.assign("t1", REAL, now=now), (None, None), c[:120])
+        self.assertEqual(rows(self.root), [])
+
+    def test_rejected_rows(self):
+        write_cfg(self.root)
+        tb = self.task_for("B")
+        a, _ = self.t.assign(tb, REAL)
+        self.t.rejected(tb, a, "warranty", unit("u-b", "B", 1))
+        self.t.rejected(tb, a, "unit_unavailable", None)
+        self.t.rejected(tb, None, "selection", None)              # no assignment: no row
+        self.t.rejected(tb, {"bad": 1}, "selection", None)
+        r = rows(self.root)
+        self.assertEqual([(x["event"], x.get("reason")) for x in r],
+                         [("assigned", None), ("rejected", "warranty"), ("rejected", "unit_unavailable")])
+        self.assertEqual((r[1]["unit"], r[1]["grade"], r[1]["arm"]), ("u-b", "B", "B"))
+        self.assertIsNone(r[2]["unit"])
+
+    def test_selected_records_both_picks(self):
+        write_cfg(self.root)
+        ta, tb = self.task_for("A"), self.task_for("B")
+        ua, ub = unit("u-a", "A", 1642751), unit("u-b", "B", 1322319)
+        a, _ = self.t.assign(ta, REAL)
+        self.t.selected(ta, a, ua, None, alt=ub)                  # arm A quotes u-a; arm B would have quoted u-b
+        b, _ = self.t.assign(tb, REAL)
+        self.t.selected(tb, b, ub, None, alt=ua)
+        sel = [x for x in rows(self.root) if x["event"] == "selected"]
+        for x in sel:
+            self.assertEqual((x["unit_a"], x["grade_a"], x["cost_a"]), ("u-a", "A", 1642751))
+            self.assertEqual((x["unit_b"], x["grade_b"], x["cost_b"]), ("u-b", "B", 1322319))
+            self.assertTrue(x["switch"])
+        self.assertEqual([x["unit"] for x in sel], ["u-a", "u-b"])
+        self.t.selected(ta, a, ua, None, alt=ua)
+        self.assertFalse(rows(self.root)[-1]["switch"])
+
+    def test_goods_margin_in_others(self):
+        write_cfg(self.root)
+        tb = self.task_for("B")
+        a, _ = self.t.assign(tb, REAL)
+        deal = {"grade_read": a, "id": "G8ec51935", "unit": "u-b", "goods_margin": {"study": "goods-margin-1110", "arm": "B"}}
+        self.t.event(tb, deal, "deal", 1)
+        self.assertEqual(rows(self.root)[-1]["others"]["goods_margin"], {"study": "goods-margin-1110", "arm": "B"})
+
     def test_never_raises(self):
         write_cfg(self.root)
         self.t.selected("t", None, None, None)
         self.t.selected("t", {"bad": 1}, {"unit": "x"}, "why")
         self.t.event("t", {"grade_read": {"bad": 1}}, "deal")
         self.assertEqual(self.t.assign("t", object()), (None, None))
+
+
+class SwitchConfig(unittest.TestCase):
+    def test_finite_9_to_12h(self):
+        c = grade_read.make_config(1794290000.0, 12, "g-read-1110")
+        self.assertEqual((c["start_at"], c["stop_at"], c["epoch"]), (1794290000.0, 1794290000.0 + 43200, 1794290000.0))
+        self.assertEqual((c["mode"], c["share"], c["enabled"], c["version"], c["salt"]), ("ab", 0.5, True, 1, "g-read-1110-salt"))
+        with tempfile.TemporaryDirectory() as td:
+            t = grade_read.Trial(root=td)
+            (Path(td) / "grade_read").mkdir()
+            (Path(td) / "grade_read" / "config.json").write_text(json.dumps(c))
+            self.assertIsNotNone(t.config(1794290000.0 + 60))
+            self.assertIsNone(t.config(1794290000.0 + 43200))
+        self.assertEqual(grade_read.make_config(1794290000, 9, "g")["stop_at"], 1794290000 + 32400)
+
+    def test_rejects(self):
+        for args in ((1794290000.0, 8.99, "g"), (1794290000.0, 12.01, "g"), (1794290000.0, float("nan"), "g"),
+                     (1794290000.0, True, "g"), (float("inf"), 12, "g"), (True, 12, "g"), (0, 12, "g"),
+                     (1794290000.0, 12, ""), (1794290000.0, 12, None), (10 ** 400, 12, "g")):
+            with self.assertRaises(ValueError, msg=repr(args)[:80]):
+                grade_read.make_config(*args)
 
 
 class SellerWiring(unittest.TestCase):
@@ -168,9 +302,28 @@ class SellerWiring(unittest.TestCase):
         j = s.index("self.stock.pick(text, rank=lambda x: floor_rank(x, ranked)")
         self.assertLess(i, j)
         self.assertIn("add_grades=grade_add", s[j:j + 200])
-        self.assertIn("asyncio.to_thread(GRADE_READ.selected, task.id, grade_read_assignment, u, miss)", s)
+        self.assertIn("asyncio.to_thread(GRADE_READ.selected, task.id, grade_read_assignment, u, miss, alt=grade_read_alt)", s)
         self.assertRegex(s, r'deal\["grade_read"\] = grade_read_assignment')
         self.assertIn("GRADE_READ.event(task_id, deal, result, price, observed_at)", s)
+
+    def test_rejections_journaled(self):
+        # every way the opening ends before a quote leaves a row (independent review 889d594 M1)
+        s = self.SRC
+        for reason, before in (("selection", 'await up.reject(say("Sorry, we have none of that in stock."'),
+                               ("warranty", 'await up.reject(say("Sorry, we cannot sell this item with a fair warranty'),
+                               ("unit_unavailable", 'await up.reject(say("That unit is no longer available')):
+            call = f'GRADE_READ.rejected, task.id, grade_read_assignment, "{reason}", u)'
+            self.assertIn(call, s)
+            self.assertLess(s.index(call), s.index(before))
+            self.assertLess(s.index(before) - s.index(call), 600)
+
+    def test_other_pick_before_any_await(self):
+        s = self.SRC
+        i = s.index("self.stock.pick(text, rank=lambda x: floor_rank(x, ranked), add_grades=grade_add")
+        j = s.index("asyncio.to_thread(GRADE_READ.selected, task.id, grade_read_assignment, u, miss, alt=")
+        between = s[i:j]
+        self.assertIn('add_grades=None if grade_add else {"B"}', between)
+        self.assertNotIn("await", between.split("\n", 1)[1].rsplit("\n", 1)[0])
 
     def test_switch_listed(self):
         import meta_harness
@@ -193,10 +346,10 @@ root=seller.GRADE_READ.root
 if mode!='off':
  root.mkdir(parents=True,exist_ok=True)
  (root/'config.json').write_text(json.dumps(dict(study='g-read',salt='s',version=1,epoch='t',enabled=True,mode='ab',
-  share=1.0 if mode=='B' else 0.0,start_at=time.time()-5,stop_at=time.time()+3600)))
+  share=1.0 if mode.startswith('B') else 0.0,start_at=time.time()-5,stop_at=time.time()+3600)))
 def unit(u,g,cost):
  return dict(unit=u,sku='G8ec51935',grade=g,kind='goods',name='소파',cost=cost,list_price=2320000,category='가구>소파',supplied_at=1,expires_at=None,cert=True)
-units=[unit('u-a','A',1642751),unit('u-b','B',1322319)]
+units=[] if mode.endswith('none') else [unit('u-a','A',1642751),unit('u-b','B',1322319)]
 class Capture:
  def new_agent_message(self,**kw):return kw
  async def requires_input(self,message):self.message=message
@@ -245,6 +398,7 @@ class SellerSeam(unittest.TestCase):
         self.assertEqual(off["rows"], [])
         self.assertEqual([x["event"] for x in a["rows"]], ["assigned", "selected"])
         self.assertEqual(a["rows"][1]["grade"], "A")
+        self.assertEqual((a["rows"][1]["unit_a"], a["rows"][1]["unit_b"], a["rows"][1]["switch"]), ("u-a", "u-b", True))
 
     def test_treatment_quotes_the_b_unit_priced_as_b(self):
         b = self.run_mode("B")
@@ -254,6 +408,14 @@ class SellerSeam(unittest.TestCase):
         self.assertLess(b["reserve"], self.run_mode("A")["reserve"])
         self.assertGreater(b["reserve"], 1322319)          # above the B unit's cost
         self.assertEqual(b["rows"][1]["grade"], "B")
+        self.assertEqual((b["rows"][1]["unit_a"], b["rows"][1]["unit_b"], b["rows"][1]["switch"]), ("u-a", "u-b", True))
+
+    def test_none_in_stock_leaves_a_rejected_row(self):
+        r = self.run_mode("Bnone")
+        self.assertIn("none of that in stock", r["msg"])
+        self.assertEqual([(x["event"], x.get("reason")) for x in r["rows"]],
+                         [("assigned", None), ("selected", None), ("rejected", "selection")])
+        self.assertEqual(r["rows"][1]["miss"], "not in stock")
 
 
 if __name__ == "__main__":
