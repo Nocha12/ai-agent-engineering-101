@@ -61,7 +61,8 @@ class Write(unittest.TestCase):
                                  ("nope", start, start + 1800, None)):
             with self.assertRaises(sw.Refused, msg=(name, s, e, salt)):
                 sw.write(self.md, name, s, e, salt=salt)
-        self.assertEqual(os.listdir(self.md), [])
+        self.assertEqual(os.listdir(self.md), ["buyer_switch_write"])                 # only the writers' lock
+        self.assertEqual(os.listdir(os.path.join(self.md, "buyer_switch_write")), [".lock"])
 
     def test_a_running_window_is_never_rewritten_or_moved(self):
         start = self.t + 600
@@ -198,6 +199,54 @@ class Write(unittest.TestCase):
             json.dump({"enabled": True, "salt": ["x"], "start": self.t - 13 * H, "end": self.t - 4 * H}, f)
         self.assertEqual(sw.main(["--market-dir", self.md, "our_ask", "--start", str(self.t + 600),
                                   "--end", str(self.t + 600 + 9 * H), "--salt", "b"]), 0)
+
+    def test_an_off_that_cannot_read_the_history_keeps_the_past_unknown(self):   # adversarial e0a5379 F1
+        with open(os.path.join(self.md, sw.STUDIES["moss_first"]["file"]), "w") as f:
+            f.write('{"enabled": true, "salt": "old", "start": 1, "end": "?"}\n')
+        hp = os.path.join(self.md, sw.HISTORY)
+        os.makedirs(os.path.dirname(hp))
+        with open(hp, "w") as f:
+            f.write("garbage\n")
+        sw.off(self.md, "moss_first")
+        with open(hp) as f:
+            lines = f.read().splitlines()[1:]
+        with open(hp, "w") as f:                                             # repaired
+            f.write("\n".join(lines) + "\n")
+        with self.assertRaises(sw.Refused):
+            sw.write(self.md, "moss_first", self.t + 600, self.t + 600 + 9 * H, salt="old")
+
+    def test_writers_take_turns(self):                                         # adversarial e0a5379 F2
+        import fcntl
+        os.makedirs(os.path.join(self.md, os.path.dirname(sw.HISTORY)))
+        with open(os.path.join(self.md, sw.LOCK), "a") as held, \
+                unittest.mock.patch.object(sw.time, "sleep"):
+            fcntl.flock(held, fcntl.LOCK_EX)
+            with self.assertRaises(sw.Refused):
+                sw.write(self.md, "final_m1", self.t + 600, self.t + 1200)
+            self.assertFalse(os.path.exists(os.path.join(self.md, sw.STUDIES["final_m1"]["file"])))
+            out = sw.off(self.md, "final_m1")                                  # off still stops, without the lock
+            self.assertFalse(out["locked"])
+        self.assertIs(body(self.md, "final_m1")["enabled"], False)
+
+    def test_a_clock_behind_the_history_refuses(self):                         # adversarial e0a5379 F3
+        s = self.t + 600
+        sw.write(self.md, "moss_first", s, s + 9 * H, salt="a")
+        with at(self.t - 600):
+            with self.assertRaises(sw.Refused):
+                sw.write(self.md, "moss_first", s + 60, s + 60 + 9 * H, salt="a")
+
+    def test_the_running_check_is_made_again_just_before_the_rename(self):    # adversarial e0a5379 F4
+        t = self.t
+        sw.write(self.md, "final_m1", t + 15, t + 1800)
+        calls = []
+
+        def clock():
+            calls.append(1)
+            return t if len(calls) == 1 else t + 20
+        with unittest.mock.patch.object(sw.time, "time", side_effect=clock):
+            with self.assertRaises(sw.Refused):
+                sw.write(self.md, "final_m1", t + 30, t + 1800)
+        self.assertEqual(body(self.md, "final_m1")["start"], t + 15)
 
     def test_a_window_about_to_start_is_not_overwritten(self):                 # review 523fd38 N1
         start = self.t + 600

@@ -17,7 +17,11 @@ window by hand that has no end, starts in the past, or runs past the study's max
   ran (review 4eaf0b6 I1); a write keeps the stopped record it overwrites and a second off keeps the first's (M1).
   With HISTORY gone the switch's stopped record stands in; when what ran is not known at all (a switch with neither,
   or an off that found it so) the next window needs new_study (N1). Only what HISTORY or the switch still says is
-  known: a HISTORY deleted by hand loses the windows before the last. Then a later window of the same study:
+  known: a HISTORY deleted by hand loses the windows before the last. An off that cannot read HISTORY marks the past
+  unknown (adversarial e0a5379 F1). Writers take turns on LOCK, a clock behind HISTORY refuses, and the running check
+  is made again just before the rename (F2-F4). Not covered: a process killed between the rename and its HISTORY line
+  (the next write or off records that window as replaced or stopped) and an off on a switch that is a directory or
+  unreadable (exit 2, reported). Then a later window of the same study:
   - an A/B study (moss_first, our_ask) never reuses the salt of a window that ran: the same arms again would be the same
     study made longer; with a new salt it may start before the old end only if new_study (--new-study) says so;
   - final_m1 starts only after the end of every window that ran, and then only with new_study (review 77cdbef M2: off
@@ -37,6 +41,7 @@ window by hand that has no end, starts in the past, or runs past the study's max
 It prints the JSON written and its mtime; exit 2 when refused.
 """
 import argparse
+import fcntl
 import json
 import math
 import os
@@ -50,6 +55,7 @@ import buyer_our_ask
 import oneshot
 
 HISTORY = os.path.join("buyer_switch_write", "history.jsonl")
+LOCK = os.path.join("buyer_switch_write", ".lock")   # writers take turns (adversarial e0a5379 F2)
 SOON = 10   # s: a window starting this soon counts as running, so the guard and the rename cannot straddle its start
 STUDIES = {
     "final_m1": {"file": oneshot.FINAL_M1_SWITCH, "min_hours": 0, "max_hours": oneshot.FINAL_M1_MAX_HOURS, "salt": False,
@@ -191,6 +197,9 @@ def _guard(md, name, path, start, salt, new_study):
         raise Refused(f"a window is running or about to ({window['start']} to {window['end']}): it is not moved, cut "
                       "or extended")
     events = _history(md, name)
+    last = max((e["at"] for e in events if _epoch(e.get("at"))), default=None)
+    if last is not None and now < last:
+        raise Refused(f"the clock ({now}) is behind the history ({last}): what is running is not known")   # F3
     stopped = _stopped(path)
     if _unknown(events, old, window, stopped) and not new_study:
         raise Refused("what ran before is not known (a switch without a window, a stopped record or history): a window "
@@ -242,9 +251,37 @@ def _log(md, event):
         return False
 
 
+def _lock(md, tries):
+    """An fd holding the writers' lock, or None if another writer held it for all the tries (0.1 s apart)."""
+    os.makedirs(os.path.join(md, os.path.dirname(LOCK)), exist_ok=True)
+    fd = os.open(os.path.join(md, LOCK), os.O_RDWR | os.O_CREAT, 0o644)
+    for _ in range(tries):
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return fd
+        except BlockingIOError:
+            time.sleep(0.1)
+    os.close(fd)
+    return None
+
+
 def write(md, name, start, end, salt=None, new_study=False):
     """Write the study's window; {"path", "body", "written"}, or Refused (nothing changed)."""
     s = _study(name)
+    _check(s, start, end, salt)
+    try:
+        fd = _lock(md, 30)
+    except OSError as e:
+        raise Refused(f"the writers' lock cannot be taken: {e}") from e
+    if fd is None:
+        raise Refused("another writer holds the lock: try again")
+    try:
+        return _write(md, name, s, start, end, salt, new_study)
+    finally:
+        os.close(fd)
+
+
+def _check(s, start, end, salt):
     if not _epoch(start) or not _epoch(end):
         raise Refused("start and end must be finite epochs")
     hours = (end - start) / 3600
@@ -259,12 +296,19 @@ def write(md, name, start, end, salt=None, new_study=False):
             raise Refused("this study needs a salt of 1-64 [A-Za-z0-9_-]")
     elif salt is not None:
         raise Refused("this study takes no salt")
+
+
+def _write(md, name, s, start, end, salt, new_study):
     path = os.path.join(md, s["file"])
     old = _guard(md, name, path, start, salt, new_study)
     old_stopped = _stopped(path)
     if not start > time.time():
         raise Refused("the start must be after now: the file is written before its window")
     d = {"enabled": True, **({"salt": salt} if s["salt"] else {}), "start": start, "end": end}
+    again, window = _current(path)                 # the running check again just before the rename (F4)
+    now = time.time()
+    if again != old or (window is not None and window["start"] <= now + SOON and now < window["end"]):
+        raise Refused("the switch changed or its window started while this was checked: nothing written")
     _replace(path, (json.dumps(d) + "\n").encode())
     written = os.stat(path).st_mtime
     ok = written <= start and s["reads"](md, start)
@@ -299,13 +343,26 @@ def off(md, name):
     """{"enabled": false} over the study's switch, at once, with the window it stops."""
     s = _study(name)
     path = os.path.join(md, s["file"])
+    try:
+        fd = _lock(md, 50)         # off waits for a writer, then stops anyway: it is never refused
+    except OSError:
+        fd = None
+    try:
+        return dict(_off(md, name, path), locked=fd is not None)
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def _off(md, name, path):
     old, window = _current(path)
     stopped = _stopped(path)
     try:
         events = _history(md, name)
     except Refused:
         events = None
-    unknown = events is not None and _unknown(events, old, window, stopped)
+    # history that cannot be read knows nothing: the past stays unknown after it is mended (adversarial e0a5379 F1)
+    unknown = events is None or _unknown(events, old, window, stopped)
     at = time.time()
     d = {"enabled": False}
     if window is not None:
