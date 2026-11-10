@@ -118,6 +118,14 @@ class SellerGoodsMarginTest(unittest.TestCase):
             self.assertEqual(self.run_(u, dict(q, b_trial=t)), same, t)                   # grade_break_trial unit
         caps = {"price": {**PRICING["price"], "ask_caps": {"G75f11c19": {"C": 90000}}}}
         self.assertEqual(self.run_(u, q, pricing=caps), same)                             # slow stock with a cap
+        scarce = {"price": {**PRICING["price"], "scarce_asks": {"G75f11c19": 1}}}
+        self.assertEqual(self.run_(u, q, pricing=scarce), same)                           # a scarce-ask SKU, even unused
+        trial = {"salt": next(f"t{i}" for i in range(400) if profit_price.trial_arm("G75f11c19", "C", {
+            "salt": f"t{i}", "share": 0.5})), "share": 0.5, "factor": 0.9}
+        self.assertEqual(self.run_(u, q, pricing={"price": {**PRICING["price"], "high_price_trial": trial}}), same)
+        self.assertEqual(gm.decide(u, "not a quote", reserve=q["floor"], ask=q["open"], keep=1, margin_assignment=None,
+                                   a_open=None, floor_margin=None, pricing=PRICING, md=self.md.name, env={}, now=ON),
+                         (q["floor"], q["open"], None))                                    # a bad q: off, no stderr
         for why in ("ask cap 1 for grade C (was ...)", "scarce ask 1", "trial 0.97 x median 1"):
             self.assertEqual(self.run_(u, dict(q, why=why)), same, why)
         for bad in (unit(kind="food"), unit(list_price=None), unit(list_price=0), unit(cost=None)):

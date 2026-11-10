@@ -25,8 +25,8 @@ is, never under today's F; the ask rises to the new reserve when it is under it.
 SKU x grade, sha256("goods-margin|salt|sku|grade"): the first four bytes under treat (0.5 by default, 0.3-0.8) is B,
 an axis of its own (floor-margin and a-open hash other keys). Recorded in deal["goods_margin"] -> shop_memory.
 
-Eligible: goods of any grade with a list price and a cost, no markdown (keep 1), no ask cap for the SKU x grade, no
-scarce ask and no high-price trial cut, not in the margin study, not an a-open talk, not a floor-margin talk (either
+Eligible: goods of any grade with a list price and a cost, no markdown (keep 1), no ask cap for the SKU x grade, not
+a SKU with a scarce ask nor a SKU x grade in the high-price trial's half (whether or not either moved this price), not in the margin study, not an a-open talk, not a floor-margin talk (either
 arm: floor-margin owns its grade A units while it is on, to 11/10 15:47:26; after it stops by itself they come in here),
 and not a grade_break_trial unit (either arm, to 11/10 13:00): each running study keeps its own arms clean.
 
@@ -130,13 +130,19 @@ def decide(u, q, *, reserve, ask, keep, margin_assignment, a_open, floor_margin,
     (after a-open and floor-margin). Today's reserve and ask unless arm B raises them."""
     try:
         cfg = config(md, env, now)
-        if (not cfg or not isinstance(u, dict) or u.get("kind") != "goods"
+        if not cfg or not isinstance(u, dict) or not isinstance(q, dict):
+            return reserve, ask, None
+        pcfg = profit_price.cfg_of(pricing)
+        scarce = pcfg.get("scarce_asks") if isinstance(pcfg.get("scarce_asks"), dict) else {}
+        if (u.get("kind") != "goods"
                 or not _num(u.get("list_price")) or u["list_price"] <= 0 or not _num(u.get("cost")) or u["cost"] < 0
                 or not _num(reserve) or not _num(ask) or not _num(q.get("b")) or not 0 <= q["b"] < 1
                 or not _num(keep) or keep < 1
                 or margin_assignment is not None or a_open or floor_margin or q.get("b_trial") is not None
                 or str(q.get("why") or "").startswith(("ask cap", "scarce ask", "trial "))
-                or profit_price.ask_cap(profit_price.cfg_of(pricing), u) is not None):
+                or u.get("sku") in scarce
+                or profit_price.trial_arm(u.get("sku"), u.get("grade"), pcfg.get("high_price_trial"))
+                or profit_price.ask_cap(pcfg, u) is not None):
             return reserve, ask, None
         a = arm(cfg, u.get("sku"), u.get("grade"))
         if a is None:
@@ -145,10 +151,10 @@ def decide(u, q, *, reserve, ask, keep, margin_assignment, a_open, floor_margin,
         new_reserve, new_ask = reserve, ask
         if a == "B":
             raised = profit_price.floor(u["cost"], lp, "goods", q["b"],
-                                        {**profit_price.cfg_of(pricing), "min_profit": 1,
+                                        {**pcfg, "min_profit": 1,
                                          "min_profit_share": cfg["share"]})
-            new_reserve = int(max(reserve, min(raised, lp)))
-            new_ask = int(max(ask, new_reserve))
+            new_reserve = math.ceil(max(reserve, min(raised, lp)))
+            new_ask = math.ceil(max(ask, new_reserve))
         return new_reserve, new_ask, {"study": cfg["study"], "arm": a, "share": cfg["share"], "treat": cfg["treat"],
                                       "grade": u.get("grade"), "usual_reserve": reserve, "usual_ask": ask,
                                       "reserve": new_reserve, "ask": new_ask, "list": lp, "cost": u["cost"],
