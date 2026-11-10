@@ -75,6 +75,7 @@ import seller_market_floor
 import seller_food_margin
 import seller_late_speed
 import seller_jev_transport
+import seller_single_price
 import shelf_life_reply
 import shelf_jev_skip
 import shelf_fact
@@ -808,7 +809,7 @@ class Seller(AgentExecutor):
 
     async def _execute_turn(self, task, context, event_queue):
         up = TaskUpdater(event_queue=event_queue, task_id=task.id, context_id=task.context_id)
-        say = lambda text, ask=None: up.new_agent_message(parts=[new_text_part(text)],
+        say = lambda text, ask=None: up.new_agent_message(parts=[new_text_part(seller_single_price.render(task.id, text, ask))],
                                                           metadata={"ask": ask} if ask is not None else None)
         full_text = get_message_text(context.message) or ""
         text = full_text[:MAX_TEXT]
