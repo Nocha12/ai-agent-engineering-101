@@ -21,8 +21,10 @@ is priced by code only when ask_read reads the same ask market_buyer read from i
 the price the harness read (review/W-20261107-0840-AX호가정규식).
 """
 import json
+import math
 import os
 import re
+import time
 
 import ask_read
 
@@ -50,20 +52,35 @@ def final_text(text):
 
 
 FINAL_M1_SWITCH = "buyer_final_m1.json"
+FINAL_M1_MAX_HOURS = 12
 
 
-def final_m1_on(md, env=None):
-    """final_m1 on: .market/buyer_final_m1.json {"enabled": true}; missing, unreadable, anything else, or BUYER_FINAL_M1=0
-    is off (default off). Read at every order, so no restart either way."""
+def _epoch(v):
+    """A finite epoch-sized number (not a bool; 10**400 is not one and raises nothing here)."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and abs(v) < 1e12 and math.isfinite(v)
+
+
+def final_m1_on(md, env=None, now=None):
+    """final_m1 on: .market/buyer_final_m1.json {"enabled": true, "start": epoch, "end": epoch} with start <= now < end,
+    0 < end - start <= FINAL_M1_MAX_HOURS, and the file written before its start (mtime <= start), so the window has a
+    fixed end and cannot be moved once it began (ax-pro-cycle step 5, main instruction 10: the shadow had no end and
+    stopped only when turned off by hand). Missing, unreadable, no window, anything else, or BUYER_FINAL_M1=0 is off
+    (default off). Read at every order and again at each turn it would note, so no restart either way."""
     env = os.environ if env is None else env
-    if str(env.get("BUYER_FINAL_M1") or "").strip().lower() in ("0", "false", "no", "off"):
+    now = time.time() if now is None else now
+    if str(env.get("BUYER_FINAL_M1") or "").strip().lower() in ("0", "false", "no", "off") or not _epoch(now):
         return False
     try:
         with open(os.path.join(md, FINAL_M1_SWITCH), encoding="utf-8") as f:
+            mtime = os.fstat(f.fileno()).st_mtime
             d = json.load(f)
     except (OSError, ValueError, TypeError, RecursionError):
         return False
-    return isinstance(d, dict) and d.get("enabled") is True
+    if not isinstance(d, dict) or d.get("enabled") is not True:
+        return False
+    start, end = d.get("start"), d.get("end")
+    return _epoch(start) and _epoch(end) and 0 < start < end <= start + FINAL_M1_MAX_HOURS * 3600 \
+        and mtime <= start and start <= now < end
 
 
 def final_m1(d, meta, text, history, limit, steps):

@@ -16,6 +16,18 @@ G = ("안내를 요청해 주셔서 반갑습니다, 고객님—항상 신뢰�
 NOW = 1_794_300_000.0
 
 
+def m1_write(md, mtime=None, **kw):
+    """buyer_final_m1.json with a window (30 min from NOW - 60 unless given), its file dated start - 1 unless given."""
+    d = {"enabled": True, "start": NOW - 60, "end": NOW - 60 + 1800, **kw}
+    p = os.path.join(md, oneshot.FINAL_M1_SWITCH)
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump(d, f)
+    st = d["start"]
+    m = mtime if mtime is not None else (st - 1 if isinstance(st, (int, float)) and not isinstance(st, bool)
+                                         and 1 <= st < 1e11 else 1)
+    os.utime(p, (m, m))
+
+
 def write(md, mtime=None, **kw):
     """The switch, its file dated before its start (mtime: start - 1 unless given)."""
     d = {"enabled": True, "salt": "moss-1110", "start": NOW - 60, "end": NOW - 60 + 9 * 3600, **kw}
@@ -322,6 +334,11 @@ class Wired(unittest.TestCase):
         self.assertEqual(o["_moss_first"]["seen"], [])
 
     def test_final_m1_is_a_shadow_it_notes_and_never_sends(self):
+        m1_write(self.md)
+        with unittest.mock.patch.object(oneshot.time, "time", return_value=NOW):
+            self._shadow()
+
+    def _shadow(self):
         walk = oneshot.code_turn(9600, FinalM1.H, 10000, (.9,))
         self.assertIs(self.call({"kind": "food"}, "Final price: 9600. ", FinalM1.H, walk, limit=10000), walk)
         on = {"kind": "food", "_final_m1": []}
@@ -382,15 +399,65 @@ class FinalM1(unittest.TestCase):
 
     def test_switch(self):
         md = tempfile.mkdtemp()
-        self.assertFalse(oneshot.final_m1_on(md))
+        self.assertFalse(oneshot.final_m1_on(md, now=NOW))
         for body in ('{"enabled": false}', "{bad", '{"enabled": "true"}', "[]"):
             with open(os.path.join(md, oneshot.FINAL_M1_SWITCH), "w") as f:
                 f.write(body)
-            self.assertFalse(oneshot.final_m1_on(md), body)
+            self.assertFalse(oneshot.final_m1_on(md, now=NOW), body)
+        m1_write(md)
+        self.assertTrue(oneshot.final_m1_on(md, now=NOW))
+        self.assertFalse(oneshot.final_m1_on(md, env={"BUYER_FINAL_M1": "0"}, now=NOW))
+
+    def test_switch_needs_a_finite_window_written_before_it(self):
+        # ax-pro-cycle step 5 / main instruction 10: a shadow with no end ran until someone turned it off by hand.
+        md = tempfile.mkdtemp()
         with open(os.path.join(md, oneshot.FINAL_M1_SWITCH), "w") as f:
-            f.write('{"enabled": true}')
-        self.assertTrue(oneshot.final_m1_on(md))
-        self.assertFalse(oneshot.final_m1_on(md, env={"BUYER_FINAL_M1": "0"}))
+            f.write('{"enabled": true}')                     # the old form, no window: now off
+        self.assertFalse(oneshot.final_m1_on(md, now=NOW))
+        for start, end in ((NOW - 60, NOW - 60),                     # empty
+                           (NOW - 60, NOW - 120),                    # ends before it starts
+                           (NOW - 60, NOW - 60 + 12 * 3600 + 1),     # over the 12 h maximum
+                           (NOW + 60, NOW + 1800),                   # not started
+                           (NOW - 1800, NOW - 60),                   # over
+                           (NOW - 60, float("inf")), (float("nan"), NOW + 60), (True, NOW + 60), (NOW - 60, 10 ** 400),
+                           ("1", NOW + 60), (None, NOW + 60), (0, NOW + 60), (-5, NOW + 60)):
+            m1_write(md, start=start, end=end)
+            self.assertFalse(oneshot.final_m1_on(md, now=NOW), (start, end))
+        m1_write(md, start=NOW - 60, end=NOW - 60 + 12 * 3600)
+        self.assertTrue(oneshot.final_m1_on(md, now=NOW))
+        m1_write(md, mtime=NOW - 30)                                 # written after its start
+        self.assertFalse(oneshot.final_m1_on(md, now=NOW))
+        m1_write(md)                                                 # start NOW - 60, end NOW - 60 + 1800
+        self.assertTrue(oneshot.final_m1_on(md, now=NOW - 60))      # the start is in
+        self.assertFalse(oneshot.final_m1_on(md, now=NOW - 61))
+        self.assertTrue(oneshot.final_m1_on(md, now=NOW - 60 + 1799))
+        self.assertFalse(oneshot.final_m1_on(md, now=NOW - 60 + 1800))   # the end is out
+        for now in (float("nan"), None, "x", True):
+            self.assertFalse(oneshot.final_m1_on(md, now=now), now)
+        with unittest.mock.patch.object(oneshot.time, "time", return_value=NOW):
+            self.assertTrue(oneshot.final_m1_on(md))
+        with unittest.mock.patch.object(oneshot.time, "time", return_value=NOW + 1800):
+            self.assertFalse(oneshot.final_m1_on(md))
+
+    def test_the_shadow_stops_noting_at_the_window_end(self):
+        # An order started inside the window notes nothing once the window is over or the switch is off.
+        md = tempfile.mkdtemp()
+        m1_write(md)
+        walk = oneshot.code_turn(9600, self.H, 10000, (0.9,))
+        on = {"kind": "food", "_final_m1": []}
+        call = lambda: market_buyer.moss_first_and_final_m1(walk, None, "Final price: 9600. ", list(self.H), 10000,
+                                                             (0.9,), {}, False, "G1", on, md, "kimauve")
+        with unittest.mock.patch.object(oneshot.time, "time", return_value=NOW - 60 + 1800):
+            self.assertIs(call(), walk)
+        self.assertEqual(on["_final_m1"], [])
+        with unittest.mock.patch.object(oneshot.time, "time", return_value=NOW):
+            self.assertIs(call(), walk)
+        self.assertEqual(len(on["_final_m1"]), 1)
+        with open(os.path.join(md, oneshot.FINAL_M1_SWITCH), "w") as f:
+            f.write('{"enabled": false}')
+        with unittest.mock.patch.object(oneshot.time, "time", return_value=NOW):
+            self.assertIs(call(), walk)
+        self.assertEqual(len(on["_final_m1"]), 1)
 
 
 if __name__ == "__main__":

@@ -1965,7 +1965,7 @@ def moss_first_and_final_m1(d, meta, text, history, limit, steps, q, resume, sku
         d = moss
     if order.get("_final_m1") is not None:
         m1 = oneshot.final_m1(d, meta, text, history, limit, steps)
-        if m1 is not d:
+        if m1 is not d and oneshot.final_m1_on(md):     # the window read again: none noted past its end or once off
             mine = [p for who, p in history if who == "you offered"]
             order["_final_m1"].append({"shop": shop, "baseline": d["action"], "would_offer": m1["price"],
                                        "final_price": d["shop_price"], "last_offer": mine[-1], "offers": len(mine),
@@ -2102,7 +2102,7 @@ def main():
         order["_food_quote_yield"] = order.get("kind") == "food" and quote_yield_arm(order.get("order"))
         order["_our_ask"] = buyer_our_ask.assign(md, order, now=order["_buyer_started_at"])
         order["_moss_first"] = buyer_moss_first.assign(md, order, now=order["_buyer_started_at"])
-        order["_final_m1"] = [] if oneshot.final_m1_on(md) else None      # default off: when on, the turns it would take (shadow)
+        order["_final_m1"] = [] if oneshot.final_m1_on(md, now=order["_buyer_started_at"]) else None  # default off: when on, the turns it would take (shadow)
     with open(args.shops, encoding="utf-8") as f:
         shops = [s for s in json.load(f) if s.get("url") and s.get("name")]
     if r3:
