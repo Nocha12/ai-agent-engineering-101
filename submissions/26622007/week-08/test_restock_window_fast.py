@@ -167,6 +167,30 @@ class FastRunTest(unittest.TestCase):
         self.assertEqual([(s["sku"], s["qty"]) for s in sent], [("G1", 4), ("G2", 2), ("F1", 20)])
         self.assertIsNone(self.fast()[0])                                          # the carry is spent: the usual run
 
+    def test_the_default_rule_needs_no_switch_and_only_true_turns_it_on(self):
+        os.remove(os.path.join(self.md, wf.SWITCH))
+        self.carry([{"sku": "G2", "qty": 2}])
+        self.assertIsNone(self.fast()[0])                                          # no switch, no rule: the usual run
+        for not_on in (1, "true", None, False):
+            self.assertIsNone(self.fast(cfg={**self.cfg, "window_fast": not_on})[0], not_on)
+        self.assertEqual(restock.window_fast_arm(self.md, {**self.cfg, "window_fast": True}, self.inv), ("B", "default"))
+        self.assertEqual(restock.window_fast_arm(self.md, self.cfg, self.inv), (None, None))
+        out, err = self.fast(cfg={**self.cfg, "window_fast": True})
+        self.assertEqual(out, {"buy": [{"sku": "G2", "qty": 2}]})
+        self.assertIn("window_fast default", err)
+        switch(self.md, on(self.now))
+        self.assertEqual(restock.window_fast_arm(self.md, self.cfg, self.inv), ("B", "wf-test"))
+        with mock.patch.object(wf, "arm", return_value="A"):                       # the rule is every window, whatever a study says
+            self.assertEqual(restock.window_fast_arm(self.md, {**self.cfg, "window_fast": True}, self.inv), ("B", "default"))
+            self.assertEqual(restock.window_fast_arm(self.md, self.cfg, self.inv), ("A", "wf-test"))
+
+    def test_the_shipped_settings_make_it_the_rule(self):
+        with open(os.path.join(os.path.dirname(os.path.abspath(restock.__file__)), "pricing.json"), encoding="utf-8") as f:
+            shipped = hard_limits.clamp_cfg("restock", {**restock.DEFAULTS, **json.load(f)["restock"]})
+        self.assertIs(shipped.get("window_fast"), True)            # window-fast-1110-v2: 13.8 lines a window against 12.2
+        os.remove(os.path.join(self.md, wf.SWITCH))
+        self.assertEqual(restock.window_fast_arm(self.md, shipped, self.inv), ("B", "default"))
+
     def test_it_is_the_usual_run_whenever_anything_is_off(self):
         lines = [{"sku": "G1", "qty": 1}]
         cases = {
@@ -382,6 +406,14 @@ class MainSlowRunTest(unittest.TestCase):
         self.assertEqual([b["sku"] for b in carry], [f"G{i}" for i in range(11, 21)])       # the plan's next ten
         self.assertEqual(self.ticks[-1].get("window_arm"), "B")                              # the arm is on the sent line
         self.assertEqual(json.load(open(os.path.join(self.md, wf.CARRY)))["opens_at"], self.inv["restock"]["opens_at"])
+
+    def test_the_default_rule_runs_main_as_arm_b_without_a_switch(self):
+        os.remove(os.path.join(self.md, wf.SWITCH))
+        self.pricing["restock"]["window_fast"] = True
+        buy, carry = self.run_main()
+        self.assertEqual([b["sku"] for b in buy], [f"G{i}" for i in range(1, 11)])
+        self.assertEqual([b["sku"] for b in carry], [f"G{i}" for i in range(11, 21)])
+        self.assertEqual(self.ticks[-1].get("window_arm"), "B")
 
     def test_off_and_arm_a_print_todays_nine_and_leave_no_carry(self):
         os.remove(os.path.join(self.md, wf.SWITCH))

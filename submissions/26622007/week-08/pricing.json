@@ -204,7 +204,9 @@
     ],
     "supply_order_source": "GPT Pro 11/05 우선순위 4, re-planned for the 15M cap (review/W-20261105-0953-AX패치3.3/scale2-result.md §8): in the 12:24 window the 60만+ lines came after five food lines, run 2 reached them at 12:27:07-12:27:20 and G03d0199f x2 was refused when the 180 s window closed (12:28:28 429). 60만+ goods now go right after the proven SKUs, by net per sale and hold (sofa 30.9만/0.26 h, mattress 12.1만/0.35 h, bed set 17.0만/0.87 h, goose 9.7만/0.42 h, leather sofa 26.3만/1.10 h); food refills fill the rest of run 1 and run 2 (food 0.1 h hold, lines cost under 11만); Terra's one-unit trial stays last",
     "fill_listed": true,
-    "price_hours": 3
+    "price_hours": 3,
+    "window_fast": true,
+    "window_fast_source": "W-20261110-1346-AXFable검토, window-fast-1110-v2 (11/10 18:21:15 - 11/11 04:48:12, arms by supply window, 32 windows, .market/measure/supply_windows.jsonl): SKU lines supplied a window 12.2 in arm A (n 11, sd 1.7) and 13.8 in arm B (n 21, sd 1.6), +1.6 (t 2.65); units 70.5 and 80.8; goods units 13.5 and 17.1; the fast run was used in 19 of the 21; no error, no bankruptcy, 429s as before. The rule for every window now (restock.window_fast_arm): the first run of a window plans without the held next_window SKUs and leaves the plan's next ten lines, the second sends them after the ledger sync, the same cash buffer, guard, late_lines and final_buy. false or absent: the usual run"
   },
   "markdown": {
     "clear_hours": 24,

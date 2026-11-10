@@ -906,6 +906,18 @@ def carry_lines(inv, catalog, demand, cfg, model, breaks, waiting, sent, hold):
         return []
 
 
+def window_fast_arm(state, cfg, inv, now=None):
+    """(arm, label) for the supply window inventory.json names: ("B", "default") when pricing.json restock.window_fast
+    is true (the rule for every window since window-fast-1110-v2's verdict: 13.8 SKU lines a window against 12.2 over
+    32 windows), else the study's arm and name while its switch is on, else (None, None)."""
+    if cfg.get("window_fast") is True:
+        return "B", "default"
+    r = inv.get("restock") if isinstance(inv, dict) else None
+    wfc = restock_window_fast.config(state, now=now)
+    a = restock_window_fast.arm(wfc, r.get("opens_at") if isinstance(r, dict) else None)
+    return (a, wfc["study"]) if a else (None, None)
+
+
 def window_fast(state, inv, pricing, cfg, catalog, now=None):
     """restock_window_fast, arm B: {"buy": lines} from the carry the window's last run left, or None for the usual run.
     The ledger sync and the cash buffer are main()'s own (hard_limits.cash_buffer over the stock held and on its way and
@@ -915,9 +927,8 @@ def window_fast(state, inv, pricing, cfg, catalog, now=None):
     sales that cannot be read, a failed sync, or no line left."""
     try:
         now = now or time.time()
-        r = inv.get("restock") if isinstance(inv, dict) else None
-        wfc = restock_window_fast.config(state, now=now)
-        if restock_window_fast.arm(wfc, r.get("opens_at") if isinstance(r, dict) else None) != "B":
+        arm_, study = window_fast_arm(state, cfg, inv, now)
+        if arm_ != "B":
             return None
         if (inv.get("round") or 0) < market_model.ECON_ROUND or (pricing.get("opening") or {}).get("phases"):
             return None
@@ -951,7 +962,7 @@ def window_fast(state, inv, pricing, cfg, catalog, now=None):
         buy = late_lines(state, inv, buy[:cfg["max_lines"]])
         owed = sum(w["worst"] * w["cash_qty"] for w in waiting)
         buy = hard_limits.final_buy(buy, inv.get("balance"), catalog, buffer=buffer + owed)
-        print(f"[restock] window_fast {wfc['study']}: {len(buy)} of the {len(lines)} lines the run of "
+        print(f"[restock] window_fast {study}: {len(buy)} of the {len(lines)} lines the run of "
               f"{time.strftime('%H:%M:%S', time.localtime(at))} left for this window, ledger sync +{added} rows in "
               f"{took:.1f} s, no demand model this run", file=sys.stderr, flush=True)
         if not buy:
@@ -1003,8 +1014,7 @@ def main():
         measure.tick(args.state, inv, fast["buy"][:10], pricing, skip_sales=True,     # the 6 h sales wait for the usual run
                      window_arm="B-fast")
         return 0
-    w = inv.get("restock") if isinstance(inv.get("restock"), dict) else {}
-    window_arm = restock_window_fast.arm(restock_window_fast.config(args.state), w.get("opens_at"))    # None when off
+    window_arm = window_fast_arm(args.state, cfg, inv)[0]       # None when off
     fast_b = window_arm == "B"
     demand, model = load(os.path.join(args.state, "demand.json"), []), read_model(args.state, catalog, cfg)
     loss_watch.check(args.state, rows=rows_of(args.state))     # after read_model: the ledger rows are fresh
