@@ -301,6 +301,81 @@ json.dump({"changed": True, "hypothesis": "h", "change_summary": "변경 요약"
 """
 
 
+class SellerRestartPolicyTest(unittest.TestCase):
+    OLD = {"restock": {"sku_target_units": {"G1": 2}}, "price": {"min_profit": 1}}
+
+    def observed_restart(self, after, paths=("pricing.json",), before=...):
+        before = self.OLD if before is ... else before
+        original = json.dumps(before, sort_keys=True)
+        with mock.patch.object(mh, "KIT_PATTERN", "isolated-kit"), \
+                mock.patch.object(mh, "pricing_now", return_value=after), \
+                mock.patch.object(mh.subprocess, "run") as run, mock.patch("builtins.print"):
+            mh.restart_seller(paths, pricing_before=before)
+        self.assertEqual(json.dumps(before, sort_keys=True), original)
+        return run
+
+    def test_target_key_addition_still_restarts(self):
+        new = {"restock": {"sku_target_units": {"G1": 2, "G2": 3}}, "price": {"min_profit": 1}}
+        self.observed_restart(new).assert_called_once_with(["pkill", "-f", "seller.py --port"], check=False)
+
+    def test_existing_target_values_and_reversal_preserve_talks(self):
+        new = {"restock": {"sku_target_units": {"G1": 3}}, "price": {"min_profit": 1}}
+        self.observed_restart(new).assert_not_called()
+        self.observed_restart(self.OLD, before=new).assert_not_called()
+        self.observed_restart(self.OLD).assert_not_called()
+
+    def test_removed_target_or_other_restock_settings_still_restart(self):
+        for new in (
+            {"restock": {"sku_target_units": {}}, "price": {"min_profit": 1}},
+            {"restock": {"sku_target_units": {"G1": 3}, "keep_cash": 100}, "price": {"min_profit": 1}},
+        ):
+            with self.subTest(new=new):
+                self.observed_restart(new).assert_called_once()
+
+    def test_price_warranty_and_typed_other_settings_still_restart(self):
+        for new in (
+            {"restock": {"sku_target_units": {"G1": 3}}, "price": {"min_profit": 2}},
+            {"restock": {"sku_target_units": {"G1": 3}}, "price": {"min_profit": True}},
+            {"restock": {"sku_target_units": {"G1": 3}}, "price": {"min_profit": 1.0}},
+            {"restock": {"sku_target_units": {"G1": 3}}, "price": {"min_profit": 1}, "warranty": {"max_hours": 12}},
+        ):
+            with self.subTest(new=new):
+                self.observed_restart(new).assert_called_once()
+
+    def test_seller_source_and_nonroot_pricing_paths_still_restart(self):
+        new = {"restock": {"sku_target_units": {"G1": 3}}, "price": {"min_profit": 1}}
+        for paths in (("pricing.json", "seller.py"), ("pricing.json", "harness.py"), ("other/pricing.json",)):
+            with self.subTest(paths=paths):
+                self.observed_restart(new, paths).assert_called_once()
+
+    def test_unknown_or_invalid_settings_never_suppress_restart(self):
+        for new in (None, [], {}, {"restock": None}, {"restock": {"sku_target_units": None}},
+                    {"restock": {"sku_target_units": {"G1": True}}},
+                    {"restock": {"sku_target_units": {"G1": -1}}},
+                    {"restock": {"sku_target_units": {"G1": 3.0}}},
+                    {"restock": {"sku_target_units": {"G1": 3}}, "price": {"min_profit": float("nan")}}):
+            with self.subTest(new=new):
+                self.observed_restart(new).assert_called_once()
+        self.observed_restart(self.OLD, before=None).assert_called_once()
+
+    def test_unrelated_hook_files_do_not_restart_the_seller(self):
+        self.observed_restart(self.OLD, ("restock.py", "buyer_post.py")).assert_not_called()
+
+    def test_target_changes_still_pause_the_full_pricing_baseline(self):
+        import sol_seller_margin as margin
+        new = {"restock": {"sku_target_units": {"G1": 3}}, "price": {"min_profit": 1}}
+        cfg = {"baseline_sha256": margin.digest(margin.baseline_snapshot(self.OLD))}
+        with tempfile.TemporaryDirectory() as td:
+            study = margin.MarginStudy(td)
+            with mock.patch.object(margin.sol_source_load, "verifies", return_value=True), \
+                    mock.patch.object(margin, "source_manifest", return_value=margin.DISK_SNAPSHOT), \
+                    mock.patch.object(study, "event") as event:
+                study.verify_baseline("task", cfg, self.OLD, ())
+                with self.assertRaisesRegex(margin.StudyError, "paused unknown"):
+                    study.verify_baseline("task", cfg, new, ())
+                event.assert_called_once_with("task", cfg, "paused", reason="baseline_changed", economic_status="unknown")
+
+
 class HarnessCycleTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -346,6 +421,51 @@ class HarnessCycleTest(unittest.TestCase):
     def go(self, mode, kind="terra"):
         with mock.patch.dict(os.environ, {"FAKE_MODE": mode}), mock.patch("builtins.print"):
             return mh.cycle(kind)
+
+    def test_target_only_cycle_keeps_the_seller_running(self):
+        old = {"restock": {"sku_target_units": {"G2c023a8c": 2}}}
+        new = {"restock": {"sku_target_units": {"G2c023a8c": 3}}}
+        with open(os.path.join(self.root, "pricing.json"), "w") as f:
+            json.dump(old, f)
+        self.git("add", "pricing.json")
+        self.git("commit", "-qm", "target fixture before the cycle")
+        killed, real_run = [], subprocess.run
+        def run(cmd, *args, **kwargs):
+            if cmd and cmd[0] == "pkill":
+                killed.append(tuple(cmd))
+                return subprocess.CompletedProcess(cmd, 0)
+            return real_run(cmd, *args, **kwargs)
+        with mock.patch.dict(os.environ, {"FAKE_SIDE": json.dumps({"pricing.json": json.dumps(new)})}), \
+                mock.patch.object(mh, "KIT_PATTERN", "isolated-kit"), \
+                mock.patch.object(mh.subprocess, "run", side_effect=run):
+            rec = self.go("good")
+        self.assertEqual(rec["status"], "running", rec.get("problems"))
+        self.assertEqual(killed, [], "A restock-only target does not require discarding seller talks")
+        with open(os.path.join(self.root, "pricing.json")) as f:
+            self.assertEqual(json.load(f), new)
+
+    def test_price_cycle_rollback_restarts_again_for_the_restored_price(self):
+        old = {"restock": {"sku_target_units": {"G2c023a8c": 2}}, "price": {"min_profit": 1}}
+        new = {"restock": {"sku_target_units": {"G2c023a8c": 2}}, "price": {"min_profit": 2}}
+        with open(os.path.join(self.root, "pricing.json"), "w") as f:
+            json.dump(old, f)
+        self.git("add", "pricing.json")
+        self.git("commit", "-qm", "price rollback fixture before the cycle")
+        killed, real_run = [], subprocess.run
+        def run(cmd, *args, **kwargs):
+            if cmd and cmd[0] == "pkill":
+                killed.append(tuple(cmd))
+                return subprocess.CompletedProcess(cmd, 0)
+            return real_run(cmd, *args, **kwargs)
+        with mock.patch.dict(os.environ, {"FAKE_SIDE": json.dumps({"pricing.json": json.dumps(new)})}), \
+                mock.patch.object(mh, "KIT_PATTERN", "isolated-kit"), \
+                mock.patch.object(mh, "canary", return_value=["isolated canary failure"]), \
+                mock.patch.object(mh.subprocess, "run", side_effect=run):
+            rec = self.go("good")
+        self.assertEqual(rec["status"], "canary_failed", rec.get("problems"))
+        self.assertEqual(killed, [("pkill", "-f", "seller.py --port")] * 2)
+        with open(os.path.join(self.root, "pricing.json")) as f:
+            self.assertEqual(json.load(f), old)
 
     def exists(self):
         return os.path.exists(os.path.join(self.root, "changed.py"))

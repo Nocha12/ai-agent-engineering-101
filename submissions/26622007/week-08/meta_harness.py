@@ -403,11 +403,37 @@ def run_tests():
     return proc.returncode == 0, "\n".join(failed[:20] + [err[-1200:]])
 
 
-def restart_seller(paths):
-    """The hooks start fresh at each use; only a long-running seller needs a restart. The kit's watchdog starts it again."""
-    if any(os.path.basename(p) in SELLER_FILES for p in paths) and KIT_PATTERN:
-        subprocess.run(["pkill", "-f", "seller.py --port"], check=False)
-        log("seller restarted for the change")
+def seller_pricing_unchanged(before, after):
+    """Only valid restock target counts may differ; unknown input never suppresses a restart."""
+    reduced, target_keys = [], []
+    for cfg in (before, after):
+        if type(cfg) is not dict or type(cfg.get("restock")) is not dict:
+            return False
+        targets = cfg["restock"].get("sku_target_units")
+        if type(targets) is not dict or any(type(k) is not str or type(v) is not int or v < 0
+                                           for k, v in targets.items()):
+            return False
+        target_keys.append(set(targets))
+        restock_cfg = dict(cfg["restock"])
+        restock_cfg.pop("sku_target_units")
+        other = {**cfg, "restock": restock_cfg}
+        try:
+            reduced.append(json.dumps(other, sort_keys=True, separators=(",", ":"), allow_nan=False))
+        except (TypeError, ValueError, RecursionError):
+            return False
+    return target_keys[0] == target_keys[1] and reduced[0] == reduced[1]
+
+
+def restart_seller(paths, *, pricing_before=None):
+    """Keep talks for target-only settings; other seller changes retain the existing restart."""
+    seller_paths = [p for p in paths if os.path.basename(p) in SELLER_FILES]
+    if not seller_paths or not KIT_PATTERN:
+        return
+    if seller_paths == ["pricing.json"] and seller_pricing_unchanged(pricing_before, pricing_now()):
+        log("seller kept running: only restock target counts or unchanged settings")
+        return
+    subprocess.run(["pkill", "-f", "seller.py --port"], check=False)
+    log("seller restarted for the change")
 
 
 def kit_alive():
@@ -1031,6 +1057,7 @@ def refresh_scorecard():
 
 
 def cycle(kind):
+    restart_pricing_before = pricing_now()   # actual settings before this cycle, never a post-commit HEAD guess
     before = dirty_paths()        # what the folder already held: not this cycle's change
     FOUND["pricing"] = pricing_now() if "pricing.json" in before else None
     found = start_contents(before)
@@ -1128,15 +1155,16 @@ def cycle(kind):
         log(f"{cid}: strategy document only, nothing to watch")
         record(rec, before)
         return rec
-    restart_seller(code)
+    restart_seller(code, pricing_before=restart_pricing_before)
     bad = canary()
     if bad:
         log(f"{cid}: failed the watch: {'; '.join(bad)}")
+        restart_pricing_before_undo = pricing_now()   # rollback compares the applied state, not the cycle's original state
         failed = try_undo(cid, sha, f"{cid} 10분 점검 실패: {'; '.join(bad)}", found)
         if failed:
             rec.update(status="canary_failed_kept", problems=bad + [failed])
         else:
-            restart_seller(code)
+            restart_seller(code, pricing_before=restart_pricing_before_undo)
             rec.update(status="canary_failed", problems=bad)
     else:
         note_experiment(cid, answer)    # only a change that stays: one the watch undid took its experiment step with it
