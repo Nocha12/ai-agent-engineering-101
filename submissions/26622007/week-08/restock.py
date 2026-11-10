@@ -364,8 +364,10 @@ def cash_note(buy, inv, catalog, buffer):
     if not buy or not hard_limits.number(buffer) or buffer >= hard_limits.OPEN:
         return None
     factors = surge(inv)
-    return {"floor": buffer, "unit": {b["sku"]: worst(b["sku"], b["qty"], catalog, factors) * (1 + hard_limits.BUY_STORAGE)
-                                      for b in buy}}
+    unit = {}
+    for b in buy:       # a SKU on two lines: the dearer unit of the two (independent review 1e2c08b m4)
+        unit[b["sku"]] = max(unit.get(b["sku"], 0), worst(b["sku"], b["qty"], catalog, factors) * (1 + hard_limits.BUY_STORAGE))
+    return {"floor": buffer, "unit": unit}
 
 
 def note_sent(md, buy, catalog, now=None, factors=None):

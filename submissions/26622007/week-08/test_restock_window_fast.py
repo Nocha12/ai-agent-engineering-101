@@ -399,7 +399,8 @@ class MainSlowRunTest(unittest.TestCase):
             stack.enter_context(redirect_stdout(out))
             stack.enter_context(redirect_stderr(io.StringIO()))
             self.assertEqual(restock.main(), 0)
-        buy = json.loads(out.getvalue().strip().splitlines()[-1])["buy"]
+        self.printed = json.loads(out.getvalue().strip().splitlines()[-1])
+        buy = self.printed["buy"]
         path = os.path.join(self.md, wf.CARRY)
         return buy, (json.load(open(path))["lines"] if os.path.exists(path) else None)
 
@@ -426,6 +427,10 @@ class MainSlowRunTest(unittest.TestCase):
         self.assertEqual([b["sku"] for b in buy], [f"G{i}" for i in range(1, 10)])           # H1 planned, then dropped: nine
         self.assertIsNone(carry)
         self.assertIsNone(self.ticks[-1].get("window_arm"))                                  # off: no arm
+        # the usual run hands the kit its cash floor and guard()'s cost of a unit with the lines, switch or not
+        # (independent review 1e2c08b I1: nothing pinned it; without it the kit sends as before, unchecked)
+        self.assertEqual(self.printed["cash"]["floor"], hard_limits.cash_buffer(0, []))
+        self.assertEqual(self.printed["cash"]["unit"], {b["sku"]: self.cat[b["sku"]]["list_price"] * 0.75 * 1.01 for b in buy})
         os.remove(os.path.join(self.md, restock.SENT))       # the lines that run noted would count as on their way
         switch(self.md, on(self.now))
         with mock.patch.object(wf, "arm", return_value="A"):

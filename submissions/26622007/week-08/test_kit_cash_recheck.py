@@ -115,6 +115,23 @@ class KitCashRecheckTest(unittest.TestCase):
         self.assertGreater(cash["unit"]["F1"], 20000 * 0.75 * 1.1)                  # the surge factor its last unit pays
         self.assertIsNone(restock.cash_note([{"sku": "G1", "qty": 1}], inv, catalog, float("inf")))   # no usable floor
         self.assertIsNone(restock.cash_note([], inv, catalog, 2500000))
+        twice = restock.cash_note([{"sku": "F1", "qty": 20}, {"sku": "F1", "qty": 1}], inv, catalog, 2500000)
+        self.assertEqual(twice["unit"]["F1"], cash["unit"]["F1"])                   # a SKU on two lines: the dearer unit
+
+    def test_a_line_that_leaves_exactly_the_floor_goes_and_a_refusal_reads_the_balance_again(self):
+        m = Market(1300000, cost=150000)
+        posts, _ = run(m, {"buy": BUY[:1], "cash": CASH})                           # 1.3M - 300k = the floor: not under it
+        self.assertEqual(posts, ["G1"])
+        m = Market(1299999, cost=150000)
+        self.assertEqual(run(m, {"buy": BUY[:1], "cash": CASH})[0], [])
+        def drain(market):
+            market.balance = 1100000
+        m = Market(5000000, script=[500])                   # a refusal that is not a 429: the next line reads the balance
+        m.script[0] = 500
+        posts, logs = run(m, {"buy": BUY[:2], "cash": CASH})
+        self.assertEqual(posts, ["G1", "G2"])
+        self.assertEqual([c[1] for c in m.calls[:4]], ["/api/inventory", "/api/supply", "/api/inventory", "/api/supply"])
+        self.assertEqual(run(Market(float("inf")), {"buy": BUY[:1], "cash": CASH})[0], [])       # not a balance
 
 
 if __name__ == "__main__":
