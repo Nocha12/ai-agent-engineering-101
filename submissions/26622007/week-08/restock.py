@@ -355,6 +355,19 @@ def sent_waiting(md, now=None):
     return out
 
 
+def cash_note(buy, inv, catalog, buffer):
+    """{"floor", "unit": {sku: the most one unit of the line can cost, storage included}} for the kit, which reads the
+    balance again before every supply call (scripts/market_kit.py cash_ok) and sends no line that would take it under
+    floor: this run's check is up to ~100 s old by its last line (GPT Pro 14, 대표님 11/10 23:48). floor is the run's
+    cash buffer (hard_limits.cash_buffer); unit is guard()'s own cost of a unit (worst() and BUY_STORAGE). None with no
+    line or no finite floor (the lines are then none anyway)."""
+    if not buy or not hard_limits.number(buffer) or buffer >= hard_limits.OPEN:
+        return None
+    factors = surge(inv)
+    return {"floor": buffer, "unit": {b["sku"]: worst(b["sku"], b["qty"], catalog, factors) * (1 + hard_limits.BUY_STORAGE)
+                                      for b in buy}}
+
+
 def note_sent(md, buy, catalog, now=None, factors=None):
     now = now or time.time()
     old = load(os.path.join(md, SENT), [])
@@ -918,7 +931,7 @@ def window_fast_arm(state, cfg, inv, now=None):
     return (a, wfc["study"]) if a else (None, None)
 
 
-def window_fast(state, inv, pricing, cfg, catalog, now=None):
+def window_fast(state, inv, pricing, cfg, catalog, now=None, note=None):
     """restock_window_fast, arm B: {"buy": lines} from the carry the window's last run left, or None for the usual run.
     The ledger sync and the cash buffer are main()'s own (hard_limits.cash_buffer over the stock held and on its way and
     the warranted sales of the ledger's tail); the lines sent in the last PENDING_SECONDS count in full (sent_waiting);
@@ -952,6 +965,8 @@ def window_fast(state, inv, pricing, cfg, catalog, now=None):
         buffer = hard_limits.cash_buffer(stock, sales)
         if not hard_limits.number(buffer):
             return None
+        if isinstance(note, dict):
+            note["buffer"] = buffer         # main() hands the kit this floor with the lines (cash_note)
         carried = restock_window_fast.take_carry(state, inv, now)      # marked used: these lines are never carried twice
         if carried is None:
             return None
@@ -1008,8 +1023,12 @@ def main():
               f"than held ({sum(m['held'] - m['counted'] for m in moved.values())} units waited past "
               f"{cfg['fresh_slots']['hours']:g} h): "
               + ", ".join(f"{k} {m['held']}->{m['counted']}" for k, m in sorted(moved.items())), file=sys.stderr, flush=True)
-    fast = window_fast(args.state, inv, pricing, cfg, catalog)      # restock_window_fast, default off: None
+    fast_note = {}
+    fast = window_fast(args.state, inv, pricing, cfg, catalog, note=fast_note)      # restock_window_fast, default off: None
     if fast is not None:
+        cash = cash_note(fast["buy"][:10], inv, catalog, fast_note.get("buffer"))
+        if cash:
+            fast = {**fast, "cash": cash}
         print(json.dumps(fast, ensure_ascii=False), flush=True)
         measure.tick(args.state, inv, fast["buy"][:10], pricing, skip_sales=True,     # the 6 h sales wait for the usual run
                      window_arm="B-fast")
@@ -1120,6 +1139,9 @@ def main():
                 and not (load(os.path.join(args.state, "restock_queue.json"), {}).get("lines") or []):
             carry = carry_lines(inv, catalog, demand, cfg, model, breaks, waiting, out["buy"][:10], hold)
         restock_window_fast.save_carry(args.state, inv, carry)
+    cash = cash_note(out["buy"][:10], inv, catalog, cfg["cash_buffer"])     # the kit checks each line against it again
+    if cash:
+        out["cash"] = cash
     print(json.dumps(out, ensure_ascii=False), flush=True)
     measure.tick(args.state, inv, out["buy"][:10], pricing,     # after the line the kit reads; local files only, never raises
                  window_arm=window_arm)

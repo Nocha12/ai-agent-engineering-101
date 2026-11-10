@@ -964,6 +964,33 @@ def bankrupt(market):
     return r.status_code == 200
 
 
+def _amount(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and v not in (float("inf"),) and v >= 0
+
+
+def cash_ok(market, cash, b, balance):
+    """(send it, the balance read, why not). cash: the restock command's {"floor": the balance a buy may not go under,
+    "unit": {sku: the most one unit can cost}}. balance: what the last supply call answered, or None to read
+    /api/inventory now. A floor, a unit cost or a balance that cannot be read sends nothing: the command's own check is
+    up to ~100 s old by the last of its ten lines, and a refund or a retry's wait moves the balance meanwhile."""
+    floor, units = cash.get("floor"), cash.get("unit")
+    unit = units.get(b.get("sku")) if isinstance(units, dict) else None
+    qty = b.get("qty")
+    if not _amount(floor) or not _amount(unit) or not isinstance(qty, int) or isinstance(qty, bool) or qty < 1:
+        return False, balance, "no cash floor or unit cost for this line"
+    if balance is None:
+        try:
+            r = market.call("GET", "/api/inventory", "shop")
+            balance = r.json().get("balance") if r.status_code == 200 else None
+        except (httpx.HTTPError, ValueError, AttributeError):
+            balance = None
+        if not _amount(balance):
+            return False, None, "the balance could not be read"
+    if balance - unit * qty < floor:
+        return False, balance, f"balance {balance} less {unit * qty:.0f} would be under the cash floor {floor}"
+    return True, balance, ""
+
+
 def restock(agent, d, market, md, inv, demand):
     """The agent's restock command (it may also print "bankrupt": true), else the default. Without a command the
     kit files for bankruptcy by itself when the shop is below the line and has nothing left to sell."""
@@ -977,21 +1004,37 @@ def restock(agent, d, market, md, inv, demand):
         if stuck and not inv["units"] and bankrupt(market):
             return
         buy = default_restock(inv, demand)
+    # the command's cash floor, when it prints one: read the balance again before every POST and before every retry
+    cash = out.get("cash") if "restock" in agent and isinstance(out.get("cash"), dict) else None
+    balance = None                                      # what the last supply answered; None: read it
     for b in buy[:10]:
         if not isinstance(b, dict):
             continue
+        r = None
         for _ in range(3):
+            if cash is not None:
+                ok, balance, why = cash_ok(market, cash, b, balance)
+                if not ok:
+                    log(f"[supply] {b} held: {why}")
+                    r = None
+                    break
             r = market.call("POST", "/api/supply", "shop", json={"sku": b.get("sku"), "qty": b.get("qty")})
             if r.status_code == 429:
                 time.sleep(min(float(r.json().get("wait", 10)), 30))
+                balance = None                          # the wait is long enough for a refund: read it again
                 continue
             break
+        if r is None:
+            balance = None if cash is None else balance
+            continue
         if r.status_code == 200:
             j = r.json()
+            balance = j.get("balance") if _amount(j.get("balance")) else None
             refresh_inventory(market, md)
             log(f"[supply] {b.get('qty')} x {CATALOG.get(b.get('sku'), {}).get('name', b.get('sku'))} for {j['total']},"
                 f" balance {j['balance']}")
         else:
+            balance = None
             log(f"[supply] {b} refused: {r.status_code} {r.text[:200]}")
             if r.status_code == 402:
                 break

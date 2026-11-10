@@ -335,7 +335,10 @@ class FastRunTest(unittest.TestCase):
                 mock.patch.object(measure, "tick", side_effect=lambda *a, **k: ticks.append((a, k))), \
                 redirect_stdout(out), redirect_stderr(io.StringIO()):
             self.assertEqual(restock.main(), 0)
-        self.assertEqual(json.loads(out.getvalue().strip().splitlines()[-1]), {"buy": [{"sku": "G2", "qty": 2}]})
+        printed = json.loads(out.getvalue().strip().splitlines()[-1])
+        self.assertEqual(printed["buy"], [{"sku": "G2", "qty": 2}])
+        # the kit reads the balance again before each line: the run's buffer and guard()'s cost of a unit go with them
+        self.assertEqual(printed["cash"], {"floor": hard_limits.cash_buffer(0, []), "unit": {"G2": 500000 * 0.75 * 1.01}})
         self.assertEqual(len(ticks), 1)
         self.assertEqual(ticks[0][0][2], [{"sku": "G2", "qty": 2}])
         self.assertIs(ticks[0][1].get("skip_sales"), True)
