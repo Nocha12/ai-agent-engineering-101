@@ -138,6 +138,32 @@ class EstimateTest(unittest.TestCase):
         self.assertEqual(m["skus"], {})
         self.assertEqual(m["buyers"]["nocha12"], ["식품>김치"])    # still known as a fact about the buyer
 
+    def test_my_own_buyers_purchases_are_not_the_markets_price(self):
+        # GPT Pro 14 (11/10) and 대표님 23:48: our buyer's deals were left out of the demand only; what it paid at other
+        # shops (it buys low: saved is its score) still fed the SKU's median, the price our seller opens and holds at
+        others = many(6, sku="H2", buyer="b1", amount=630000) + many(3, 6, sku="H2", buyer="b2", amount=648000)
+        ours = many(12, 20, sku="H2", buyer="me", amount=540000)               # 0.60 of list against the market's 0.70
+        for o in ours:
+            o["grade"] = "A"
+        with_ours = mm.estimate(others + ours, CATALOG, {"me"}, {"https://mine"}, now=NOW, cfg={**CFG, "price_hours": 3})
+        without = mm.estimate(others, CATALOG, {"me"}, {"https://mine"}, now=NOW, cfg={**CFG, "price_hours": 3})
+        self.assertEqual(with_ours["skus"]["H2"]["price_ratio"], 0.7)          # the other buyers' median, not 0.60
+        self.assertEqual(with_ours["skus"]["H2"]["price_ratio"], without["skus"]["H2"]["price_ratio"])
+        self.assertEqual(with_ours["skus"]["H2"]["grade_ratio"], without["skus"]["H2"]["grade_ratio"])
+        self.assertEqual(with_ours["skus"]["H2"]["grade_ratio"].get("A"), 0.7)
+        # a SKU only our buyer bought has no price of its own: the typical ratio of the others' deals
+        only = mm.estimate(others + many(5, 40, sku="H1", buyer="me", amount=12000) + many(1, 50, sku="H1", buyer="b9", amount=30000),
+                           CATALOG, {"me"}, {"https://mine"}, now=NOW, cfg=CFG)
+        self.assertEqual(only["skus"]["H1"]["price_ratio"], 0.7)               # one outside deal: under min_prices, typical
+        # nobody named as our buyer: every deal is a price, as before
+        everyone = mm.estimate(others + ours, CATALOG, (), {"https://mine"}, now=NOW, cfg={**CFG, "price_hours": 3})
+        self.assertEqual(everyone["skus"]["H2"]["price_ratio"], 0.6)
+        # a captive buyer's prices stay: it is not ours, what it pays is the market's
+        captive = many(25, 100, sku="H2", buyer="cap", amount=540000, shop="https://s9")
+        kept = mm.estimate(others + captive, CATALOG, {"me"}, {"https://mine"}, now=NOW, cfg={**CFG, "price_hours": 3})
+        self.assertIn("cap", kept["captive"])
+        self.assertEqual(kept["skus"]["H2"]["price_ratio"], 0.6)
+
     def test_a_captive_buyer_is_left_out_but_mine_or_split_are_not(self):
         rows = many(30, buyer="loyal", shop="https://rival") + many(10, 100, buyer="free", shop="https://rival") \
             + many(10, 200, buyer="free", shop="https://s2") + many(30, 300, buyer="mine", shop="https://me")

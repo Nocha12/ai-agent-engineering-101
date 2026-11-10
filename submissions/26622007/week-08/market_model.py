@@ -290,7 +290,10 @@ def estimate(rows, catalog, me_buyers=(), me_shops=(), now=None, cfg=None):
     used = 0
     for r in settles:
         x, w = catalog[r["sku"]], weight(r["ts"])
-        if isinstance(r.get("amount"), (int, float)) and x.get("list_price"):
+        # the prices are what other buyers paid: our own buyer's deals at other shops (it buys low, Saved is its score)
+        # were left out of the demand below but fed this median, the price our seller opens and holds at (GPT Pro 14,
+        # 11/10; 대표님 23:48). A captive buyer's prices stay: it is not ours
+        if r["buyer"] not in me_buyers and isinstance(r.get("amount"), (int, float)) and x.get("list_price"):
             sku[r["sku"]]["ratios"].append(r["amount"] / x["list_price"])
             by_grade = sku[r["sku"]]["grades"][r["grade"]] if r.get("grade") in ("A", "B", "C") else None
             if by_grade is not None:
