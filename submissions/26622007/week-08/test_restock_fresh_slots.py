@@ -178,8 +178,8 @@ class RestockTest(unittest.TestCase):
         self.assertEqual(on, ["G3", "G2", "G4", "F1", "G5", "G1"])       # G1 holds its target: last; G4 (3 of 6) stays
         self.assertEqual([s for s in on if s != "G1"], [s for s in today if s != "G1"])
         self.assertEqual(restock.urgent_listed({**cfg, "fresh_slots": self.on}, inv, cat, ()),      # no model: the same
-                         ["G3", "G2", "G4", "G5", "F1", "G1"])
-        self.assertEqual(restock.urgent_listed(cfg, inv, cat, ()), ["G3", "G1", "G2", "G4", "G5", "F1"])
+                         ["G3", "F1", "G2", "G4", "G5", "G1"])
+        self.assertEqual(restock.urgent_listed(cfg, inv, cat, ()), ["G3", "F1", "G1", "G2", "G4", "G5"])
 
     def test_plan_keeps_todays_lines_first_and_only_grows_or_appends(self):
         cat = {**CATALOG, "G3": {"kind": "goods", "category": "가구>장", "list_price": 400000}}
