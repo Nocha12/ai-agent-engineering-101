@@ -10,6 +10,8 @@ import sqlite3
 import sys
 import time
 
+import market_ref_read
+
 N = r"([1-9][0-9]{0,2}(?:,[0-9]{3})+|[1-9][0-9]*)"
 OFFER_TEMPLATES = [
     re.compile(r"That is more than I want to pay\.(?: [\w.-]{1,40} quoted me " + N + r" for this\.)? I can do " + N + r"\."),
@@ -38,8 +40,9 @@ def template_offer(text):
 
 class Reader:
     """Lazy, once-per-turn reader; preserve original A returns and exceptions."""
-    def __init__(self, jev, arm="A"):
+    def __init__(self, jev, arm="A", market_ref=None):
         self.jev, self.arm = jev, arm
+        self.market_ref = market_ref_read.SWITCH if market_ref is None else market_ref
         self.source, self.offer, self.confidence = "none", None, None
         self.called, self.error, self.result = False, None, None
         self.jev_calls = 0
@@ -51,8 +54,11 @@ class Reader:
             return self.result
         self.called = True
         offer = template_offer(text) if self.arm == "B" else None
+        ref = market_ref_read.offer(text) if offer is None else None
         if offer is not None:
             self.source, self.result = "rule", (offer, 1.0)
+        elif ref is not None and self.market_ref.on():   # every arm: the same number Jev read (market_ref_read.py)
+            self.source, self.result = "rule_market_ref", (ref, 1.0)
         elif self.jev is not None:
             self.source = "jev"
             try:
