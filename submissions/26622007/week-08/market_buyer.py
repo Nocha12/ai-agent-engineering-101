@@ -355,6 +355,32 @@ def unreachable(trades):
     return len(last) == 2 and all(t["result"].startswith(("error", "no_card", "no_interface", "unpaid")) for t in last)
 
 
+UNPAID_COOL = 1800   # s a shop whose last two deals with me were not paid is not quoted after the last of them
+
+
+def unpaid_lately(trades, now=None, cool=UNPAID_COOL):
+    """My last two deals with the shop ended unpaid (the kit could not pay: 402 market refused, 409 unit gone) and the last
+    is under cool seconds old. choose_pool's unreachable() skips such a shop, but the quotes asked while choosing and the
+    most-reviewed fallback did not, and the cheapest quote won: 11/10 16:30-17:30 dragonash's payments failed for every
+    buyer (market settles 122 of 161 results 16:00, 22 of 102 17:00) and 13 of my 20 deals there were refused while my
+    other shops had none twice in a row in 8 h. Once cool has passed the shop is asked again, so a broken shop costs one
+    try a cool and a mended one comes back on its first paid deal. A time I cannot read is no skip."""
+    last = trades[-2:]
+    if len(last) < 2 or any(t.get("result") != "unpaid" for t in last):
+        return False
+    try:
+        at = time.mktime(time.strptime(last[-1]["time"], "%Y-%m-%dT%H:%M:%S"))
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return False
+    return (time.time() if now is None else now) - at < cool
+
+
+def quotable_shop(memory, name, now=None):
+    """A shop the quotes may ask: not caught cheating me, and not unpaid_lately."""
+    mine = my_history(memory, name)
+    return not caught_cheating(mine) and not unpaid_lately(mine, now)
+
+
 def short_warranty_shops(memory, catalog, now=None):
     """Shops whose recent goods sales to me came with too short a warranty, so I paid for none of them: of a shop's last
     SHORT_WARRANTY_LAST goods talks that ended with a receipt in the last SHORT_WARRANTY_HOURS, the last one or
@@ -1334,7 +1360,12 @@ def prefetch_pool(left, memory, md, category, k, rival=frozenset(), kind=None, o
                   order=None, budget=None):
     """The k - 1 shops quoted before the harness has chosen (the chosen shop takes the last slot of the first batch),
     and every shop that could be quoted, in quote order; revenue rivals of my shop after the others (rival_deny)."""
-    others = [s for s in left if not caught_cheating(my_history(memory, s["name"]))]
+    others = [s for s in left if quotable_shop(memory, s["name"])]
+    skipped = [s["name"] for s in left if not caught_cheating(my_history(memory, s["name"])) and s not in others]
+    if skipped:
+        log(f"[quote] skip {', '.join(skipped)}: my last two deals there were not paid, under {UNPAID_COOL} s ago")
+    if order is not None:
+        order["_unpaid_skip"] = skipped
     active = quote_yield_arm(order_id) if yield_arm is None else yield_arm
     yields = recent_quote_yields(md, category) if kind == "food" and active else None
     fits = recent_fits(md, category)
@@ -1359,7 +1390,7 @@ def prefetch_pool(left, memory, md, category, k, rival=frozenset(), kind=None, o
                     return None  # a changed candidate pool must use the baseline
                 current_left = [{**s, **current_by_name[s["name"]]} for s in left]
             current_rival = rival_deny.rivals(md, now=at) if RIVAL_DENY else rival
-            current_others = [s for s in current_left if not caught_cheating(my_history(memory, s["name"]))]
+            current_others = [s for s in current_left if quotable_shop(memory, s["name"], at)]
             # rates as read at prefetch: a few seconds do not move a 6 h paid share
             current_others = rival_deny.others_first(quote_order(current_others, latest_fits, k, rates=rates), current_rival)
             return buyer_stock_evidence.plan(md, current_others, latest_fits, current_rival,
@@ -2025,6 +2056,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "our_ask": buyer_our_ask.measurement(order.get("_our_ask")),
         "moss_first": buyer_moss_first.measurement(order.get("_moss_first")),
         "final_m1": order.get("_final_m1"),
+        "unpaid_skip": order.get("_unpaid_skip"),
         "stock_evidence": buyer_stock_evidence.measurement(order),
         "firm_trial": buyer_firm_trial.measurement(order, out),
         "first95_trial": buyer_first95_trial.measurement(order, out),
@@ -2145,6 +2177,7 @@ def main():
                                          "our_ask": buyer_our_ask.measurement(order.get("_our_ask")),
                                          "moss_first": buyer_moss_first.measurement(order.get("_moss_first")),
                                          "final_m1": order.get("_final_m1"),
+                                         "unpaid_skip": order.get("_unpaid_skip"),
                                          "stock_evidence": buyer_stock_evidence.measurement(order),
                                          "quotes": [], "quote_attempts_complete": True,
                                          **({"rank_pg": buyer_rank_pg.metadata(rk)} if rk is not None else {}),
@@ -2240,7 +2273,7 @@ def main():
                         raise HarnessError("the quotes are in")
                     shop, reason = choose_racing(pick, memory, args.item, args.budget, pre)
                 except HarnessError as e:
-                    unknown = [s for s in pick if not caught_cheating(my_history(memory, s["name"]))] or pick
+                    unknown = [s for s in pick if quotable_shop(memory, s["name"])] or pick
                     shop, reason = max(unknown, key=lambda s: len(s.get("reviews") or [])), f"harness failed ({e}); most reviewed"
                 if rnd is None or rnd < 3 or serves_acp(shop["url"]):
                     break
