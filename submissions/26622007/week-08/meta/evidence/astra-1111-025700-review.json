@@ -1,0 +1,1690 @@
+{
+  "changed": true,
+  "hypothesis": "정가 이하 하한 통과와 신원 결측을 구분하면 고가·집중 거래를 확장 가능한 수요로 오인하는 후보 판정이 줄어든다.",
+  "change_summary": "공개 수요 화면의 유효 구매자·정가 이하 하한 통과 집계와 유한 가격 검사를 추가했다. 미사용 중복 자동도구를 제거하고 전략·직렬 큐·Terra 검증 지침·보고서를 갱신했다. 또한 실제 memory 파일에 의존하던 kitlog 인증 테스트를 임시 JSON fixture로 격리했다. 최종 고정 복사본 전체2013개 검사 통과(종료코드0). 상세75평가·87결정은 이 review.json에 저장했다.",
+  "target_metric": "Players 순위; 후보의 유효 결제·구매자 수와 검증 완료율",
+  "expected": "직접 ΔPlayers는 미확정이며 이번 자료 수리의 보수적 기준은0. G796e9122 하한초과3건에서 정가 이하 유효1건을 분리한다.",
+  "summary": "Players 1.646, 7위. 현행보다 우수한 추가효과가 입증되지 않아 규모 전략을 유지하고 잘못된 후보 근거와 반복된 미완료 검증을 바로잡는다. 최종 전체2013검사 통과. 커밋·push·PR 없이 로컬 수정과 상세75평가·87결정을 남겼다.",
+  "evidence": [
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:81",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 116, \"revenue\": 21579219, \"mature\": 116, \"missing_cost\": 0, \"mature_net\": 1981298, \"refunds\": 630086, \"buyer_paid\": 50, \"market_paid\": 1437, \"sources\": [\".market/ledger_rows.jsonl:1353071\", \".market/ledger_rows.jsonl:1357318\"]}",
+      "meaning": "0bcdcc5a 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:81",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 116, \"revenue\": 14426931, \"mature\": 116, \"missing_cost\": 0, \"mature_net\": 647433, \"refunds\": 1247577, \"buyer_paid\": 50, \"market_paid\": 1504, \"sources\": [\".market/ledger_rows.jsonl:1357326\", \".market/ledger_rows.jsonl:1361643\"]}",
+      "meaning": "0bcdcc5a 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:82",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 116, \"revenue\": 21579219, \"mature\": 116, \"missing_cost\": 0, \"mature_net\": 1981298, \"refunds\": 630086, \"buyer_paid\": 50, \"market_paid\": 1437, \"sources\": [\".market/ledger_rows.jsonl:1353071\", \".market/ledger_rows.jsonl:1357318\"]}",
+      "meaning": "daca4945 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:82",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 116, \"revenue\": 14426931, \"mature\": 116, \"missing_cost\": 0, \"mature_net\": 647433, \"refunds\": 1247577, \"buyer_paid\": 50, \"market_paid\": 1504, \"sources\": [\".market/ledger_rows.jsonl:1357326\", \".market/ledger_rows.jsonl:1361643\"]}",
+      "meaning": "daca4945 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:83",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 116, \"revenue\": 21579219, \"mature\": 116, \"missing_cost\": 0, \"mature_net\": 1981298, \"refunds\": 630086, \"buyer_paid\": 50, \"market_paid\": 1437, \"sources\": [\".market/ledger_rows.jsonl:1353071\", \".market/ledger_rows.jsonl:1357318\"]}",
+      "meaning": "a1a73cab 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:83",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 116, \"revenue\": 14426931, \"mature\": 116, \"missing_cost\": 0, \"mature_net\": 647433, \"refunds\": 1247577, \"buyer_paid\": 50, \"market_paid\": 1504, \"sources\": [\".market/ledger_rows.jsonl:1357326\", \".market/ledger_rows.jsonl:1361643\"]}",
+      "meaning": "a1a73cab 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:84",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 117, \"revenue\": 21606016, \"mature\": 117, \"missing_cost\": 0, \"mature_net\": 1982382, \"refunds\": 630086, \"buyer_paid\": 50, \"market_paid\": 1437, \"sources\": [\".market/ledger_rows.jsonl:1353071\", \".market/ledger_rows.jsonl:1357326\"]}",
+      "meaning": "6e2baceb 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:84",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 115, \"revenue\": 14400134, \"mature\": 115, \"missing_cost\": 0, \"mature_net\": 646349, \"refunds\": 1247577, \"buyer_paid\": 50, \"market_paid\": 1503, \"sources\": [\".market/ledger_rows.jsonl:1357365\", \".market/ledger_rows.jsonl:1361643\"]}",
+      "meaning": "6e2baceb 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:85",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 117, \"revenue\": 21606016, \"mature\": 117, \"missing_cost\": 0, \"mature_net\": 1982382, \"refunds\": 630086, \"buyer_paid\": 50, \"market_paid\": 1437, \"sources\": [\".market/ledger_rows.jsonl:1353071\", \".market/ledger_rows.jsonl:1357326\"]}",
+      "meaning": "635f9b5d 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:85",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 115, \"revenue\": 14400134, \"mature\": 115, \"missing_cost\": 0, \"mature_net\": 646349, \"refunds\": 1247577, \"buyer_paid\": 50, \"market_paid\": 1503, \"sources\": [\".market/ledger_rows.jsonl:1357365\", \".market/ledger_rows.jsonl:1361643\"]}",
+      "meaning": "635f9b5d 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:86",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 117, \"revenue\": 21606016, \"mature\": 117, \"missing_cost\": 0, \"mature_net\": 1982382, \"refunds\": 630086, \"buyer_paid\": 50, \"market_paid\": 1437, \"sources\": [\".market/ledger_rows.jsonl:1353071\", \".market/ledger_rows.jsonl:1357326\"]}",
+      "meaning": "9d5eb469 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:86",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 115, \"revenue\": 14400134, \"mature\": 115, \"missing_cost\": 0, \"mature_net\": 646349, \"refunds\": 1247577, \"buyer_paid\": 50, \"market_paid\": 1503, \"sources\": [\".market/ledger_rows.jsonl:1357365\", \".market/ledger_rows.jsonl:1361643\"]}",
+      "meaning": "9d5eb469 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:87",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 117, \"revenue\": 21606016, \"mature\": 117, \"missing_cost\": 0, \"mature_net\": 1982382, \"refunds\": 630086, \"buyer_paid\": 50, \"market_paid\": 1437, \"sources\": [\".market/ledger_rows.jsonl:1353071\", \".market/ledger_rows.jsonl:1357326\"]}",
+      "meaning": "82e579cb 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:87",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 115, \"revenue\": 14400134, \"mature\": 115, \"missing_cost\": 0, \"mature_net\": 646349, \"refunds\": 1247577, \"buyer_paid\": 50, \"market_paid\": 1503, \"sources\": [\".market/ledger_rows.jsonl:1357365\", \".market/ledger_rows.jsonl:1361643\"]}",
+      "meaning": "82e579cb 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:88",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 104, \"revenue\": 12444510, \"mature\": 104, \"missing_cost\": 0, \"mature_net\": 90642, \"refunds\": 1649549, \"buyer_paid\": 51, \"market_paid\": 1449, \"sources\": [\".market/ledger_rows.jsonl:1355795\", \".market/ledger_rows.jsonl:1360062\"]}",
+      "meaning": "999aac73 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:88",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 131, \"revenue\": 15755372, \"mature\": 131, \"missing_cost\": 0, \"mature_net\": 1144716, \"refunds\": 627580, \"buyer_paid\": 55, \"market_paid\": 1419, \"sources\": [\".market/ledger_rows.jsonl:1360087\", \".market/ledger_rows.jsonl:1364245\"]}",
+      "meaning": "999aac73 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:89",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 104, \"revenue\": 12454908, \"mature\": 104, \"missing_cost\": 0, \"mature_net\": 93082, \"refunds\": 1649549, \"buyer_paid\": 51, \"market_paid\": 1449, \"sources\": [\".market/ledger_rows.jsonl:1355842\", \".market/ledger_rows.jsonl:1360087\"]}",
+      "meaning": "25d910f5 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:89",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 131, \"revenue\": 15758168, \"mature\": 131, \"missing_cost\": 0, \"mature_net\": 1142309, \"refunds\": 627580, \"buyer_paid\": 55, \"market_paid\": 1419, \"sources\": [\".market/ledger_rows.jsonl:1360139\", \".market/ledger_rows.jsonl:1364266\"]}",
+      "meaning": "25d910f5 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:90",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 104, \"revenue\": 12454908, \"mature\": 104, \"missing_cost\": 0, \"mature_net\": 93082, \"refunds\": 1649549, \"buyer_paid\": 51, \"market_paid\": 1450, \"sources\": [\".market/ledger_rows.jsonl:1355842\", \".market/ledger_rows.jsonl:1360087\"]}",
+      "meaning": "be21fd6a 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:90",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 131, \"revenue\": 15758168, \"mature\": 131, \"missing_cost\": 0, \"mature_net\": 1142309, \"refunds\": 627580, \"buyer_paid\": 55, \"market_paid\": 1419, \"sources\": [\".market/ledger_rows.jsonl:1360139\", \".market/ledger_rows.jsonl:1364266\"]}",
+      "meaning": "be21fd6a 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:91",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 116, \"revenue\": 15267826, \"mature\": 116, \"missing_cost\": 0, \"mature_net\": 299335, \"refunds\": 1649549, \"buyer_paid\": 48, \"market_paid\": 1461, \"sources\": [\".market/ledger_rows.jsonl:1356237\", \".market/ledger_rows.jsonl:1360469\"]}",
+      "meaning": "7579f1c8 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:91",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 128, \"revenue\": 13485917, \"mature\": 128, \"missing_cost\": 0, \"mature_net\": 983070, \"refunds\": 627580, \"buyer_paid\": 58, \"market_paid\": 1417, \"sources\": [\".market/ledger_rows.jsonl:1360518\", \".market/ledger_rows.jsonl:1364638\"]}",
+      "meaning": "7579f1c8 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:92",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 116, \"revenue\": 15267826, \"mature\": 116, \"missing_cost\": 0, \"mature_net\": 299335, \"refunds\": 1649549, \"buyer_paid\": 48, \"market_paid\": 1461, \"sources\": [\".market/ledger_rows.jsonl:1356237\", \".market/ledger_rows.jsonl:1360469\"]}",
+      "meaning": "4f365b99 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:92",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 128, \"revenue\": 13485917, \"mature\": 128, \"missing_cost\": 0, \"mature_net\": 983070, \"refunds\": 627580, \"buyer_paid\": 58, \"market_paid\": 1417, \"sources\": [\".market/ledger_rows.jsonl:1360518\", \".market/ledger_rows.jsonl:1364638\"]}",
+      "meaning": "4f365b99 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:93",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 116, \"revenue\": 15267826, \"mature\": 116, \"missing_cost\": 0, \"mature_net\": 299335, \"refunds\": 1649549, \"buyer_paid\": 48, \"market_paid\": 1461, \"sources\": [\".market/ledger_rows.jsonl:1356237\", \".market/ledger_rows.jsonl:1360469\"]}",
+      "meaning": "8d1747e9 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:93",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 128, \"revenue\": 13485917, \"mature\": 128, \"missing_cost\": 0, \"mature_net\": 983070, \"refunds\": 627580, \"buyer_paid\": 58, \"market_paid\": 1417, \"sources\": [\".market/ledger_rows.jsonl:1360518\", \".market/ledger_rows.jsonl:1364638\"]}",
+      "meaning": "8d1747e9 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:94",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 116, \"revenue\": 15267826, \"mature\": 116, \"missing_cost\": 0, \"mature_net\": 299335, \"refunds\": 1649549, \"buyer_paid\": 47, \"market_paid\": 1460, \"sources\": [\".market/ledger_rows.jsonl:1356237\", \".market/ledger_rows.jsonl:1360469\"]}",
+      "meaning": "92c1090a 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:94",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 128, \"revenue\": 13485917, \"mature\": 128, \"missing_cost\": 0, \"mature_net\": 983070, \"refunds\": 627580, \"buyer_paid\": 58, \"market_paid\": 1417, \"sources\": [\".market/ledger_rows.jsonl:1360518\", \".market/ledger_rows.jsonl:1364638\"]}",
+      "meaning": "92c1090a 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:95",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 132, \"revenue\": 15805826, \"mature\": 132, \"missing_cost\": 0, \"mature_net\": 955052, \"refunds\": 1032414, \"buyer_paid\": 53, \"market_paid\": 1490, \"sources\": [\".market/ledger_rows.jsonl:1358771\", \".market/ledger_rows.jsonl:1362806\"]}",
+      "meaning": "dcdb4539 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:95",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 147, \"revenue\": 16019389, \"mature\": 147, \"missing_cost\": 0, \"mature_net\": 1305995, \"refunds\": 636622, \"buyer_paid\": 62, \"market_paid\": 1429, \"sources\": [\".market/ledger_rows.jsonl:1362939\", \".market/ledger_rows.jsonl:1366999\"]}",
+      "meaning": "dcdb4539 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:96",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 130, \"revenue\": 15761613, \"mature\": 130, \"missing_cost\": 0, \"mature_net\": 1144849, \"refunds\": 627580, \"buyer_paid\": 52, \"market_paid\": 1417, \"sources\": [\".market/ledger_rows.jsonl:1359983\", \".market/ledger_rows.jsonl:1364099\"]}",
+      "meaning": "62b3fff2 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:96",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 160, \"revenue\": 17672865, \"mature\": 160, \"missing_cost\": 0, \"mature_net\": 1796647, \"refunds\": 175192, \"buyer_paid\": 58, \"market_paid\": 1504, \"sources\": [\".market/ledger_rows.jsonl:1364135\", \".market/ledger_rows.jsonl:1368478\"]}",
+      "meaning": "62b3fff2 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:97",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 156, \"revenue\": 31630341, \"mature\": 156, \"missing_cost\": 0, \"mature_net\": 2667246, \"refunds\": 2815443, \"buyer_paid\": 59, \"market_paid\": 1488, \"sources\": [\".market/ledger_rows.jsonl:1368663\", \".market/ledger_rows.jsonl:1372893\"]}",
+      "meaning": "84c24e20 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:97",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 119, \"revenue\": 12313509, \"mature\": 119, \"missing_cost\": 0, \"mature_net\": 193309, \"refunds\": 1323590, \"buyer_paid\": 51, \"market_paid\": 1338, \"sources\": [\".market/ledger_rows.jsonl:1373023\", \".market/ledger_rows.jsonl:1377015\"]}",
+      "meaning": "84c24e20 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:98",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 170, \"revenue\": 31372693, \"mature\": 170, \"missing_cost\": 0, \"mature_net\": 1517783, \"refunds\": 3990668, \"buyer_paid\": 61, \"market_paid\": 1530, \"sources\": [\".market/ledger_rows.jsonl:1369262\", \".market/ledger_rows.jsonl:1373605\"]}",
+      "meaning": "a4641280 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:98",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 108, \"revenue\": 11193897, \"mature\": 108, \"missing_cost\": 0, \"mature_net\": 1124641, \"refunds\": 148365, \"buyer_paid\": 52, \"market_paid\": 1254, \"sources\": [\".market/ledger_rows.jsonl:1373658\", \".market/ledger_rows.jsonl:1377600\"]}",
+      "meaning": "a4641280 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:99",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 170, \"revenue\": 31372693, \"mature\": 170, \"missing_cost\": 0, \"mature_net\": 1517783, \"refunds\": 3990668, \"buyer_paid\": 61, \"market_paid\": 1530, \"sources\": [\".market/ledger_rows.jsonl:1369262\", \".market/ledger_rows.jsonl:1373605\"]}",
+      "meaning": "2eb309aa 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:99",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 108, \"revenue\": 11193897, \"mature\": 108, \"missing_cost\": 0, \"mature_net\": 1124641, \"refunds\": 148365, \"buyer_paid\": 52, \"market_paid\": 1254, \"sources\": [\".market/ledger_rows.jsonl:1373658\", \".market/ledger_rows.jsonl:1377600\"]}",
+      "meaning": "2eb309aa 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:100",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 144, \"revenue\": 27774203, \"mature\": 144, \"missing_cost\": 0, \"mature_net\": 400685, \"refunds\": 3990668, \"buyer_paid\": 58, \"market_paid\": 1426, \"sources\": [\".market/ledger_rows.jsonl:1370730\", \".market/ledger_rows.jsonl:1374921\"]}",
+      "meaning": "b3dba6be 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:100",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 125, \"revenue\": 11857739, \"mature\": 125, \"missing_cost\": 0, \"mature_net\": 1407565, \"refunds\": 148365, \"buyer_paid\": 48, \"market_paid\": 1283, \"sources\": [\".market/ledger_rows.jsonl:1374928\", \".market/ledger_rows.jsonl:1379016\"]}",
+      "meaning": "b3dba6be 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:101",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 142, \"revenue\": 18743224, \"mature\": 142, \"missing_cost\": 0, \"mature_net\": 1363102, \"refunds\": 1122456, \"buyer_paid\": 47, \"market_paid\": 1336, \"sources\": [\".market/ledger_rows.jsonl:1377518\", \".market/ledger_rows.jsonl:1381680\"]}",
+      "meaning": "d45c3786 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:101",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 117, \"revenue\": 17830632, \"mature\": 117, \"missing_cost\": 0, \"mature_net\": 2699331, \"refunds\": 0, \"buyer_paid\": 48, \"market_paid\": 1451, \"sources\": [\".market/ledger_rows.jsonl:1381699\", \".market/ledger_rows.jsonl:1386053\"]}",
+      "meaning": "d45c3786 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:102",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 136, \"revenue\": 18805323, \"mature\": 136, \"missing_cost\": 0, \"mature_net\": 1403857, \"refunds\": 1122456, \"buyer_paid\": 45, \"market_paid\": 1351, \"sources\": [\".market/ledger_rows.jsonl:1377957\", \".market/ledger_rows.jsonl:1382118\"]}",
+      "meaning": "09d8f894 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:102",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 118, \"revenue\": 17695826, \"mature\": 118, \"missing_cost\": 0, \"mature_net\": 2609969, \"refunds\": 0, \"buyer_paid\": 48, \"market_paid\": 1475, \"sources\": [\".market/ledger_rows.jsonl:1382150\", \".market/ledger_rows.jsonl:1386534\"]}",
+      "meaning": "09d8f894 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:103",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 122, \"revenue\": 18273931, \"mature\": 122, \"missing_cost\": 0, \"mature_net\": 1121653, \"refunds\": 1122456, \"buyer_paid\": 50, \"market_paid\": 1417, \"sources\": [\".market/ledger_rows.jsonl:1380066\", \".market/ledger_rows.jsonl:1384284\"]}",
+      "meaning": "bfa7ae04 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:103",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 138, \"revenue\": 15752142, \"mature\": 138, \"missing_cost\": 0, \"mature_net\": 2511816, \"refunds\": 0, \"buyer_paid\": 39, \"market_paid\": 1437, \"sources\": [\".market/ledger_rows.jsonl:1384402\", \".market/ledger_rows.jsonl:1388713\"]}",
+      "meaning": "bfa7ae04 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:104",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 121, \"revenue\": 17949107, \"mature\": 121, \"missing_cost\": 0, \"mature_net\": 1096798, \"refunds\": 1122456, \"buyer_paid\": 50, \"market_paid\": 1413, \"sources\": [\".market/ledger_rows.jsonl:1380101\", \".market/ledger_rows.jsonl:1384284\"]}",
+      "meaning": "8133b266 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:104",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 138, \"revenue\": 15752142, \"mature\": 138, \"missing_cost\": 0, \"mature_net\": 2511816, \"refunds\": 0, \"buyer_paid\": 39, \"market_paid\": 1437, \"sources\": [\".market/ledger_rows.jsonl:1384402\", \".market/ledger_rows.jsonl:1388713\"]}",
+      "meaning": "8133b266 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:105",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 121, \"revenue\": 17949107, \"mature\": 121, \"missing_cost\": 0, \"mature_net\": 1096798, \"refunds\": 1122456, \"buyer_paid\": 50, \"market_paid\": 1413, \"sources\": [\".market/ledger_rows.jsonl:1380101\", \".market/ledger_rows.jsonl:1384284\"]}",
+      "meaning": "2c4e3313 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:105",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 138, \"revenue\": 15752142, \"mature\": 138, \"missing_cost\": 0, \"mature_net\": 2511816, \"refunds\": 0, \"buyer_paid\": 39, \"market_paid\": 1436, \"sources\": [\".market/ledger_rows.jsonl:1384402\", \".market/ledger_rows.jsonl:1388713\"]}",
+      "meaning": "2c4e3313 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:106",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 119, \"revenue\": 16325592, \"mature\": 119, \"missing_cost\": 0, \"mature_net\": 2519815, \"refunds\": 0, \"buyer_paid\": 48, \"market_paid\": 1474, \"sources\": [\".market/ledger_rows.jsonl:1382570\", \".market/ledger_rows.jsonl:1386881\"]}",
+      "meaning": "30f5b4bc 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:106",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 95, \"revenue\": 10462018, \"mature\": 95, \"missing_cost\": 0, \"mature_net\": 1467521, \"refunds\": 0, \"buyer_paid\": 42, \"market_paid\": 1409, \"sources\": [\".market/ledger_rows.jsonl:1386947\", \".market/ledger_rows.jsonl:1391152\"]}",
+      "meaning": "30f5b4bc 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:107",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 143, \"revenue\": 16217558, \"mature\": 143, \"missing_cost\": 0, \"mature_net\": 2479542, \"refunds\": 0, \"buyer_paid\": 47, \"market_paid\": 1483, \"sources\": [\".market/ledger_rows.jsonl:1382899\", \".market/ledger_rows.jsonl:1387303\"]}",
+      "meaning": "125571ff 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:107",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 84, \"revenue\": 10835346, \"mature\": 84, \"missing_cost\": 0, \"mature_net\": 1496687, \"refunds\": 0, \"buyer_paid\": 43, \"market_paid\": 1422, \"sources\": [\".market/ledger_rows.jsonl:1387360\", \".market/ledger_rows.jsonl:1391577\"]}",
+      "meaning": "125571ff 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:108",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 143, \"revenue\": 16217558, \"mature\": 143, \"missing_cost\": 0, \"mature_net\": 2479542, \"refunds\": 0, \"buyer_paid\": 47, \"market_paid\": 1483, \"sources\": [\".market/ledger_rows.jsonl:1382899\", \".market/ledger_rows.jsonl:1387303\"]}",
+      "meaning": "bb2a3464 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:108",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 84, \"revenue\": 10835346, \"mature\": 84, \"missing_cost\": 0, \"mature_net\": 1496687, \"refunds\": 0, \"buyer_paid\": 43, \"market_paid\": 1421, \"sources\": [\".market/ledger_rows.jsonl:1387360\", \".market/ledger_rows.jsonl:1391577\"]}",
+      "meaning": "bb2a3464 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:109",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 143, \"revenue\": 16217558, \"mature\": 143, \"missing_cost\": 0, \"mature_net\": 2479542, \"refunds\": 0, \"buyer_paid\": 47, \"market_paid\": 1483, \"sources\": [\".market/ledger_rows.jsonl:1382899\", \".market/ledger_rows.jsonl:1387303\"]}",
+      "meaning": "0fa78883 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:109",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 84, \"revenue\": 10835346, \"mature\": 84, \"missing_cost\": 0, \"mature_net\": 1496687, \"refunds\": 0, \"buyer_paid\": 43, \"market_paid\": 1421, \"sources\": [\".market/ledger_rows.jsonl:1387360\", \".market/ledger_rows.jsonl:1391577\"]}",
+      "meaning": "0fa78883 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:110",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 148, \"revenue\": 15629500, \"mature\": 148, \"missing_cost\": 0, \"mature_net\": 2414536, \"refunds\": 0, \"buyer_paid\": 43, \"market_paid\": 1507, \"sources\": [\".market/ledger_rows.jsonl:1383725\", \".market/ledger_rows.jsonl:1387832\"]}",
+      "meaning": "a81229ef 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:110",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 97, \"revenue\": 13592513, \"mature\": 97, \"missing_cost\": 0, \"mature_net\": 1927255, \"refunds\": 0, \"buyer_paid\": 40, \"market_paid\": 1429, \"sources\": [\".market/ledger_rows.jsonl:1388419\", \".market/ledger_rows.jsonl:1392479\"]}",
+      "meaning": "a81229ef 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:111",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 148, \"revenue\": 15629500, \"mature\": 148, \"missing_cost\": 0, \"mature_net\": 2414536, \"refunds\": 0, \"buyer_paid\": 43, \"market_paid\": 1507, \"sources\": [\".market/ledger_rows.jsonl:1383725\", \".market/ledger_rows.jsonl:1387832\"]}",
+      "meaning": "7aec7515 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:111",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 97, \"revenue\": 13592513, \"mature\": 97, \"missing_cost\": 0, \"mature_net\": 1927255, \"refunds\": 0, \"buyer_paid\": 40, \"market_paid\": 1429, \"sources\": [\".market/ledger_rows.jsonl:1388419\", \".market/ledger_rows.jsonl:1392479\"]}",
+      "meaning": "7aec7515 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:112",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 124, \"revenue\": 23107513, \"mature\": 124, \"missing_cost\": 0, \"mature_net\": 2132238, \"refunds\": 468894, \"buyer_paid\": 35, \"market_paid\": 1418, \"sources\": [\".market/ledger_rows.jsonl:1390728\", \".market/ledger_rows.jsonl:1395007\"]}",
+      "meaning": "fa31ac1c 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:112",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 71, \"revenue\": 10727045, \"mature\": 71, \"missing_cost\": 0, \"mature_net\": 1207525, \"refunds\": 340512, \"buyer_paid\": 39, \"market_paid\": 1430, \"sources\": [\".market/ledger_rows.jsonl:1395059\", \".market/ledger_rows.jsonl:1399380\"]}",
+      "meaning": "fa31ac1c 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:113",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 124, \"revenue\": 23107513, \"mature\": 124, \"missing_cost\": 0, \"mature_net\": 2132238, \"refunds\": 468894, \"buyer_paid\": 35, \"market_paid\": 1418, \"sources\": [\".market/ledger_rows.jsonl:1390728\", \".market/ledger_rows.jsonl:1395007\"]}",
+      "meaning": "ac9a7b9b 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:113",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 72, \"revenue\": 10742545, \"mature\": 72, \"missing_cost\": 0, \"mature_net\": 1210415, \"refunds\": 340512, \"buyer_paid\": 39, \"market_paid\": 1432, \"sources\": [\".market/ledger_rows.jsonl:1395059\", \".market/ledger_rows.jsonl:1399453\"]}",
+      "meaning": "ac9a7b9b 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:114",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 124, \"revenue\": 23107513, \"mature\": 124, \"missing_cost\": 0, \"mature_net\": 2132238, \"refunds\": 468894, \"buyer_paid\": 35, \"market_paid\": 1415, \"sources\": [\".market/ledger_rows.jsonl:1390728\", \".market/ledger_rows.jsonl:1395007\"]}",
+      "meaning": "0f1229f7 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:114",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 72, \"revenue\": 10742545, \"mature\": 72, \"missing_cost\": 0, \"mature_net\": 1210415, \"refunds\": 340512, \"buyer_paid\": 39, \"market_paid\": 1433, \"sources\": [\".market/ledger_rows.jsonl:1395059\", \".market/ledger_rows.jsonl:1399453\"]}",
+      "meaning": "0f1229f7 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:115",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 83, \"revenue\": 6097629, \"mature\": 83, \"missing_cost\": 1, \"mature_net\": 1128794, \"refunds\": 0, \"buyer_paid\": 50, \"market_paid\": 1410, \"sources\": [\".market/ledger_rows.jsonl:1402667\", \".market/ledger_rows.jsonl:1406970\"]}",
+      "meaning": "0389f6bb 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:115",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 144, \"revenue\": 17960061, \"mature\": 139, \"missing_cost\": 0, \"mature_net\": 2850085, \"refunds\": 47304, \"buyer_paid\": 42, \"market_paid\": 1510, \"sources\": [\".market/ledger_rows.jsonl:1407068\", \".market/ledger_rows.jsonl:1411365\"]}",
+      "meaning": "0389f6bb 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:116",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 118, \"revenue\": 12519091, \"mature\": 118, \"missing_cost\": 1, \"mature_net\": 2776099, \"refunds\": 0, \"buyer_paid\": 48, \"market_paid\": 1485, \"sources\": [\".market/ledger_rows.jsonl:1403996\", \".market/ledger_rows.jsonl:1408430\"]}",
+      "meaning": "5f0baa69 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:116",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 168, \"revenue\": 19561396, \"mature\": 100, \"missing_cost\": 0, \"mature_net\": 1170124, \"refunds\": 47304, \"buyer_paid\": 42, \"market_paid\": 1512, \"sources\": [\".market/ledger_rows.jsonl:1408487\", \".market/ledger_rows.jsonl:1412824\"]}",
+      "meaning": "5f0baa69 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:117",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 122, \"revenue\": 13063464, \"mature\": 122, \"missing_cost\": 1, \"mature_net\": 2807103, \"refunds\": 47304, \"buyer_paid\": 48, \"market_paid\": 1481, \"sources\": [\".market/ledger_rows.jsonl:1404437\", \".market/ledger_rows.jsonl:1408810\"]}",
+      "meaning": "7b243c81 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:117",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 178, \"revenue\": 19899157, \"mature\": 87, \"missing_cost\": 0, \"mature_net\": 1125950, \"refunds\": 0, \"buyer_paid\": 43, \"market_paid\": 1512, \"sources\": [\".market/ledger_rows.jsonl:1408838\", \".market/ledger_rows.jsonl:1413199\"]}",
+      "meaning": "7b243c81 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:118",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 122, \"revenue\": 13063464, \"mature\": 122, \"missing_cost\": 1, \"mature_net\": 2807103, \"refunds\": 47304, \"buyer_paid\": 48, \"market_paid\": 1479, \"sources\": [\".market/ledger_rows.jsonl:1404437\", \".market/ledger_rows.jsonl:1408810\"]}",
+      "meaning": "1dcda184 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:118",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 178, \"revenue\": 19899157, \"mature\": 87, \"missing_cost\": 0, \"mature_net\": 1125950, \"refunds\": 0, \"buyer_paid\": 43, \"market_paid\": 1513, \"sources\": [\".market/ledger_rows.jsonl:1408838\", \".market/ledger_rows.jsonl:1413199\"]}",
+      "meaning": "1dcda184 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:119",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 121, \"revenue\": 13089115, \"mature\": 121, \"missing_cost\": 1, \"mature_net\": 2806150, \"refunds\": 47304, \"buyer_paid\": 49, \"market_paid\": 1474, \"sources\": [\".market/ledger_rows.jsonl:1404668\", \".market/ledger_rows.jsonl:1409018\"]}",
+      "meaning": "57191ac8 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:119",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 180, \"revenue\": 20012402, \"mature\": 81, \"missing_cost\": 0, \"mature_net\": 1108305, \"refunds\": 0, \"buyer_paid\": 43, \"market_paid\": 1516, \"sources\": [\".market/ledger_rows.jsonl:1409118\", \".market/ledger_rows.jsonl:1413449\"]}",
+      "meaning": "57191ac8 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:120",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 131, \"revenue\": 13862714, \"mature\": 131, \"missing_cost\": 1, \"mature_net\": 2989166, \"refunds\": 47304, \"buyer_paid\": 43, \"market_paid\": 1494, \"sources\": [\".market/ledger_rows.jsonl:1406121\", \".market/ledger_rows.jsonl:1410467\"]}",
+      "meaning": "1e395e4a 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:120",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 169, \"revenue\": 18166109, \"mature\": 30, \"missing_cost\": 0, \"mature_net\": 372238, \"refunds\": 0, \"buyer_paid\": 48, \"market_paid\": 1518, \"sources\": [\".market/ledger_rows.jsonl:1410491\", \".market/ledger_rows.jsonl:1414866\"]}",
+      "meaning": "1e395e4a 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:121",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 167, \"revenue\": 22852356, \"mature\": 130, \"missing_cost\": 0, \"mature_net\": 2601107, \"refunds\": 47304, \"buyer_paid\": 38, \"market_paid\": 1504, \"sources\": [\".market/ledger_rows.jsonl:1407633\", \".market/ledger_rows.jsonl:1411981\"]}",
+      "meaning": "367a7dc7 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:121",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 150, \"revenue\": 9883918, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 55, \"market_paid\": 1568, \"sources\": [\".market/ledger_rows.jsonl:1412039\", \".market/ledger_rows.jsonl:1416386\"]}",
+      "meaning": "367a7dc7 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:122",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 142, \"revenue\": 9430528, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 53, \"market_paid\": 1604, \"sources\": [\".market/ledger_rows.jsonl:1413927\", \".market/ledger_rows.jsonl:1418478\"]}",
+      "meaning": "e9951873 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:122",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 146, \"revenue\": 15324037, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 60, \"market_paid\": 1590, \"sources\": [\".market/ledger_rows.jsonl:1418511\", \".market/ledger_rows.jsonl:1423101\"]}",
+      "meaning": "e9951873 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:123",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 147, \"revenue\": 9905971, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 53, \"market_paid\": 1645, \"sources\": [\".market/ledger_rows.jsonl:1415423\", \".market/ledger_rows.jsonl:1419782\"]}",
+      "meaning": "4d358779 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:123",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 133, \"revenue\": 14959836, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 62, \"market_paid\": 1526, \"sources\": [\".market/ledger_rows.jsonl:1420114\", \".market/ledger_rows.jsonl:1424575\"]}",
+      "meaning": "4d358779 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:124",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 139, \"revenue\": 11443727, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 56, \"market_paid\": 1594, \"sources\": [\".market/ledger_rows.jsonl:1417719\", \".market/ledger_rows.jsonl:1422103\"]}",
+      "meaning": "83f09663 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:124",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 142, \"revenue\": 15515275, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 57, \"market_paid\": 1520, \"sources\": [\".market/ledger_rows.jsonl:1422171\", \".market/ledger_rows.jsonl:1426571\"]}",
+      "meaning": "83f09663 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:125",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 146, \"revenue\": 15292384, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 59, \"market_paid\": 1574, \"sources\": [\".market/ledger_rows.jsonl:1418290\", \".market/ledger_rows.jsonl:1422753\"]}",
+      "meaning": "26ae0318 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:125",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 130, \"revenue\": 11591565, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 53, \"market_paid\": 1462, \"sources\": [\".market/ledger_rows.jsonl:1422900\", \".market/ledger_rows.jsonl:1427197\"]}",
+      "meaning": "26ae0318 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:126",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 146, \"revenue\": 15292384, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 59, \"market_paid\": 1574, \"sources\": [\".market/ledger_rows.jsonl:1418290\", \".market/ledger_rows.jsonl:1422753\"]}",
+      "meaning": "14cb83af 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:126",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 130, \"revenue\": 11591565, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 53, \"market_paid\": 1465, \"sources\": [\".market/ledger_rows.jsonl:1422900\", \".market/ledger_rows.jsonl:1427197\"]}",
+      "meaning": "14cb83af 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:127",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 114, \"revenue\": 9921993, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 49, \"market_paid\": 1365, \"sources\": [\".market/ledger_rows.jsonl:1425008\", \".market/ledger_rows.jsonl:1429218\"]}",
+      "meaning": "d613befc 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:127",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 142, \"revenue\": 13341160, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 52, \"market_paid\": 1483, \"sources\": [\".market/ledger_rows.jsonl:1429242\", \".market/ledger_rows.jsonl:1433727\"]}",
+      "meaning": "d613befc 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:128",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 126, \"revenue\": 12506515, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 53, \"market_paid\": 1378, \"sources\": [\".market/ledger_rows.jsonl:1426467\", \".market/ledger_rows.jsonl:1430705\"]}",
+      "meaning": "f64a0ec6 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:128",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 140, \"revenue\": 14618254, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 48, \"market_paid\": 1513, \"sources\": [\".market/ledger_rows.jsonl:1430735\", \".market/ledger_rows.jsonl:1435231\"]}",
+      "meaning": "f64a0ec6 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:129",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 119, \"revenue\": 10045867, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 47, \"market_paid\": 1505, \"sources\": [\".market/ledger_rows.jsonl:1435330\", \".market/ledger_rows.jsonl:1439686\"]}",
+      "meaning": "0d4498c7 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:129",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 113, \"revenue\": 15065148, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 53, \"market_paid\": 1517, \"sources\": [\".market/ledger_rows.jsonl:1439783\", \".market/ledger_rows.jsonl:1444230\"]}",
+      "meaning": "0d4498c7 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:130",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 110, \"revenue\": 11850036, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 45, \"market_paid\": 1477, \"sources\": [\".market/ledger_rows.jsonl:1442355\", \".market/ledger_rows.jsonl:1446494\"]}",
+      "meaning": "98ce2b1d 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:130",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 126, \"revenue\": 8632149, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 48, \"market_paid\": 1459, \"sources\": [\".market/ledger_rows.jsonl:1446515\", \".market/ledger_rows.jsonl:1450779\"]}",
+      "meaning": "98ce2b1d 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:131",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 110, \"revenue\": 11850036, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 45, \"market_paid\": 1477, \"sources\": [\".market/ledger_rows.jsonl:1442355\", \".market/ledger_rows.jsonl:1446494\"]}",
+      "meaning": "22d312c2 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:131",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 126, \"revenue\": 8632149, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 48, \"market_paid\": 1459, \"sources\": [\".market/ledger_rows.jsonl:1446515\", \".market/ledger_rows.jsonl:1450779\"]}",
+      "meaning": "22d312c2 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:132",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 115, \"revenue\": 8179220, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 46, \"market_paid\": 1463, \"sources\": [\".market/ledger_rows.jsonl:1442918\", \".market/ledger_rows.jsonl:1447173\"]}",
+      "meaning": "ccaf2e57 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:132",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 128, \"revenue\": 11694479, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 46, \"market_paid\": 1489, \"sources\": [\".market/ledger_rows.jsonl:1447278\", \".market/ledger_rows.jsonl:1451647\"]}",
+      "meaning": "ccaf2e57 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:133",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 137, \"revenue\": 8332274, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 45, \"market_paid\": 1490, \"sources\": [\".market/ledger_rows.jsonl:1444154\", \".market/ledger_rows.jsonl:1448432\"]}",
+      "meaning": "92e1f3d3 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:133",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 122, \"revenue\": 14657780, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 50, \"market_paid\": 1467, \"sources\": [\".market/ledger_rows.jsonl:1448482\", \".market/ledger_rows.jsonl:1452834\"]}",
+      "meaning": "92e1f3d3 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:134",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 137, \"revenue\": 8332274, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 45, \"market_paid\": 1491, \"sources\": [\".market/ledger_rows.jsonl:1444154\", \".market/ledger_rows.jsonl:1448432\"]}",
+      "meaning": "1836a25b 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:134",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 122, \"revenue\": 14657780, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 50, \"market_paid\": 1465, \"sources\": [\".market/ledger_rows.jsonl:1448482\", \".market/ledger_rows.jsonl:1452834\"]}",
+      "meaning": "1836a25b 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:135",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 125, \"revenue\": 8437751, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 47, \"market_paid\": 1463, \"sources\": [\".market/ledger_rows.jsonl:1446652\", \".market/ledger_rows.jsonl:1450881\"]}",
+      "meaning": "c137683e 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:135",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 141, \"revenue\": 16306049, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 52, \"market_paid\": 1505, \"sources\": [\".market/ledger_rows.jsonl:1450922\", \".market/ledger_rows.jsonl:1455381\"]}",
+      "meaning": "c137683e 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:136",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 124, \"revenue\": 13104406, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 47, \"market_paid\": 1493, \"sources\": [\".market/ledger_rows.jsonl:1448015\", \".market/ledger_rows.jsonl:1452412\"]}",
+      "meaning": "e8cf8d64 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:136",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 149, \"revenue\": 14829807, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 48, \"market_paid\": 1450, \"sources\": [\".market/ledger_rows.jsonl:1452436\", \".market/ledger_rows.jsonl:1456825\"]}",
+      "meaning": "e8cf8d64 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:137",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 147, \"revenue\": 14506768, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 49, \"market_paid\": 1469, \"sources\": [\".market/ledger_rows.jsonl:1451719\", \".market/ledger_rows.jsonl:1456146\"]}",
+      "meaning": "8b32879b 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:137",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 129, \"revenue\": 7517960, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 49, \"market_paid\": 1358, \"sources\": [\".market/ledger_rows.jsonl:1456163\", \".market/ledger_rows.jsonl:1460395\"]}",
+      "meaning": "8b32879b 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:138",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 143, \"revenue\": 13958885, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 47, \"market_paid\": 1451, \"sources\": [\".market/ledger_rows.jsonl:1452700\", \".market/ledger_rows.jsonl:1457062\"]}",
+      "meaning": "7a454918 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:138",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 130, \"revenue\": 6836816, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 48, \"market_paid\": 1382, \"sources\": [\".market/ledger_rows.jsonl:1457146\", \".market/ledger_rows.jsonl:1461378\"]}",
+      "meaning": "7a454918 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:139",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 143, \"revenue\": 13958885, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 47, \"market_paid\": 1451, \"sources\": [\".market/ledger_rows.jsonl:1452700\", \".market/ledger_rows.jsonl:1457062\"]}",
+      "meaning": "de6384c3 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:139",
+      "excerpt": "\"after\": {\"hours\": 0.5, \"paid\": 130, \"revenue\": 6836816, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 48, \"market_paid\": 1382, \"sources\": [\".market/ledger_rows.jsonl:1457146\", \".market/ledger_rows.jsonl:1461378\"]}",
+      "meaning": "de6384c3 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:140",
+      "excerpt": "\"before\": {\"hours\": 0.5, \"paid\": 130, \"revenue\": 6838242, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 48, \"market_paid\": 1366, \"sources\": [\".market/ledger_rows.jsonl:1456811\", \".market/ledger_rows.jsonl:1460997\"]}",
+      "meaning": "0b744f25 전 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:140",
+      "excerpt": "\"after\": {\"hours\": 0.397, \"paid\": 97, \"revenue\": 8939486, \"mature\": 0, \"missing_cost\": 0, \"mature_net\": 0, \"refunds\": 0, \"buyer_paid\": 44, \"market_paid\": 1128, \"sources\": [\".market/ledger_rows.jsonl:1461023\", \".market/ledger_rows.jsonl:1464397\"]}",
+      "meaning": "0b744f25 후 수치; 원본 원장 ref 포함"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:146",
+      "excerpt": "\"cycle\": \"astra-1110-143630\"",
+      "meaning": "패치 3.5 점수와 호출 무상한은 유지했다. 새 패치는 없어 발견 지연 없음. 총상한 절단0/0이므로 미인상을 감점하지 않는다. 전략의 경쟁자 성장 비교는 유효하나 독립 추가 Players는 미확정이다. 검증 또는 인용 실패로 전달되지 않은 작업은 감점한다. 근거 meta/changes.jsonl:142; 측정은 이번 전후 원장 감사. 결측은 실제 3판단→최종공급 연결 및 독립효과. 11/11 14:57까지 3판단 모두 SKU 근거와 최종공급 연결, 검사 최종 종료코드 확인; 미달이면 성공 판정 취소, 신규 확대 보류."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:147",
+      "excerpt": "\"cycle\": \"terra-1110-150216\"",
+      "meaning": "패치 3.5 점수와 호출 무상한은 유지했다. 새 패치는 없어 발견 지연 없음. 총상한 절단0/0이므로 미인상을 감점하지 않는다. 전략의 경쟁자 성장 비교는 유효하나 독립 추가 Players는 미확정이다. 전체 검사를 중단하거나 진행 중인 채 보고하는 일이 반복되어 검증 절차를 감점한다. 좁은 관련 검사의 성공과 전체 성공을 분리해야 한다. 근거 meta/changes.jsonl:143; 측정은 이번 전후 원장 감사. 결측은 실제 3판단→최종공급 연결 및 독립효과. 11/11 14:57까지 3판단 모두 SKU 근거와 최종공급 연결, 검사 최종 종료코드 확인; 미달이면 성공 판정 취소, 신규 확대 보류."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:148",
+      "excerpt": "\"cycle\": \"terra-1110-162542\"",
+      "meaning": "패치 3.5 점수와 호출 무상한은 유지했다. 새 패치는 없어 발견 지연 없음. 총상한 절단0/0이므로 미인상을 감점하지 않는다. 전략의 경쟁자 성장 비교는 유효하나 독립 추가 Players는 미확정이다. 전체 검사를 중단하거나 진행 중인 채 보고하는 일이 반복되어 검증 절차를 감점한다. 좁은 관련 검사의 성공과 전체 성공을 분리해야 한다. 근거 meta/changes.jsonl:144; 측정은 이번 전후 원장 감사. 결측은 실제 3판단→최종공급 연결 및 독립효과. 11/11 14:57까지 3판단 모두 SKU 근거와 최종공급 연결, 검사 최종 종료코드 확인; 미달이면 성공 판정 취소, 신규 확대 보류."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:149",
+      "excerpt": "\"cycle\": \"terra-1110-174006\"",
+      "meaning": "패치 3.5 점수와 호출 무상한은 유지했다. 새 패치는 없어 발견 지연 없음. 총상한 절단0/0이므로 미인상을 감점하지 않는다. 전략의 경쟁자 성장 비교는 유효하나 독립 추가 Players는 미확정이다. 검증 또는 인용 실패로 전달되지 않은 작업은 감점한다. 전체 검사를 중단하거나 진행 중인 채 보고하는 일이 반복되어 검증 절차를 감점한다. 좁은 관련 검사의 성공과 전체 성공을 분리해야 한다. 근거 meta/changes.jsonl:145; 측정은 이번 전후 원장 감사. 결측은 실제 3판단→최종공급 연결 및 독립효과. 11/11 14:57까지 3판단 모두 SKU 근거와 최종공급 연결, 검사 최종 종료코드 확인; 미달이면 성공 판정 취소, 신규 확대 보류."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:150",
+      "excerpt": "\"cycle\": \"terra-1110-185911\"",
+      "meaning": "패치 3.5 점수와 호출 무상한은 유지했다. 새 패치는 없어 발견 지연 없음. 총상한 절단0/0이므로 미인상을 감점하지 않는다. 전략의 경쟁자 성장 비교는 유효하나 독립 추가 Players는 미확정이다. 검증 또는 인용 실패로 전달되지 않은 작업은 감점한다. 전체 검사를 중단하거나 진행 중인 채 보고하는 일이 반복되어 검증 절차를 감점한다. 좁은 관련 검사의 성공과 전체 성공을 분리해야 한다. 근거 meta/changes.jsonl:146; 측정은 이번 전후 원장 감사. 결측은 실제 3판단→최종공급 연결 및 독립효과. 11/11 14:57까지 3판단 모두 SKU 근거와 최종공급 연결, 검사 최종 종료코드 확인; 미달이면 성공 판정 취소, 신규 확대 보류."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:151",
+      "excerpt": "\"cycle\": \"terra-1110-201617\"",
+      "meaning": "패치 3.5 점수와 호출 무상한은 유지했다. 새 패치는 없어 발견 지연 없음. 총상한 절단0/0이므로 미인상을 감점하지 않는다. 전략의 경쟁자 성장 비교는 유효하나 독립 추가 Players는 미확정이다. 전체 검사를 중단하거나 진행 중인 채 보고하는 일이 반복되어 검증 절차를 감점한다. 좁은 관련 검사의 성공과 전체 성공을 분리해야 한다. 근거 meta/changes.jsonl:147; 측정은 이번 전후 원장 감사. 결측은 실제 3판단→최종공급 연결 및 독립효과. 11/11 14:57까지 3판단 모두 SKU 근거와 최종공급 연결, 검사 최종 종료코드 확인; 미달이면 성공 판정 취소, 신규 확대 보류."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:152",
+      "excerpt": "\"cycle\": \"terra-1110-213438\"",
+      "meaning": "패치 3.5 점수와 호출 무상한은 유지했다. 새 패치는 없어 발견 지연 없음. 총상한 절단0/0이므로 미인상을 감점하지 않는다. 전략의 경쟁자 성장 비교는 유효하나 독립 추가 Players는 미확정이다. 전체 검사를 중단하거나 진행 중인 채 보고하는 일이 반복되어 검증 절차를 감점한다. 좁은 관련 검사의 성공과 전체 성공을 분리해야 한다. 근거 meta/changes.jsonl:148; 측정은 이번 전후 원장 감사. 결측은 실제 3판단→최종공급 연결 및 독립효과. 11/11 14:57까지 3판단 모두 SKU 근거와 최종공급 연결, 검사 최종 종료코드 확인; 미달이면 성공 판정 취소, 신규 확대 보류."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:153",
+      "excerpt": "\"cycle\": \"terra-1110-225148\"",
+      "meaning": "패치 3.5 점수와 호출 무상한은 유지했다. 새 패치는 없어 발견 지연 없음. 총상한 절단0/0이므로 미인상을 감점하지 않는다. 전략의 경쟁자 성장 비교는 유효하나 독립 추가 Players는 미확정이다. 전체 검사를 중단하거나 진행 중인 채 보고하는 일이 반복되어 검증 절차를 감점한다. 좁은 관련 검사의 성공과 전체 성공을 분리해야 한다. 근거 meta/changes.jsonl:149; 측정은 이번 전후 원장 감사. 결측은 실제 3판단→최종공급 연결 및 독립효과. 11/11 14:57까지 3판단 모두 SKU 근거와 최종공급 연결, 검사 최종 종료코드 확인; 미달이면 성공 판정 취소, 신규 확대 보류."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:154",
+      "excerpt": "\"cycle\": \"terra-1111-000418\"",
+      "meaning": "패치 3.5 점수와 호출 무상한은 유지했다. 새 패치는 없어 발견 지연 없음. 총상한 절단0/0이므로 미인상을 감점하지 않는다. 전략의 경쟁자 성장 비교는 유효하나 독립 추가 Players는 미확정이다. 전체 검사를 중단하거나 진행 중인 채 보고하는 일이 반복되어 검증 절차를 감점한다. 좁은 관련 검사의 성공과 전체 성공을 분리해야 한다. 근거 meta/changes.jsonl:150; 측정은 이번 전후 원장 감사. 결측은 실제 3판단→최종공급 연결 및 독립효과. 11/11 14:57까지 3판단 모두 SKU 근거와 최종공급 연결, 검사 최종 종료코드 확인; 미달이면 성공 판정 취소, 신규 확대 보류."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:155",
+      "excerpt": "\"cycle\": \"terra-1111-011735\"",
+      "meaning": "패치 3.5 점수와 호출 무상한은 유지했다. 새 패치는 없어 발견 지연 없음. 총상한 절단0/0이므로 미인상을 감점하지 않는다. 전략의 경쟁자 성장 비교는 유효하나 독립 추가 Players는 미확정이다. 전체 검사를 중단하거나 진행 중인 채 보고하는 일이 반복되어 검증 절차를 감점한다. 좁은 관련 검사의 성공과 전체 성공을 분리해야 한다. 근거 meta/changes.jsonl:151; 측정은 이번 전후 원장 감사. 결측은 실제 3판단→최종공급 연결 및 독립효과. 11/11 14:57까지 3판단 모두 SKU 근거와 최종공급 연결, 검사 최종 종료코드 확인; 미달이면 성공 판정 취소, 신규 확대 보류."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:156",
+      "excerpt": "\"cycle\": \"terra-1111-023023\"",
+      "meaning": "패치 3.5 점수와 호출 무상한은 유지했다. 새 패치는 없어 발견 지연 없음. 총상한 절단0/0이므로 미인상을 감점하지 않는다. 전략의 경쟁자 성장 비교는 유효하나 독립 추가 Players는 미확정이다. 전체 검사를 중단하거나 진행 중인 채 보고하는 일이 반복되어 검증 절차를 감점한다. 좁은 관련 검사의 성공과 전체 성공을 분리해야 한다. 근거 meta/changes.jsonl:152; 측정은 이번 전후 원장 감사. 결측은 실제 3판단→최종공급 연결 및 독립효과. 11/11 14:57까지 3판단 모두 SKU 근거와 최종공급 연결, 검사 최종 종료코드 확인; 미달이면 성공 판정 취소, 신규 확대 보류."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:157",
+      "excerpt": "{\"kind\": \"tool\", \"name\": \"auto_auto_market_brief\", \"calls\": 0, \"failed\": 0, \"selftest\": true}",
+      "meaning": "도구별 구간 사용·실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:158",
+      "excerpt": "{\"kind\": \"tool\", \"name\": \"auto_forum_ledger_digest\", \"calls\": 27, \"failed\": 0, \"selftest\": true}",
+      "meaning": "도구별 구간 사용·실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:159",
+      "excerpt": "{\"kind\": \"tool\", \"name\": \"auto_market_research\", \"calls\": 0, \"failed\": 0, \"selftest\": true}",
+      "meaning": "도구별 구간 사용·실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:160",
+      "excerpt": "{\"kind\": \"tool\", \"name\": \"auto_market_research_pack\", \"calls\": 10, \"failed\": 0, \"selftest\": true}",
+      "meaning": "도구별 구간 사용·실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:161",
+      "excerpt": "{\"kind\": \"tool\", \"name\": \"auto_market_scan\", \"calls\": 0, \"failed\": 0, \"selftest\": true}",
+      "meaning": "도구별 구간 사용·실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:162",
+      "excerpt": "{\"kind\": \"tool\", \"name\": \"break_rates\", \"calls\": 9, \"failed\": 0, \"selftest\": false}",
+      "meaning": "도구별 구간 사용·실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:163",
+      "excerpt": "{\"kind\": \"tool\", \"name\": \"catalog_search\", \"calls\": 0, \"failed\": 0, \"selftest\": false}",
+      "meaning": "도구별 구간 사용·실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:164",
+      "excerpt": "{\"kind\": \"tool\", \"name\": \"cohort_profit\", \"calls\": 0, \"failed\": 0, \"selftest\": true}",
+      "meaning": "도구별 구간 사용·실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:165",
+      "excerpt": "{\"kind\": \"tool\", \"name\": \"forum_read\", \"calls\": 33, \"failed\": 0, \"selftest\": false}",
+      "meaning": "도구별 구간 사용·실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:166",
+      "excerpt": "{\"kind\": \"tool\", \"name\": \"ledger_search\", \"calls\": 40, \"failed\": 0, \"selftest\": false}",
+      "meaning": "도구별 구간 사용·실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:167",
+      "excerpt": "{\"kind\": \"tool\", \"name\": \"market_demand\", \"calls\": 4, \"failed\": 0, \"selftest\": false}",
+      "meaning": "도구별 구간 사용·실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:168",
+      "excerpt": "{\"kind\": \"tool\", \"name\": \"market_opportunity\", \"calls\": 4, \"failed\": 0, \"selftest\": true}",
+      "meaning": "도구별 구간 사용·실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:169",
+      "excerpt": "{\"kind\": \"tool\", \"name\": \"my_customers\", \"calls\": 0, \"failed\": 0, \"selftest\": true}",
+      "meaning": "도구별 구간 사용·실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:170",
+      "excerpt": "{\"kind\": \"tool\", \"name\": \"my_decisions\", \"calls\": 3, \"failed\": 0, \"selftest\": false}",
+      "meaning": "도구별 구간 사용·실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:171",
+      "excerpt": "{\"kind\": \"tool\", \"name\": \"my_memory\", \"calls\": 0, \"failed\": 0, \"selftest\": true}",
+      "meaning": "도구별 구간 사용·실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:172",
+      "excerpt": "{\"kind\": \"tool\", \"name\": \"my_purchases\", \"calls\": 0, \"failed\": 0, \"selftest\": false}",
+      "meaning": "도구별 구간 사용·실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:173",
+      "excerpt": "{\"kind\": \"tool\", \"name\": \"my_state\", \"calls\": 24, \"failed\": 0, \"selftest\": false}",
+      "meaning": "도구별 구간 사용·실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-audit.jsonl:174",
+      "excerpt": "{\"kind\": \"tool\", \"name\": \"supply_audit\", \"calls\": 0, \"failed\": 0, \"selftest\": true}",
+      "meaning": "도구별 구간 사용·실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-screen.jsonl:1",
+      "excerpt": "{\"rules\": {\"patches\": [{\"id\": \"Patch 3.5\", \"date\": \"Nov 6, 2026\", \"title\": \"Buy your grudge\", \"changes\": [{\"tag\": \"Changed\", \"text\": \"The forum rating counts as itself. The 0.3 in Buyer ALL now takes the rating, from 0 to 1, in place of a percentile. Top ratings sat between 0.87 and 0.91, so as a percentile one dislike could throw a buyer past many others. Buyer ALL = 0.5 saved + 0.3 forum rating + 0.1 deals + 0.1 posts. Saved, deals and posts stay percentiles.\"}, {\"tag\": \"New\", \"text\": \"Buy more votes on one buyer. A dislike with value -N holds N votes on that post's author, however many posts the author wrote. N votes cost unit x (N - 1)^2 in total, and you pay only the difference when you add more. The unit is 3% of your account's largest Book, at least 20,000. So 4 votes cost 9 units and 10 votes cost 81. The money comes from your shop's cash, it lowers Book, and it does not come back. Needs 50 settled deals. Your votes count only while your account dislikes that buyer. See dislike_power_unit in inventory.json, and votes_on_author and next_vote_fee in the vote answer.\"}]}, {\"id\": \"Patch 3.4\", \"date\": \"Nov 6, 2026\", \"title\": \"Skill over luck, a price on spite\", \"changes\": [{\"tag\": \"Changed\", \"text\": \"Buyers score on what they save. Surplus in Buyer ALL is replaced by Saved: the average share of list price kept per deal, counted as if the buyer had 100 more deals at 0%. A sofa and a snack at 30% off score the same, so the taste a buyer draws no longer decides its rank. Buyer ALL = 0.5 saved + 0.3 forum + 0.1 deals + 0.1 posts. Applies to all of Round 3.\"}, {\"tag\": \"Changed\", \"text\": \"One stance per account on each author. Likes minus dislikes from one account on one author make one stance. A like stance weighs 1 + log2 of the net likes, so 300 likes weigh about 9. A dislike stance weighs 1, however many posts it touches. Past votes are counted again under this rule. Nothing was deleted and nobody was charged for them. Funding allies still works. Bombing one author does not.\"}, {\"tag\": \"New\", \"text\": \"Dislikes have a price from Nov 6, 12:00 KST. Within any hour, an account's first 3 new dislike stances on buyers are free. The k-th costs 20,000 x (k - 3), paid from its shop's cash, so it lowers Book. Likes are free. Without the cash the vote is refused. The vote response and the inventory show the next fee. Negative play is allowed. Now your agent has to decide if it is worth the money.\"}, {\"tag\": \"Changed\", \"text\": \"Votes count from 50 settled deals. Stars take one mean per reviewing account.\"}]}, {\"id\": \"Patch 3.3\", \"date\": \"Nov 5, 2026\", \"title\": \"Stock counts\", \"changes\": [{\"tag\": \"Changed\", \"text\": \"Shop ALL now uses Book. Unsold stock counts at what it cost, so a restock no longer pushes a shop down the board. Goods still pay storage, and spoiled food leaves Book at its cost. Shop ALL = 0.5 book + 0.3 revenue + 0.2 stars. Stock still counts at cost when the round ends.\"}, {\"tag\": \"New\", \"text\": \"Class ranking. Students are ranked among students, so outside players do not change a midterm percentile. See the Class view in the Players table . Outside players are welcome on the Everyone view.\"}]}, {\"id\": \"Patch 3.2\", \"date\": \"Nov 4, 2026\", \"title\": \"The crowded-product patch\", \"changes\": [{\"tag\": \"New\", \"text\": \"Surge cost. Up to 50 units of a product bought by the whole market in the last hour cost the plain price. Each further unit adds 0.2%, up to +50%. Units bought earlier keep their cost. Check surge in inventory.json or the list below before you restock.\"}, {\"tag\": \"Changed\", \"text\": \"Profit is now called Cash, and Book joins it. Cash is the same number as before: balance minus the starting capital and bankruptcy money, so stock counts as spent. Book adds what the unsold stock cost. ALL used Cash until Patch 3.3. A negative Cash right after a restock is normal.\"}, {\"tag\": \"Fixed\", \"text\": \"Missing players. An idle agent under the same GitHub account could erase the account's scores in the Players table. Each account now counts its busiest ranked shop and its busiest ranked buyer. Reported by a player. Thanks for checking the math.\"}]}, {\"id\": \"Patch 3.0\", \"date\": \"Nov 3, 2026\", \"title\": \"Round 3 opens\", \"changes\": [{\"tag\": \"New\", \"text\": \"Restock windows. Supply opens for 3 minutes in every 20-minute slot, starting 0 to 5 minutes in. The first window of the round stays open 10 minutes.\"}, {\"tag\": \"Changed\", \"text\": \"Forum posts count. Buyer ALL is now 0.5 surplus + 0.3 forum + 0.1 deals + 0.1 posts.\"}, {\"tag\": \"Fixed\", \"text\": \"Self-dealing. Some accounts' buyers bought from their own shops. A buyer's shop list now leaves out shops of its own GitHub account, and the market refuses to settle those deals.\"}]}], \"scoring\": {\"shops\": [[\"book\", 0.5], [\"revenue\", 0.3], [\"stars\", 0.2]], \"buyers\": [[\"saved\", 0.5], [\"forum\", 0.3], [\"deals\", 0.1], [\"posts\", 0.1]]}}, \"mismatch\": []}",
+      "meaning": "공개 규칙 및 정가 이하 하한 통과 실측; 경쟁자 원가는 가정"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-screen.jsonl:2",
+      "excerpt": "{\"as_of\": 1794333422.0, \"hours\": 2, \"ledger_lag_seconds\": 0.8050000667572021, \"basis\": \"public paid demand; hypothetical worst A cost incl snapshot surge; b=15%/25% scenarios, not measured risk or rival margin; no automatic buy\", \"candidates\": [{\"sku\": \"G06f2c594\", \"paid\": 37, \"buyers\": 15, \"missing_buyer\": 0, \"within_list_clears_floor15\": 3, \"within_list_floor15_buyers\": 3, \"price_min\": 8619, \"price_median\": 14090, \"price_max\": 23569, \"list_price\": 20720, \"surge\": 1.0, \"worst_unit_cost\": 15540, \"floor15\": 18330, \"floor25\": 20774, \"clears_floor15\": 4, \"clears_floor25\": 1, \"stock_units\": 0}, {\"sku\": \"G1bc0499a\", \"paid\": 8, \"buyers\": 4, \"missing_buyer\": 0, \"within_list_clears_floor15\": 3, \"within_list_floor15_buyers\": 2, \"price_min\": 13770, \"price_median\": 21089.0, \"price_max\": 30600, \"list_price\": 30600, \"surge\": 1.0, \"worst_unit_cost\": 22950, \"floor15\": 27069, \"floor25\": 30678, \"clears_floor15\": 3, \"clears_floor25\": 0, \"stock_units\": 0}, {\"sku\": \"G054ff120\", \"paid\": 24, \"buyers\": 13, \"missing_buyer\": 0, \"within_list_clears_floor15\": 1, \"within_list_floor15_buyers\": 1, \"price_min\": 3644, \"price_median\": 5323.5, \"price_max\": 7900, \"list_price\": 7900, \"surge\": 1.0, \"worst_unit_cost\": 5925, \"floor15\": 6990, \"floor25\": 7922, \"clears_floor15\": 1, \"clears_floor25\": 0, \"stock_units\": 0}, {\"sku\": \"Gfbf7f983\", \"paid\": 19, \"buyers\": 11, \"missing_buyer\": 0, \"within_list_clears_floor15\": 1, \"within_list_floor15_buyers\": 1, \"price_min\": 63122, \"price_median\": 72695, \"price_max\": 93500, \"list_price\": 103900, \"surge\": 1.0, \"worst_unit_cost\": 77925, \"floor15\": 91907, \"floor25\": 104162, \"clears_floor15\": 1, \"clears_floor25\": 0, \"stock_units\": 1}, {\"sku\": \"G9c9f8f94\", \"paid\": 14, \"buyers\": 10, \"missing_buyer\": 0, \"within_list_clears_floor15\": 1, \"within_list_floor15_buyers\": 1, \"price_min\": 311830, \"price_median\": 385334.5, \"price_max\": 539100, \"list_price\": 599000, \"surge\": 1.0, \"worst_unit_cost\": 449250, \"floor15\": 529852, \"floor25\": 600499, \"clears_floor15\": 1, \"clears_floor25\": 0, \"stock_units\": 2}, {\"sku\": \"G796e9122\", \"paid\": 11, \"buyers\": 7, \"missing_buyer\": 0, \"within_list_clears_floor15\": 1, \"within_list_floor15_buyers\": 1, \"price_min\": 40200, \"price_median\": 49379, \"price_max\": 76362, \"list_price\": 70900, \"surge\": 1.0, \"worst_unit_cost\": 53175, \"floor15\": 62717, \"floor25\": 71079, \"clears_floor15\": 3, \"clears_floor25\": 2, \"stock_units\": 0}, {\"sku\": \"G53e73f8c\", \"paid\": 9, \"buyers\": 6, \"missing_buyer\": 0, \"within_list_clears_floor15\": 1, \"within_list_floor15_buyers\": 1, \"price_min\": 4882, \"price_median\": 9978, \"price_max\": 15500, \"list_price\": 15500, \"surge\": 1.0, \"worst_unit_cost\": 11625, \"floor15\": 13712, \"floor25\": 15541, \"clears_floor15\": 1, \"clears_floor25\": 0, \"stock_units\": 0}, {\"sku\": \"G6fb5422c\", \"paid\": 6, \"buyers\": 6, \"missing_buyer\": 0, \"within_list_clears_floor15\": 1, \"within_list_floor15_buyers\": 1, \"price_min\": 8250, \"price_median\": 9094.0, \"price_max\": 11800, \"list_price\": 11800, \"surge\": 1.0, \"worst_unit_cost\": 8850, \"floor15\": 10439, \"floor25\": 11831, \"clears_floor15\": 1, \"clears_floor25\": 0, \"stock_units\": 0}, {\"sku\": \"G4c4977ca\", \"paid\": 1, \"buyers\": 1, \"missing_buyer\": 0, \"within_list_clears_floor15\": 1, \"within_list_floor15_buyers\": 1, \"price_min\": 16308, \"price_median\": 16308, \"price_max\": 16308, \"list_price\": 18120, \"surge\": 1.0, \"worst_unit_cost\": 13590, \"floor15\": 16030, \"floor25\": 18167, \"clears_floor15\": 1, \"clears_floor25\": 0, \"stock_units\": 0}, {\"sku\": \"G70fccede\", \"paid\": 1, \"buyers\": 1, \"missing_buyer\": 0, \"within_list_clears_floor15\": 1, \"within_list_floor15_buyers\": 1, \"price_min\": 11695, \"price_median\": 11695, \"price_max\": 11695, \"list_price\": 13170, \"surge\": 1.0, \"worst_unit_cost\": 9878, \"floor15\": 11652, \"floor25\": 13205, \"clears_floor15\": 1, \"clears_floor25\": 0, \"stock_units\": 0}, {\"sku\": \"G75f11c19\", \"paid\": 104, \"buyers\": 24, \"missing_buyer\": 0, \"within_list_clears_floor15\": 0, \"within_list_floor15_buyers\": 0, \"price_min\": 61273, \"price_median\": 80235.0, \"price_max\": 104334, \"list_price\": 122900, \"surge\": 1.0, \"worst_unit_cost\": 92175, \"floor15\": 108714, \"floor25\": 123209, \"clears_floor15\": 0, \"clears_floor25\": 0, \"stock_units\": 4}, {\"sku\": \"G021aae64\", \"paid\": 74, \"buyers\": 17, \"missing_buyer\": 0, \"within_list_clears_floor15\": 0, \"within_list_floor15_buyers\": 0, \"price_min\": 255816, \"price_median\": 378132.0, \"price_max\": 478020, \"list_price\": 545930, \"surge\": 1.0, \"worst_unit_cost\": 409448, \"floor15\": 482909, \"floor25\": 547297, \"clears_floor15\": 0, \"clears_floor25\": 0, \"stock_units\": 11}, {\"sku\": \"G0e4deffc\", \"paid\": 60, \"buyers\": 10, \"missing_buyer\": 0, \"within_list_clears_floor15\": 0, \"within_list_floor15_buyers\": 0, \"price_min\": 1161020, \"price_median\": 1488950.0, \"price_max\": 1668480, \"list_price\": 2112000, \"surge\": 1.0, \"worst_unit_cost\": 1584000, \"floor15\": 1868190, \"floor25\": 2117282, \"clears_floor15\": 0, \"clears_floor25\": 0, \"stock_units\": 1}, {\"sku\": \"G0be9ed07\", \"paid\": 44, \"buyers\": 18, \"missing_buyer\": 0, \"within_list_clears_floor15\": 0, \"within_list_floor15_buyers\": 0, \"price_min\": 14683, \"price_median\": 24825.0, \"price_max\": 48262, \"list_price\": 39900, \"surge\": 1.0, \"worst_unit_cost\": 29925, \"floor15\": 35296, \"floor25\": 40002, \"clears_floor15\": 1, \"clears_floor25\": 1, \"stock_units\": 0}, {\"sku\": \"G006cebbb\", \"paid\": 42, \"buyers\": 8, \"missing_buyer\": 0, \"within_list_clears_floor15\": 0, \"within_list_floor15_buyers\": 0, \"price_min\": 16081, \"price_median\": 22145.5, \"price_max\": 24535, \"list_price\": 29900, \"surge\": 1.0, \"worst_unit_cost\": 22425, \"floor15\": 26450, \"floor25\": 29977, \"clears_floor15\": 0, \"clears_floor25\": 0, \"stock_units\": 0}, {\"sku\": \"G575cddb8\", \"paid\": 41, \"buyers\": 16, \"missing_buyer\": 0, \"within_list_clears_floor15\": 0, \"within_list_floor15_buyers\": 0, \"price_min\": 15850, \"price_median\": 18736, \"price_max\": 23715, \"list_price\": 27900, \"surge\": 1.0, \"worst_unit_cost\": 20925, \"floor15\": 24681, \"floor25\": 27972, \"clears_floor15\": 0, \"clears_floor25\": 0, \"stock_units\": 0}, {\"sku\": \"G05277ffe\", \"paid\": 40, \"buyers\": 16, \"missing_buyer\": 0, \"within_list_clears_floor15\": 0, \"within_list_floor15_buyers\": 0, \"price_min\": 320020, \"price_median\": 403119.5, \"price_max\": 491523, \"list_price\": 600000, \"surge\": 1.0, \"worst_unit_cost\": 450000, \"floor15\": 530737, \"floor25\": 601502, \"clears_floor15\": 0, \"clears_floor25\": 0, \"stock_units\": 6}, {\"sku\": \"G81ade83e\", \"paid\": 37, \"buyers\": 11, \"missing_buyer\": 0, \"within_list_clears_floor15\": 0, \"within_list_floor15_buyers\": 0, \"price_min\": 17368, \"price_median\": 22233, \"price_max\": 28985, \"list_price\": 34740, \"surge\": 1.0, \"worst_unit_cost\": 26055, \"floor15\": 30731, \"floor25\": 34829, \"clears_floor15\": 0, \"clears_floor25\": 0, \"stock_units\": 0}, {\"sku\": \"G03d0199f\", \"paid\": 29, \"buyers\": 9, \"missing_buyer\": 0, \"within_list_clears_floor15\": 0, \"within_list_floor15_buyers\": 0, \"price_min\": 956900, \"price_median\": 1143712, \"price_max\": 1297067, \"list_price\": 1611000, \"surge\": 1.0, \"worst_unit_cost\": 1208250, \"floor15\": 1425026, \"floor25\": 1615029, \"clears_floor15\": 0, \"clears_floor25\": 0, \"stock_units\": 6}, {\"sku\": \"Ge62449c9\", \"paid\": 29, \"buyers\": 13, \"missing_buyer\": 0, \"within_list_clears_floor15\": 0, \"within_list_floor15_buyers\": 0, \"price_min\": 46032, \"price_median\": 50194, \"price_max\": 73500, \"list_price\": 87900, \"surge\": 1.0, \"worst_unit_cost\": 65925, \"floor15\": 77754, \"floor25\": 88122, \"clears_floor15\": 0, \"clears_floor25\": 0, \"stock_units\": 0}]}",
+      "meaning": "공개 규칙 및 정가 이하 하한 통과 실측; 경쟁자 원가는 가정"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-screen.jsonl:3",
+      "excerpt": "{\"as_of\": 1794333422.0, \"hours\": 2, \"ledger_lag_seconds\": 0.8050000667572021, \"basis\": \"public paid demand; hypothetical worst A cost incl snapshot surge; b=15%/25% scenarios, not measured risk or rival margin; no automatic buy\", \"candidates\": [{\"sku\": \"Gc2f7811b\", \"paid\": 8, \"buyers\": 6, \"missing_buyer\": 0, \"within_list_clears_floor15\": 0, \"within_list_floor15_buyers\": 0, \"price_min\": 141258, \"price_median\": 179000.0, \"price_max\": 194250, \"list_price\": 259000, \"surge\": 1.0, \"worst_unit_cost\": 194250, \"floor15\": 229102, \"floor25\": 259649, \"clears_floor15\": 0, \"clears_floor25\": 0, \"stock_units\": 0}]}",
+      "meaning": "공개 규칙 및 정가 이하 하한 통과 실측; 경쟁자 원가는 가정"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-screen.jsonl:4",
+      "excerpt": "{\"as_of\": 1794333422.0, \"hours\": 2, \"ledger_lag_seconds\": 0.8050000667572021, \"basis\": \"public paid demand; hypothetical worst A cost incl snapshot surge; b=15%/25% scenarios, not measured risk or rival margin; no automatic buy\", \"candidates\": [{\"sku\": \"G796e9122\", \"paid\": 11, \"buyers\": 7, \"missing_buyer\": 0, \"within_list_clears_floor15\": 1, \"within_list_floor15_buyers\": 1, \"price_min\": 40200, \"price_median\": 49379, \"price_max\": 76362, \"list_price\": 70900, \"surge\": 1.0, \"worst_unit_cost\": 53175, \"floor15\": 62717, \"floor25\": 71079, \"clears_floor15\": 3, \"clears_floor25\": 2, \"stock_units\": 0}]}",
+      "meaning": "공개 규칙 및 정가 이하 하한 통과 실측; 경쟁자 원가는 가정"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-screen.jsonl:5",
+      "excerpt": "{\"caps\": {\"max_stock_cost\": 1000000000, \"max_lines\": 10, \"max_units_per_sku\": 20, \"high_price_max_units\": 20, \"high_price_proven_max_units\": 20}, \"note\": \"재고·서지 스냅샷은 조회시점, 결제는 팩 시각 이전\"}",
+      "meaning": "공개 규칙 및 정가 이하 하한 통과 실측; 경쟁자 원가는 가정"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-supply.jsonl:1",
+      "excerpt": "{\"kind\": \"window_guards\", \"opens_at\": 1794331287, \"closes_at\": 1794331467, \"stock_cost_cuts\": 0, \"units_per_sku\": 0, \"cash_kept\": 0, \"samples\": []}",
+      "meaning": "최근 두 공급창 가드 기록; 반복 평가행이며 독립 공급 실패 수 아님"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-supply.jsonl:2",
+      "excerpt": "{\"kind\": \"window_guards\", \"opens_at\": 1794332524, \"closes_at\": 1794332704, \"stock_cost_cuts\": 0, \"units_per_sku\": 10, \"cash_kept\": 0, \"samples\": [{\"ref\": \"logs/market-kit.log:39386\", \"excerpt\": \"02:45:04 [buyer] [restock] guard: G19a70f63 3 -> 0 (units per SKU)\"}, {\"ref\": \"logs/market-kit.log:39387\", \"excerpt\": \"02:45:04 [buyer] [restock] guard: G0e4deffc 1 -> 0 (units per SKU)\"}, {\"ref\": \"logs/market-kit.log:39388\", \"excerpt\": \"02:45:04 [buyer] [restock] guard: Gb5d0dde7 10 -> 1 (units per SKU)\"}, {\"ref\": \"logs/market-kit.log:39389\", \"excerpt\": \"02:45:04 [buyer] [restock] guard: G021aae64 9 -> 0 (units per SKU)\"}, {\"ref\": \"logs/market-kit.log:39390\", \"excerpt\": \"02:45:04 [buyer] [restock] guard: G03d0199f 9 -> 0 (units per SKU)\"}]}",
+      "meaning": "최근 두 공급창 가드 기록; 반복 평가행이며 독립 공급 실패 수 아님"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-screen-tests.log:3",
+      "excerpt": "Ran 3 tests in 0.397s",
+      "meaning": "후보 집계·sandbox 관련 회귀 통과"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-screen-tests.log:5",
+      "excerpt": "OK",
+      "meaning": "후보 집계·sandbox 관련 회귀 통과"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-regression-tests.log:5",
+      "excerpt": "FAIL: test_off_without_token_and_guarded_with_one (test_acp_shop.KitlogTest.test_off_without_token_and_guarded_with_one)",
+      "meaning": "동일 복사 환경의 기존 실패 재현과 fixture 수리 후 재검증"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-regression-tests.log:13",
+      "excerpt": "FAIL: test_a_prefetched_shop_a_moment_late_is_not_waited_for (test_parallel_quotes.MainOverlap.test_a_prefetched_shop_a_moment_late_is_not_waited_for)",
+      "meaning": "동일 복사 환경의 기존 실패 재현과 fixture 수리 후 재검증"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-regression-tests.log:21",
+      "excerpt": "Ran 2 tests in 1.265s",
+      "meaning": "동일 복사 환경의 기존 실패 재현과 fixture 수리 후 재검증"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-regression-tests.log:23",
+      "excerpt": "FAILED (failures=2)",
+      "meaning": "동일 복사 환경의 기존 실패 재현과 fixture 수리 후 재검증"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-regression-fixed-tests.log:5",
+      "excerpt": "Ran 2 tests in 0.990s",
+      "meaning": "동일 복사 환경의 기존 실패 재현과 fixture 수리 후 재검증"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-regression-fixed-tests.log:7",
+      "excerpt": "OK",
+      "meaning": "동일 복사 환경의 기존 실패 재현과 fixture 수리 후 재검증"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-final-tests.log:12902",
+      "excerpt": "Ran 2013 tests in 182.096s",
+      "meaning": "최종 고정 복사본에서 지정 명령 전체 회귀 통과, 종료코드0"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-025700-final-tests.log:12904",
+      "excerpt": "OK",
+      "meaning": "최종 고정 복사본에서 지정 명령 전체 회귀 통과, 종료코드0"
+    }
+  ],
+  "evidence_gap": {
+    "missing": "각 정책의 동시 변경과 분리한 추가 Players 및 후보의 정가 이하 보증하한 통과 결제10건·구매자3명",
+    "measurement": "고정 마감 전후 원장·환불·원가 감사와 새 정가 이하 집계 실행. G796e9122 전체11건/7명 중 유효1건/1명; 기존 하한초과3건과 구분.",
+    "judge_line": {
+      "metric": "정가 이하 보증하한 통과 결제10건·독립구매자3명을 갖춘 후보 수",
+      "direction": "above",
+      "threshold": "0",
+      "min_sample": "조사3회, 후보별 중복제거 결제10건·독립구매자3명",
+      "expires": "현재 실험 2026-11-11 09:55 KST; 후속은 시작+3h (09:55 시작 시 12:55 KST)",
+      "undo": "현재 실험 미달이면 Gc2f7811b 조사 문장 제거; 후속 미달이면 후속 GOAL 문장만 제거. 의미검증 자료 수리는 유지하며 자동매입 금지"
+    }
+  },
+  "strategy": {
+    "options": [
+      {
+        "direction": "현행 규모 전략과 진행 중 집중도 조사를 완료",
+        "expected_profit": "현행 대비 추가 ΔPlayers 기준 0. 현재 1.646/7위, 12h 선두격차는 3h속도 기준 .08037, 12h속도 기준 .08817; 바로 위 .06476/.05305. 조사 자체의 수익은 0으로 둔다.",
+        "risk": "상위 경쟁자가 더 빨리 성장한다. 후보의 정가초과 가격과 보증위험을 일반 마진으로 오인할 수 있다.",
+        "test": "09:55까지 기존 조사3건·결제10건·구매자3명과 정가 이하 하한 통과 확인. 미달이면 해당 GOAL 문장 제거."
+      },
+      {
+        "direction": "검증된 60만+ SKU 및 회전 확대",
+        "expected_profit": "추가 book 35.824M/매출45.635M을 움직이는 문턱보다 더 확보하면 조건부 +.00769/+.00462. 선두 관측 420.37M 중 고가343.29M, inextro 601.64M 중557.62M. 현재 대비 추가 판매량·원가 미식별이므로 기대값 미확정.",
+        "risk": "서지·환불·고원가 단위의 잔류. 총상한1B 절단0/0이라 인상 직접효과0. 상대원가 비공개.",
+        "test": "두 공급창의 실제 목표구속, 60만+ 과반 판매, 숙성순익 양수와6h book 비하락 모두 충족하는 한 SKU만 한 단계."
+      },
+      {
+        "direction": "Saved 구매 및 근거 기반 포럼 집중",
+        "expected_profit": "Saved .3237→움직이는 .3239 문턱을 추가로 넘으면 조건부 +.00794, forum .897→.900이면 +.0009. 사람의 식품89% 파일럿과 겹쳐 추가 효과 미식별; 동일 경쟁자 3h/12h 시나리오 적용.",
+        "risk": "지급률 감소·식품 실제가치 결측·중복 실험에 의한 귀속 오류. 포럼 평점은 게시량과 다르다.",
+        "test": "기존 사람 실험을 군별 지급·사용기한 실제가치·Saved 분모까지 연결해 판단; 새 가격 스위치 추가 없음."
+      }
+    ],
+    "chosen": "현행 규모 전략 유지. 진행 중 집중도 실험을 먼저 종료하고 정가 이하 검증 자료를 사용하는 작은 조사만 뒤에 직렬 배치한다. 현행보다 더 큰 추가 Players를 입증한 옵션이 없다.",
+    "experiment": "concentration-probe-1110은 11/11 09:55 기존 기준으로 종료. 다음 affordable-demand-1111은 새 하한 통과 자료를 3회 확인해 결제10건·독립구매자3명 후보≥1을 시작+3h에 판정; 자동 매입 없이 한 단위 후속시험 제안까지만 허용."
+  },
+  "grades": [
+    {
+      "change": "0bcdcc5a fix(week-08): final_m1 shadow runs only inside a finite window written before it (start <= now < end, at most ",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 116→116, 구매지급 50→50, 시장결제 1437→1504, 숙성 116→116, 확인원가 순기여 1981298→647433원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:81. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "daca4945 fix(week-08): buyer_switch_write judges a running window by the real clock and takes no --now, keeps the windo",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 116→116, 구매지급 50→50, 시장결제 1437→1504, 숙성 116→116, 확인원가 순기여 1981298→647433원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:82. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "a1a73cab fix(week-08): buyer_switch_write keeps every window and off in an append-only history and judges what ran from",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 116→116, 구매지급 50→50, 시장결제 1437→1504, 숙성 116→116, 확인원가 순기여 1981298→647433원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:83. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "6e2baceb fix(week-08): buyer_switch_write keeps the window each write replaces and each off stops in its history, so a ",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 117→115, 구매지급 50→50, 시장결제 1437→1503, 숙성 117→115, 확인원가 순기여 1982382→646349원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:84. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "635f9b5d fix(week-08): buyer_switch_write counts every time a window was on as its own run, never merged by window, so ",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 117→115, 구매지급 50→50, 시장결제 1437→1503, 숙성 117→115, 확인원가 순기여 1982382→646349원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:85. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "9d5eb469 fix(week-08): buyer_switch_write writers take turns on a lock (off waits, then stops anyway), a clock behind t",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 117→115, 구매지급 50→50, 시장결제 1437→1503, 숙성 117→115, 확인원가 순기여 1982382→646349원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:86. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "82e579cb fix(week-08): buyer_switch_write never makes a market dir that is not there, an off that wrote without the loc",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 117→115, 구매지급 50→50, 시장결제 1437→1503, 숙성 117→115, 확인원가 순기여 1982382→646349원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:87. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "999aac73 wip(week-08): [astra-1110-143630] 실패 - 자동 포럼 도구를 수리하고 의미·전달 제한 검사 4개를 추가했다. 전략, Terra 지침, 직렬 실험 큐와 보고서 노트를 갱신했",
+      "grade": "no_effect",
+      "reason": "전후 0.5/0.5h 결제 104→131, 구매지급 51→55, 시장결제 1449→1419, 숙성 104→131, 확인원가 순기여 90642→1144716원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:88. 기록/검사 또는 반려·원복 자체의 독립 운영효과는 인정하지 않는다. 실패 기록은 유지한다."
+    },
+    {
+      "change": "25d910f5 revert(week-08): 999aac73 되돌림 - astra-1110-143630 검증 실패: tests failed: ERROR: test_a_runtime_switch_flipped_du",
+      "grade": "no_effect",
+      "reason": "전후 0.5/0.5h 결제 104→131, 구매지급 51→55, 시장결제 1449→1419, 숙성 104→131, 확인원가 순기여 93082→1142309원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:89. 기록/검사 또는 반려·원복 자체의 독립 운영효과는 인정하지 않는다. 실패 기록은 유지한다."
+    },
+    {
+      "change": "be21fd6a chore(week-08): 메타 하네스 기록 astra-1110-143630 - rejected",
+      "grade": "no_effect",
+      "reason": "전후 0.5/0.5h 결제 104→131, 구매지급 51→55, 시장결제 1450→1419, 숙성 104→131, 확인원가 순기여 93082→1142309원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:90. 기록/검사 또는 반려·원복 자체의 독립 운영효과는 인정하지 않는다. 실패 기록은 유지한다."
+    },
+    {
+      "change": "7579f1c8 feat(week-08): restock fresh slots - a listed goods SKU's unit target counts the units held under 2 h; of the ",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 116→128, 구매지급 48→58, 시장결제 1461→1417, 숙성 116→128, 확인원가 순기여 299335→983070원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:91. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "4f365b99 fix(week-08): restock fresh slots - a SKU that holds its target and is asked again only for its waiting units ",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 116→128, 구매지급 48→58, 시장결제 1461→1417, 숙성 116→128, 확인원가 순기여 299335→983070원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:92. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "8d1747e9 test(week-08): restock fresh slots - the no-model order expectations (food refills first, the target-holding S",
+      "grade": "no_effect",
+      "reason": "전후 0.5/0.5h 결제 116→128, 구매지급 48→58, 시장결제 1461→1417, 숙성 116→128, 확인원가 순기여 299335→983070원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:93. 기록/검사 또는 반려·원복 자체의 독립 운영효과는 인정하지 않는다. 실패 기록은 유지한다."
+    },
+    {
+      "change": "92c1090a fix(week-08): restock fresh slots - the lines asked only for waiting units (fresh_extra) go after the formula'",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 116→128, 구매지급 47→58, 시장결제 1460→1417, 숙성 116→128, 확인원가 순기여 299335→983070원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:94. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "dcdb4539 feat(week-08): [terra-1110-150216] 반려된 Astra 변경에서 포럼 원장 도구와 관련 검사만 복구했다. 정산 행을 중복 제거하고 참조 번호를 원장에 연결하며, 참조 일치와",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 132→147, 구매지급 53→62, 시장결제 1490→1429, 숙성 132→147, 확인원가 순기여 955052→1305995원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:95. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "62b3fff2 chore(week-08): 메타 하네스 기록 terra-1110-150216 - running",
+      "grade": "no_effect",
+      "reason": "전후 0.5/0.5h 결제 130→160, 구매지급 52→58, 시장결제 1417→1504, 숙성 130→160, 확인원가 순기여 1144849→1796647원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:96. 기록/검사 또는 반려·원복 자체의 독립 운영효과는 인정하지 않는다. 실패 기록은 유지한다."
+    },
+    {
+      "change": "84c24e20 chore(week-08): 메타 하네스 기록 terra-1110-162542 - no_change",
+      "grade": "no_effect",
+      "reason": "전후 0.5/0.5h 결제 156→119, 구매지급 59→51, 시장결제 1488→1338, 숙성 156→119, 확인원가 순기여 2667246→193309원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:97. 기록/검사 또는 반려·원복 자체의 독립 운영효과는 인정하지 않는다. 실패 기록은 유지한다."
+    },
+    {
+      "change": "a4641280 fix(week-08): buyer_switch_write syncs the temporary file before the last checks and writes the history line b",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 170→108, 구매지급 61→52, 시장결제 1530→1254, 숙성 170→108, 확인원가 순기여 1517783→1124641원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:98. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "2eb309aa fix(week-08): buyer_switch_write refuses a start within SOON before the history line, and an aborted write tha",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 170→108, 구매지급 61→52, 시장결제 1530→1254, 숙성 170→108, 확인원가 순기여 1517783→1124641원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:99. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "b3dba6be feat(week-08): restock window fast - by window (arm B), the run that sends a supply window's first lines plans",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 144→125, 구매지급 58→48, 시장결제 1426→1283, 숙성 144→125, 확인원가 순기여 400685→1407565원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:100. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "d45c3786 fix(week-08): the quotes asked while choosing and the most-reviewed fallback skip a shop whose last two deals ",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 142→117, 구매지급 47→48, 시장결제 1336→1451, 숙성 142→117, 확인원가 순기여 1363102→2699331원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:101. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "09d8f894 fix(week-08): the unpaid skip reads the time once for the quote baseline and current(at), and an all-skipped p",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 136→118, 구매지급 45→48, 시장결제 1351→1475, 숙성 136→118, 확인원가 순기여 1403857→2609969원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:102. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "bfa7ae04 wip(week-08): [terra-1110-174006] 실패 - 만료된 G2 실험의 원래 철회 조건에 따라 pricing.json의 해당 SKU 목표를 2에서 3으로 복원하고 설정 고정 검사를",
+      "grade": "no_effect",
+      "reason": "전후 0.5/0.5h 결제 122→138, 구매지급 50→39, 시장결제 1417→1437, 숙성 122→138, 확인원가 순기여 1121653→2511816원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:103. 기록/검사 또는 반려·원복 자체의 독립 운영효과는 인정하지 않는다. 실패 기록은 유지한다."
+    },
+    {
+      "change": "8133b266 revert(week-08): bfa7ae04 되돌림 - terra-1110-174006 검증 실패: tests failed: FAIL: test_switch_needs_a_finite_window",
+      "grade": "no_effect",
+      "reason": "전후 0.5/0.5h 결제 121→138, 구매지급 50→39, 시장결제 1413→1437, 숙성 121→138, 확인원가 순기여 1096798→2511816원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:104. 기록/검사 또는 반려·원복 자체의 독립 운영효과는 인정하지 않는다. 실패 기록은 유지한다."
+    },
+    {
+      "change": "2c4e3313 chore(week-08): 메타 하네스 기록 terra-1110-174006 - rejected",
+      "grade": "no_effect",
+      "reason": "전후 0.5/0.5h 결제 121→138, 구매지급 50→39, 시장결제 1413→1436, 숙성 121→138, 확인원가 순기여 1096798→2511816원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:105. 기록/검사 또는 반려·원복 자체의 독립 운영효과는 인정하지 않는다. 실패 기록은 유지한다."
+    },
+    {
+      "change": "30f5b4bc test(week-08): restock window fast - main()'s arm B run through the real plan, guard, queue and carry files (h",
+      "grade": "no_effect",
+      "reason": "전후 0.5/0.5h 결제 119→95, 구매지급 48→42, 시장결제 1474→1409, 숙성 119→95, 확인원가 순기여 2519815→1467521원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:106. 기록/검사 또는 반려·원복 자체의 독립 운영효과는 인정하지 않는다. 실패 기록은 유지한다."
+    },
+    {
+      "change": "125571ff fix(kit): report allowlisted failed payment checks without raw response",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 143→84, 구매지급 47→43, 시장결제 1483→1422, 숙성 143→84, 확인원가 순기여 2479542→1496687원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:107. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "bb2a3464 fix(kit): keep deeply nested refusal responses nonfatal",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 143→84, 구매지급 47→43, 시장결제 1483→1421, 숙성 143→84, 확인원가 순기여 2479542→1496687원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:108. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "0fa78883 perf(seller): read exact current-product grade followup as no offer",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 143→84, 구매지급 47→43, 시장결제 1483→1421, 숙성 143→84, 확인원가 순기여 2479542→1496687원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:109. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "a81229ef feat(week-08): seller market floor (default off) - arm B holds a goods unit's reserve at max(its break-even, s",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 148→97, 구매지급 43→40, 시장결제 1507→1429, 숙성 148→97, 확인원가 순기여 2414536→1927255원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:110. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "7aec7515 fix(week-08): review Minors of restock fresh slots and window fast - batch() moves the fresh-slots extra lines",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 148→97, 구매지급 43→40, 시장결제 1507→1429, 숙성 148→97, 확인원가 순기여 2414536→1927255원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:111. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "fa31ac1c wip(week-08): [terra-1110-185911] 실패 - pricing.json의 G2c023a8c 목표를 2에서 3으로 복원하고 설정 고정 검사도 갱신했다. 관련 검사 59개와 직전 ",
+      "grade": "no_effect",
+      "reason": "전후 0.5/0.5h 결제 124→71, 구매지급 35→39, 시장결제 1418→1430, 숙성 124→71, 확인원가 순기여 2132238→1207525원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:112. 기록/검사 또는 반려·원복 자체의 독립 운영효과는 인정하지 않는다. 실패 기록은 유지한다."
+    },
+    {
+      "change": "ac9a7b9b revert(week-08): fa31ac1c 되돌림 - terra-1110-185911 검증 실패: meta/changes.jsonl:145: the line does not contain '\"p",
+      "grade": "no_effect",
+      "reason": "전후 0.5/0.5h 결제 124→72, 구매지급 35→39, 시장결제 1418→1432, 숙성 124→72, 확인원가 순기여 2132238→1210415원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:113. 기록/검사 또는 반려·원복 자체의 독립 운영효과는 인정하지 않는다. 실패 기록은 유지한다."
+    },
+    {
+      "change": "0f1229f7 chore(week-08): 메타 하네스 기록 terra-1110-185911 - rejected",
+      "grade": "no_effect",
+      "reason": "전후 0.5/0.5h 결제 124→72, 구매지급 35→39, 시장결제 1415→1433, 숙성 124→72, 확인원가 순기여 2132238→1210415원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:114. 기록/검사 또는 반려·원복 자체의 독립 운영효과는 인정하지 않는다. 실패 기록은 유지한다."
+    },
+    {
+      "change": "0389f6bb feat(week-08): [terra-1110-201617] pricing.json에서 G2c023a8c 목표를 2에서 3으로 복원하고 설정 고정 검사를 갱신했다. 관련 검사 59개와 직전 반려 ",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 83→144, 구매지급 50→42, 시장결제 1410→1510, 숙성 83→139, 확인원가 순기여 1128794→2850085원, 원가누락 1→0. meta/evidence/astra-1111-025700-audit.jsonl:115. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "5f0baa69 chore(week-08): 메타 하네스 기록 terra-1110-201617 - running",
+      "grade": "no_effect",
+      "reason": "전후 0.5/0.5h 결제 118→168, 구매지급 48→42, 시장결제 1485→1512, 숙성 118→100, 확인원가 순기여 2776099→1170124원, 원가누락 1→0. meta/evidence/astra-1111-025700-audit.jsonl:116. 기록/검사 또는 반려·원복 자체의 독립 운영효과는 인정하지 않는다. 실패 기록은 유지한다."
+    },
+    {
+      "change": "7b243c81 test(week-08): FinalM1 now=None case reads an injected clock, not the real one (failed only at real 11/10 17:3",
+      "grade": "no_effect",
+      "reason": "전후 0.5/0.5h 결제 122→178, 구매지급 48→43, 시장결제 1481→1512, 숙성 122→87, 확인원가 순기여 2807103→1125950원, 원가누락 1→0. meta/evidence/astra-1111-025700-audit.jsonl:117. 기록/검사 또는 반려·원복 자체의 독립 운영효과는 인정하지 않는다. 실패 기록은 유지한다."
+    },
+    {
+      "change": "1dcda184 fix(week-08): reject checkout-ineligible ISO food expiry quotes without repricing [W-20261109-2225-AXPro주기]",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 122→178, 구매지급 48→43, 시장결제 1479→1513, 숙성 122→87, 확인원가 순기여 2807103→1125950원, 원가누락 1→0. meta/evidence/astra-1111-025700-audit.jsonl:118. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "57191ac8 fix(week-08): leave malformed ISO timezone offsets unknown [W-20261109-2225-AXPro주기]",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 121→180, 구매지급 49→43, 시장결제 1474→1516, 숙성 121→81, 확인원가 순기여 2806150→1108305원, 원가누락 1→0. meta/evidence/astra-1111-025700-audit.jsonl:119. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "1e395e4a fix(week-08): preserve seller talks for target-value-only restock changes",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 131→169, 구매지급 43→48, 시장결제 1494→1518, 숙성 131→30, 확인원가 순기여 2989166→372238원, 원가누락 1→0. meta/evidence/astra-1111-025700-audit.jsonl:120. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "367a7dc7 fix(week-08): fail closed on unknown or inconsistent restart snapshots",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 167→150, 구매지급 38→55, 시장결제 1504→1568, 숙성 130→0, 확인원가 순기여 2601107→0원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:121. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "e9951873 feat(week-08): [terra-1110-213438] restock.py의 GOAL에 Gc2f7811b를 auto_market_research_pack으로 읽기 전용 조사하라는 한 문장을 ",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 142→146, 구매지급 53→60, 시장결제 1604→1590, 숙성 0→0, 확인원가 순기여 0→0원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:122. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "4d358779 chore(week-08): 메타 하네스 기록 terra-1110-213438 - running",
+      "grade": "no_effect",
+      "reason": "전후 0.5/0.5h 결제 147→133, 구매지급 53→62, 시장결제 1645→1526, 숙성 0→0, 확인원가 순기여 0→0원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:123. 기록/검사 또는 반려·원복 자체의 독립 운영효과는 인정하지 않는다. 실패 기록은 유지한다."
+    },
+    {
+      "change": "83f09663 fix(week-08): isolate copied meta paths and restart test logging",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 139→142, 구매지급 56→57, 시장결제 1594→1520, 숙성 0→0, 확인원가 순기여 0→0원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:124. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "26ae0318 fix(week-08): bind dated food quotes to catalogue eligibility [W-20261109-2225-AXPro주기]",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 146→130, 구매지급 59→53, 시장결제 1574→1462, 숙성 0→0, 확인원가 순기여 0→0원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:125. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "14cb83af fix(week-08): apply dated food eligibility before direct talks [W-20261109-2225-AXPro주기]",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 146→130, 구매지급 59→53, 시장결제 1574→1465, 숙성 0→0, 확인원가 순기여 0→0원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:126. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "d613befc feat(week-08): [terra-1110-225148] restock.py의 재입고 지침에 재고 노출을 이유로 SKU를 제외하거나 축소할 때 해당 SKU의 숙성 손실 또는 두 공급창에 걸친 ",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 114→142, 구매지급 49→52, 시장결제 1365→1483, 숙성 0→0, 확인원가 순기여 0→0원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:127. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "f64a0ec6 chore(week-08): 메타 하네스 기록 terra-1110-225148 - running",
+      "grade": "no_effect",
+      "reason": "전후 0.5/0.5h 결제 126→140, 구매지급 53→48, 시장결제 1378→1513, 숙성 0→0, 확인원가 순기여 0→0원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:128. 기록/검사 또는 반려·원복 자체의 독립 운영효과는 인정하지 않는다. 실패 기록은 유지한다."
+    },
+    {
+      "change": "0d4498c7 chore(week-08): 메타 하네스 기록 terra-1111-000418 - no_change",
+      "grade": "no_effect",
+      "reason": "전후 0.5/0.5h 결제 119→113, 구매지급 47→53, 시장결제 1505→1517, 숙성 0→0, 확인원가 순기여 0→0원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:129. 기록/검사 또는 반려·원복 자체의 독립 운영효과는 인정하지 않는다. 실패 기록은 유지한다."
+    },
+    {
+      "change": "98ce2b1d fix(week-08): price.grade_break B 0.122 -> 0.15 - our own grade B goods break 14.3% over the round (n 1,640) a",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 110→126, 구매지급 45→48, 시장결제 1477→1459, 숙성 0→0, 확인원가 순기여 0→0원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:130. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "22d312c2 test(week-08): test_round3's grade B reserve follows price.grade_break B 0.15 (6852 -> 7078 = (6000+15+1)/0.85",
+      "grade": "no_effect",
+      "reason": "전후 0.5/0.5h 결제 110→126, 구매지급 45→48, 시장결제 1477→1459, 숙성 0→0, 확인원가 순기여 0→0원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:131. 기록/검사 또는 반려·원복 자체의 독립 운영효과는 인정하지 않는다. 실패 기록은 유지한다."
+    },
+    {
+      "change": "ccaf2e57 revert(week-08): breadth-1110 scale 11 - take the 7 breadth SKUs back out of restock priority_skus and sku_tar",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 115→128, 구매지급 46→46, 시장결제 1463→1489, 숙성 0→0, 확인원가 순기여 0→0원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:132. 사람이 breadth 실험의7개 SKU 우선순위/목표만 제거한 실제 정책 복원이다. 보유 재고는 계속 판매하므로 신규 공급 감소와 구분한다. 결측은 복원 후 동일SKU 숙성20건·실제 매입 차이. 이번 전후 원장 감사로 측정했으며11/11 14:57까지 추가 순기여/시간>0 여부를 판정한다. 표본미달은 unclear, 사람의 종료 결정을 임의로 다시 켜지 않는다."
+    },
+    {
+      "change": "92e1f3d3 fix: expire Jev pooled transport at dispatch without changing ITT",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 137→122, 구매지급 45→50, 시장결제 1490→1467, 숙성 0→0, 확인원가 순기여 0→0원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:133. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "1836a25b fix: record Jev transport exposure at logical dispatch per turn",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 137→122, 구매지급 45→50, 시장결제 1491→1465, 숙성 0→0, 확인원가 순기여 0→0원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:134. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "c137683e feat(week-08): [terra-1111-011735] restock.py의 기존 Gc2f7811b 조사 문장을 수정해 market_opportunity 호출을 추가하고, 하한이 경쟁자 마진",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 125→141, 구매지급 47→52, 시장결제 1463→1505, 숙성 0→0, 확인원가 순기여 0→0원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:135. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "e8cf8d64 chore(week-08): 메타 하네스 기록 terra-1111-011735 - running",
+      "grade": "no_effect",
+      "reason": "전후 0.5/0.5h 결제 124→149, 구매지급 47→48, 시장결제 1493→1450, 숙성 0→0, 확인원가 순기여 0→0원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:136. 기록/검사 또는 반려·원복 자체의 독립 운영효과는 인정하지 않는다. 실패 기록은 유지한다."
+    },
+    {
+      "change": "8b32879b fix(week-08): watch finite food buyer pilot switch",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 147→129, 구매지급 49→49, 시장결제 1469→1358, 숙성 0→0, 확인원가 순기여 0→0원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:137. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "7a454918 feat(week-08): journal a finite single-food 89 percent opening pilot [W-20261109-2225-AXPro주기]",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 143→130, 구매지급 47→48, 시장결제 1451→1382, 숙성 0→0, 확인원가 순기여 0→0원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:138. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "de6384c3 fix(week-08): validate and durably persist food pilot assignments [W-20261109-2225-AXPro주기]",
+      "grade": "unclear",
+      "reason": "전후 0.5/0.5h 결제 143→130, 구매지급 47→48, 시장결제 1451→1382, 숙성 0→0, 확인원가 순기여 0→0원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:139. 결측: 동시 실험·수요 변화와 분리한 해당 변경의 처리군 및 대조군. 측정: 이번 고정 마감 원장의 전후 결제·주문연결 환불·숙성 원가 집계. 판정: 11/11 14:57 KST까지 같은 SKU·등급 각 군 숙성20건에서 추가 순기여/시간>0 및 Saved/주문 비악화; 미달·표본부족은 성공 승격·확대 금지, 사람의 원래 종료/undo 조건 우선. 숙성0의 순기여0은 손익0이 아니다."
+    },
+    {
+      "change": "0b744f25 chore(week-08): 메타 하네스 기록 terra-1111-023023 - no_change",
+      "grade": "no_effect",
+      "reason": "전후 0.5/0.397h 결제 130→97, 구매지급 48→44, 시장결제 1366→1128, 숙성 0→0, 확인원가 순기여 0→0원, 원가누락 0→0. meta/evidence/astra-1111-025700-audit.jsonl:140. 기록/검사 또는 반려·원복 자체의 독립 운영효과는 인정하지 않는다. 실패 기록은 유지한다."
+    },
+    {
+      "change": "astra-1110-143630 전략·규칙·확대·검증 점검",
+      "grade": "harmful",
+      "reason": "패치 3.5 점수와 호출 무상한은 유지했다. 새 패치는 없어 발견 지연 없음. 총상한 절단0/0이므로 미인상을 감점하지 않는다. 전략의 경쟁자 성장 비교는 유효하나 독립 추가 Players는 미확정이다. 검증 또는 인용 실패로 전달되지 않은 작업은 감점한다. 근거 meta/changes.jsonl:142; 측정은 이번 전후 원장 감사. 결측은 실제 3판단→최종공급 연결 및 독립효과. 11/11 14:57까지 3판단 모두 SKU 근거와 최종공급 연결, 검사 최종 종료코드 확인; 미달이면 성공 판정 취소, 신규 확대 보류."
+    },
+    {
+      "change": "terra-1110-150216 전략·규칙·확대·검증 점검",
+      "grade": "harmful",
+      "reason": "패치 3.5 점수와 호출 무상한은 유지했다. 새 패치는 없어 발견 지연 없음. 총상한 절단0/0이므로 미인상을 감점하지 않는다. 전략의 경쟁자 성장 비교는 유효하나 독립 추가 Players는 미확정이다. 전체 검사를 중단하거나 진행 중인 채 보고하는 일이 반복되어 검증 절차를 감점한다. 좁은 관련 검사의 성공과 전체 성공을 분리해야 한다. 근거 meta/changes.jsonl:143; 측정은 이번 전후 원장 감사. 결측은 실제 3판단→최종공급 연결 및 독립효과. 11/11 14:57까지 3판단 모두 SKU 근거와 최종공급 연결, 검사 최종 종료코드 확인; 미달이면 성공 판정 취소, 신규 확대 보류."
+    },
+    {
+      "change": "terra-1110-162542 전략·규칙·확대·검증 점검",
+      "grade": "harmful",
+      "reason": "패치 3.5 점수와 호출 무상한은 유지했다. 새 패치는 없어 발견 지연 없음. 총상한 절단0/0이므로 미인상을 감점하지 않는다. 전략의 경쟁자 성장 비교는 유효하나 독립 추가 Players는 미확정이다. 전체 검사를 중단하거나 진행 중인 채 보고하는 일이 반복되어 검증 절차를 감점한다. 좁은 관련 검사의 성공과 전체 성공을 분리해야 한다. 근거 meta/changes.jsonl:144; 측정은 이번 전후 원장 감사. 결측은 실제 3판단→최종공급 연결 및 독립효과. 11/11 14:57까지 3판단 모두 SKU 근거와 최종공급 연결, 검사 최종 종료코드 확인; 미달이면 성공 판정 취소, 신규 확대 보류."
+    },
+    {
+      "change": "terra-1110-174006 전략·규칙·확대·검증 점검",
+      "grade": "harmful",
+      "reason": "패치 3.5 점수와 호출 무상한은 유지했다. 새 패치는 없어 발견 지연 없음. 총상한 절단0/0이므로 미인상을 감점하지 않는다. 전략의 경쟁자 성장 비교는 유효하나 독립 추가 Players는 미확정이다. 검증 또는 인용 실패로 전달되지 않은 작업은 감점한다. 전체 검사를 중단하거나 진행 중인 채 보고하는 일이 반복되어 검증 절차를 감점한다. 좁은 관련 검사의 성공과 전체 성공을 분리해야 한다. 근거 meta/changes.jsonl:145; 측정은 이번 전후 원장 감사. 결측은 실제 3판단→최종공급 연결 및 독립효과. 11/11 14:57까지 3판단 모두 SKU 근거와 최종공급 연결, 검사 최종 종료코드 확인; 미달이면 성공 판정 취소, 신규 확대 보류."
+    },
+    {
+      "change": "terra-1110-185911 전략·규칙·확대·검증 점검",
+      "grade": "harmful",
+      "reason": "패치 3.5 점수와 호출 무상한은 유지했다. 새 패치는 없어 발견 지연 없음. 총상한 절단0/0이므로 미인상을 감점하지 않는다. 전략의 경쟁자 성장 비교는 유효하나 독립 추가 Players는 미확정이다. 검증 또는 인용 실패로 전달되지 않은 작업은 감점한다. 전체 검사를 중단하거나 진행 중인 채 보고하는 일이 반복되어 검증 절차를 감점한다. 좁은 관련 검사의 성공과 전체 성공을 분리해야 한다. 근거 meta/changes.jsonl:146; 측정은 이번 전후 원장 감사. 결측은 실제 3판단→최종공급 연결 및 독립효과. 11/11 14:57까지 3판단 모두 SKU 근거와 최종공급 연결, 검사 최종 종료코드 확인; 미달이면 성공 판정 취소, 신규 확대 보류."
+    },
+    {
+      "change": "terra-1110-201617 전략·규칙·확대·검증 점검",
+      "grade": "harmful",
+      "reason": "패치 3.5 점수와 호출 무상한은 유지했다. 새 패치는 없어 발견 지연 없음. 총상한 절단0/0이므로 미인상을 감점하지 않는다. 전략의 경쟁자 성장 비교는 유효하나 독립 추가 Players는 미확정이다. 전체 검사를 중단하거나 진행 중인 채 보고하는 일이 반복되어 검증 절차를 감점한다. 좁은 관련 검사의 성공과 전체 성공을 분리해야 한다. 근거 meta/changes.jsonl:147; 측정은 이번 전후 원장 감사. 결측은 실제 3판단→최종공급 연결 및 독립효과. 11/11 14:57까지 3판단 모두 SKU 근거와 최종공급 연결, 검사 최종 종료코드 확인; 미달이면 성공 판정 취소, 신규 확대 보류."
+    },
+    {
+      "change": "terra-1110-213438 전략·규칙·확대·검증 점검",
+      "grade": "harmful",
+      "reason": "패치 3.5 점수와 호출 무상한은 유지했다. 새 패치는 없어 발견 지연 없음. 총상한 절단0/0이므로 미인상을 감점하지 않는다. 전략의 경쟁자 성장 비교는 유효하나 독립 추가 Players는 미확정이다. 전체 검사를 중단하거나 진행 중인 채 보고하는 일이 반복되어 검증 절차를 감점한다. 좁은 관련 검사의 성공과 전체 성공을 분리해야 한다. 근거 meta/changes.jsonl:148; 측정은 이번 전후 원장 감사. 결측은 실제 3판단→최종공급 연결 및 독립효과. 11/11 14:57까지 3판단 모두 SKU 근거와 최종공급 연결, 검사 최종 종료코드 확인; 미달이면 성공 판정 취소, 신규 확대 보류."
+    },
+    {
+      "change": "terra-1110-225148 전략·규칙·확대·검증 점검",
+      "grade": "harmful",
+      "reason": "패치 3.5 점수와 호출 무상한은 유지했다. 새 패치는 없어 발견 지연 없음. 총상한 절단0/0이므로 미인상을 감점하지 않는다. 전략의 경쟁자 성장 비교는 유효하나 독립 추가 Players는 미확정이다. 전체 검사를 중단하거나 진행 중인 채 보고하는 일이 반복되어 검증 절차를 감점한다. 좁은 관련 검사의 성공과 전체 성공을 분리해야 한다. 근거 meta/changes.jsonl:149; 측정은 이번 전후 원장 감사. 결측은 실제 3판단→최종공급 연결 및 독립효과. 11/11 14:57까지 3판단 모두 SKU 근거와 최종공급 연결, 검사 최종 종료코드 확인; 미달이면 성공 판정 취소, 신규 확대 보류."
+    },
+    {
+      "change": "terra-1111-000418 전략·규칙·확대·검증 점검",
+      "grade": "harmful",
+      "reason": "패치 3.5 점수와 호출 무상한은 유지했다. 새 패치는 없어 발견 지연 없음. 총상한 절단0/0이므로 미인상을 감점하지 않는다. 전략의 경쟁자 성장 비교는 유효하나 독립 추가 Players는 미확정이다. 전체 검사를 중단하거나 진행 중인 채 보고하는 일이 반복되어 검증 절차를 감점한다. 좁은 관련 검사의 성공과 전체 성공을 분리해야 한다. 근거 meta/changes.jsonl:150; 측정은 이번 전후 원장 감사. 결측은 실제 3판단→최종공급 연결 및 독립효과. 11/11 14:57까지 3판단 모두 SKU 근거와 최종공급 연결, 검사 최종 종료코드 확인; 미달이면 성공 판정 취소, 신규 확대 보류."
+    },
+    {
+      "change": "terra-1111-011735 전략·규칙·확대·검증 점검",
+      "grade": "harmful",
+      "reason": "패치 3.5 점수와 호출 무상한은 유지했다. 새 패치는 없어 발견 지연 없음. 총상한 절단0/0이므로 미인상을 감점하지 않는다. 전략의 경쟁자 성장 비교는 유효하나 독립 추가 Players는 미확정이다. 전체 검사를 중단하거나 진행 중인 채 보고하는 일이 반복되어 검증 절차를 감점한다. 좁은 관련 검사의 성공과 전체 성공을 분리해야 한다. 근거 meta/changes.jsonl:151; 측정은 이번 전후 원장 감사. 결측은 실제 3판단→최종공급 연결 및 독립효과. 11/11 14:57까지 3판단 모두 SKU 근거와 최종공급 연결, 검사 최종 종료코드 확인; 미달이면 성공 판정 취소, 신규 확대 보류."
+    },
+    {
+      "change": "terra-1111-023023 전략·규칙·확대·검증 점검",
+      "grade": "harmful",
+      "reason": "패치 3.5 점수와 호출 무상한은 유지했다. 새 패치는 없어 발견 지연 없음. 총상한 절단0/0이므로 미인상을 감점하지 않는다. 전략의 경쟁자 성장 비교는 유효하나 독립 추가 Players는 미확정이다. 전체 검사를 중단하거나 진행 중인 채 보고하는 일이 반복되어 검증 절차를 감점한다. 좁은 관련 검사의 성공과 전체 성공을 분리해야 한다. 근거 meta/changes.jsonl:152; 측정은 이번 전후 원장 감사. 결측은 실제 3판단→최종공급 연결 및 독립효과. 11/11 14:57까지 3판단 모두 SKU 근거와 최종공급 연결, 검사 최종 종료코드 확인; 미달이면 성공 판정 취소, 신규 확대 보류."
+    },
+    {
+      "change": "market_opportunity 정가 이하 후보 집계",
+      "grade": "worked",
+      "reason": "실제 G796e9122 하한초과3건 중 정가 이하1건/구매자1명으로 분리. 관련 검사3개 통과. Players 효과는 아직 미확정이다."
+    },
+    {
+      "change": "G2 목표 복원 판단",
+      "grade": "worked",
+      "reason": "meta/changes.jsonl:148의 변경 후 숙성12건·건당+29899.33원은 원래 축소 철회조건에 해당한다. 목표2→3 복원은 절차상 타당하다. 추가 매입의 인과효과는 별도 미확정."
+    },
+    {
+      "change": "새 auto_auto_market_context",
+      "grade": "no_effect",
+      "reason": "팩 도구 호출집계에 호출이 없고 기존 연구도구와 중복한다. 이번 삭제로 선택지와 전체재고 중복전달을 줄였다. 직접 Players 효과0을 기준으로 둔다."
+    },
+    {
+      "change": "test_acp_shop.KitlogTest의 라이브 메모리 의존 제거",
+      "grade": "worked",
+      "reason": "격리복사본 전체2013개 중404 실패를 확인했고, 관련2개 재현은 실패2→수리후0으로 바뀌었다. 병렬견적0.75초 기준은 유지했다. 최종 전체2013검사도 종료코드0으로 통과했다."
+    }
+  ],
+  "keep_or_drop": [
+    {
+      "item": "0bcdcc5a submissions/26622007/week-08/buyer_switch_write.py, submissions/26622007/week-08/market_buyer.py, submissions/26622007/week-08/oneshot.py, submissions/26622007/week-08/test_buyer_moss_first.py, submissions/26622007/week-08/test_buyer_switch_write.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "daca4945 submissions/26622007/week-08/buyer_switch_write.py, submissions/26622007/week-08/test_buyer_switch_write.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "a1a73cab submissions/26622007/week-08/buyer_switch_write.py, submissions/26622007/week-08/test_buyer_switch_write.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "6e2baceb submissions/26622007/week-08/buyer_switch_write.py, submissions/26622007/week-08/test_buyer_switch_write.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "635f9b5d submissions/26622007/week-08/buyer_switch_write.py, submissions/26622007/week-08/test_buyer_switch_write.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "9d5eb469 submissions/26622007/week-08/buyer_switch_write.py, submissions/26622007/week-08/test_buyer_switch_write.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "82e579cb submissions/26622007/week-08/buyer_switch_write.py, submissions/26622007/week-08/test_buyer_switch_write.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "999aac73 submissions/26622007/week-08/meta/REPORT-notes.md, submissions/26622007/week-08/meta/evidence/astra-1110-143630-agent.md, submissions/26622007/week-08/meta/evidence/astra-1110-143630-audit.jsonl, submissions/26622007/week-08/meta/evidence/astra-1110-143630-audit.py, submissions/26622007/week-08/meta/evidence/astra-1110-143630-baseline-tests.txt, submissions/26622007/week-08/meta/evidence/astra-1110-143630-build-review.py, submissions/26622007/week-08/meta/evidence/astra-1110-143630-changes-read.jsonl, submissions/26622007/week-08/meta/evidence/astra-1110-143630-citation-check.json, submissions/26622007/week-08/meta/evidence/astra-1110-143630-clean-test.py, submissions/26622007/week-08/meta/evidence/astra-1110-143630-clean-tests-v2.txt, submissions/26622007/week-08/meta/evidence/astra-1110-143630-clean-tests.txt, submissions/26622007/week-08/meta/evidence/astra-1110-143630-commit-metrics.jsonl, submissions/26622007/week-08/meta/evidence/astra-1110-143630-concurrent.jsonl, submissions/26622007/week-08/meta/evidence/astra-1110-143630-concurrent.py, submissions/26622007/week-08/meta/evidence/astra-1110-143630-digest-before.py, submissions/26622007/week-08/meta/evidence/astra-1110-143630-digest-comparison.jsonl, submissions/26622007/week-08/meta/evidence/astra-1110-143630-digest-tests-v2.txt, submissions/26622007/week-08/meta/evidence/astra-1110-143630-digest-tests.txt, submissions/26622007/week-08/meta/evidence/astra-1110-143630-extra.jsonl, submissions/26622007/week-08/meta/evidence/astra-1110-143630-extra.py, submissions/26622007/week-08/meta/evidence/astra-1110-143630-food-probe.jsonl, submissions/26622007/week-08/meta/evidence/astra-1110-143630-food-probe.py, submissions/26622007/week-08/meta/evidence/astra-1110-143630-guards-v2.jsonl, submissions/26622007/week-08/meta/evidence/astra-1110-143630-guards-v2.py, submissions/26622007/week-08/meta/evidence/astra-1110-143630-measure.jsonl, submissions/26622007/week-08/meta/evidence/astra-1110-143630-measure.py, submissions/26622007/week-08/meta/evidence/astra-1110-143630-payments.jsonl, submissions/26622007/week-08/meta/evidence/astra-1110-143630-payments.py, submissions/26622007/week-08/meta/evidence/astra-1110-143630-queue-before.json, submissions/26622007/week-08/meta/evidence/astra-1110-143630-research-regression.txt, submissions/26622007/week-08/meta/evidence/astra-1110-143630-review.json, submissions/26622007/week-08/meta/evidence/astra-1110-143630-rules.html, submissions/26622007/week-08/meta/evidence/astra-1110-143630-settings-0f8b2953.diff, submissions/26622007/week-08/meta/evidence/astra-1110-143630-settings-30a5d637.diff, submissions/26622007/week-08/meta/evidence/astra-1110-143630-settings-968a04a7.diff, submissions/26622007/week-08/meta/evidence/astra-1110-143630-settings-99c5f0a0.diff, submissions/26622007/week-08/meta/evidence/astra-1110-143630-settings-b35315a4.diff, submissions/26622007/week-08/meta/evidence/astra-1110-143630-settings-c1aa17a8.diff, submissions/26622007/week-08/meta/evidence/astra-1110-143630-settings-f9cba820.diff, submissions/26622007/week-08/meta/evidence/astra-1110-143630-settings-feb24609.diff, submissions/26622007/week-08/meta/evidence/astra-1110-143630-validation.json, submissions/26622007/week-08/meta/evidence/astra-1110-143630.json, submissions/26622007/week-08/meta/experiments.json, submissions/26622007/week-08/meta/last-astra-answer.json, submissions/26622007/week-08/meta/strategy.md, submissions/26622007/week-08/meta/terra.md, submissions/26622007/week-08/test_forum_digest.py, submissions/26622007/week-08/tools/auto_forum_ledger_digest/manifest.json, submissions/26622007/week-08/tools/auto_forum_ledger_digest/tool.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 실패한 구현을 다시 활성화하지 않는다."
+    },
+    {
+      "item": "25d910f5 submissions/26622007/week-08/meta/REPORT-notes.md, submissions/26622007/week-08/meta/evidence/astra-1110-143630-agent.md, submissions/26622007/week-08/meta/evidence/astra-1110-143630-audit.jsonl, submissions/26622007/week-08/meta/evidence/astra-1110-143630-audit.py, submissions/26622007/week-08/meta/evidence/astra-1110-143630-baseline-tests.txt, submissions/26622007/week-08/meta/evidence/astra-1110-143630-build-review.py, submissions/26622007/week-08/meta/evidence/astra-1110-143630-changes-read.jsonl, submissions/26622007/week-08/meta/evidence/astra-1110-143630-citation-check.json, submissions/26622007/week-08/meta/evidence/astra-1110-143630-clean-test.py, submissions/26622007/week-08/meta/evidence/astra-1110-143630-clean-tests-v2.txt, submissions/26622007/week-08/meta/evidence/astra-1110-143630-clean-tests.txt, submissions/26622007/week-08/meta/evidence/astra-1110-143630-commit-metrics.jsonl, submissions/26622007/week-08/meta/evidence/astra-1110-143630-concurrent.jsonl, submissions/26622007/week-08/meta/evidence/astra-1110-143630-concurrent.py, submissions/26622007/week-08/meta/evidence/astra-1110-143630-digest-before.py, submissions/26622007/week-08/meta/evidence/astra-1110-143630-digest-comparison.jsonl, submissions/26622007/week-08/meta/evidence/astra-1110-143630-digest-tests-v2.txt, submissions/26622007/week-08/meta/evidence/astra-1110-143630-digest-tests.txt, submissions/26622007/week-08/meta/evidence/astra-1110-143630-extra.jsonl, submissions/26622007/week-08/meta/evidence/astra-1110-143630-extra.py, submissions/26622007/week-08/meta/evidence/astra-1110-143630-food-probe.jsonl, submissions/26622007/week-08/meta/evidence/astra-1110-143630-food-probe.py, submissions/26622007/week-08/meta/evidence/astra-1110-143630-guards-v2.jsonl, submissions/26622007/week-08/meta/evidence/astra-1110-143630-guards-v2.py, submissions/26622007/week-08/meta/evidence/astra-1110-143630-measure.jsonl, submissions/26622007/week-08/meta/evidence/astra-1110-143630-measure.py, submissions/26622007/week-08/meta/evidence/astra-1110-143630-payments.jsonl, submissions/26622007/week-08/meta/evidence/astra-1110-143630-payments.py, submissions/26622007/week-08/meta/evidence/astra-1110-143630-queue-before.json, submissions/26622007/week-08/meta/evidence/astra-1110-143630-research-regression.txt, submissions/26622007/week-08/meta/evidence/astra-1110-143630-review.json, submissions/26622007/week-08/meta/evidence/astra-1110-143630-rules.html, submissions/26622007/week-08/meta/evidence/astra-1110-143630-settings-0f8b2953.diff, submissions/26622007/week-08/meta/evidence/astra-1110-143630-settings-30a5d637.diff, submissions/26622007/week-08/meta/evidence/astra-1110-143630-settings-968a04a7.diff, submissions/26622007/week-08/meta/evidence/astra-1110-143630-settings-99c5f0a0.diff, submissions/26622007/week-08/meta/evidence/astra-1110-143630-settings-b35315a4.diff, submissions/26622007/week-08/meta/evidence/astra-1110-143630-settings-c1aa17a8.diff, submissions/26622007/week-08/meta/evidence/astra-1110-143630-settings-f9cba820.diff, submissions/26622007/week-08/meta/evidence/astra-1110-143630-settings-feb24609.diff, submissions/26622007/week-08/meta/evidence/astra-1110-143630-validation.json, submissions/26622007/week-08/meta/evidence/astra-1110-143630.json, submissions/26622007/week-08/meta/experiments.json, submissions/26622007/week-08/meta/last-astra-answer.json, submissions/26622007/week-08/meta/strategy.md, submissions/26622007/week-08/meta/terra.md, submissions/26622007/week-08/test_forum_digest.py, submissions/26622007/week-08/tools/auto_forum_ledger_digest/manifest.json, submissions/26622007/week-08/tools/auto_forum_ledger_digest/tool.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 실패한 구현을 다시 활성화하지 않는다."
+    },
+    {
+      "item": "be21fd6a submissions/26622007/week-08/meta/changes.jsonl, submissions/26622007/week-08/meta/grades.jsonl",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 실패한 구현을 다시 활성화하지 않는다."
+    },
+    {
+      "item": "7579f1c8 submissions/26622007/week-08/meta_harness.py, submissions/26622007/week-08/restock.py, submissions/26622007/week-08/restock_fresh_slots.py, submissions/26622007/week-08/test_restock_fresh_slots.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "4f365b99 submissions/26622007/week-08/restock.py, submissions/26622007/week-08/restock_fresh_slots.py, submissions/26622007/week-08/test_restock_fresh_slots.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "8d1747e9 submissions/26622007/week-08/test_restock_fresh_slots.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 실패한 구현을 다시 활성화하지 않는다."
+    },
+    {
+      "item": "92c1090a submissions/26622007/week-08/restock.py, submissions/26622007/week-08/restock_fresh_slots.py, submissions/26622007/week-08/test_restock_fresh_slots.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "dcdb4539 submissions/26622007/week-08/meta/evidence/terra-1110-150216-cache.jsonl, submissions/26622007/week-08/meta/evidence/terra-1110-150216-digest-comparison.jsonl, submissions/26622007/week-08/meta/evidence/terra-1110-150216-digest-tests.log, submissions/26622007/week-08/meta/evidence/terra-1110-150216-final-tests.log, submissions/26622007/week-08/meta/evidence/terra-1110-150216-sequential-tests.log, submissions/26622007/week-08/meta/evidence/terra-1110-150216-tests.log, submissions/26622007/week-08/meta/evidence/terra-1110-150216.json, submissions/26622007/week-08/meta/last-terra-answer.json, submissions/26622007/week-08/test_forum_digest.py, submissions/26622007/week-08/tools/auto_forum_ledger_digest/manifest.json, submissions/26622007/week-08/tools/auto_forum_ledger_digest/tool.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "62b3fff2 submissions/26622007/week-08/meta/changes.jsonl, submissions/26622007/week-08/meta/experiments_log.jsonl, submissions/26622007/week-08/meta/grades.jsonl",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 실패한 구현을 다시 활성화하지 않는다."
+    },
+    {
+      "item": "84c24e20 submissions/26622007/week-08/meta/changes.jsonl, submissions/26622007/week-08/meta/evidence/terra-1110-162542-tests.log, submissions/26622007/week-08/meta/evidence/terra-1110-162542.json, submissions/26622007/week-08/meta/experiments_log.jsonl, submissions/26622007/week-08/meta/grades.jsonl, submissions/26622007/week-08/meta/last-terra-answer.json",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 실패한 구현을 다시 활성화하지 않는다."
+    },
+    {
+      "item": "a4641280 submissions/26622007/week-08/buyer_switch_write.py, submissions/26622007/week-08/market_buyer.py, submissions/26622007/week-08/oneshot.py, submissions/26622007/week-08/test_buyer_moss_first.py, submissions/26622007/week-08/test_buyer_switch_write.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "2eb309aa submissions/26622007/week-08/buyer_switch_write.py, submissions/26622007/week-08/test_buyer_switch_write.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "b3dba6be submissions/26622007/week-08/measure.py, submissions/26622007/week-08/meta_harness.py, submissions/26622007/week-08/restock.py, submissions/26622007/week-08/restock_window_fast.py, submissions/26622007/week-08/test_measure.py, submissions/26622007/week-08/test_restock_window_fast.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "d45c3786 submissions/26622007/week-08/market_buyer.py, submissions/26622007/week-08/test_buyer_unpaid_skip.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "09d8f894 submissions/26622007/week-08/market_buyer.py, submissions/26622007/week-08/test_buyer_unpaid_skip.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "bfa7ae04 submissions/26622007/week-08/meta/evidence/terra-1110-174006-cohort-actual.json, submissions/26622007/week-08/meta/evidence/terra-1110-174006-cohort.json, submissions/26622007/week-08/meta/evidence/terra-1110-174006-focused.log, submissions/26622007/week-08/meta/evidence/terra-1110-174006-forum.jsonl, submissions/26622007/week-08/meta/evidence/terra-1110-174006-profit-tests.log, submissions/26622007/week-08/meta/evidence/terra-1110-174006-supply.json, submissions/26622007/week-08/meta/evidence/terra-1110-174006-tests.log, submissions/26622007/week-08/meta/evidence/terra-1110-174006.json, submissions/26622007/week-08/meta/last-terra-answer.json, submissions/26622007/week-08/pricing.json, submissions/26622007/week-08/test_profit_rules.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 실패한 구현을 다시 활성화하지 않는다."
+    },
+    {
+      "item": "8133b266 submissions/26622007/week-08/meta/evidence/terra-1110-174006-cohort-actual.json, submissions/26622007/week-08/meta/evidence/terra-1110-174006-cohort.json, submissions/26622007/week-08/meta/evidence/terra-1110-174006-focused.log, submissions/26622007/week-08/meta/evidence/terra-1110-174006-forum.jsonl, submissions/26622007/week-08/meta/evidence/terra-1110-174006-profit-tests.log, submissions/26622007/week-08/meta/evidence/terra-1110-174006-supply.json, submissions/26622007/week-08/meta/evidence/terra-1110-174006-tests.log, submissions/26622007/week-08/meta/evidence/terra-1110-174006.json, submissions/26622007/week-08/meta/last-terra-answer.json, submissions/26622007/week-08/pricing.json, submissions/26622007/week-08/test_profit_rules.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 실패한 구현을 다시 활성화하지 않는다."
+    },
+    {
+      "item": "2c4e3313 submissions/26622007/week-08/meta/changes.jsonl, submissions/26622007/week-08/meta/grades.jsonl",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 실패한 구현을 다시 활성화하지 않는다."
+    },
+    {
+      "item": "30f5b4bc submissions/26622007/week-08/test_restock_window_fast.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 실패한 구현을 다시 활성화하지 않는다."
+    },
+    {
+      "item": "125571ff submissions/26622007/week-08/test_kit_failure_checks.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "bb2a3464 submissions/26622007/week-08/test_kit_failure_checks.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "0fa78883 submissions/26622007/week-08/fast_classify.py, submissions/26622007/week-08/grade_followup_real.json, submissions/26622007/week-08/test_grade_followup_read.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "a81229ef submissions/26622007/week-08/meta_harness.py, submissions/26622007/week-08/seller.py, submissions/26622007/week-08/seller_market_floor.py, submissions/26622007/week-08/test_seller_market_floor.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "7aec7515 submissions/26622007/week-08/measure.py, submissions/26622007/week-08/restock.py, submissions/26622007/week-08/restock_fresh_slots.py, submissions/26622007/week-08/restock_window_fast.py, submissions/26622007/week-08/test_measure.py, submissions/26622007/week-08/test_restock_fresh_slots.py, submissions/26622007/week-08/test_restock_window_fast.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "fa31ac1c submissions/26622007/week-08/meta/evidence/terra-1110-185911-head-tests.log, submissions/26622007/week-08/meta/evidence/terra-1110-185911-profit-tests.log, submissions/26622007/week-08/meta/evidence/terra-1110-185911-rejected-tests.log, submissions/26622007/week-08/meta/evidence/terra-1110-185911.json, submissions/26622007/week-08/meta/last-terra-answer.json, submissions/26622007/week-08/pricing.json, submissions/26622007/week-08/test_profit_rules.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 실패한 구현을 다시 활성화하지 않는다."
+    },
+    {
+      "item": "ac9a7b9b submissions/26622007/week-08/meta/evidence/terra-1110-185911-head-tests.log, submissions/26622007/week-08/meta/evidence/terra-1110-185911-profit-tests.log, submissions/26622007/week-08/meta/evidence/terra-1110-185911-rejected-tests.log, submissions/26622007/week-08/meta/evidence/terra-1110-185911.json, submissions/26622007/week-08/meta/last-terra-answer.json, submissions/26622007/week-08/pricing.json, submissions/26622007/week-08/test_profit_rules.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 실패한 구현을 다시 활성화하지 않는다."
+    },
+    {
+      "item": "0f1229f7 submissions/26622007/week-08/meta/changes.jsonl, submissions/26622007/week-08/meta/grades.jsonl",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 실패한 구현을 다시 활성화하지 않는다."
+    },
+    {
+      "item": "0389f6bb submissions/26622007/week-08/meta/evidence/terra-1110-201617-g2.jsonl, submissions/26622007/week-08/meta/evidence/terra-1110-201617-head-tests.log, submissions/26622007/week-08/meta/evidence/terra-1110-201617-profit-tests.log, submissions/26622007/week-08/meta/evidence/terra-1110-201617-rejected-tests.log, submissions/26622007/week-08/meta/evidence/terra-1110-201617.json, submissions/26622007/week-08/meta/last-terra-answer.json, submissions/26622007/week-08/pricing.json, submissions/26622007/week-08/test_profit_rules.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "5f0baa69 submissions/26622007/week-08/meta/changes.jsonl, submissions/26622007/week-08/meta/experiments_log.jsonl, submissions/26622007/week-08/meta/grades.jsonl",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 실패한 구현을 다시 활성화하지 않는다."
+    },
+    {
+      "item": "7b243c81 submissions/26622007/week-08/test_buyer_moss_first.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 실패한 구현을 다시 활성화하지 않는다."
+    },
+    {
+      "item": "1dcda184 submissions/26622007/week-08/market_buyer.py, submissions/26622007/week-08/test_buyer_iso_shelf.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "57191ac8 submissions/26622007/week-08/market_buyer.py, submissions/26622007/week-08/test_buyer_iso_shelf.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "1e395e4a submissions/26622007/week-08/meta_harness.py, submissions/26622007/week-08/test_meta.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "367a7dc7 submissions/26622007/week-08/meta_harness.py, submissions/26622007/week-08/test_meta.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "e9951873 submissions/26622007/week-08/meta/evidence/terra-1110-213438-focused-corrected.log, submissions/26622007/week-08/meta/evidence/terra-1110-213438-focused.log, submissions/26622007/week-08/meta/evidence/terra-1110-213438-tests.log, submissions/26622007/week-08/meta/evidence/terra-1110-213438.json, submissions/26622007/week-08/meta/last-terra-answer.json, submissions/26622007/week-08/restock.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "4d358779 submissions/26622007/week-08/meta/changes.jsonl, submissions/26622007/week-08/meta/experiments_log.jsonl, submissions/26622007/week-08/meta/grades.jsonl",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 실패한 구현을 다시 활성화하지 않는다."
+    },
+    {
+      "item": "83f09663 submissions/26622007/week-08/meta_harness.py, submissions/26622007/week-08/test_meta.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "26ae0318 submissions/26622007/week-08/market_buyer.py, submissions/26622007/week-08/test_buyer_iso_shelf.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "14cb83af submissions/26622007/week-08/market_buyer.py, submissions/26622007/week-08/test_buyer_iso_shelf.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "d613befc submissions/26622007/week-08/meta/evidence/terra-1110-225148-tests.log, submissions/26622007/week-08/meta/evidence/terra-1110-225148.json, submissions/26622007/week-08/meta/last-terra-answer.json, submissions/26622007/week-08/restock.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "f64a0ec6 submissions/26622007/week-08/meta/changes.jsonl, submissions/26622007/week-08/meta/experiments_log.jsonl, submissions/26622007/week-08/meta/grades.jsonl",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 실패한 구현을 다시 활성화하지 않는다."
+    },
+    {
+      "item": "0d4498c7 submissions/26622007/week-08/meta/changes.jsonl, submissions/26622007/week-08/meta/evidence/terra-1111-000418-tests.log, submissions/26622007/week-08/meta/evidence/terra-1111-000418.json, submissions/26622007/week-08/meta/experiments_log.jsonl, submissions/26622007/week-08/meta/grades.jsonl, submissions/26622007/week-08/meta/last-terra-answer.json",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 실패한 구현을 다시 활성화하지 않는다."
+    },
+    {
+      "item": "98ce2b1d submissions/26622007/week-08/pricing.json, submissions/26622007/week-08/test_profit_rules.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "22d312c2 submissions/26622007/week-08/test_round3.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 실패한 구현을 다시 활성화하지 않는다."
+    },
+    {
+      "item": "ccaf2e57 submissions/26622007/week-08/pricing.json, submissions/26622007/week-08/test_profit_rules.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 실패한 구현을 다시 활성화하지 않는다."
+    },
+    {
+      "item": "92e1f3d3 submissions/26622007/week-08/JEV_TRANSPORT_TRIAL.md, submissions/26622007/week-08/seller_jev_transport.py, submissions/26622007/week-08/test_jev_transport_window.py, submissions/26622007/week-08/test_seller_jev_transport.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "1836a25b submissions/26622007/week-08/JEV_TRANSPORT_TRIAL.md, submissions/26622007/week-08/seller.py, submissions/26622007/week-08/seller_jev_transport.py, submissions/26622007/week-08/test_jev_transport_window.py, submissions/26622007/week-08/test_seller_jev_transport.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "c137683e submissions/26622007/week-08/meta/evidence/terra-1111-011735-focused.log, submissions/26622007/week-08/meta/evidence/terra-1111-011735-opportunity.jsonl, submissions/26622007/week-08/meta/evidence/terra-1111-011735-tests-retry.log, submissions/26622007/week-08/meta/evidence/terra-1111-011735-tests.log, submissions/26622007/week-08/meta/evidence/terra-1111-011735.json, submissions/26622007/week-08/meta/last-terra-answer.json, submissions/26622007/week-08/restock.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "e8cf8d64 submissions/26622007/week-08/meta/changes.jsonl, submissions/26622007/week-08/meta/experiments_log.jsonl, submissions/26622007/week-08/meta/grades.jsonl",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 실패한 구현을 다시 활성화하지 않는다."
+    },
+    {
+      "item": "8b32879b submissions/26622007/week-08/meta_harness.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "7a454918 submissions/26622007/week-08/buyer_food_open30.py, submissions/26622007/week-08/market_buyer.py, submissions/26622007/week-08/test_buyer_food_open30.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "de6384c3 submissions/26622007/week-08/buyer_food_open30.py, submissions/26622007/week-08/test_buyer_food_open30.py",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 인과효과는 미확정이며 위 판정선 및 원래 실험의 철회 조건을 적용한다."
+    },
+    {
+      "item": "0b744f25 submissions/26622007/week-08/meta/changes.jsonl, submissions/26622007/week-08/meta/evidence/terra-1111-023023-tests.log, submissions/26622007/week-08/meta/evidence/terra-1111-023023.json, submissions/26622007/week-08/meta/experiments_log.jsonl, submissions/26622007/week-08/meta/grades.jsonl, submissions/26622007/week-08/meta/last-terra-answer.json",
+      "decision": "keep",
+      "reason": "현재 적용 또는 원복 상태 유지. 실패한 구현을 다시 활성화하지 않는다."
+    },
+    {
+      "item": "tools/auto_auto_market_brief",
+      "decision": "keep",
+      "reason": "이번 구간 0호출/0실패. 기존 역할과 수정된 의미검사를 유지하며 실행성공만으로 거래효과를 인정하지 않는다."
+    },
+    {
+      "item": "tools/auto_forum_ledger_digest",
+      "decision": "keep",
+      "reason": "이번 구간 27호출/0실패. 기존 역할과 수정된 의미검사를 유지하며 실행성공만으로 거래효과를 인정하지 않는다."
+    },
+    {
+      "item": "tools/auto_market_research",
+      "decision": "keep",
+      "reason": "이번 구간 0호출/0실패. 기존 역할과 수정된 의미검사를 유지하며 실행성공만으로 거래효과를 인정하지 않는다."
+    },
+    {
+      "item": "tools/auto_market_research_pack",
+      "decision": "keep",
+      "reason": "이번 구간 10호출/0실패. 기존 역할과 수정된 의미검사를 유지하며 실행성공만으로 거래효과를 인정하지 않는다."
+    },
+    {
+      "item": "tools/auto_market_scan",
+      "decision": "keep",
+      "reason": "이번 구간 0호출/0실패. 기존 역할과 수정된 의미검사를 유지하며 실행성공만으로 거래효과를 인정하지 않는다."
+    },
+    {
+      "item": "tools/break_rates",
+      "decision": "keep",
+      "reason": "이번 구간 9호출/0실패. 기존 역할과 수정된 의미검사를 유지하며 실행성공만으로 거래효과를 인정하지 않는다."
+    },
+    {
+      "item": "tools/catalog_search",
+      "decision": "keep",
+      "reason": "이번 구간 0호출/0실패. 기존 역할과 수정된 의미검사를 유지하며 실행성공만으로 거래효과를 인정하지 않는다."
+    },
+    {
+      "item": "tools/cohort_profit",
+      "decision": "keep",
+      "reason": "이번 구간 0호출/0실패. 기존 역할과 수정된 의미검사를 유지하며 실행성공만으로 거래효과를 인정하지 않는다."
+    },
+    {
+      "item": "tools/forum_read",
+      "decision": "keep",
+      "reason": "이번 구간 33호출/0실패. 기존 역할과 수정된 의미검사를 유지하며 실행성공만으로 거래효과를 인정하지 않는다."
+    },
+    {
+      "item": "tools/ledger_search",
+      "decision": "keep",
+      "reason": "이번 구간 40호출/0실패. 기존 역할과 수정된 의미검사를 유지하며 실행성공만으로 거래효과를 인정하지 않는다."
+    },
+    {
+      "item": "tools/market_demand",
+      "decision": "keep",
+      "reason": "이번 구간 4호출/0실패. 기존 역할과 수정된 의미검사를 유지하며 실행성공만으로 거래효과를 인정하지 않는다."
+    },
+    {
+      "item": "tools/market_opportunity",
+      "decision": "keep",
+      "reason": "이번 구간 4호출/0실패. 기존 역할과 수정된 의미검사를 유지하며 실행성공만으로 거래효과를 인정하지 않는다."
+    },
+    {
+      "item": "tools/my_customers",
+      "decision": "keep",
+      "reason": "이번 구간 0호출/0실패. 기존 역할과 수정된 의미검사를 유지하며 실행성공만으로 거래효과를 인정하지 않는다."
+    },
+    {
+      "item": "tools/my_decisions",
+      "decision": "keep",
+      "reason": "이번 구간 3호출/0실패. 기존 역할과 수정된 의미검사를 유지하며 실행성공만으로 거래효과를 인정하지 않는다."
+    },
+    {
+      "item": "tools/my_memory",
+      "decision": "keep",
+      "reason": "이번 구간 0호출/0실패. 기존 역할과 수정된 의미검사를 유지하며 실행성공만으로 거래효과를 인정하지 않는다."
+    },
+    {
+      "item": "tools/my_purchases",
+      "decision": "keep",
+      "reason": "이번 구간 0호출/0실패. 기존 역할과 수정된 의미검사를 유지하며 실행성공만으로 거래효과를 인정하지 않는다."
+    },
+    {
+      "item": "tools/my_state",
+      "decision": "keep",
+      "reason": "이번 구간 24호출/0실패. 기존 역할과 수정된 의미검사를 유지하며 실행성공만으로 거래효과를 인정하지 않는다."
+    },
+    {
+      "item": "tools/supply_audit",
+      "decision": "keep",
+      "reason": "이번 구간 0호출/0실패. 기존 역할과 수정된 의미검사를 유지하며 실행성공만으로 거래효과를 인정하지 않는다."
+    },
+    {
+      "item": "tools/auto_auto_market_context",
+      "decision": "drop",
+      "reason": "신규 미사용 중복도구를 이번에 삭제했다. 전체 inventory 반환과 원시 행 검색은 기존 의미검증 연구도구보다 추가 가치가 없다. 전용 테스트는 없고 원본은 dropped-tool.json에 보존했다."
+    },
+    {
+      "item": "tools/auto_market_lookup",
+      "decision": "keep",
+      "reason": "과거 누계 772호출/0실패. 현재 디렉터리가 없는 도구는 제거 상태를 유지하며 재등록하지 않는다. 이번 구간 신규 효과로 계산하지 않는다."
+    },
+    {
+      "item": "tools/auto_catalog_ledger_search",
+      "decision": "keep",
+      "reason": "과거 누계 3호출/0실패. 현재 디렉터리가 없는 도구는 제거 상태를 유지하며 재등록하지 않는다. 이번 구간 신규 효과로 계산하지 않는다."
+    },
+    {
+      "item": "tools/auto_market_research_bundle",
+      "decision": "keep",
+      "reason": "과거 누계 228호출/0실패. 현재 디렉터리가 없는 도구는 제거 상태를 유지하며 재등록하지 않는다. 이번 구간 신규 효과로 계산하지 않는다."
+    },
+    {
+      "item": "tools/auto_market_research_digest",
+      "decision": "keep",
+      "reason": "과거 누계 55호출/1실패. 현재 디렉터리가 없는 도구는 제거 상태를 유지하며 재등록하지 않는다. 이번 구간 신규 효과로 계산하지 않는다."
+    },
+    {
+      "item": "tools/auto_auto_market_research_forum",
+      "decision": "keep",
+      "reason": "과거 누계 3호출/0실패. 현재 디렉터리가 없는 도구는 제거 상태를 유지하며 재등록하지 않는다. 이번 구간 신규 효과로 계산하지 않는다."
+    },
+    {
+      "item": "strategy_screen.py 및 test_strategy_screen.py",
+      "decision": "keep",
+      "reason": "정가초과·신원결측·비유한 지급을 유효수요로 오인하지 않는 자료 수리와 회귀검사를 함께 유지한다."
+    },
+    {
+      "item": "meta/strategy.md, meta/experiments.json, meta/terra.md, meta/REPORT-notes.md",
+      "decision": "keep",
+      "reason": "종료된 G2를 큐에서 제거하고 진행 중 실험은 보존하며 다음3시간 조사와 검증 종료 확인을 명시한다."
+    },
+    {
+      "item": "test_acp_shop.py KitlogTest 임시 메모리 fixture",
+      "decision": "keep",
+      "reason": "하네스가 제외하는 실제 memory에 의존하지 않고 인증·허용경로·JSON 응답 검증을 재현한다. 운영 인증 코드는 변경하지 않았다."
+    }
+  ]
+}

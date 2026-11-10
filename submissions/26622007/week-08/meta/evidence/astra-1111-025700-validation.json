@@ -1,0 +1,13 @@
+{
+  "exit_code": 0,
+  "source_sha256": {
+    "strategy_screen.py": "164eae4dc2349a4285d0a929fb944069025f9013a95ad7b3d69e6cbce364383b",
+    "test_strategy_screen.py": "41b388a7df311ea1163fc50f0a6e720091f277b0981ba47cdc7291f583931349",
+    "test_acp_shop.py": "89f72f5a4a70b724508327aa8533df1be7847a1b5c6c3cecc8dda1ddc7b3dae1"
+  },
+  "missing_live_directories": {
+    ".market": true,
+    "memory": true,
+    "logs": true
+  }
+}

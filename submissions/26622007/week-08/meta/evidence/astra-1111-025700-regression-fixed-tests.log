@@ -1,0 +1,7 @@
+/Users/market/ai-agent-engineering-101/submissions/26622007/.astra-1111-025700-tests/test_acp_shop.py:23: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.990s
+
+OK

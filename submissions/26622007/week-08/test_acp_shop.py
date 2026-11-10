@@ -143,6 +143,16 @@ class KitlogTest(unittest.TestCase):
     def setUp(self):
         os.chdir(HERE)
         import seller
+        # The harness omits live memory. Test the allowlisted JSON route with
+        # a synthetic file instead of depending on the running shop's state.
+        fixture = tempfile.TemporaryDirectory()
+        self.addCleanup(fixture.cleanup)
+        memory = os.path.join(fixture.name, "seller_memory.json")
+        with open(memory, "w") as stream:
+            json.dump({"negotiations": []}, stream)
+        patch = mock.patch.dict(seller.KITLOGS, {"seller_memory.json": memory})
+        patch.start()
+        self.addCleanup(patch.stop)
         self.client = TestClient(Starlette(routes=[seller.Route("/_kitlog", seller.kitlog)]))
         self.saved = os.environ.pop("KITLOG_TOKEN", None)
 
