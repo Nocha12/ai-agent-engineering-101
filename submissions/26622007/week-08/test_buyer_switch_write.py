@@ -5,6 +5,7 @@ import os
 import tempfile
 import time
 import unittest
+import unittest.mock
 
 import buyer_moss_first as mf
 import buyer_our_ask as oa
@@ -67,25 +68,70 @@ class Write(unittest.TestCase):
         later = start + 60 + 9 * 3600
         sw.write(self.md, "moss_first", later + 600, later + 600 + 9 * 3600, salt="moss-t4", now=later)
         self.assertEqual(body(self.md, "moss_first")["salt"], "moss-t4")
+        p = os.path.join(self.md, sw.STUDIES["moss_first"]["file"])
+        sw.off(self.md, "moss_first")                        # stopped before it started: the next can come at once
+        sw.write(self.md, "moss_first", NOW + 120, NOW + 120 + 9 * 3600, salt="moss-t5", now=NOW)
+        self.assertTrue(os.path.exists(p))
 
     def test_off_always_writes_and_stops_at_once(self):
         start = NOW + 600
         sw.write(self.md, "final_m1", start, start + 1800, now=NOW)
         sw.off(self.md, "final_m1")
-        self.assertEqual(body(self.md, "final_m1"), {"enabled": False})
+        self.assertIs(body(self.md, "final_m1")["enabled"], False)
+        self.assertEqual(body(self.md, "final_m1")["stopped"]["end"], start + 1800)
         self.assertFalse(oneshot.final_m1_on(self.md, env={}, now=start + 60))
+        sw.off(self.md, "final_m1")                          # off again keeps what it stopped
+        self.assertEqual(body(self.md, "final_m1")["stopped"]["end"], start + 1800)
         with self.assertRaises(sw.Refused):
             sw.off(self.md, "nope")
 
     def test_cli(self):
-        start = NOW + 600
-        out = sw.main(["--market-dir", self.md, "--now", str(NOW), "final_m1", "--start", str(start),
-                       "--end", str(start + 1800)])
-        self.assertEqual(out, 0)
-        self.assertEqual(sw.main(["--market-dir", self.md, "--now", str(NOW), "final_m1", "--start", str(start),
+        start = time.time() + 600
+        self.assertEqual(sw.main(["--market-dir", self.md, "final_m1", "--start", str(start), "--end", str(start + 1800)]), 0)
+        self.assertEqual(sw.main(["--market-dir", self.md, "final_m1", "--start", str(start + 60),
                                   "--end", str(start + 13 * 3600)]), 2)
         self.assertEqual(sw.main(["--market-dir", self.md, "final_m1", "--off"]), 0)
-        self.assertEqual(body(self.md, "final_m1"), {"enabled": False})
+        self.assertIs(body(self.md, "final_m1")["enabled"], False)
+        with self.assertRaises(SystemExit):        # no clock of one's own from the command line (review 7b17f3f I)
+            sw.main(["--market-dir", self.md, "--now", "0", "final_m1", "--start", str(start), "--end", str(start + 60)])
+
+    def test_the_real_clock_guards_a_running_window(self):
+        # review 7b17f3f I: a now in the past let a running window be replaced by a later, longer one.
+        real = time.time()
+        p = os.path.join(self.md, sw.STUDIES["final_m1"]["file"])
+        with open(p, "w") as f:
+            json.dump({"enabled": True, "start": real - 3600, "end": real + 11 * 3600}, f)
+        os.utime(p, (real - 3601, real - 3601))
+        self.assertTrue(oneshot.final_m1_on(self.md, env={}))
+        before = body(self.md, "final_m1")
+        for now in (0, real - 7200):
+            with self.assertRaises(sw.Refused, msg=now):
+                sw.write(self.md, "final_m1", real + 5, real + 5 + 12 * 3600, now=now)
+        self.assertEqual(body(self.md, "final_m1"), before)
+
+    def test_off_keeps_the_stopped_window_and_a_restart_needs_a_new_study(self):
+        # review 7b17f3f M1: off then the same study again at once would chain windows past the original end.
+        start = NOW + 600
+        sw.write(self.md, "moss_first", start, start + 9 * 3600, salt="moss-t", now=NOW)
+        with unittest.mock.patch.object(sw.time, "time", return_value=start + 60):    # stopped while it ran
+            sw.off(self.md, "moss_first")
+        b = body(self.md, "moss_first")
+        self.assertEqual((b["enabled"], b["stopped"]["salt"], b["stopped"]["end"]), (False, "moss-t", start + 9 * 3600))
+        with self.assertRaises(sw.Refused):
+            sw.write(self.md, "moss_first", start + 3600, start + 3600 + 9 * 3600, salt="moss-t", now=NOW)
+        with self.assertRaises(sw.Refused):         # a new salt alone is not enough before the old end
+            sw.write(self.md, "moss_first", start + 3600, start + 3600 + 9 * 3600, salt="moss-t2", now=NOW)
+        sw.write(self.md, "moss_first", start + 3600, start + 3600 + 9 * 3600, salt="moss-t2", now=NOW, new_study=True)
+        self.assertEqual(body(self.md, "moss_first")["salt"], "moss-t2")
+        with unittest.mock.patch.object(sw.time, "time", return_value=start + 3700):
+            sw.off(self.md, "moss_first")
+        later = start + 3600 + 9 * 3600
+        sw.write(self.md, "moss_first", later, later + 9 * 3600, salt="moss-t3", now=NOW)    # after the old end: fine
+
+    def test_the_switch_file_is_readable_as_before(self):
+        start = NOW + 600
+        sw.write(self.md, "final_m1", start, start + 1800, now=NOW)
+        self.assertEqual(os.stat(os.path.join(self.md, sw.STUDIES["final_m1"]["file"])).st_mode & 0o777, 0o644)
 
     def test_bounds_follow_the_studies(self):
         self.assertEqual((sw.STUDIES["moss_first"]["min_hours"], sw.STUDIES["moss_first"]["max_hours"]),
