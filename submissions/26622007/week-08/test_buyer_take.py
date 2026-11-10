@@ -89,11 +89,28 @@ class TakeAt(unittest.TestCase):
 
 class MarketBuyerPassesTakeAtForFoodOnly(unittest.TestCase):
     def test_source_sets_take_at_only_for_food(self):
+        import ast
         import inspect
         import market_buyer
         src = inspect.getsource(market_buyer.main)
-        self.assertIn('take_at=min(limit, int(offer["list_price"] * FOOD_TAKE_SHARE))', src)
-        self.assertIn('if r3 and FOOD_TAKE_ASK and order.get("kind") == "food" else None)', src)
+        calls = [n for n in ast.walk(ast.parse(src)) if isinstance(n, ast.Call)
+                 and isinstance(n.func, ast.Name) and n.func.id == 'negotiate']
+        self.assertEqual(len(calls), 1)
+        actual = next(k.value for k in calls[0].keywords if k.arg == 'take_at')
+        expression = compile(ast.Expression(actual), '<actual take_at argument>', 'eval')
+        # Execute the actual call argument: punctuation/extra keyword arguments are not policy.
+        cases = [(True, True, 'food', 9000, 10000, 6500),
+                 (True, True, 'food', 5000, 10000, 5000),
+                 (True, True, 'food', 9000, 5400, 3510),
+                 (True, True, 'goods', 9000, 10000, None),
+                 (False, True, 'food', 9000, 10000, None),
+                 (True, False, 'food', 9000, 10000, None)]
+        for r3, enabled, kind, limit, lp, expected in cases:
+            with self.subTest(r3=r3, enabled=enabled, kind=kind, limit=limit, lp=lp):
+                actual_value = eval(expression, {'__builtins__': {'min': min, 'int': int}},
+                    {'r3': r3, 'FOOD_TAKE_ASK': enabled, 'order': {'kind': kind},
+                     'limit': limit, 'offer': {'list_price': lp}, 'FOOD_TAKE_SHARE': market_buyer.FOOD_TAKE_SHARE})
+                self.assertEqual(actual_value, expected)
         self.assertIn('limit = min(value_limit(offer, args.budget, chance, buyer_cfg()), saved_cap(offer, chance)) if r3', src)
 
 
