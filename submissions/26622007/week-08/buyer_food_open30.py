@@ -51,6 +51,42 @@ def config(md, env=None, now=None):
         return None
 
 
+def _arm(cfg, order_id):
+    return 'B' if hashlib.sha256(f"{cfg['salt']}:{order_id}".encode()).digest()[0] % 2 else 'A'
+
+
+def _valid_row(order_id, row, cfg, *, journal=True):
+    """Validate persisted inputs, not just the price eventually sent to the seller."""
+    try:
+        fields = {'study', 'start', 'end', 'config_sha256', 'policy', 'arm', 'grade', 'steps',
+                  'shop', 'sku', 'ask', 'baseline', 'candidate', 'applied', 'assigned_at',
+                  'order', 'quote_task', 'limit'}
+        if (not isinstance(row, dict) or not fields.issubset(row)
+                or not isinstance(order_id, str) or re.fullmatch(r'[A-Za-z0-9_-]{1,96}', order_id) is None
+                or row['order'] != order_id or row['policy'] != POLICY or row['shop'] != SHOP or row['sku'] != SKU
+                or row['arm'] != _arm(cfg, order_id) or row['grade'] is not None or row['steps'] != [.9]
+                or any(row[k] != cfg[k] for k in ('study', 'start', 'end', 'config_sha256'))
+                or not _epoch(row['assigned_at']) or not cfg['start'] <= row['assigned_at'] < cfg['end']
+                or type(row['applied']) is not bool or (journal and row['applied'] is not False)
+                or not (row['quote_task'] is None or isinstance(row['quote_task'], str))):
+            return False
+        ask, limit = row['ask'], row['limit']
+        return (_epoch(ask) and int(ask) == ask and ask > 0 and _epoch(limit) and limit >= 1
+                and type(row['baseline']) is int and type(row['candidate']) is int
+                and row['baseline'] == min(int(.90 * ask), int(ask), int(limit))
+                and row['candidate'] == int(.89 * ask) and 0 < row['candidate'] < row['baseline'])
+    except (ValueError, TypeError, OverflowError):
+        return False
+
+
+def _sync_directory(md):
+    fd = os.open(md, os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0))
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def assign(md, order, shop, quote, steps, resume, *, probing, code_priced, limit, env=None, now=None):
     """Persist assignment before returning it; journal failure leaves the original talk unchanged."""
     injected_now = now
@@ -67,7 +103,8 @@ def assign(md, order, shop, quote, steps, resume, *, probing, code_priced, limit
                 or order.get('_food_quote_yield') or order.get('_b3') is not None
                 or order.get('_food_ladder') is not None
                 or (order.get('_food_shelf') or {}).get('would_drop')
-                or not isinstance(order.get('order'), str) or not order['order']):
+                or not isinstance(order.get('order'), str)
+                or re.fullmatch(r'[A-Za-z0-9_-]{1,96}', order['order']) is None):
             return None
         baseline, candidate = min(int(.90 * ask), int(ask), int(limit)), int(.89 * ask)
         if not 0 < candidate < baseline:
@@ -87,31 +124,40 @@ def assign(md, order, shop, quote, steps, resume, *, probing, code_priced, limit
                     or not isinstance(journal.get('orders'), dict)):
                 return None
             rows = journal['orders']
-            if any(not isinstance(x, dict) or x.get('arm') not in ('A', 'B') for x in rows.values()):
+            if (any(not _valid_row(key, row, cfg) for key, row in rows.items())
+                    or len(rows) > MAX_ORDERS or sum(x['arm'] == 'B' for x in rows.values()) > MAX_B):
                 return None
-            old = rows.get(order['order'])
-            if old is not None:
-                return dict(old) if old.get('ask') == ask and old.get('baseline') == baseline else None
-            if len(rows) >= MAX_ORDERS or sum(x['arm'] == 'B' for x in rows.values()) >= MAX_B:
-                return None   # exposure bound, not a model-call cap; stop both arms together
-            arm = 'B' if hashlib.sha256(f"{cfg['salt']}:{order['order']}".encode()).digest()[0] % 2 else 'A'
-            note = {k: cfg[k] for k in ('study', 'start', 'end', 'config_sha256')}
-            note.update(policy=POLICY, arm=arm, grade=None, steps=[.9], shop=shop, sku=SKU,
-                        ask=ask, baseline=baseline, candidate=candidate, applied=False, assigned_at=now,
-                        order=order['order'], quote_task=(quote.get('task') or {}).get('id'))
-            rows[order['order']] = note
-            tmp = path + f'.tmp.{os.getpid()}'
-            created = False
-            try:
-                with open(tmp, 'x', encoding='utf-8') as f:
-                    created = True
-                    json.dump(journal, f)
-                    f.flush()
-                    os.fsync(f.fileno())
-                os.replace(tmp, path)
-            finally:
-                if created and os.path.exists(tmp):
-                    os.unlink(tmp)
+            task = quote.get('task')
+            task_id = task.get('id') if isinstance(task, dict) else None
+            note = rows.get(order['order'])
+            if note is not None:
+                if any(note[k] != value for k, value in {'ask': ask, 'baseline': baseline,
+                        'limit': limit, 'quote_task': task_id}.items()):
+                    return None
+            else:
+                if len(rows) >= MAX_ORDERS or sum(x['arm'] == 'B' for x in rows.values()) >= MAX_B:
+                    return None   # exposure bound, not a model-call cap; stop both arms together
+                note = {k: cfg[k] for k in ('study', 'start', 'end', 'config_sha256')}
+                note.update(policy=POLICY, arm=_arm(cfg, order['order']), grade=None, steps=[.9], shop=shop, sku=SKU,
+                            ask=ask, limit=limit, baseline=baseline, candidate=candidate, applied=False, assigned_at=now,
+                            order=order['order'], quote_task=task_id)
+                if not _valid_row(order['order'], note, cfg):
+                    return None
+                rows[order['order']] = note
+                tmp = path + f'.tmp.{os.getpid()}'
+                created = False
+                try:
+                    with open(tmp, 'x', encoding='utf-8') as f:
+                        created = True
+                        json.dump(journal, f)
+                        f.flush()
+                        os.fsync(f.fileno())
+                    os.replace(tmp, path)
+                finally:
+                    if created and os.path.exists(tmp):
+                        os.unlink(tmp)
+            # A prior unacknowledged rename must also be persisted before reuse.
+            _sync_directory(md)
             # Recheck after I/O: expiry/OFF while assigning never permits a treatment.
             fresh = config(md, env, time.time() if injected_now is None else injected_now)
             if fresh is None or fresh['config_sha256'] != cfg['config_sha256']:
@@ -126,8 +172,8 @@ def apply(decision, history, limit, steps, note, *, md=None, env=None, now=None)
     if not isinstance(note, dict) or note.get('policy') != POLICY or md is None:
         return decision
     cfg = config(md, env, now)
-    if (cfg is None or cfg['config_sha256'] != note.get('config_sha256')
-            or tuple(steps or ()) != (.9,) or any(who == 'you offered' for who, _ in history)
+    if (cfg is None or not _valid_row(note.get('order'), note, cfg, journal=False)
+            or limit != note.get('limit') or tuple(steps or ()) != (.9,) or any(who == 'you offered' for who, _ in history)
             or not decision or decision.get('action') != 'offer'
             or decision.get('shop_price') != note.get('ask') or decision.get('price') != note.get('baseline')):
         return decision

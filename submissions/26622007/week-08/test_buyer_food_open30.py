@@ -135,5 +135,47 @@ class FoodOpen30Guards(unittest.TestCase):
         self.assertIsNone(self.assign(env={'BUYER_FOOD_LADDER':'0'}))
 
 
+class FoodOpen30JournalContract(FoodOpen30Guards):
+    def corrupt(self, change):
+        path = os.path.join(self.md, pilot.JOURNAL)
+        with open(path) as f:
+            journal = json.load(f)
+        journal['orders'][self.order['order']] = change(journal['orders'][self.order['order']])
+        with open(path, 'w') as f:
+            json.dump(journal, f)
+
+    def test_corrupt_candidate_cannot_lower_offer_outside_the_approved_policy(self):
+        self.assign()
+        self.corrupt(lambda row:dict(row, candidate=1))
+        note = self.assign()
+        self.assertIsNone(note)
+        self.assertEqual(pilot.apply(self.baseline, [], 13230, (.9,), note,
+                                    md=self.md, env={}, now=2000000001), self.baseline)
+
+    def test_incomplete_reused_assignment_is_rejected_before_logging(self):
+        self.assign()
+        self.corrupt(lambda row:{k:row[k] for k in ('arm','ask','baseline')})
+        self.assertIsNone(self.assign())
+
+    def test_directory_fsync_is_required_and_its_failure_cannot_return_an_assignment(self):
+        import stat
+        from unittest.mock import patch
+        real = os.fsync
+        seen = []
+        def require_directory(fd):
+            directory = stat.S_ISDIR(os.fstat(fd).st_mode)
+            seen.append(directory)
+            if directory:
+                raise OSError('directory persistence failed')
+            return real(fd)
+        with patch.object(os, 'fsync', side_effect=require_directory):
+            self.assertIsNone(self.assign())
+        self.assertIn(True, seen)
+        # A prior unacknowledged rename also has to be made durable before reuse.
+        with patch.object(os, 'fsync', side_effect=require_directory):
+            self.assertIsNone(self.assign())
+        self.assertIsNotNone(self.assign())
+
+
 if __name__ == '__main__':
     unittest.main()
