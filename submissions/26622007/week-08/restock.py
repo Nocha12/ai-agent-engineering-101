@@ -41,6 +41,7 @@ import market_model
 import opening
 import profit_price
 import restock_fresh_slots
+import restock_turnover_targets
 import restock_window_fast
 import rival_vote
 import shop_forum
@@ -1020,6 +1021,12 @@ def main():
     catalog = load(os.path.join(args.state, "catalog.json"), {})
     cfg["fresh_slots"] = restock_fresh_slots.config(args.state)      # its own switch file, None when off: today's count
     cfg["fresh_now"] = time.time()                                   # the run's one clock for that count
+    cfg["turnover_targets"] = restock_turnover_targets.config(args.state)
+    if cfg["turnover_targets"]:
+        cfg["sku_target_units"], raised = restock_turnover_targets.targets(cfg, cfg.get("sku_target_units"))
+        print(f"[restock] turnover_targets {cfg['turnover_targets']['study']}: {len(raised)} listed SKUs with a larger target: "
+              + ", ".join(f"{sku} {item['target']}->{item['boosted']}" for sku, item in sorted(raised.items())),
+              file=sys.stderr, flush=True)
     if cfg["fresh_slots"]:
         _, moved = restock_fresh_slots.counted([u for u in inv.get("units") or [] if isinstance(u, dict)
                                                 and not gone(u, time.time())], cfg, catalog, surge(inv))
