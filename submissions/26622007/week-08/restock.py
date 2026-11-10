@@ -21,6 +21,8 @@ lines wait in .market/restock_queue.json and go out max_lines per run. Without a
 """
 import argparse
 import collections
+import contextlib
+import io
 import json
 import math
 import os
@@ -39,6 +41,7 @@ import market_model
 import opening
 import profit_price
 import restock_fresh_slots
+import restock_window_fast
 import rival_vote
 import shop_forum
 import shop_memory
@@ -325,6 +328,30 @@ def pending(md, inv, now=None):
         # Retain the full worst-case cash reservation until the request's usual expiry.
         out.append({"sku": s["sku"], "qty": s["qty"] - came,
                     "cash_qty": s["qty"], "worst": s.get("worst", 0)})
+    return out
+
+
+def sent_waiting(md, now=None):
+    """pending() without the ledger read, for restock_window_fast's run: every line sent in the last PENDING_SECONDS
+    counts in full as still on its way, whether its units have come or not. qty is never under pending()'s (units that
+    arrived are in inventory.json as well, so they count twice), cash_qty and worst are the same: every unit, stock-cost
+    and cash cap in guard() is at least as tight. Unreadable request state raises, as in pending()."""
+    now = now or time.time()
+    try:
+        with open(os.path.join(md, SENT), encoding="utf-8") as f:
+            sent = json.load(f)
+    except (FileNotFoundError, TypeError):
+        sent = []
+    if not isinstance(sent, list):
+        raise ValueError(f"{SENT} is not a list")
+    out = []
+    for s in sent:
+        if not (isinstance(s, dict) and s.get("sku") and isinstance(s.get("qty"), int)
+                and isinstance(s.get("at"), (int, float)) and now - s["at"] < PENDING_SECONDS):
+            continue
+        if not hard_limits.number(s.get("worst", 0)) or s.get("worst", 0) < 0:
+            raise ValueError(f"{SENT}: {s.get('sku')} has no usable worst cost")
+        out.append({"sku": s["sku"], "qty": s["qty"], "cash_qty": s["qty"], "worst": s.get("worst", 0)})
     return out
 
 
@@ -837,6 +864,92 @@ def late_lines(state, inv, buy, agent_skus=(), now=None):
     return send
 
 
+def without_held(cfg, hold):
+    """cfg with the next_window SKUs it holds among skip_skus: the guard leaves them out before the cut at max_lines.
+    Planned and dropped after the cut (main, "if hold and not trial") a held SKU took one of a run's ten lines: every
+    first run of a window printed 9 (11/10 14:44-16:24, G1465c678). restock_window_fast's arm only."""
+    skip = cfg.get("skip_skus")
+    skip = list(skip) if isinstance(skip, (list, tuple)) else []
+    return {**cfg, "skip_skus": skip + sorted(s for s in hold if s not in skip)}
+
+
+def carry_lines(inv, catalog, demand, cfg, model, breaks, waiting, sent, hold):
+    """restock_window_fast: the plan's next lines after the ones this run sends, for the window's next run. The same
+    plan() and guard() over the same state, cut later: the cash, stock-cost and unit room the earlier lines take is
+    counted before these. The SKUs sent and the held next_window SKUs are left out. [] without an active demand
+    model or on any trouble (the next run is then the usual one). Prints nothing: the guard's lines are this run's."""
+    try:
+        if not (model and model.get("active")):
+            return []
+        more = without_held({**cfg, "max_lines": cfg["max_lines"] + restock_window_fast.CARRY_LINES + len(sent)}, hold)
+        with contextlib.redirect_stderr(io.StringIO()):
+            buy = plan(inv, catalog, demand, more, model, breaks, waiting).get("buy") or []
+        gone_ = {b.get("sku") for b in sent} | set(hold)
+        return [b for b in buy if b["sku"] not in gone_][:restock_window_fast.CARRY_LINES]
+    except Exception:   # noqa: BLE001 - no carry: the usual run
+        return []
+
+
+def window_fast(state, inv, pricing, cfg, catalog, now=None):
+    """restock_window_fast, arm B: {"buy": lines} from the carry the window's last run left, or None for the usual run.
+    The ledger sync and the cash buffer are main()'s own (hard_limits.cash_buffer over the stock held and on its way and
+    the warranted sales of the ledger's tail); the lines sent in the last PENDING_SECONDS count in full (sent_waiting);
+    guard(), late_lines() and hard_limits.final_buy() have the last word as in every run. None whenever a step cannot
+    be made exactly: no carry for this open window, a next_window plan that is not done, an opening phase, sent lines or
+    sales that cannot be read, a failed sync, or no line left."""
+    try:
+        now = now or time.time()
+        r = inv.get("restock") if isinstance(inv, dict) else None
+        wfc = restock_window_fast.config(state, now=now)
+        if restock_window_fast.arm(wfc, r.get("opens_at") if isinstance(r, dict) else None) != "B":
+            return None
+        if (inv.get("round") or 0) < market_model.ECON_ROUND or (pricing.get("opening") or {}).get("phases"):
+            return None
+        trial = pricing.get("next_window") or {}
+        hold = set(trial.get("targets") or {})
+        if hold and trial.get("id"):         # a plan that is waiting for its window or running: its run is the usual one
+            st = load(os.path.join(state, NEXT_WINDOW_STATE), {})
+            if not isinstance(st, dict) or st.get("id") != trial["id"] or st.get("done") is not True:
+                return None
+        if restock_window_fast.take_carry(state, inv, now, mark=False) is None:
+            return None
+        waiting = sent_waiting(state, now)
+        t0 = time.time()
+        added = market_model.sync(state, max_pages=cfg.get("max_pages", market_model.DEFAULTS["max_pages"]))
+        took = time.time() - t0
+        sales = warranted_sales(state, catalog)
+        if sales is None:
+            return None
+        stock = sum(u["cost"] for u in inv.get("units") or [] if isinstance(u, dict) and hard_limits.number(u.get("cost"))) \
+            + sum(w["worst"] * w["qty"] for w in waiting)
+        buffer = hard_limits.cash_buffer(stock, sales)
+        if not hard_limits.number(buffer):
+            return None
+        carried = restock_window_fast.take_carry(state, inv, now)      # marked used: these lines are never carried twice
+        if carried is None:
+            return None
+        lines, at = carried
+        print(f"[restock] cash buffer {buffer} (balance {inv.get('balance')}, stock {stock:.0f}, "
+              f"{len(sales)} warranted goods sales in {hard_limits.BREAK_HOURS} h)", file=sys.stderr, flush=True)
+        buy = guard([b for b in lines if b["sku"] not in hold], inv, catalog, {**cfg, "cash_buffer": buffer}, None, waiting)
+        buy = late_lines(state, inv, buy[:cfg["max_lines"]])
+        owed = sum(w["worst"] * w["cash_qty"] for w in waiting)
+        buy = hard_limits.final_buy(buy, inv.get("balance"), catalog, buffer=buffer + owed)
+        print(f"[restock] window_fast {wfc['study']}: {len(buy)} of the {len(lines)} lines the run of "
+              f"{time.strftime('%H:%M:%S', time.localtime(at))} left for this window, ledger sync +{added} rows in "
+              f"{took:.1f} s, no demand model this run", file=sys.stderr, flush=True)
+        if not buy:
+            return None
+        try:
+            note_sent(state, buy[:10], catalog, factors=surge(inv))
+        except OSError as e:
+            print(f"[restock] could not note the lines sent: {e}", file=sys.stderr, flush=True)
+        return {"buy": buy}
+    except Exception as e:   # noqa: BLE001 - the usual run decides
+        print(f"[restock] window_fast: the usual run ({type(e).__name__}: {e})", file=sys.stderr, flush=True)
+        return None
+
+
 def forum_off_window(state, inv, now=None):
     """Run the unchanged due policy only outside the supply protection interval.
     The kit waits for process exit (market_kit.run_buyer), so printing early cannot
@@ -867,6 +980,13 @@ def main():
               f"than held ({sum(m['held'] - m['counted'] for m in moved.values())} units waited past "
               f"{cfg['fresh_slots']['hours']:g} h): "
               + ", ".join(f"{k} {m['held']}->{m['counted']}" for k, m in sorted(moved.items())), file=sys.stderr, flush=True)
+    fast = window_fast(args.state, inv, pricing, cfg, catalog)      # restock_window_fast, default off: None
+    if fast is not None:
+        print(json.dumps(fast, ensure_ascii=False), flush=True)
+        measure.tick(args.state, inv, fast["buy"][:10], pricing, skip_sales=True)    # the 6 h sales wait for the usual run
+        return 0
+    w = inv.get("restock") if isinstance(inv.get("restock"), dict) else {}
+    fast_b = restock_window_fast.arm(restock_window_fast.config(args.state), w.get("opens_at")) == "B"
     demand, model = load(os.path.join(args.state, "demand.json"), []), read_model(args.state, catalog, cfg)
     loss_watch.check(args.state, rows=rows_of(args.state))     # after read_model: the ledger rows are fresh
     breaks = read_breaks(args.state, catalog)
@@ -915,6 +1035,9 @@ def main():
     trial_cfg = pricing.get("next_window") or {}
     hold = set(trial_cfg.get("targets") or {}) if trial is not None or trial_cfg.get("hold_after_done") is True else set()
     agent_skus = set()
+    if fast_b and hold and first is None and not out.get("bankrupt"):
+        with contextlib.redirect_stderr(io.StringIO()):     # the guard's lines were printed by the plan above
+            out = plan(inv, catalog, demand, without_held(cfg, hold), model, breaks, waiting)
     if first is not None:                 # the opening decides this run (already guarded); the agent waits
         out = {"buy": first}
     elif (opening.window_closed(inv) or trial == [] and opening.window_closed(inv, lead=0)) and not out.get("bankrupt"):
@@ -962,6 +1085,12 @@ def main():
             note_sent(args.state, out["buy"][:10], catalog, factors=surge(inv))    # the kit sends ten lines a run
         except OSError as e:
             print(f"[restock] could not note the lines sent: {e}", file=sys.stderr, flush=True)
+    if fast_b:      # restock_window_fast: the plan's next lines wait for this window's next run; none: the old carry goes
+        carry = []
+        if first is None and not trial and out["buy"] and not out.get("bankrupt") \
+                and not (load(os.path.join(args.state, "restock_queue.json"), {}).get("lines") or []):
+            carry = carry_lines(inv, catalog, demand, cfg, model, breaks, waiting, out["buy"][:10], hold)
+        restock_window_fast.save_carry(args.state, inv, carry)
     print(json.dumps(out, ensure_ascii=False), flush=True)
     measure.tick(args.state, inv, out["buy"][:10], pricing)     # after the line the kit reads; local files only, never raises
     return 0

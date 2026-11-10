@@ -87,6 +87,19 @@ class MeasureTest(unittest.TestCase):
         self.assertEqual((s[11]["broke"], s[11]["net"]), (False, 50))
         self.assertIsNone(s[12]["net"])                                        # cost unknown: no guess
 
+    def test_a_pass_that_skips_the_sales_leaves_them_and_their_clock_to_the_next(self):
+        # restock_window_fast's run inside a supply window: no read of the ledger rows file, the next pass does them
+        with open(os.path.join(self.md, "loss_state.json"), "w") as f:
+            json.dump({"mine": {"10": {"unit": "u1", "amount": 300}}}, f)
+        rows = [{"k": "settle", "seq": 10, "ts": 100, "order": "o1", "sku": "S", "amount": 300, "grade": "A", "warranty": 6.0, "buyer": "b"}]
+        recs = [{"unit": "u1", "result": "deal", "cost": 120}]
+        with mock.patch("market_model.load_rows", side_effect=AssertionError("the rows file")):
+            measure.tick(self.md, inv([]), [{"sku": "S", "qty": 2}], {}, now=10 * 3600, sold_records=recs, skip_sales=True)
+        self.assertEqual(lines(self.md, "sales_6h"), [])
+        self.assertEqual(lines(self.md, "supply_sent")[-1]["lines"], [{"sku": "S", "qty": 2}])     # the run's lines are kept
+        self.tick(inv([]), 10 * 3600 + 60, recs=recs, rows=rows)                # a minute later, not SALES_EVERY later
+        self.assertEqual([x["seq"] for x in lines(self.md, "sales_6h")], [10])
+
     def test_forum_follow_ups(self):
         with open(os.path.join(self.md, "forum.json"), "w") as f:
             json.dump([{"id": 7, "ts": 1000, "author": "nocha12", "role": "buyer", "likes": 3, "dislikes": 0, "score": 0.4},

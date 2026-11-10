@@ -191,9 +191,11 @@ def _forum(md, state, now, me):
     state["posts_done"] = finished[-3000:]
 
 
-def tick(md, inv=None, sent=(), pricing=None, now=None, sold_records=None, rows=None):
+def tick(md, inv=None, sent=(), pricing=None, now=None, sold_records=None, rows=None, skip_sales=False):
     """One measurement pass; sent is what this restock run hands the kit. Each part catches its own errors and the state
-    is saved whatever failed, so a broken part does not make the others write the same lines again next minute."""
+    is saved whatever failed, so a broken part does not make the others write the same lines again next minute.
+    skip_sales: the 6 h sales (the ledger rows file) are left to the next pass, their clock untouched
+    (restock_window_fast's run inside a supply window)."""
     now = now or time.time()
     try:
         path = os.path.join(md, DIR, STATE)
@@ -235,7 +237,7 @@ def tick(md, inv=None, sent=(), pricing=None, now=None, sold_records=None, rows=
         _windows(md, state, inv, now, pricing or {})
 
     def sales():
-        if now - state.get("sales_at", 0) < SALES_EVERY:
+        if skip_sales or now - state.get("sales_at", 0) < SALES_EVERY:
             return
         state["sales_at"] = now
         r = rows
