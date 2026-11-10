@@ -308,9 +308,10 @@
     "goods_break": 0.035,
     "grade_break": {
       "A": 0.03,
-      "B": 0.122,
+      "B": 0.15,
       "C": 0.344
     },
+    "grade_break_source": "W-20261110-1346-AXFable검토 (11/10 18:2x, 대표님 16:27 'fable로 수정해'): B 0.122 -> 0.15. Goods sales matured 6 h, from the whole public ledger to 11/10 12:29 (every broken row joined to its settle by unit; count rate / value rate): grade B at the other shops 11.9% / 11.6% over the round (n 33,852), 11.6% over the last 72 h; OUR grade B 14.3% / 14.1% over the round (n 1,640), 15.2% / 15.2% over the last 72 h (n 1,036), 15.7% over the last 24 h; against each buyer's rate at the other shops 144 breaks were expected of our last 96 h's 1,275 B sales and 189 came (z 4.0). Not explained by unit cost (13.2-15.8% across cost bands), hours held, price or buyer. The floor's b is max(goods_break, the SKU x grade rate leaning on the market's grade rate, this number) (profit_price.break_for), so at 0.122 a B unit was priced for the market's rate, not ours: floor x (1 - 0.122) / (1 - 0.15) = +3.3%. A 0.03 (ours 3.2%, market 3.0%) and C 0.344 (ours 32.4%, market 34.6%) stay. Not 0.19: the 15-19% of the first report was refunds over sales inside cost bands, not a break rate.",
     "stress_break": 0.25,
     "median_up": 1.0,
     "paid_over_median": false,

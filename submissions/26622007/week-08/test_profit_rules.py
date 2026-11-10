@@ -366,7 +366,13 @@ class PriceTest(unittest.TestCase):
         # Latest instruction: keep 30만+ goods at 0.97 x median with the price trial OFF.
         self.assertEqual((c["median_up"], c["high_median_up"]["factor"]), (1.0, 0.97))
         self.assertIs(profit_price.cfg_of(p)["paid_over_median"], False)
-        self.assertEqual(profit_price.cfg_of(p)["grade_break"], {"A": 0.03, "B": 0.122, "C": 0.344})
+        # B 0.122 -> 0.15 (11/10): our own grade B breaks 14.3% over the round, 15.2% over the last 72 h (market 11.6-11.9%)
+        self.assertEqual(profit_price.cfg_of(p)["grade_break"], {"A": 0.03, "B": 0.15, "C": 0.344})
+        b_unit = {"sku": "G85a1a856", "unit": "u", "kind": "goods", "grade": "B", "cost": 500000, "list_price": 922000}
+        # (500,000 + 1,250 + 1) / 0.85 = 589,707.06 -> 589,708 (was / 0.878 = 570,900): a sale at the floor keeps the cost
+        # after a 15% chance of refunding the whole price
+        self.assertEqual(profit_price.quote(b_unit, median=None, measured=0.12, pricing=p)["floor"], 589708)
+        self.assertEqual(profit_price.quote(b_unit, median=None, measured=0.2, pricing=p)["b"], 0.2)   # a higher measured rate wins
         self.assertEqual(p["warranty"]["max_break"], 0.5)         # C units (34% of them break) are priced, not refused
         r = p["restock"]
         self.assertEqual((r["max_stock_cost"], r["max_units_per_sku"], r["cover_hours"], r["keep_cash"],
