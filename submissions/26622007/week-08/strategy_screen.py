@@ -20,7 +20,7 @@ def screen(rows, catalog, inventory, pricing, now, hours=2, limit=5, sku=None):
             continue
         item = catalog.get(key) or {}
         price = row.get('amount')
-        if item.get('kind') != 'goods' or not isinstance(price, (int, float)) or isinstance(price, bool) or not math.isfinite(price) or price <= 0:
+        if item.get('kind') != 'goods' or not isinstance(price, (int, float)) or isinstance(price, bool) or price <= 0:
             continue
         grouped.setdefault(key, []).append(row)
     surge = {r.get('sku'): r.get('factor') for r in inventory.get('surge', []) if isinstance(r, dict)}
@@ -36,17 +36,12 @@ def screen(rows, catalog, inventory, pricing, now, hours=2, limit=5, sku=None):
         floor = profit_price.floor(cost, lp, 'goods', .15, profit_price.cfg_of(pricing))
         stress = profit_price.floor(cost, lp, 'goods', .25, profit_price.cfg_of(pricing))
         prices = [s['amount'] for s in sales]
-        identified = [s for s in sales if isinstance(s.get('buyer'), str) and s['buyer'].strip()]
-        eligible = [s for s in identified if floor <= s['amount'] <= lp]
-        result.append(dict(sku=key, paid=len(sales), buyers=len({s['buyer'] for s in identified}),
-                           missing_buyer=len(sales)-len(identified),
-                           within_list_clears_floor15=len(eligible),
-                           within_list_floor15_buyers=len({s['buyer'] for s in eligible}),
+        result.append(dict(sku=key, paid=len(sales), buyers=len({s.get('buyer') for s in sales}),
                            price_min=min(prices), price_median=statistics.median(prices), price_max=max(prices),
                            list_price=lp, surge=factor, worst_unit_cost=cost, floor15=floor, floor25=stress,
                            clears_floor15=sum(p >= floor for p in prices), clears_floor25=sum(p >= stress for p in prices),
                            stock_units=sum(u.get('sku') == key for u in inventory.get('units', []))))
-    result.sort(key=lambda r: (-r['within_list_floor15_buyers'], -r['within_list_clears_floor15'], -r['paid'], r['sku']))
+    result.sort(key=lambda r: (-r['clears_floor25'], -r['paid'], r['sku']))
     latest = max((r.get('ts', 0) for r in rows if r.get('ts', 0) <= now), default=0)
     return dict(as_of=now, hours=hours, ledger_lag_seconds=now-latest if latest else None,
                 basis='public paid demand; hypothetical worst A cost incl snapshot surge; b=15%/25% scenarios, not measured risk or rival margin; no automatic buy',

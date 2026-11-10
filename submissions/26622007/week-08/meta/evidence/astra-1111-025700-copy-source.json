@@ -1,1 +1,0 @@
-{"matching_sources": {"strategy_screen.py": true, "test_strategy_screen.py": true, "test_acp_shop.py": true}, "excluded": [".market", "memory", "logs"], "command": "/Users/market/ai-agent-engineering-101/.venv/bin/python -c \"import sol_source_load, unittest; sol_source_load.install(); unittest.main(module=None, argv=['python -m unittest', 'discover', '-p', 'test_*.py'])\""}
