@@ -58,7 +58,7 @@ SENTENCE = re.compile(r"I prefer grade C \(refurbished\) or B \(damaged box\) wi
 FRAME = re.compile(r"I want to buy (?P<name>[^\n]+?) \((?P<sku>G[0-9a-f]{8})\)\. (?P<sentence>I prefer grade C .+?) "
                    r"Please quote your cheapest unit that way\.")
 SKU_ANYWHERE = re.compile(r"(?i)g[0-9a-f]{8}")     # what pick matches (the SKU lowercased, anywhere in the text)
-NAME_GRADE_WORDS = re.compile(r"(?<![A-Za-z])[ABCＡＢＣ](?![A-Za-z])|싫|제외|말고|빼고|불가|사절|파손|"
+NAME_GRADE_WORDS = re.compile(r"(?<![A-Za-z])[ABCabcＡＢＣａｂｃ](?![A-Za-z])|싫|제외|말고|빼고|불가|사절|파손|훼손|하자|리퍼|중고|새상품|"
                               r"(?i:\bgrades?\b|damaged|refurbished|warranty|\bonly\b|\bnot?\b|without|avoid|except)")
 MORE_TRIALS = ("floor_margin", "a_open", "goods_margin", "food_margin", "shelf_jev", "warranty_fact")
 
