@@ -65,6 +65,16 @@ class Prefetch(unittest.TestCase):
         self.assertEqual(order["_unpaid_skip"], [])
         self.assertIn("dragonash", self.pool([trade("unpaid", 600), trade("deal", 60)]))
 
+    def test_every_shop_skipped_leaves_an_empty_pool(self):
+        shops = [{"name": "dragonash", "reviews": [], "usable": []}]
+        order = {}
+        with tempfile.TemporaryDirectory() as md, mock.patch.object(mb, "log"):
+            os.mkdir(os.path.join(md, "measure"))
+            early, everyone = mb.prefetch_pool(shops, {"trades": [trade("unpaid", 600), trade("unpaid", 60)]}, md, "c", 3,
+                                               kind="food", order_id="o-0", order=order)
+        self.assertEqual((early, everyone), ([], []))
+        self.assertEqual(order["_unpaid_skip"], ["dragonash"])
+
     def test_a_cheater_is_still_left_out_and_not_counted_as_unpaid(self):
         order = {}
         cheat = dict(trade("deal", 60), problems=["agreed 1, receipt says 2"])

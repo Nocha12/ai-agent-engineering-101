@@ -1360,7 +1360,8 @@ def prefetch_pool(left, memory, md, category, k, rival=frozenset(), kind=None, o
                   order=None, budget=None):
     """The k - 1 shops quoted before the harness has chosen (the chosen shop takes the last slot of the first batch),
     and every shop that could be quoted, in quote order; revenue rivals of my shop after the others (rival_deny)."""
-    others = [s for s in left if quotable_shop(memory, s["name"])]
+    t0 = time.time()        # one reading for the baseline and current(at), so a cool ending between them changes neither
+    others = [s for s in left if quotable_shop(memory, s["name"], t0)]
     skipped = [s["name"] for s in left if not caught_cheating(my_history(memory, s["name"])) and s not in others]
     if skipped:
         log(f"[quote] skip {', '.join(skipped)}: my last two deals there were not paid, under {UNPAID_COOL} s ago")
@@ -1390,7 +1391,7 @@ def prefetch_pool(left, memory, md, category, k, rival=frozenset(), kind=None, o
                     return None  # a changed candidate pool must use the baseline
                 current_left = [{**s, **current_by_name[s["name"]]} for s in left]
             current_rival = rival_deny.rivals(md, now=at) if RIVAL_DENY else rival
-            current_others = [s for s in current_left if quotable_shop(memory, s["name"], at)]
+            current_others = [s for s in current_left if quotable_shop(memory, s["name"], t0)]
             # rates as read at prefetch: a few seconds do not move a 6 h paid share
             current_others = rival_deny.others_first(quote_order(current_others, latest_fits, k, rates=rates), current_rival)
             return buyer_stock_evidence.plan(md, current_others, latest_fits, current_rival,
