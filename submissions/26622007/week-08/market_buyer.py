@@ -41,6 +41,7 @@ import os
 import random
 import sys
 import time
+from datetime import datetime
 
 import httpx
 
@@ -744,9 +745,17 @@ def warranty_hours_said(text):
     return min(hs) if hs else None
 
 
+# A shop's complete inventory prefix, not dates inside product names/examples or truncated quotes.
+FOOD_EXPIRY_PREFIX = re.compile(
+    r"\AInventory condition: [ABC]\. Expires at "
+    r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2}))\. "
+    r"Confirm the certificate at checkout; condition can change while negotiating\. Warranty: \d+ hours\.\n")
+
+
 def shelf_refused(text, order):
     """The shop says, before any offer, how long this food unit lasts, and it is less than the kit asks before paying
-    (accept_policy): a deal there would end unpaid. Only "... shelf life left" counts, not a shop's own example."""
+    (accept_policy): a deal there would end unpaid. Relative shelf hours or a complete, timezone-aware inventory
+    expiry prefix count; malformed/ambiguous/truncated prefixes and dates in examples keep the existing path."""
     if order.get("kind") != "food" or not order.get("use_within_hours"):
         return None
     t = text or ""
@@ -755,6 +764,17 @@ def shelf_refused(text, order):
     hours += [float(h) for h in re.findall(r"remaining shelf[ -]life\s*(?:is|of|[=:])?\s*(\d+(?:\.\d+)?)\s*(?:h|hours?)\b", t, re.I)]
     need = order["use_within_hours"] + SHELF_MARGIN
     hours = [h + 0.5 if h.is_integer() else h for h in hours]    # "about 48 h" may be 48.4: rounded, not short
+    # Same checkout eligibility as relative shelf hours. This never supplies a price to oneshot/ask_read.
+    expiry = FOOD_EXPIRY_PREFIX.match(t)
+    if expiry and t.count("Expires at ") == 1:
+        try:
+            now = time.time()    # one time for this same RPC response; never the later order-log timestamp
+            if isinstance(now, (int, float)) and not isinstance(now, bool) and abs(now) < 1e12:
+                left = (datetime.fromisoformat(expiry[1].replace("Z", "+00:00")).timestamp() - now) / 3600
+                if left == left:     # invalid clocks must not turn an unknown quote into a rejection
+                    hours.append(left)
+        except (ValueError, OverflowError, OSError):
+            pass                    # malformed/naive/ambiguous input keeps the existing path
     if hours and max(hours) < need:
         return f"the shop's unit lasts {max(hours):g} h, the order needs {need:g} h"
     return None
