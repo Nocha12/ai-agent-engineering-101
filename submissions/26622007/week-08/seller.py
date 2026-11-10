@@ -76,6 +76,7 @@ import seller_food_margin
 import seller_late_speed
 import seller_jev_transport
 import seller_single_price
+import seller_price_first
 import shelf_life_reply
 import shelf_jev_skip
 import shelf_fact
@@ -809,7 +810,8 @@ class Seller(AgentExecutor):
 
     async def _execute_turn(self, task, context, event_queue):
         up = TaskUpdater(event_queue=event_queue, task_id=task.id, context_id=task.context_id)
-        say = lambda text, ask=None: up.new_agent_message(parts=[new_text_part(seller_single_price.render(task.id, text, ask))],
+        price_first_eligible = False
+        say = lambda text, ask=None: up.new_agent_message(parts=[new_text_part(seller_price_first.render(task.id, seller_single_price.render(task.id, text, ask), ask, eligible=price_first_eligible))],
                                                           metadata={"ask": ask} if ask is not None else None)
         full_text = get_message_text(context.message) or ""
         text = full_text[:MAX_TEXT]
@@ -1070,6 +1072,7 @@ class Seller(AgentExecutor):
                 if not text_out or re.search(r"come down|go lower|lower (it|the price)|reduce|meet you|discount|a bit more", text_out, re.I):
                     text_out = random.choice(FINAL_LINES)
                 text_out += " This is our final price."
+            price_first_eligible = bool(fast and str(fast.get("why", "")).startswith("jevrule counter "))
             await up.requires_input(say(f"{text_out} My price: {price}.", price))
             log(f"task {task.id[:8]} -> INPUT_REQUIRED ask {price}")
 

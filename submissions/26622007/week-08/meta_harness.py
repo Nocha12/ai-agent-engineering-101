@@ -67,7 +67,7 @@ SWITCHES = ("seller_warranty_trial.json", ".market/sol_seller_margin_v2/controll
     f".market/buyer_{n}.json" for n in ("accept_band", "b3b1", "final_m1", "food_ladder", "food_open30", "food_floor30", "food_shelf", "goods_grade", "goods_ladder", "moss_first", "our_ask",
                                         "post_market", "quote_deadline", "rank_pg",
                                         "saved_floor", "shop_profile", "short_warranty", "warranty_said"))
-SWITCHES += (".market/single_price/config.json",)
+SWITCHES += (".market/single_price/config.json", ".market/price_first/config.json")
 SWITCHES += (".market/market_ref_read.json",)   # market_ref_read.py (지시23 11/10)
 
 
