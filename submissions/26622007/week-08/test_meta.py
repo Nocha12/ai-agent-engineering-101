@@ -309,7 +309,7 @@ class SellerRestartPolicyTest(unittest.TestCase):
         original = json.dumps(before, sort_keys=True)
         with mock.patch.object(mh, "KIT_PATTERN", "isolated-kit"), \
                 mock.patch.object(mh, "pricing_now", return_value=after), \
-                mock.patch.object(mh.subprocess, "run") as run, mock.patch("builtins.print"):
+                mock.patch.object(mh.subprocess, "run") as run, mock.patch.object(mh, "log"):
             mh.restart_seller(paths, pricing_before=before)
         self.assertEqual(json.dumps(before, sort_keys=True), original)
         return run
@@ -374,6 +374,23 @@ class SellerRestartPolicyTest(unittest.TestCase):
                 with self.assertRaisesRegex(margin.StudyError, "paused unknown"):
                     study.verify_baseline("task", cfg, new, ())
                 event.assert_called_once_with("task", cfg, "paused", reason="baseline_changed", economic_status="unknown")
+
+
+class RestartFixtureIsolationTest(unittest.TestCase):
+    def test_direct_restart_policy_suite_does_not_write_parent_log(self):
+        with tempfile.TemporaryDirectory() as parent:
+            os.makedirs(os.path.join(parent, "logs"))
+            logfile = os.path.join(parent, "logs", "meta.log")
+            with open(logfile, "wb") as f:
+                f.write(b"parent fixture\\n")
+            with open(logfile, "rb") as f:
+                before = f.read()
+            result = unittest.TestResult()
+            with mock.patch.object(mh, "ROOT", parent):
+                unittest.defaultTestLoader.loadTestsFromTestCase(SellerRestartPolicyTest).run(result)
+            self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
+            with open(logfile, "rb") as f:
+                self.assertEqual(f.read(), before)
 
 
 class HarnessCycleTest(unittest.TestCase):
@@ -583,6 +600,45 @@ class HarnessCycleTest(unittest.TestCase):
         self.assertLess(boot.index("sol_source_load.install()"), boot.index("unittest.main"))
         self.assertIn("'discover', '-p', 'test_*.py'", boot)
         self.assertIn("sol_source_load.install()", mh.test_prompt())
+
+    def test_copied_meta_root_and_import_time_paths_ignore_inherited_meta_dir(self):
+        # Use the real module in a copied child, never a live operational root.
+        mh.shutil.copyfile(mh.__file__, os.path.join(self.root, "meta_harness.py"))
+        with open(os.path.join(self.root, "test_meta_root.py"), "w") as f:
+            f.write(textwrap.dedent(f"""\
+                import os, sys, unittest
+                sys.path.append({HERE!r})
+                import meta_harness as child
+                class T(unittest.TestCase):
+                    def test(self):
+                        here = os.path.dirname(os.path.abspath(__file__))
+                        self.assertEqual(child.ROOT, here)
+                        self.assertEqual(child.TRIED, os.path.join(here, ".market", "meta_tried.json"))
+                        child.log("isolated fixture")
+                        child.save_tried({{"terra": 1}})
+                        self.assertTrue(os.path.isfile(os.path.join(here, "logs", "meta.log")))
+                        self.assertTrue(os.path.isfile(child.TRIED))
+                """))
+        protected = {}
+        for rel in ("logs/meta.log", ".market/meta_tried.json"):
+            path = os.path.join(self.root, rel)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as f:
+                f.write(b"parent fixture must not change\\n")
+            with open(path, "rb") as f:
+                protected[path] = f.read()
+        for value in (None, "", self.root):
+            with self.subTest(inherited="absent" if value is None else "empty" if not value else "present"):
+                with mock.patch.dict(os.environ):
+                    os.environ.pop("META_DIR", None)
+                    if value is not None:
+                        os.environ["META_DIR"] = value
+                    ok, output = mh.run_tests()
+                    self.assertTrue(ok, output)
+                    self.assertEqual(os.environ.get("META_DIR"), value)
+                for path, content in protected.items():
+                    with open(path, "rb") as f:
+                        self.assertEqual(f.read(), content)
 
     def test_tests_pass_while_the_kit_keeps_writing_the_live_folder(self):
         # 11/09 09:03 and 10:07 every code change was refused: test_seller_warranty_trial hashes its folder's .market/

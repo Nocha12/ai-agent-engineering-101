@@ -340,7 +340,9 @@ def test_prompt():
 # tests whatever the change (independent review 0738-isolate C).
 TEST_COPY_LIVE = (".market", "memory", "logs")                        # at the folder's top only
 TEST_COPY_NEVER = shutil.ignore_patterns("__pycache__", ".env*", "*.pem")
-TEST_COPY_ENV = ("MARKET_DIR", "SHOP_KEY_PEM", "BUYER_MEMORY", "SHOP_PRICING")     # these point at live state or keys
+# META_DIR also selects import-time paths (TRIED): tests must derive them from the copy, not the parent.
+# Keep it out of test_env(), which is also used by the model working in the real cycle folder.
+TEST_COPY_ENV = ("MARKET_DIR", "SHOP_KEY_PEM", "BUYER_MEMORY", "SHOP_PRICING", "META_DIR")
 
 
 def tracked(cwd, *paths):
