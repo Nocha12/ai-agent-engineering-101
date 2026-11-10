@@ -228,6 +228,53 @@ class Write(unittest.TestCase):
             self.assertFalse(out["locked"])
         self.assertIs(body(self.md, "final_m1")["enabled"], False)
 
+    def test_a_market_dir_that_is_not_there_is_never_made(self):             # review 4948771 I1
+        nope = os.path.join(self.md, "nope", ".market")
+        self.assertEqual(sw.main(["--market-dir", nope, "our_ask", "--off"]), 2)
+        self.assertEqual(sw.main(["--market-dir", nope, "final_m1", "--start", str(self.t + 600),
+                                  "--end", str(self.t + 1200)]), 2)
+        self.assertFalse(os.path.exists(os.path.join(self.md, "nope")))
+
+    def test_an_off_without_the_lock_looks_again_and_says_so(self):          # review 4948771 M1
+        p = os.path.join(self.md, sw.STUDIES["our_ask"]["file"])
+        real = sw._lock
+        calls = []
+
+        def lock(md, tries):
+            calls.append(tries)
+            if len(calls) == 1:                    # a stalled writer holds it, then renames over the off
+                with open(p, "w") as f:
+                    json.dump({"enabled": True, "salt": "b", "start": self.t + 600, "end": self.t + 600 + 9 * H}, f)
+                return None
+            return real(md, tries)
+        with unittest.mock.patch.object(sw, "_lock", side_effect=lock):
+            out = sw.off(self.md, "our_ask")
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(out["locked"])
+        self.assertIs(body(self.md, "our_ask")["enabled"], False)
+        self.assertIsNone(oa._switch(self.md))
+        with unittest.mock.patch.object(sw, "_lock", return_value=None):
+            self.assertEqual(sw.main(["--market-dir", self.md, "our_ask", "--off"]), 3)
+        self.assertIs(body(self.md, "our_ask")["enabled"], False)
+
+    def test_the_lock_never_leaks_and_needs_no_write_permission(self):       # review 4948771 N1 N2
+        import errno
+        with unittest.mock.patch.object(sw.fcntl, "flock", side_effect=OSError(errno.ENOLCK, "no locks")):
+            before = len(os.listdir("/dev/fd"))
+            for _ in range(3):
+                with self.assertRaises(sw.Refused):
+                    sw.write(self.md, "final_m1", self.t + 600, self.t + 1200)
+                sw.off(self.md, "final_m1")
+            self.assertEqual(len(os.listdir("/dev/fd")), before)
+        os.chmod(os.path.join(self.md, sw.LOCK), 0o444)
+        sw.write(self.md, "final_m1", self.t + 600, self.t + 1200, new_study=True)
+
+    def test_blank_history_lines_are_skipped(self):                            # review 4948771 N3
+        sw.off(self.md, "final_m1")
+        with open(os.path.join(self.md, sw.HISTORY), "a") as f:
+            f.write("\n")
+        sw.write(self.md, "final_m1", self.t + 600, self.t + 1200)
+
     def test_a_clock_behind_the_history_refuses(self):                         # adversarial e0a5379 F3
         s = self.t + 600
         sw.write(self.md, "moss_first", s, s + 9 * H, salt="a")

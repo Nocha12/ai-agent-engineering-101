@@ -21,7 +21,9 @@ window by hand that has no end, starts in the past, or runs past the study's max
   unknown (adversarial e0a5379 F1). Writers take turns on LOCK, a clock behind HISTORY refuses, and the running check
   is made again just before the rename (F2-F4). Not covered: a process killed between the rename and its HISTORY line
   (the next write or off records that window as replaced or stopped) and an off on a switch that is a directory or
-  unreadable (exit 2, reported). Then a later window of the same study:
+  unreadable (exit 2, reported); a clock stepped back to between a write line and its start (review 4948771 M2); a
+  history line with a future at refuses writes of that study until then (M3, fail closed: mend the line by hand). An
+  off that could not take the lock exits 3 and says to run it again; one that took it late looks again (M1). Then a later window of the same study:
   - an A/B study (moss_first, our_ask) never reuses the salt of a window that ran: the same arms again would be the same
     study made longer; with a new salt it may start before the old end only if new_study (--new-study) says so;
   - final_m1 starts only after the end of every window that ran, and then only with new_study (review 77cdbef M2: off
@@ -41,6 +43,7 @@ window by hand that has no end, starts in the past, or runs past the study's max
 It prints the JSON written and its mtime; exit 2 when refused.
 """
 import argparse
+import errno
 import fcntl
 import json
 import math
@@ -131,6 +134,8 @@ def _history(md, name):
         raise Refused(f"history unreadable: {e}") from e
     out = []
     for l in lines:
+        if not l.strip():
+            continue
         try:
             e = json.loads(l)
         except ValueError as err:
@@ -252,15 +257,25 @@ def _log(md, event):
 
 
 def _lock(md, tries):
-    """An fd holding the writers' lock, or None if another writer held it for all the tries (0.1 s apart)."""
-    os.makedirs(os.path.join(md, os.path.dirname(LOCK)), exist_ok=True)
-    fd = os.open(os.path.join(md, LOCK), os.O_RDWR | os.O_CREAT, 0o644)
-    for _ in range(tries):
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return fd
-        except BlockingIOError:
-            time.sleep(0.1)
+    """An fd holding the writers' lock, or None if another writer held it for all the tries (0.1 s apart). The market
+    dir is never made: one that is not there is OSError (review 4948771 I1); the lock needs no write permission (N2)."""
+    if not os.path.isdir(md):
+        raise FileNotFoundError(errno.ENOENT, "the market dir is not there", md)
+    try:
+        os.mkdir(os.path.join(md, os.path.dirname(LOCK)))
+    except FileExistsError:
+        pass
+    fd = os.open(os.path.join(md, LOCK), os.O_RDONLY | os.O_CREAT, 0o644)
+    try:
+        for _ in range(tries):
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return fd
+            except BlockingIOError:
+                time.sleep(0.1)
+    except BaseException:
+        os.close(fd)                       # N1
+        raise
     os.close(fd)
     return None
 
@@ -343,12 +358,22 @@ def off(md, name):
     """{"enabled": false} over the study's switch, at once, with the window it stops."""
     s = _study(name)
     path = os.path.join(md, s["file"])
+    if not os.path.isdir(md):
+        raise FileNotFoundError(errno.ENOENT, "the market dir is not there", md)
     try:
         fd = _lock(md, 50)         # off waits for a writer, then stops anyway: it is never refused
     except OSError:
         fd = None
     try:
-        return dict(_off(md, name, path), locked=fd is not None)
+        out = _off(md, name, path)
+        if fd is None:             # a stalled writer may rename over it: wait for the lock and look again (4948771 M1)
+            try:
+                fd = _lock(md, 100)
+            except OSError:
+                fd = None
+            if fd is not None and _current(path)[1] is not None:
+                out = _off(md, name, path)
+        return dict(out, locked=fd is not None)
     finally:
         if fd is not None:
             os.close(fd)
@@ -395,6 +420,10 @@ def main(argv=None):
         print(json.dumps({"refused": str(e)}, ensure_ascii=False))
         return 2
     print(json.dumps(out, ensure_ascii=False))
+    if out.get("locked") is False:
+        print(json.dumps({"warning": "off was written without the writers' lock: a writer still running could put a "
+                                     "window back; run --off again"}), file=sys.stderr)
+        return 3
     return 0
 
 
