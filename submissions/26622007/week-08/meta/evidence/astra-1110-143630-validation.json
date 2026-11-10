@@ -1,0 +1,20 @@
+{
+  "grades": 85,
+  "keep_or_drop": 94,
+  "citations": 110,
+  "citation_errors": [],
+  "queue_missing_fields": [
+    {
+      "g2-loss-target-1110": []
+    },
+    {
+      "forum-reference-probe-1110": []
+    }
+  ],
+  "test_passed": true,
+  "tests": 1882,
+  "protected_files_changed": false,
+  "pricing_changed_by_astra": false,
+  "live_baseline_interrupted": true,
+  "no_commit_push_pr": true
+}

@@ -1,0 +1,12 @@
+diff --git a/submissions/26622007/week-08/pricing.json b/submissions/26622007/week-08/pricing.json
+index 5d3a2ffc..ac618539 100644
+--- a/submissions/26622007/week-08/pricing.json
++++ b/submissions/26622007/week-08/pricing.json
+@@ -286,6 +286,7 @@
+     }
+   },
+   "price": {
++    "grade_break_trial": {"share": 0.5, "salt": "grade-break-furn-b-1110-0400-v1", "grade_break": {"B": 0.19}, "start_at": 1794250800.0, "stop_at": 1794283200.0, "categories": ["가구/침구>"], "source": "W-20261109-1520-AXPro주기 report.md/verify.md; gbt-activate-1110/plan.md"},
+     "source": "review/W-20261103-2120/gpt-pro-answer1.md 2-b",
+     "min_profit": 1,
+     "min_profit_share": 0.0,
