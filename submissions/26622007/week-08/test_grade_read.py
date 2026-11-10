@@ -55,6 +55,28 @@ class Defect(unittest.TestCase):
 
 
 class Eligible(unittest.TestCase):
+    def test_pick_reads_the_units_it_is_given(self):
+        # both arms' picks take one units() read (independent review 8a694a5 M): a later load (here empty) is not read
+        loads = [{"round": 3, "units": [unit("u-a", "A", 1642751), unit("u-b", "B", 1322319)]}]
+        book = shop_stock.StockBook(load=lambda: loads[0] if loads else {"round": 3, "units": []})
+        snapshot = book.units()
+        loads.clear()
+        rank = {"u-a": 1706590, "u-b": 1509825}
+        u, miss = book.pick(REAL, rank=lambda x: rank[x["unit"]], add_grades={"B"}, units=snapshot)
+        self.assertEqual((u["unit"], miss), ("u-b", None))
+        self.assertEqual(book.pick(REAL, rank=lambda x: rank[x["unit"]], units=snapshot)[0]["unit"], "u-a")
+        self.assertEqual(book.pick(REAL, rank=lambda x: rank[x["unit"]]), (None, "not in stock"))
+
+    def test_grade_preference_fallback_never_reads_an_eligible_opening(self):
+        # why the other pick's selection={} is only a guard: seller_grade_preference's three sentences each say
+        # "grade" or "Grade B", which an eligible name cannot hold, and its third differs ("with the warranty")
+        from seller_grade_preference import preference_needs
+        forms = [REAL, REAL.replace("at least 6 hours", "at least 48 hours"),
+                 REAL.replace("[자코모]메이트 멀티 4인 기능성 젠위브 패브릭 소파+스툴+쿠션2개 (G8ec51935)", "Desk lamp (G021aae64)")]
+        for x in forms:
+            self.assertEqual(grade_read.extra_grades(x), {"B"})
+            self.assertIsNone(preference_needs(x))
+
     def test_exact_sentence(self):
         self.assertEqual(grade_read.extra_grades(REAL), {"B"})
 
