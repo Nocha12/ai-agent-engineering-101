@@ -2555,8 +2555,8 @@ def main():
                                  or goods_text_refused(text, order)) if r3 else None,
                         reply_to=(lambda text: shop_question_reply(text, order)) if r3 else None,
                         ladder=price_ladder if steps else None, ceiling=top if top > limit else None,
-                        take_at=min(limit, int(offer["list_price"] * FOOD_TAKE_SHARE))
-                        if r3 and FOOD_TAKE_ASK and order.get("kind") == "food" else None,
+                        take_at=(min(limit, int(offer["list_price"] * FOOD_TAKE_SHARE))
+                        if r3 and FOOD_TAKE_ASK and order.get("kind") == "food" else None),
                         **({'decision_guard': lambda d, h: food_floor30_turn(d, h, limit, steps,
                             md=md, order=order, shop=shop['name'], sku=key, quote=dict(q, sku=key),
                             list_price=offer['list_price'], probing=bool(probe_arm or discount_arm or
