@@ -361,7 +361,7 @@ class MainZeroTest(unittest.TestCase):
 
     def test_a_huge_int_receipt_is_paid_as_before(self):
         big = json.loads("1" + "0" * 400)
-        on, off = self.main(self.ON, 6900, big), self.main(None, 6900, big)
+        on, off = self.main(self.ON, 6500, big), self.main(None, 6500, big)
         self.assertIsNotNone(on[0]["receipt"])
         self.assertEqual((on[0], on[1]), (off[0], off[1]))
 

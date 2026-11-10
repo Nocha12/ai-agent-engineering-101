@@ -215,8 +215,8 @@ class BuyerHooksTest(unittest.TestCase):
         self.assertEqual(market_buyer.short_cap(o, .072, on, "s", {"warranty_h": 0}), 0)    # on: none, never bought
         self.assertEqual(market_buyer.short_cap(o, .072, on, "s", {"warranty_h": 3}), sw.cap(10000, 3, .072, .3))
         shops = [{"name": "s", "_offer": o, "_b": .072}] * 3
-        got = {"s": {"ask": 6500, "warranty_h": 0}}
-        self.assertTrue(market_buyer.quotes_enough(shops, got, 20000, {}))           # off: 6,500 under the 6 h cap
+        got = {"s": {"ask": 6300, "warranty_h": 0}}
+        self.assertTrue(market_buyer.quotes_enough(shops, got, 20000, {}))           # off: 6,300 under the .33 six-hour cap, above short-cap 5,991
         self.assertFalse(market_buyer.quotes_enough(shops, got, 20000, {}, rb))      # rollback: over p_max(0) = 5,991
         self.assertFalse(market_buyer.quotes_enough(shops, got, 20000, {}, on))      # on: a 0 h quote never fits
 
@@ -338,7 +338,7 @@ class MainTest(unittest.TestCase):
         self.assertIsNone(on[1][0][1]["ceiling"])                    # no 105% band over p_max(h)
         self.assertEqual(on[2]["short_warranty"]["h_est"], 0)
         off = self.run_main(None, 6000, 0, setup)                    # off: the only shop is skipped-but-kept as before
-        self.assertEqual(off[1][0][0][2], 7000)
+        self.assertEqual(off[1][0][0][2], 6699)
 
     def test_on_p_max_never_passes_value_limit_nor_the_budget(self):
         # p_max(0) is about 5,812 of 10,000: max_price_share 0.5 and a budget of 4,000 each hold it lower (11/08 18:12)

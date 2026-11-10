@@ -67,21 +67,21 @@ class BestQuoteWithPrefetch(unittest.TestCase):
 
     def test_prefetched_shops_are_not_asked_again_and_the_first_batch_is_quote_shops(self):
         s = [shop(n) for n in "abcdefgh"]
-        best, got, seen, peak, _ = self.run_quotes({"c": 7000}, s[0], s[1:5], s[1:])
+        best, got, seen, peak, _ = self.run_quotes({"c": 6000}, s[0], s[1:5], s[1:])
         self.assertEqual(sorted(seen), list("abcde"))     # b-e while choosing, then the chosen a; nobody twice
         self.assertLessEqual(peak, 5)                     # never more at once than quote_shops
         self.assertEqual(best["name"], "c")
 
     def test_the_chosen_shop_among_the_prefetched_tops_up_the_batch_with_the_next(self):
         s = [shop(n) for n in "abcdefgh"]
-        best, got, seen, peak, _ = self.run_quotes({"b": 7000}, s[1], s[1:5], [x for x in s if x is not s[1]])
+        best, got, seen, peak, _ = self.run_quotes({"b": 6000}, s[1], s[1:5], [x for x in s if x is not s[1]])
         self.assertEqual(sorted(seen), list("abcde"))     # b-e prefetched, b chosen: a fills the fifth slot
         self.assertEqual(seen.count("b"), 1)
         self.assertLessEqual(peak, 5)
 
     def test_only_the_kept_talk_stays_open_so_one_order_can_never_close_twice(self):
         s = [shop(n) for n in "abcdefgh"]
-        asks = {n: 7000 + i for i, n in enumerate("abcdefgh")}     # all within the 7,500 limit
+        asks = {n: 6000 + i for i, n in enumerate("abcdefgh")}     # all within the .33 cap
         best, got, seen, peak, cancelled = self.run_quotes(asks, s[0], s[1:5], s[1:], delay=0.05)
         open_ = [n for n, q in got.items() if market_buyer.resumable(q)]
         self.assertEqual(open_, [best["name"]])
@@ -145,7 +145,7 @@ class MainOverlap(unittest.TestCase):
             time.sleep(quote_s + (slower or {}).get(s["name"], 0))
             if synchronize_overlap and not choice_end.wait(0.8):
                 raise AssertionError("choice must overlap quotes")
-            q = {"ask": (asks or {}).get(s["name"], 7000 if s["name"] == "c" else 9000), "text": "", "url": s["url"],
+            q = {"ask": (asks or {}).get(s["name"], 6600 if s["name"] == "c" else 9000), "text": "", "url": s["url"],
                  "task": open_task(s["name"]), "refused": None}
             with ctl["lock"]:            # as quote() does: publish closed when the choice was made first
                 late = ctl["done"] and ctl["winner"] != s["name"]
@@ -244,7 +244,7 @@ class MainOverlap(unittest.TestCase):
 
     def test_no_ask_near_my_limit_ends_the_order_without_a_talk(self):
         shops = [dict(shop(n), offers=[{"sku": "H1", "name": "청소기", "qty": 1}]) for n in "abcdef"]
-        out, events, took, orders = self.run_main(shops, asks={"c": 8750})       # limit 7000: 25% over
+        out, events, took, orders = self.run_main(shops, asks={"c": 8375})       # limit 6699: about 25% over
         self.assertNotIn("talk", [w for w, _ in events])
         self.assertEqual(orders[-1]["state"], "NO_VALUE")
         self.assertIsNone(out["receipt"])
@@ -252,19 +252,19 @@ class MainOverlap(unittest.TestCase):
 
     def test_an_ask_just_over_my_limit_is_still_talked_down(self):
         shops = [dict(shop(n), offers=[{"sku": "H1", "name": "청소기", "qty": 1}]) for n in "abcdef"]
-        out, events, took, orders = self.run_main(shops, asks={"c": 7150})       # 2% over
+        out, events, took, orders = self.run_main(shops, asks={"c": 6833})       # about 2% over limit6699
         self.assertIn("talk", [w for w, _ in events])
 
     def test_an_ask_15_percent_over_my_limit_is_talked_down(self):
         # 11/07 05:30-06:00 at 0.10: asks 10-20% over, 25 orders, no talk; before 02:17 they closed 6 of 33 talks
         shops = [dict(shop(n), offers=[{"sku": "H1", "name": "청소기", "qty": 1}]) for n in "abcdef"]
-        out, events, took, orders = self.run_main(shops, asks={"c": 8050})
+        out, events, took, orders = self.run_main(shops, asks={"c": 7700})
         self.assertIn("talk", [w for w, _ in events])
 
     def test_an_ask_7_percent_over_my_limit_is_talked_down(self):
         # 11/06 20:05-11/07 02:17: asks 3-6% over closed 66% of talks, 6-10% over 31%; 02:17-05:25 none closed (no talk)
         shops = [dict(shop(n), offers=[{"sku": "H1", "name": "청소기", "qty": 1}]) for n in "abcdef"]
-        out, events, took, orders = self.run_main(shops, asks={"c": 7500})
+        out, events, took, orders = self.run_main(shops, asks={"c": 7168})
         self.assertIn("talk", [w for w, _ in events])
 
     def test_a_receipt_over_my_limit_is_not_paid_on_the_racing_path(self):
@@ -272,9 +272,9 @@ class MainOverlap(unittest.TestCase):
         shops = [dict(shop(n), offers=[{"sku": "H1", "name": "청소기", "qty": 1}]) for n in "abcdef"]
         out, events, took, orders = self.run_main(shops, choose_s=3, quote_s=0.2, asks={"a": 6500, "b": 6800}, deal=7300)
         self.assertIn("talk", [w for w, _ in events])
-        self.assertIsNone(out["receipt"])                      # limit 7000: the kit is not handed it
+        self.assertIsNone(out["receipt"])                      # limit 6699: the kit is not handed it
         self.assertFalse(orders[-1]["passed_to_kit"])
-        out, events, took, orders = self.run_main(shops, choose_s=3, quote_s=0.2, asks={"a": 6500, "b": 6800}, deal=6900)
+        out, events, took, orders = self.run_main(shops, choose_s=3, quote_s=0.2, asks={"a": 6500, "b": 6800}, deal=6500)
         self.assertIsNotNone(out["receipt"])                   # within it: paid
 
     def test_a_hopeless_order_asks_no_shop_and_skips_the_choice(self):

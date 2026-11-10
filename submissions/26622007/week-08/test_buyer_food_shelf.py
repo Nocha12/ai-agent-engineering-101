@@ -203,7 +203,7 @@ class PickTest(unittest.TestCase):
 
 class BestQuoteFoodShelf(unittest.TestCase):
     """market_buyer.best_quote with the study's state on the order: a (cheaper) is yeonsong2-like, short of the need."""
-    def run_quotes(self, st, asks=(6000, 7000)):
+    def run_quotes(self, st, asks=(6000, 6500)):
         def shop(n):
             return {"name": n, "url": f"https://{n}.example", "reviews": [],
                     "usable": [{"sku": "G3434758a", "name": "삼다수", "list_price": 10000}]}
