@@ -230,6 +230,45 @@ class RestockTest(unittest.TestCase):
                                 restock.urgent_listed(self.cfg, food_inv, CATALOG), small)      # off: as before
         self.assertEqual([b["sku"] for b in send], ["G2", "G1", "U1", "F1"])
 
+    def test_the_extra_lines_take_the_cash_last(self):
+        # independent review ecef27b M1: batch() guarded before it sorted, so an extra sofa took the cash of agent lines
+        cat = {**CATALOG, "X1": {"kind": "goods", "category": "가전>등", "list_price": 100000}}
+        inv = self.inv(units("G1", 0, 4, self.now), balance=hard_limits_stop() + 2 * 757500 + 1000)    # room for two sofas' worth
+        cfg = {**self.cfg, "fresh_slots": self.on, "max_lines": 10, "high_price_listed_only": False}
+        keep = lambda lines: restock.guard(lines, inv, cat, cfg)
+        extra = restock.fresh_extra(cfg, inv, cat)
+        self.assertEqual(extra, {"G1"})
+        agent, formula = [{"sku": "X1", "qty": 20}], [{"sku": "G1", "qty": 3}]
+        last = restock.line_class(extra, restock.small_food(cat, inv))
+        send, _ = restock.batch(agent, formula, formula, keep, cfg, restock.urgent_listed(cfg, inv, cat), last)
+        self.assertEqual(send, [{"sku": "X1", "qty": 20}])            # 20 x 75,750 = 1.515M: the agent's line is whole, no sofa
+        old = lambda b: 2 if b.get("sku") in extra else int(restock.small_food(cat, inv)(b))
+        self.assertEqual([last(b) for b in agent + formula], [old(b) for b in agent + formula])
+        # without the extra class the same lines are guarded in today's order: the listed SKU first
+        send, _ = restock.batch(agent, formula, formula, keep, cfg, restock.urgent_listed(cfg, inv, cat), restock.small_food(cat, inv))
+        self.assertEqual(send, [{"sku": "G1", "qty": 2}])
+        food_inv = self.inv(units("F1", 5, 0, self.now, "food"))
+        self.assertEqual([restock.line_class({"G1"}, restock.small_food(cat, food_inv))(b) for b in
+                          ({"sku": "G1", "qty": 1}, {"sku": "F1", "qty": 2}, {"sku": "F1", "qty": 9}, {"sku": "X1", "qty": 1})],
+                         [2, 1, 0, 0])
+
+    def test_one_clock_for_a_whole_run(self):
+        # independent review ecef27b M3: plan(), guard() and the order each read the time; a unit crossing the 2 h line
+        # or the switch its stop_at between them changed one of them only
+        held = units("G1", 0, 4, self.now - 100)                       # 5 h old 100 s ago
+        edge = [{**u, "supplied_at": self.now - 2 * 3600 + 30} for u in held]     # 30 s short of 2 h now
+        cfg = {**self.cfg, "fresh_slots": self.on}
+        self.assertEqual(fs.counted(edge, cfg, CATALOG, {}, self.now)[0]["G1"], 4)             # fresh: all count
+        self.assertEqual(fs.counted(edge, cfg, CATALOG, {}, self.now + 60)[0]["G1"], 1)        # a minute later: waiting
+        fixed = {**cfg, "fresh_now": self.now}
+        self.assertEqual(fs.counted(edge, fixed, CATALOG, {}, self.now + 60)[0]["G1"], 4)      # the run's clock decides
+        self.assertEqual(restock.fresh_extra(fixed, self.inv(edge), CATALOG, (), self.now + 60), set())
+        ending = {**cfg, "fresh_slots": {**self.on, "stop_at": self.now + 5}, "fresh_now": self.now}
+        inv = self.inv(units("G1", 0, 4, self.now))
+        self.assertEqual(restock.guard([{"sku": "G1", "qty": 4}], inv, CATALOG, ending), [{"sku": "G1", "qty": 3}])
+        self.assertEqual(fs.counted(inv["units"], ending, CATALOG, {}, self.now + 60)[0]["G1"], 1)   # still on at the run's clock
+        self.assertEqual(fs.counted(inv["units"], {**ending, "fresh_now": "x"}, CATALOG, {}, self.now + 60)[0]["G1"], 4)
+
     def test_the_other_unit_caps_count_every_unit_held(self):
         # independent review 8023a19 I2: only the target reads the fresh count
         inv, buy = self.inv(units("G1", 0, 4, self.now)), [{"sku": "G1", "qty": 4}]
@@ -260,6 +299,11 @@ class RestockTest(unittest.TestCase):
                 self.assertLessEqual(extra, sum(b["qty"] for b in off) + cfg["fresh_slots"]["step"])
                 held = held + units("G1", 0, extra, self.now) if rnd.random() < 0.7 else held + units("G1", extra, 0, self.now)
                 self.assertLessEqual(len(held), limit)
+
+
+def hard_limits_stop():
+    import hard_limits
+    return hard_limits.STOP_BUYING_BELOW
 
 
 if __name__ == "__main__":

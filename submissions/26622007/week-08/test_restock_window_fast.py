@@ -263,6 +263,19 @@ class FastRunTest(unittest.TestCase):
         self.assertIs(restock.guard, real_guard)
         self.assertIs(hard_limits.final_buy, real_final)
 
+    def test_the_buffer_keeps_the_storage_of_the_lines_on_their_way(self):
+        # independent review a477814 m1: the stock the buffer's storage day is taken on includes the sent lines
+        sales = [(self.now - 60, 2000000)]                                 # over the 1M floor: the storage term shows
+        self.carry([{"sku": "G1", "qty": 1}])
+        self.write(restock.SENT, [{"at": self.now - 60, "sku": "G2", "qty": 20, "worst": 375000}])
+        inv = {**self.inv, "units": [{"unit": "u1", "sku": "G3", "kind": "goods", "cost": 300000, "supplied_at": self.now - 50}]}
+        with mock.patch.object(restock, "warranted_sales", return_value=sales):
+            out, err = self.fast(inv)
+        want = hard_limits.cash_buffer(300000 + 20 * 375000, sales)
+        self.assertGreater(want, hard_limits.cash_buffer(300000, sales))   # 75,000 of storage on the 7.5M on its way
+        self.assertIn(f"cash buffer {want} ", err)
+        self.assertEqual(out, {"buy": [{"sku": "G1", "qty": 1}]})
+
     def test_sent_waiting_is_never_less_than_pending(self):
         sent = [{"at": self.now - 30, "sku": "G1", "qty": 2, "worst": 750000}, {"at": self.now - 300, "sku": "G2", "qty": 1, "worst": 1},
                 {"at": self.now - 10, "sku": "F1", "qty": 20, "worst": 15000}, "junk", {"at": self.now - 10, "sku": "G3", "qty": True}]
@@ -302,6 +315,7 @@ class FastRunTest(unittest.TestCase):
         self.assertEqual(len(ticks), 1)
         self.assertEqual(ticks[0][0][2], [{"sku": "G2", "qty": 2}])
         self.assertIs(ticks[0][1].get("skip_sales"), True)
+        self.assertEqual(ticks[0][1].get("window_arm"), "B-fast")
         self.assertTrue(os.path.isdir(here))
 
 
@@ -338,7 +352,8 @@ class MainSlowRunTest(unittest.TestCase):
     def run_main(self, agent=None, env=None):
         """main()'s last JSON line and the carry file's lines (None when there is none). agent: what agent_turn returns."""
         out, stubs = io.StringIO(), ("loss_watch.check", "agent_memory.maybe_consolidate", "shop_forum.maybe_run",
-                                     "tool_forge.maybe_run", "rival_vote.maybe_run", "forum.maybe_run", "measure.tick")
+                                     "tool_forge.maybe_run", "rival_vote.maybe_run", "forum.maybe_run")
+        self.ticks = []
         with contextlib_stack() as stack:
             stack.enter_context(mock.patch.object(restock.sys, "argv", ["restock.py", "--state", self.md]))
             stack.enter_context(mock.patch.object(
@@ -349,6 +364,7 @@ class MainSlowRunTest(unittest.TestCase):
             stack.enter_context(mock.patch.object(restock, "rows_of", return_value=[]))
             stack.enter_context(mock.patch.object(restock, "log_prices", return_value=None))
             stack.enter_context(mock.patch.object(restock, "agent_turn", return_value=agent))
+            stack.enter_context(mock.patch.object(measure, "tick", side_effect=lambda *a, **k: self.ticks.append(k)))
             for name in stubs:
                 mod, fn = name.split(".")
                 stack.enter_context(mock.patch.object(getattr(restock, mod), fn, return_value=None))
@@ -364,6 +380,7 @@ class MainSlowRunTest(unittest.TestCase):
         buy, carry = self.run_main()
         self.assertEqual([b["sku"] for b in buy], [f"G{i}" for i in range(1, 11)])          # ten lines, none of them H1
         self.assertEqual([b["sku"] for b in carry], [f"G{i}" for i in range(11, 21)])       # the plan's next ten
+        self.assertEqual(self.ticks[-1].get("window_arm"), "B")                              # the arm is on the sent line
         self.assertEqual(json.load(open(os.path.join(self.md, wf.CARRY)))["opens_at"], self.inv["restock"]["opens_at"])
 
     def test_off_and_arm_a_print_todays_nine_and_leave_no_carry(self):
@@ -371,6 +388,7 @@ class MainSlowRunTest(unittest.TestCase):
         buy, carry = self.run_main()
         self.assertEqual([b["sku"] for b in buy], [f"G{i}" for i in range(1, 10)])           # H1 planned, then dropped: nine
         self.assertIsNone(carry)
+        self.assertIsNone(self.ticks[-1].get("window_arm"))                                  # off: no arm
         os.remove(os.path.join(self.md, restock.SENT))       # the lines that run noted would count as on their way
         switch(self.md, on(self.now))
         with mock.patch.object(wf, "arm", return_value="A"):

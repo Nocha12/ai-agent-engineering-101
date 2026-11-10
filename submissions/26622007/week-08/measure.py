@@ -191,11 +191,13 @@ def _forum(md, state, now, me):
     state["posts_done"] = finished[-3000:]
 
 
-def tick(md, inv=None, sent=(), pricing=None, now=None, sold_records=None, rows=None, skip_sales=False):
+def tick(md, inv=None, sent=(), pricing=None, now=None, sold_records=None, rows=None, skip_sales=False, window_arm=None):
     """One measurement pass; sent is what this restock run hands the kit. Each part catches its own errors and the state
     is saved whatever failed, so a broken part does not make the others write the same lines again next minute.
     skip_sales: the 6 h sales (the ledger rows file) are left to the next pass, their clock untouched
-    (restock_window_fast's run inside a supply window)."""
+    (restock_window_fast's run inside a supply window). window_arm: that study's arm for the run's window ("A", "B",
+    "B-fast" for the run that sent a carry), kept on the supply_sent line; None (the study off) leaves the line as it was
+    (independent review 0c27ae5 M3: the window's arm was nowhere in the measurements)."""
     now = now or time.time()
     try:
         path = os.path.join(md, DIR, STATE)
@@ -232,7 +234,8 @@ def tick(md, inv=None, sent=(), pricing=None, now=None, sold_records=None, rows=
         w = inv.get("restock") or {}
         if sent:
             lines = [{"sku": b.get("sku"), "qty": b.get("qty")} for b in sent if isinstance(b, dict)]
-            write(md, "supply_sent", {"window_open": bool(w.get("open")), "opens_at": w.get("opens_at"), "lines": lines})
+            write(md, "supply_sent", {"window_open": bool(w.get("open")), "opens_at": w.get("opens_at"), "lines": lines,
+                                      **({"window_fast": window_arm} if isinstance(window_arm, str) and window_arm else {})})
             state.setdefault("sent", []).extend({"at": now, "sku": x["sku"], "qty": x["qty"] or 0} for x in lines)
         _windows(md, state, inv, now, pricing or {})
 

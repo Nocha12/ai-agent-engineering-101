@@ -144,7 +144,11 @@ def counted(units, cfg, catalog, factors=None, now=None):
     hashed fails here as it did in restock's own count)."""
     plain = collections.Counter(u.get("sku") for u in units or () if isinstance(u, dict))
     try:
-        now = time.time() if now is None else now
+        # cfg["fresh_now"] (restock.main sets it once): one clock for a whole run, so plan(), guard() and the order
+        # all see the same units as waiting and the same side of stop_at (independent review ecef27b M3: the agent's
+        # turn can take tens of seconds between them)
+        at = (cfg or {}).get("fresh_now")
+        now = at if _num(at) else time.time() if now is None else now
         fs = _valid((cfg or {}).get("fresh_slots"), now)
         targets = (cfg or {}).get("sku_target_units")
         if fs is None or not isinstance(targets, dict):

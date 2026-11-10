@@ -799,11 +799,25 @@ def batch(agent_lines, fill_lines, formula_lines, keep, cfg, order=None, last=No
     behind the others (small_food), keeping the order within each part."""
     agent_skus = {b.get("sku") for b in agent_lines}
     first = set(cfg.get("high_price_proven_skus") or ()) | set(cfg.get("priority_skus") or ())
-    kept = with_formula(proven_first(agent_lines, formula_lines, cfg, order), fill_lines, keep, None)
-    if last is not None:        # False/0 first, then True/1 (small_food), then 2 (main: fresh_extra), each in its order
+    lines = proven_first(agent_lines, formula_lines, cfg, order)
+    mine = {b["sku"] for b in lines}
+    lines = list(lines) + [b for b in fill_lines if b["sku"] not in mine]        # as with_formula()
+    if last is not None:
+        # class 2 (main: restock_fresh_slots' extra lines) goes behind the others before the guard too, so the cash and
+        # the stock-cost room are the other lines' first (independent review ecef27b M1: with 2.18M over the buffer an
+        # extra sofa took the room of two agent units). No class 2 (off, bool classes): the order is untouched
+        lines = [b for b in lines if int(last(b)) < 2] + [b for b in lines if int(last(b)) >= 2]
+    kept = keep(lines)
+    if last is not None:        # False/0 first, then True/1 (small_food), then 2, each in its order
         kept = sorted(kept, key=lambda b: int(last(b)))
     n = cfg["max_lines"]
     return kept[:n], [b for b in kept[n:] if b["sku"] in agent_skus and b["sku"] not in first]
+
+
+def line_class(extra, small):
+    """batch()'s last for main(): 2 for a restock_fresh_slots extra line (behind every other line, before the guard
+    as well), 1 for a small food top-up (small_food: behind the goods lines), 0 for the rest."""
+    return lambda b: 2 if b.get("sku") in extra else int(bool(small(b)))
 
 
 def requeue(state, lines):
@@ -973,6 +987,7 @@ def main():
     cfg = hard_limits.clamp_cfg("restock", {**DEFAULTS, **pricing.get("restock", {})})
     catalog = load(os.path.join(args.state, "catalog.json"), {})
     cfg["fresh_slots"] = restock_fresh_slots.config(args.state)      # its own switch file, None when off: today's count
+    cfg["fresh_now"] = time.time()                                   # the run's one clock for that count
     if cfg["fresh_slots"]:
         _, moved = restock_fresh_slots.counted([u for u in inv.get("units") or [] if isinstance(u, dict)
                                                 and not gone(u, time.time())], cfg, catalog, surge(inv))
@@ -983,10 +998,12 @@ def main():
     fast = window_fast(args.state, inv, pricing, cfg, catalog)      # restock_window_fast, default off: None
     if fast is not None:
         print(json.dumps(fast, ensure_ascii=False), flush=True)
-        measure.tick(args.state, inv, fast["buy"][:10], pricing, skip_sales=True)    # the 6 h sales wait for the usual run
+        measure.tick(args.state, inv, fast["buy"][:10], pricing, skip_sales=True,     # the 6 h sales wait for the usual run
+                     window_arm="B-fast")
         return 0
     w = inv.get("restock") if isinstance(inv.get("restock"), dict) else {}
-    fast_b = restock_window_fast.arm(restock_window_fast.config(args.state), w.get("opens_at")) == "B"
+    window_arm = restock_window_fast.arm(restock_window_fast.config(args.state), w.get("opens_at"))    # None when off
+    fast_b = window_arm == "B"
     demand, model = load(os.path.join(args.state, "demand.json"), []), read_model(args.state, catalog, cfg)
     loss_watch.check(args.state, rows=rows_of(args.state))     # after read_model: the ledger rows are fresh
     breaks = read_breaks(args.state, catalog)
@@ -1060,7 +1077,7 @@ def main():
             extra, small = fresh_extra(cfg, inv, catalog, waiting), small_food(catalog, inv, waiting)
             send, back = batch(lines, [] if queued else out["buy"], out["buy"], keep, cfg,
                                urgent_listed(cfg, inv, catalog, waiting, model if model and model.get("active") else None),
-                               lambda b: 2 if b.get("sku") in extra else int(small(b)))    # extra: after the agent's too
+                               line_class(extra, small))                                   # extra: after the agent's too
             agent_skus = {x.get("sku") for x in lines}
             if hold and not trial:         # agent lines for the trial's SKUs wait in the queue until the trial ends
                 back += [x for x in send if x["sku"] in hold and x["sku"] in agent_skus]
@@ -1092,7 +1109,8 @@ def main():
             carry = carry_lines(inv, catalog, demand, cfg, model, breaks, waiting, out["buy"][:10], hold)
         restock_window_fast.save_carry(args.state, inv, carry)
     print(json.dumps(out, ensure_ascii=False), flush=True)
-    measure.tick(args.state, inv, out["buy"][:10], pricing)     # after the line the kit reads; local files only, never raises
+    measure.tick(args.state, inv, out["buy"][:10], pricing,     # after the line the kit reads; local files only, never raises
+                 window_arm=window_arm)
     return 0
 
 

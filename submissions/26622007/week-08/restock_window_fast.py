@@ -1,5 +1,6 @@
-"""A supply window's second restock run hands the kit the lines the first run already planned, without reading the
-ledger again (W-20261110-1346-AXFable검토, 메인 지시 2, 11/10 16:2x: "공급 창당 호출을 goods에 더 쓰기").
+"""A supply window's second restock run hands the kit the lines the first run already planned, without building the
+demand model again: the ledger is still synced and its tail read for the cash buffer, the 296 MB rows file is not
+loaded (W-20261110-1346-AXFable검토, 메인 지시 2, 11/10 16:2x: "공급 창당 호출을 goods에 더 쓰기").
 
 /rules (Round 3 rulebook, Supply): "Restock windows: 3 minutes in every 20-minute slot, starting 0 to 5 minutes in.
 Up to 20 units per call, one call per 10 seconds." So a window has room for about 18 calls. The kit

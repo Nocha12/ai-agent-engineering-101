@@ -100,6 +100,16 @@ class MeasureTest(unittest.TestCase):
         self.tick(inv([]), 10 * 3600 + 60, recs=recs, rows=rows)                # a minute later, not SALES_EVERY later
         self.assertEqual([x["seq"] for x in lines(self.md, "sales_6h")], [10])
 
+    def test_the_window_arm_is_kept_on_the_sent_line_only_when_the_study_is_on(self):
+        measure.tick(self.md, inv([]), [{"sku": "S", "qty": 1}], {}, now=1000, sold_records=[], rows=[])
+        measure.tick(self.md, inv([]), [{"sku": "S", "qty": 1}], {}, now=1060, sold_records=[], rows=[], window_arm="B-fast")
+        measure.tick(self.md, inv([]), [{"sku": "S", "qty": 1}], {}, now=1120, sold_records=[], rows=[], window_arm="")
+        got = lines(self.md, "supply_sent")
+        self.assertNotIn("window_fast", got[0])                                # off: the line as it was
+        self.assertEqual(got[1]["window_fast"], "B-fast")
+        self.assertNotIn("window_fast", got[2])
+        self.assertEqual({k for k in got[0]}, {"ts", "window_open", "opens_at", "lines"})
+
     def test_forum_follow_ups(self):
         with open(os.path.join(self.md, "forum.json"), "w") as f:
             json.dump([{"id": 7, "ts": 1000, "author": "nocha12", "role": "buyer", "likes": 3, "dislikes": 0, "score": 0.4},
