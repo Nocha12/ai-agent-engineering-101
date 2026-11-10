@@ -72,6 +72,7 @@ import buyer_saved_floor
 import buyer_quote_deadline
 import buyer_food_ladder
 import buyer_food_open30
+import buyer_food_floor30
 import buyer_goods_grade
 import buyer_goods_ladder
 import buyer_food_shelf
@@ -1306,6 +1307,23 @@ def one_won_default(shop, kind, steps, env=None, now=None, started_at=None):
             started_at >= ONE_WON_DEFAULT_START and env.get("BUYER_ONE_WON_11IM", "1") == "1")
 
 
+def food_floor30_turn(decision, history, limit, steps, *, md, order, shop, sku, quote, list_price,
+                      probing=False, now=None):
+    """The optional finite food counter trial's final decision and existing B-learning exclusion."""
+    result, note = buyer_food_floor30.turn(decision, history, limit, steps, md=md, order=order,
+        shop=shop, sku=sku, quote=quote, list_price=list_price, probing=probing, now=now)
+    if note is not None:
+        if note['arm'] == 'B' and result != decision and order.get('_accept_band'):
+            note['baseline_accept_band'] = order['_accept_band']
+            order['_accept_band'] = None  # the old band's decision was replaced, not sent
+        order['_food_floor30'] = note
+        order['_food_ladder'] = note
+        log('[food-floor30] ' + json.dumps({'order': order.get('order'), 'study': note['study'],
+            'arm': note['arm'], 'shop': shop, 'sku': sku, 'baseline': note['baseline'],
+            'candidate': note['candidate'], 'decision': result, 'applied': note['applied']}, sort_keys=True))
+    return result
+
+
 def opening_probe_turn(meta, text, history, limit, steps, quoted, goods, arm):
     """Only the first validated food code offer changes to exactly 1; all later turns keep oneshot."""
     d = oneshot.turn(meta, text, history, limit, steps, quoted, goods)
@@ -2153,7 +2171,7 @@ def main():
         MEMORY = "memory/test_memory.json" if test else "memory/market_memory.json"
     order = load_json(args.order, {}) if args.order else {}
     if isinstance(order, dict):
-        for k in ("_sw", "_sw_buy", "_sw_h_est", "_sw_zero", "_rank_pg", "_rank_selection", "_saved_floor"):  # internal state, never read in
+        for k in ("_sw", "_sw_buy", "_sw_h_est", "_sw_zero", "_rank_pg", "_rank_selection", "_saved_floor", "_food_floor30"):  # internal state, never read in
             order.pop(k, None)
     md = os.path.dirname(args.shops) or "."
     rk = buyer_rank_pg.state(md, order) if args.order else None
@@ -2522,6 +2540,10 @@ def main():
                 if note:
                     order["_accept_band"] = note
                     log(f"[band] {shop['name']}: counter {note['taken']} is over my limit {limit} but within {note['ceiling']}: taken")
+            result = food_floor30_turn(result, history, limit, steps, md=md, order=order,
+                shop=shop['name'], sku=key, quote=dict(q, sku=key), list_price=offer['list_price'],
+                probing=bool(not r3 or probe_arm or discount_arm or order.get('_food_quote_yield')
+                             or order.get('_b3') is not None))
             return result
 
         if steps:
@@ -2555,6 +2577,10 @@ def main():
 
     rec = out["receipt"] if out["state"] == "TASK_STATE_COMPLETED" else None
     problems, warnings = check_receipt(rec, out, args.item, args.budget, order, catalog) if rec is not None else ([], [])
+    if rec is not None:
+        floor_problem = buyer_food_floor30.receipt_problem(md, order, rec, catalog)
+        if floor_problem:
+            problems.append(floor_problem)
     if out["state"] == "TASK_STATE_COMPLETED" and rec is None:
         problems = ["completed without a receipt"]
         out["state"] = "COMPLETED_NO_RECEIPT"
