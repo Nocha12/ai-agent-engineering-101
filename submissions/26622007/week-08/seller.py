@@ -677,6 +677,8 @@ class Seller(AgentExecutor):
                 deal['sol_margin_consumed_at'] = admission.consume()
                 deal['sol_margin_publication'] = 'sending'
             await up.requires_input(say(quote_text, ask_price))
+            if grade_read_assignment is not None:
+                deal["grade_read_quoted"] = True
             if margin_assignment is not None:
                 deal['sol_margin_publication'] = 'published'
         await asyncio.to_thread(MARGIN_STUDY.observe_event, task.id, margin_assignment, "quoted", price=ask_price,

@@ -21,9 +21,11 @@ Randomization unit: the task, by sha256(salt|study|version|task) against share, 
 pick, so every eligible opening is in the ITT list whatever is in stock; a failed write keeps the original path.
 "selected" records the unit picked and, in both arms, the unit each arm's pick gives (unit_a/unit_b, switch): only a
 talk with switch true can differ between the arms; both picks read one units() snapshot. "no_quote" (reason selection,
-warranty, unit_unavailable) ends a talk before a quote (M1); "outcome" rows (result: seller.remember's deal, unpaid,
-canceled, rejected, ...) follow a quote, so a buyer's rejection after a quote is never read as a talk with no quote. An
-assigned task with neither (an error after the pick) is an unknown outcome, never a loss or a non-sale. Rows carry the
+warranty, unit_unavailable) ends a talk before a quote (M1); "outcome" rows carry seller.remember's result (agreed,
+deal, unpaid, canceled, rejected, ...; a task can have several, the last one counts) and quoted (the quote went out:
+seller sets deal["grade_read_quoted"] right after it), so a buyer's rejection after a quote is never read as a talk with
+no quote, and an outcome with quoted false (an error between self.open and the quote) is no quote. An assigned task with
+neither (an error after the pick) is an unknown outcome, never a loss or a non-sale. Rows carry the
 other trials' arms (others) for the cross tables; payment and refunds are joined from the ledger by task and unit.
 Window: [start_at, stop_at) with stop_at - start_at <= 12 h (make_config writes 9-12 h), else the original path; NaN,
 inf, bool, a huge int, a missing field, a start in the future and the stop itself are off. Switch (GRADE_READ_CONFIG
@@ -49,13 +51,14 @@ import shop_stock
 
 MAX_WINDOW = 12 * 3600
 MIN_HOURS, MAX_HOURS = 9, 12
-MAX_TEXT = 1000
+MAX_TEXT = 500           # seller.MAX_TEXT: pick reads text[:500], so an eligible opening is read whole by both
 SENTENCE = re.compile(r"I prefer grade C \(refurbished\) or B \(damaged box\) with a warranty of at least "
                       r"[0-9]{1,6}(?:\.[0-9]{1,4})? hours on the receipt, priced for its grade; grade A only if you have "
                       r"nothing else\.")
 FRAME = re.compile(r"I want to buy (?P<name>[^\n]+?) \((?P<sku>G[0-9a-f]{8})\)\. (?P<sentence>I prefer grade C .+?) "
                    r"Please quote your cheapest unit that way\.")
-NAME_GRADE_WORDS = re.compile(r"\b[ABC]\b|[ABC]급|싫|제외|말고|빼고|"
+SKU_ANYWHERE = re.compile(r"(?i)g[0-9a-f]{8}")     # what pick matches (the SKU lowercased, anywhere in the text)
+NAME_GRADE_WORDS = re.compile(r"(?<![A-Za-z])[ABCＡＢＣ](?![A-Za-z])|싫|제외|말고|빼고|불가|사절|파손|"
                               r"(?i:\bgrades?\b|damaged|refurbished|warranty|\bonly\b|\bnot?\b|without|avoid|except)")
 MORE_TRIALS = ("floor_margin", "a_open", "goods_margin", "food_margin", "shelf_jev", "warranty_fact")
 
@@ -69,7 +72,7 @@ def extra_grades(text):
     m = FRAME.fullmatch(text)
     if m is None or not SENTENCE.fullmatch(m["sentence"]) or NAME_GRADE_WORDS.search(m["name"]):
         return None
-    if len(shop_stock.SKU.findall(text)) != 1 or shop_stock.needs(text)["grades"] != {"A", "C"}:
+    if len(SKU_ANYWHERE.findall(text)) != 1 or shop_stock.needs(text)["grades"] != {"A", "C"}:
         return None
     return {"B"}
 
@@ -163,7 +166,8 @@ class Trial(shelf_jev_skip.Trial):
         if not isinstance(a, dict) or "arm" not in a:
             return
         try:
-            self._write(dict(event="outcome", result=result, ts=time.time() if now is None else now, task=task,
+            self._write(dict(event="outcome", result=result, quoted=deal.get("grade_read_quoted") is True,
+                             ts=time.time() if now is None else now, task=task,
                              study=a["study"], version=a["version"], arm=a["arm"], mode=a["mode"], price=price, sku=deal.get("id"),
                              unit=deal.get("unit"), kind=deal.get("kind"), rounds=deal.get("rounds"),
                              others=self._others(deal)))

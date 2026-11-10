@@ -126,6 +126,14 @@ class EligibleOnlyTheExternalForm(unittest.TestCase):
                   REAL.replace("소파+스툴", "소파 (B급 싫어요) 스툴"),
                   REAL.replace("소파+스툴", "소파 A급 제외 스툴"),
                   REAL.replace("[자코모]", "lamp (G0123abcd) and "),
+                  REAL.replace("소파+스툴", "소파 B불가 스툴"),
+                  REAL.replace("소파+스툴", "소파 C만 스툴"),
+                  REAL.replace("소파+스툴", "B품 사절 스툴"),
+                  REAL.replace("소파+스툴", "소파 (박스 파손품 불가) 스툴"),
+                  REAL.replace("소파+스툴", "ＢＣ 소파 스툴"),
+                  REAL.replace("[자코모]", "램프G0123abcd "),
+                  REAL.replace("[자코모]", "lamp g0123abcd "),
+                  REAL.replace("[자코모]", "x" * (501 - len(REAL) + len("[자코모]"))),
                   REAL.replace(" Please quote your cheapest unit that way.", ""),
                   REAL.split(". ", 1)[1]):
             self.assertIsNone(grade_read.extra_grades(t), t)
@@ -266,6 +274,16 @@ class Assign(unittest.TestCase):
             self.assertEqual(self.t.assign("t1", REAL, now=now), (None, None), c[:120])
         self.assertEqual(rows(self.root), [])
 
+    def test_outcome_rows_say_whether_a_quote_went_out(self):
+        write_cfg(self.root)
+        tb = self.task_for("B")
+        a, _ = self.t.assign(tb, REAL)
+        deal = {"grade_read": a, "id": "G8ec51935", "unit": "u-b", "kind": "goods", "rounds": 0}
+        self.t.event(tb, deal, "canceled")                         # an error between self.open and the quote
+        deal["grade_read_quoted"] = True
+        self.t.event(tb, deal, "deal", 1546976)
+        self.assertEqual([(x["result"], x["quoted"]) for x in rows(self.root)[1:]], [("canceled", False), ("deal", True)])
+
     def test_no_quote_rows_apart_from_outcomes(self):
         write_cfg(self.root)
         tb = self.task_for("B")
@@ -376,6 +394,15 @@ class SellerWiring(unittest.TestCase):
         self.assertNotIn("await", between)
         # OFF and ineligible: the original call, exactly
         self.assertIn("u, miss = self.stock.pick(text, rank=lambda x: floor_rank(x, ranked), **grade_kwargs)", s)
+
+    def test_eligible_text_is_what_pick_reads(self):
+        self.assertEqual(grade_read.MAX_TEXT, int(re.search(r"^MAX_TEXT = (\d+)", self.SRC, re.M)[1]))
+
+    def test_quoted_flag_right_after_the_quote(self):
+        s = self.SRC
+        i = s.index("            await up.requires_input(say(quote_text, ask_price))\n")
+        self.assertEqual(s[i:].split("\n")[1:3], ["            if grade_read_assignment is not None:",
+                                                   '                deal["grade_read_quoted"] = True'])
 
     def test_assign_reads_the_whole_message_and_pricing(self):
         self.assertIn("GRADE_READ.assign, task.id, text if warranty_text is None else warranty_text,\n"
