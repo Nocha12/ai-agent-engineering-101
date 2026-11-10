@@ -408,10 +408,11 @@ class EndToEnd(unittest.TestCase):
         with mock.patch.object(seller, "break_chance", lambda sku, grade=None: 0.1):
             buyer.negotiate(self.url, "청소기", 10000, "", "I want to buy (G2)")
         n = (seller.flush_memory() or shop_memory.load())["negotiations"][-1]
-        # (6000+15+1)/(1-0.15) = 7077.6 -> 7078: the unit is grade B, so price.grade_break B (0.15 since 11/10, our own B
-        # rate; was 0.122 -> 6852) is over the measured 0.1 and the shipped goods_break 0.035; the floor is under
-        # 1.0 x 75.5% of list, so it opens there
-        self.assertEqual((n["reserve"], n["open"], n["warranty"]), (7078, 7550, hard_limits.SELLER_GOODS_WARRANTY_HOURS))
+        # (6000+15+0.08 x 10000)/(1-0.15) = 8017.6 -> 8018: the unit is grade B, so price.grade_break B (0.15 since 11/10,
+        # our own B rate) is over the measured 0.1 and the shipped goods_break 0.035, and price.grade_profit_share
+        # (0.08 since 11/11, goods-margin-1110 kept; break-even was 7078) is kept on top; the floor is over
+        # 1.0 x 75.5% of list (7550), so it opens at the floor
+        self.assertEqual((n["reserve"], n["open"], n["warranty"]), (8018, 8018, hard_limits.SELLER_GOODS_WARRANTY_HOURS))
 
     def test_unit_is_not_promised_twice_and_out_of_stock_is_refused(self):
         self.deal("G1")

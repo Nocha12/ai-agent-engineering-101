@@ -85,7 +85,9 @@ class TrialTest(unittest.TestCase):
         arms = {k: pp.trial_arm(k[0], k[1], t) for k in keys}
         self.assertFalse(any(arms.values()))
         hold, up = keys[0], keys[-1]
-        cfg = {"price": {**shipped["price"], "ask_caps": {}, "scarce_asks": {}}}
+        # the first ask against the median is this test's subject: the floors are break-even here (the shipped
+        # grade_profit_share, 11/11, lifts a floor over 0.97 x this median and is pinned in test_profit_rules)
+        cfg = {"price": {**shipped["price"], "ask_caps": {}, "scarce_asks": {}, "grade_profit_share": {}}}
         for key in keys:
             self.assertEqual(pp.quote(unit(*key, cost=500000), 800001, None, (), cfg)["open"], 776001)
         dear = pp.quote(unit(*hold, cost=760000), 800000, None, (), cfg)

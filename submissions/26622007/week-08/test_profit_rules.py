@@ -300,12 +300,21 @@ class PriceTest(unittest.TestCase):
         with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
             p = json.load(f)
         u = {"kind": "goods", "grade": "A", "cost": 1980000, "list_price": 3000000}
-        q = profit_price.quote(u, median=2070000, measured=None, pricing=p)
+        be = {**p, "price": {**p["price"], "grade_profit_share": {}}}            # break-even floors, as shipped to 11/10
+        q = profit_price.quote(u, median=2070000, measured=None, pricing=be)
         self.assertLessEqual(q["open"], 2070000)
         self.assertGreaterEqual(q["floor"], 1980000 * 1.0025 / (1 - 0.03))      # cost, storage and the A refund rate
         self.assertEqual(q["open"], max(q["floor"], round(0.97 * 2070000)))
         cheap = {**u, "cost": 1500000}
-        self.assertEqual(profit_price.quote(cheap, median=2070000, pricing=p)["open"], round(0.97 * 2070000))
+        self.assertEqual(profit_price.quote(cheap, median=2070000, pricing=be)["open"], round(0.97 * 2070000))
+        # shipped since 11/11 (goods-margin-1110 kept, grade_profit_share 0.08): the dear draw's floor keeps 8% of list
+        # after the refund chance, (1,980,000 + 4,950 + 240,000) / 0.965 = 2,305,648, over the median: it opens there
+        # and waits (arm B sold 78% of its grade A units against 87%, and still kept +0.062 of list a unit against -0.007)
+        q = profit_price.quote(u, median=2070000, measured=None, pricing=p)
+        self.assertEqual((q["floor"], q["open"]), (2305648, 2305648))
+        # the cheap draw's floor (1,806,995) is under 0.97 x the median: the first ask is the market's, as before
+        q = profit_price.quote(cheap, median=2070000, pricing=p)
+        self.assertEqual((q["floor"], q["open"]), (1806995, round(0.97 * 2070000)))
 
     def test_selling_food_comes_first_and_dear_skus_we_do_not_sell_are_left_out(self):
         # 메인 11/07 01:25 (가게 협상 점검 4번): Gb2392fa9 was cut 106 times by "cash kept" behind the dear lines while it
