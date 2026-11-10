@@ -535,6 +535,31 @@ def check_accept(o, co, accept):
     return None
 
 
+# Official check names observed in the market's ACP refusal response (Round 3).
+# Never log remote keys/values: even a check name is untrusted response data.
+ACP_FAILURE_CHECKS = frozenset({
+    "round_3_order", "not_expired", "not_settled_before", "checkout_signed_by_shop",
+    "checkout_matches_order", "checkout_mandate_signed_by_buyer",
+    "payment_mandate_signed_by_buyer", "closed_mandates_types",
+    "bound_to_open_mandates", "bound_to_this_checkout", "payee_is_this_shop",
+    "amount_is_checkout_total", "amount_in_range",
+})
+
+
+def failed_payment_checks(response):
+    """Read full JSON before selecting bounded, allowlisted names; never echo raw data."""
+    try:
+        body = response.json()
+    except ValueError:
+        return "unavailable"
+    market = body.get("market") if isinstance(body, dict) else None
+    checks = market.get("checks") if isinstance(market, dict) else None
+    if not isinstance(checks, dict):
+        return "unavailable"
+    failed = sorted(name for name in ACP_FAILURE_CHECKS if checks.get(name) is False)
+    return ",".join(failed) or "unavailable"
+
+
 def acp_pay(o, shop_url, shop_pub, receipt, buyer_key, accept=None, why=None):
     """Round 3, buyer side: open an ACP checkout on the shop, check it against the agreed receipt, the open
     mandates and the buyer's accept policy, sign the closed AP2 mandates, and complete.
@@ -591,7 +616,7 @@ def acp_pay(o, shop_url, shop_pub, receipt, buyer_key, accept=None, why=None):
         r = c.post(f"{base}/checkout_sessions/{s['id']}/complete",
                    json={"payment_data": {"order": o["order"], "checkout_mandate": sign(cm), "payment_mandate": sign(pm)}})
         if r.status_code != 200:
-            log(f"[acp] payment not completed: {r.status_code} {r.text[:300]}")
+            log(f"[acp] payment not completed: {r.status_code} failed_checks={failed_payment_checks(r)}")
             return None
         mr = r.json()["order"]["mandate_receipt"]
         got = ""
