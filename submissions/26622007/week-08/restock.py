@@ -677,6 +677,7 @@ stock decisions turned out: what sold, what is left, what is gone unsold. Learn 
 c2 is the shop's own memory: long-term notes, lessons from earlier mistakes that match this state, and recent days.
 Do not narrow the overall proposal merely because stock cost or carrying exposure is high: stock at cost remains in book.
 Storage and expiry matter per SKU; prefer evidence of that SKU's paid sales and losses to a blanket avoidance of food or furniture.
+Investigate Gc2f7811b with auto_market_research_pack(query="Gc2f7811b", limit=20), checking distinct buyers, paid settlements, list price, surge and the worst-cost warranty floor; this is research only, not a purchase recommendation.
 The code keeps every line inside the shop's current limits (pricing.json), which start cautious and widen as results earn it."""
 
 
