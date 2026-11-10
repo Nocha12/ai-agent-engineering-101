@@ -69,6 +69,7 @@ import seller_drain
 import seller_opening_cue
 import seller_a_open
 import seller_floor_margin
+import seller_goods_margin
 import seller_food_margin
 import seller_late_speed
 import seller_jev_transport
@@ -579,6 +580,14 @@ class Seller(AgentExecutor):
             if floor_margin:
                 log(f"FLOOR_MARGIN {u['sku']} unit {u['unit']} arm {floor_margin['arm']}: reserve {reserve} ask {ask_price}"
                     f" (usual {floor_margin['usual_reserve']} / {floor_margin['usual_ask']})")
+        goods_margin = None
+        if keep >= 1:         # goods reserve margin A/B, every grade (seller_goods_margin, default off): not a floor-margin talk
+            reserve, ask_price, goods_margin = seller_goods_margin.decide(
+                u, q, reserve=reserve, ask=ask_price, keep=keep, margin_assignment=margin_assignment, a_open=a_open,
+                floor_margin=floor_margin, pricing=pricing)
+            if goods_margin:
+                log(f"GOODS_MARGIN {u['sku']} unit {u['unit']} grade {u.get('grade')} arm {goods_margin['arm']}:"
+                    f" reserve {reserve} ask {ask_price} (usual {goods_margin['usual_reserve']} / {goods_margin['usual_ask']})")
         food_margin = None
         if keep >= 1:         # food reserve margin A/B (seller_food_margin, default off): never a markdown talk
             reserve, ask_price, food_margin = seller_food_margin.decide(
@@ -594,6 +603,8 @@ class Seller(AgentExecutor):
             deal["a_open"] = a_open
         if floor_margin:
             deal["floor_margin"] = floor_margin
+        if goods_margin:
+            deal["goods_margin"] = goods_margin
         if food_margin:
             deal["food_margin"] = food_margin
         if margin_assignment is not None:
@@ -1067,6 +1078,7 @@ class Seller(AgentExecutor):
                                 "warranty": deal.get("warranty"), "result": result, "price": price,
                                 **({"a_open": deal["a_open"]} if deal.get("a_open") else {}),
                                 **({"floor_margin": deal["floor_margin"]} if deal.get("floor_margin") else {}),
+                                **({"goods_margin": deal["goods_margin"]} if deal.get("goods_margin") else {}),
                                 **({"food_margin": deal["food_margin"]} if deal.get("food_margin") else {})})
         except Exception as e:  # noqa: BLE001 - in the writer thread nobody else would see it
             MEMORY_FAILURES.append(True)
