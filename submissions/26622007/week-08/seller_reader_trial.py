@@ -57,7 +57,7 @@ class Reader:
         ref = market_ref_read.offer(text) if offer is None else None
         if offer is not None:
             self.source, self.result = "rule", (offer, 1.0)
-        elif ref is not None and self.jev is not None and self.market_ref.on():   # where Jev would read (market_ref_read.py)
+        elif ref is not None and self.jev is not None and self._market_ref_on():   # where Jev would read (market_ref_read.py)
             self.source, self.result = "rule_market_ref", (ref, 1.0)
         elif self.jev is not None:
             self.source = "jev"
@@ -72,6 +72,12 @@ class Reader:
             self.result = (None, 0)
         self.offer, self.confidence = self.result
         return self.result
+
+    def _market_ref_on(self):
+        try:
+            return self.market_ref.on() is True
+        except Exception:  # noqa: BLE001 - a broken switch is off: Jev reads as before
+            return False
 
 
 class Trial:

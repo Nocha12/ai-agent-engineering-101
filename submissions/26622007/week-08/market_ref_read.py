@@ -9,11 +9,14 @@ calls in 12:25-12:55.
 When the switch is on, seller_reader_trial.Reader answers that exact line with (offer, 1.0) and makes no Jev call. Every
 check after the reader is unchanged (the offer must be written in the message, not one of our asks, under our ask, our
 ask only with words of agreement, the SUSPECT screen, the price guards in seller.py), so the turn ends as it did when
-Jev read the same number. Any other wording, an extra word or a second line still goes to Jev.
+Jev read the same number. Any other wording, an extra word or a second line still goes to Jev. One difference by design:
+a Jev timeout on this line no longer holds the ask (negotiate HOLD_TURN), so the talk's once-a-talk hold stays available.
 
 Only where Jev would read: with no Jev (FAST_JEV=0, another backend) the line goes to the harness as before, even in
-the reader trial's arm B. The reader trial (seller_reader_trial.json) reads it by code in both arms while this is on;
-its traces then count it as source "rule_market_ref", so do not judge that trial's Jev counts across the switch.
+the reader trial's arm B. The reader trial (seller_reader_trial.json) reads it by code in both arms while this is on.
+Every trial whose trace records reader.source / jev_calls (reader, concession, late concession, opening cue, late speed,
+jev_transport) then sees source "rule_market_ref" and jev_calls 0 on these turns: do not compare Jev latency or call
+counts across the switch.
 seller.py logs " [market-ref line read by code, no Jev call]" after the FAST reason of such a turn.
 
 Switch: .market/market_ref_read.json (MARKET_DIR) {"enabled": true, "start_at": <epoch>, "stop_at": <epoch, optional>},

@@ -191,13 +191,20 @@ class ReviewTests(Switched):
         os.mkfifo(self.root / "market_ref_read.json")
         self.assertFalse(self.switch.on(now=200))
 
-    def test_growing_config_is_capped(self):   # M2: read at most the cap even if stat said small
-        p = self.root / "market_ref_read.json"
-        p.write_text(json.dumps(dict(enabled=True, start_at=0)))
-        real = os.fstat
-        with patch.object(market_ref_read.os, "fstat", lambda fd: real(fd)):
-            p.write_text(json.dumps(dict(enabled=True, start_at=0)) + " " * 10000)
-            self.assertFalse(self.switch.on(now=200))
+    def test_read_asks_for_at_most_the_cap(self):   # M2: the cap is the read size, not a stat taken earlier
+        self.config(enabled=True, start_at=0)
+        sizes, real = [], os.read
+        with patch.object(market_ref_read.os, "read", lambda fd, n: sizes.append(n) or real(fd, n)):
+            self.assertTrue(self.switch.on(now=200))
+        self.assertEqual(sizes, [market_ref_read.MAX_CONFIG_BYTES + 1])
+
+    def test_a_switch_that_raises_leaves_the_jev_path(self):   # re-review M2
+        class Broken:
+            def on(self):
+                raise OSError("boom")
+        r = Reader(lambda t: (263291, 0.95), "A", market_ref=Broken())
+        self.assertEqual(r(LINE), (263291, 0.95))
+        self.assertEqual((r.source, r.offer, r.confidence), ("jev", 263291, 0.95))
 
     def test_log_note_names_the_code_read(self):   # M3
         self.config(enabled=True, start_at=0)
