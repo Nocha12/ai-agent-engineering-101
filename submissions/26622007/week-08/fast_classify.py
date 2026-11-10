@@ -90,6 +90,17 @@ def jev_offer(text, post=None):
 def seller_turn(text, deal, floor, jev=None):
     """The seller's turn decided without the harness, or None. floor: shop_memory.concession_floor for this round;
     jev(text) -> (offer or None, confidence) reads a message that is not a bare number (jev_offer; None: no call)."""
+    # Exact follow-up only, bound to the current inventory product. The 6 is
+    # warranty duration, and digits in the catalog name/SKU are not prices.
+    # This does not answer the grade question or select a different unit.
+    if (deal.get("unit") and isinstance(deal.get("name"), str)
+            and isinstance(deal.get("id"), str) and re.fullmatch(r"G[0-9a-f]{8}", deal["id"])):
+        question = (f"Do you have a grade C or B unit of {deal['name']} ({deal['id']}) "
+                    "with a warranty of at least 6 hours on the receipt? I would rather take that one, "
+                    "priced for its grade. If not, tell me and we go on with this unit.")
+        if text == question:
+            return {"buyer_offer": 0, "action": "counter", "price": deal["ask"], "message": "",
+                    "why": "exact current-product grade follow-up has no monetary offer"}
     if not re.search(r"\d", text or ""):
         return {"buyer_offer": 0, "action": "counter", "price": deal["ask"], "message": "", "why": "no digit, no offer"}
     least = max(floor, deal["reserve"])
