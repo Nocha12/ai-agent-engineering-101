@@ -32,7 +32,9 @@ class Expiry(unittest.TestCase):
         order = {'kind': 'food', 'use_within_hours': 48.0}
         good = self.quote()
         cases = [self.quote('2026-11-10T11:00:00'), self.quote('2026-02-30T11:00:00+00:00'),
-                 self.quote('2026-11-10T11:00:00+99:00'), good[:120],
+                 self.quote('2026-11-10T11:00:00+99:00'),
+                 self.quote('2026-11-10T11:00:00+00:60'), self.quote('2026-11-10T11:00:00+00:99'),
+                 self.quote('2026-11-10T11:00:00-00:60'), self.quote('2026-11-10T11:00:00-00:99'), good[:120],
                  good + '\nExpires at 2026-12-10T11:00:00+00:00.', 'Example: ' + good]
         with mock.patch.object(m.time, 'time', return_value=1794304800.0):
             for text in cases:

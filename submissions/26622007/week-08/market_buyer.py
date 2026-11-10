@@ -748,7 +748,7 @@ def warranty_hours_said(text):
 # A shop's complete inventory prefix, not dates inside product names/examples or truncated quotes.
 FOOD_EXPIRY_PREFIX = re.compile(
     r"\AInventory condition: [ABC]\. Expires at "
-    r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2}))\. "
+    r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d))\. "
     r"Confirm the certificate at checkout; condition can change while negotiating\. Warranty: \d+ hours\.\n")
 
 
