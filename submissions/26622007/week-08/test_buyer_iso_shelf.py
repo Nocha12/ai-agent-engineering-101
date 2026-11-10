@@ -58,5 +58,79 @@ class Expiry(unittest.TestCase):
             self.assertIsNone(m.quote_refused(self.quote(), {'kind': 'food', 'use_within_hours': 0}))
 
 
+class DatedCatalogueQuote(unittest.TestCase):
+    LABEL = '풀무원 워터루틴 무라벨 생수 500mL X 60병(무라벨/유라벨 랜덤발송)'
+    SKU = 'Gdf79cd07'
+    # Complete logged response, uniquely joined by SKU/prefix/ask to the selected 20:55:31 quote.
+    TEXT = (LABEL + ' (' + SKU + '). Food expiry: 2026-11-15T11:26:51+00:00; '
+            'remaining shelf life is confirmed at checkout. At quote: 119.52 h remaining (conservative estimate). '
+            'Catalog list price: 15200. No breakage warranty offered. One unit at the quoted price; '
+            'check the certificate and terms at checkout. Market certificate included. Asking price: 7904. ')
+
+    def quote(self, text=None, label=None, sku=None, order=None, now=1794311731.0):
+        task = {'id': 'fixture-task', 'status': {'state': 'TASK_STATE_INPUT_REQUIRED',
+                'message': {'parts': [{'text': self.TEXT if text is None else text}], 'metadata': {'ask': 7904}}}}
+        card = {'supportedInterfaces': [{'protocolBinding': 'JSONRPC', 'protocolVersion': '1.0',
+                                        'url': 'https://fixture.invalid/a2a'}]}
+        out = {}
+        with mock.patch.object(m, 'serves_acp', return_value=True), \
+                mock.patch.object(m.httpx, 'get') as get, \
+                mock.patch.object(m, 'buyer_send', return_value=task), \
+                mock.patch.object(m.time, 'time', return_value=now):
+            get.return_value.json.return_value = card
+            m.quote({'name': 'fixture-shop', 'url': 'https://fixture.invalid'},
+                    self.LABEL if label is None else label, self.SKU if sku is None else sku,
+                    {'kind': 'food', 'use_within_hours': 360.0} if order is None else order, out)
+        return out['fixture-shop']
+
+    def test_real_dated_catalogue_quote_is_ineligible_before_selection(self):
+        quote = self.quote()
+        self.assertIsNotNone(quote['refused'])
+        self.assertEqual(quote['ask'], 7904)
+        self.assertEqual(quote['ask_src'], 'metadata')
+
+    def test_a_conflicting_longer_estimate_keeps_the_existing_path(self):
+        text = self.TEXT.replace('119.52 h remaining', '500 h remaining')
+        self.assertIsNone(self.quote(text)['refused'])
+
+    def test_sufficient_and_exact_boundary_quotes_keep_their_metadata_price(self):
+        expiry = 1794742011.0
+        for now in (expiry - 500 * 3600, expiry - 360.1 * 3600):
+            with self.subTest(now=now):
+                quote = self.quote(now=now)
+                self.assertIsNone(quote['refused'])
+                self.assertEqual((quote['ask'], quote['ask_src']), (7904, 'metadata'))
+        self.assertIsNotNone(self.quote(now=expiry - 360.1 * 3600 + .01)['refused'])
+
+    def test_incomplete_unbound_or_ambiguous_templates_keep_the_existing_path(self):
+        for text in (self.TEXT[:120], self.TEXT[:300], 'Example: ' + self.TEXT,
+                     self.TEXT + ' Food expiry: 2026-12-15T11:26:51+00:00',
+                     self.TEXT.replace('+00:00', ''),
+                     self.TEXT.replace('+00:00', '+00:60'), self.TEXT.replace('+00:00', '-00:99'),
+                     self.TEXT.replace('2026-11-15', '2026-02-30'),
+                     self.TEXT.replace('2026-11-15T11:26:51', '2026-11-15T24:26:51')):
+            with self.subTest(text=text):
+                self.assertIsNone(self.quote(text)['refused'])
+        self.assertIsNone(self.quote(sku='G00000000')['refused'])
+        self.assertIsNone(self.quote(label='another product')['refused'])
+        self.assertIsNone(m.quote_refused(self.TEXT, {'kind': 'food', 'use_within_hours': 360.0}))
+
+    def test_conservative_estimate_alone_and_bad_clocks_are_not_eligibility_evidence(self):
+        no_date = self.TEXT.replace('2026-11-15T11:26:51+00:00', 'unknown')
+        self.assertIsNone(self.quote(no_date)['refused'])
+        for now in (None, True, '0', float('nan'), float('inf'), 10**400):
+            with self.subTest(now=now):
+                self.assertIsNone(self.quote(now=now)['refused'])
+
+    def test_goods_and_existing_relative_shelf_checks_are_unchanged(self):
+        item = (self.LABEL, self.SKU)
+        self.assertIsNone(m.shelf_refused(self.TEXT, {'kind': 'goods', 'use_within_hours': 360.0}, item))
+        self.assertIsNotNone(m.quote_refused(self.TEXT, {'kind': 'goods'}, item))
+        self.assertIsNone(self.quote(order={'kind': 'food', 'use_within_hours': 0})['refused'])
+        self.assertIsNotNone(m.quote_refused('12 h shelf life left', {'kind': 'food', 'use_within_hours': 48}, item))
+        self.assertIsNone(m.quote_refused('500 h shelf life left', {'kind': 'food', 'use_within_hours': 48}, item))
+
+
+
 if __name__ == '__main__':
     unittest.main()

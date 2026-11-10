@@ -752,10 +752,20 @@ FOOD_EXPIRY_PREFIX = re.compile(
     r"Confirm the certificate at checkout; condition can change while negotiating\. Warranty: \d+ hours\.\n")
 
 
-def shelf_refused(text, order):
+# The catalogue name/SKU prefix is supplied by quote(), not taken from another shop's text.
+FOOD_DATED_QUOTE = re.compile(
+    r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)); "
+    r"remaining shelf life is confirmed at checkout\. "
+    r"At quote: (\d+(?:\.\d+)?) h remaining \(conservative estimate\)\. Catalog list price: [1-9]\d*\. "
+    r"No breakage warranty offered\. One unit at the quoted price; check the certificate and terms at checkout\. "
+    r"Market certificate included\. Asking price: [1-9]\d*\.[ \t]*")
+
+
+def shelf_refused(text, order, item=None):
     """The shop says, before any offer, how long this food unit lasts, and it is less than the kit asks before paying
     (accept_policy): a deal there would end unpaid. Relative shelf hours or a complete, timezone-aware inventory
-    expiry prefix count; malformed/ambiguous/truncated prefixes and dates in examples keep the existing path."""
+    expiry prefix count. A complete dated catalogue quote also needs its trusted name/SKU in item; the conservative
+    relative estimate is never sufficient alone. Malformed/ambiguous/truncated inputs keep the existing path."""
     if order.get("kind") != "food" or not order.get("use_within_hours"):
         return None
     t = text or ""
@@ -765,14 +775,24 @@ def shelf_refused(text, order):
     need = order["use_within_hours"] + SHELF_MARGIN
     hours = [h + 0.5 if h.is_integer() else h for h in hours]    # "about 48 h" may be 48.4: rounded, not short
     # Same checkout eligibility as relative shelf hours. This never supplies a price to oneshot/ask_read.
-    expiry = FOOD_EXPIRY_PREFIX.match(t)
-    if expiry and t.count("Expires at ") == 1:
+    estimate = None
+    expiry = FOOD_EXPIRY_PREFIX.match(t) if t.count("Expires at ") == 1 else None
+    if (expiry is None and isinstance(item, tuple) and len(item) == 2
+            and all(isinstance(v, str) and v for v in item) and t.count("Food expiry:") == 1):
+        prefix = f"{item[0]} ({item[1]}). Food expiry: "
+        if t.startswith(prefix):
+            expiry = FOOD_DATED_QUOTE.fullmatch(t[len(prefix):])
+            if expiry:
+                estimate = float(expiry[2])
+    if expiry:
         try:
             now = time.time()    # one time for this same RPC response; never the later order-log timestamp
             if isinstance(now, (int, float)) and not isinstance(now, bool) and abs(now) < 1e12:
                 left = (datetime.fromisoformat(expiry[1].replace("Z", "+00:00")).timestamp() - now) / 3600
                 if left == left:     # invalid clocks must not turn an unknown quote into a rejection
                     hours.append(left)
+                    if estimate is not None:  # never use a conservative estimate without its valid absolute expiry
+                        hours.append(estimate)  # conflicting longer freshness keeps the existing max-hours policy
         except (ValueError, OverflowError, OSError):
             pass                    # malformed/naive/ambiguous input keeps the existing path
     if hours and max(hours) < need:
@@ -810,9 +830,9 @@ def goods_text_refused(text, order):
     return f"the shop's text offers this goods unit without a {hard_limits.BUYER_GOODS_WARRANTY_HOURS} h warranty"
 
 
-def quote_refused(text, order):
-    """Why the shop's first answer already rules out a deal I would pay for (warranty or shelf life), else None."""
-    return warranty_refused(text, order) or shelf_refused(text, order)
+def quote_refused(text, order, item=None):
+    """Why the first answer rules out a payable deal; item binds a dated quote to the catalogue name/SKU."""
+    return warranty_refused(text, order) or shelf_refused(text, order, item)
 
 
 def short_warranty_quote(q, text, order, name):
@@ -1054,7 +1074,7 @@ def quote(shop, label, key, order, out, ctl=None):
                 src = "text_rejected"       # a number read but outside 5%..100% of list: kept for the record only
         q = {"ask": ask, "ask_src": src if ask is not None or src == "text_rejected" else None,
              "text_ask_raw": raw, "text": text[:300], "url": iface["url"], "task": t,
-             "refused": quote_refused(text, order)}
+             "refused": quote_refused(text, order, item=(label, key))}
         short_warranty_quote(q, text, order, shop["name"])
         lock = (ctl or {}).get("lock")
         # Journal IO must never own the decision/termination lock.
