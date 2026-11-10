@@ -226,6 +226,43 @@ class FastRunTest(unittest.TestCase):
         with mock.patch.object(restock, "warranted_sales", return_value=[]):
             self.assertIsNone(self.fast({**self.inv, "balance": 1500000})[0])     # nothing fits: the usual run decides
 
+    def test_the_guard_and_the_last_word_each_keep_the_cash_on_their_own(self):
+        # independent review 0c27ae5 I2: either defence alone passed the test above. Balance 4.5M, buffer 1M, lines sent
+        # a minute ago worth 1.875M still on their way: 1.625M may be spent, two sofas at 757.5k
+        def run(**patches):
+            self.setUp()
+            self.carry([{"sku": "G1", "qty": 4}])
+            self.write(restock.SENT, [{"at": self.now - 60, "sku": "G2", "qty": 3, "worst": 375000},
+                                      {"at": self.now - 60, "sku": "G3", "qty": 2, "worst": 375000}])
+            with contextlib_stack() as stack:
+                stack.enter_context(mock.patch.object(restock, "warranted_sales", return_value=[]))
+                for name, fn in patches.items():
+                    stack.enter_context(mock.patch.object(*name_of(name), side_effect=fn))
+                return self.fast({**self.inv, "balance": 4500000})[0]
+
+        self.assertEqual(run(), {"buy": [{"sku": "G1", "qty": 2}]})
+        seen = {}
+        real_guard, real_final = restock.guard, hard_limits.final_buy
+
+        def loose_guard(buy, inv_, catalog, cfg, breaks=None, waiting=()):      # a guard that forgot the cash
+            seen["guard"] = (cfg.get("cash_buffer"), [dict(w) for w in waiting])
+            return [dict(b) for b in buy]
+
+        def loose_final(buy, balance, catalog, worst=0.75, buffer=hard_limits.STOP_BUYING_BELOW):
+            seen["final"] = buffer
+            return [dict(b) for b in buy]
+
+        self.assertEqual(run(**{"restock.guard": loose_guard}), {"buy": [{"sku": "G1", "qty": 2}]})    # final_buy alone holds
+        self.assertEqual(seen["guard"][0], hard_limits.cash_buffer(1875000, []))    # the buffer main() computes, handed to guard
+        self.assertEqual(sorted((w["sku"], w["qty"], w["cash_qty"], w["worst"]) for w in seen["guard"][1]),
+                         [("G2", 3, 3, 375000), ("G3", 2, 2, 375000)])
+        self.assertEqual(run(**{"hard_limits.final_buy": loose_final}), {"buy": [{"sku": "G1", "qty": 2}]})   # guard alone holds
+        self.assertEqual(seen["final"], hard_limits.cash_buffer(1875000, []) + 1875000)   # buffer + what the sent lines owe
+        both = run(**{"restock.guard": loose_guard, "hard_limits.final_buy": loose_final})
+        self.assertEqual(both, {"buy": [{"sku": "G1", "qty": 4}]})                   # the test can tell: with neither, four
+        self.assertIs(restock.guard, real_guard)
+        self.assertIs(hard_limits.final_buy, real_final)
+
     def test_sent_waiting_is_never_less_than_pending(self):
         sent = [{"at": self.now - 30, "sku": "G1", "qty": 2, "worst": 750000}, {"at": self.now - 300, "sku": "G2", "qty": 1, "worst": 1},
                 {"at": self.now - 10, "sku": "F1", "qty": 20, "worst": 15000}, "junk", {"at": self.now - 10, "sku": "G3", "qty": True}]
@@ -269,6 +306,131 @@ class FastRunTest(unittest.TestCase):
 
 
 restock_load = restock.load
+
+
+class MainSlowRunTest(unittest.TestCase):
+    """restock.main()'s usual run in arm B (independent review 0c27ae5 I1): the held SKU is planned out before the cut,
+    and a carry is left only when no agent line waits, no trial runs and no opening decides. The demand model, the
+    agent's turn and the hooks are stubs; plan(), guard(), the queue file and the carry file are the real ones."""
+
+    def setUp(self):
+        self.now = time.time()
+        self.md = tempfile.mkdtemp()
+        self.cat = {**CATALOG, **{f"G{i}": {"kind": "goods", "category": f"가구>c{i}", "list_price": 200000} for i in range(4, 25)}}
+        skus = ["H1"] + [f"G{i}" for i in range(1, 25)]
+        self.pricing = {"restock": {"priority_skus": skus, "sku_target_units": {s: 2 for s in skus}, "keep_cash": 0,
+                                    "max_lines": 10, "explore_lines": 0, "high_price_goods": 100000,
+                                    "high_price_max_units": 20, "high_price_proven_max_units": 20,
+                                    "max_stock_cost": 10 ** 9, "fill_listed": True, "round_ends_at": None},
+                        "next_window": {"id": "t1", "targets": {"H1": 1}, "hold_after_done": True}}
+        self.model = {"active": True, "cats": set(), "skus": {s: {"rate": 1.0, "my_share": 0.1, "price_ratio": 0.7} for s in skus}}
+        self.inv = {"round": 3, "balance": 10 ** 9, "bankrupt_line": 500000, "units": [],
+                    "restock": {"open": False, "opens_at": self.now + 20, "closes_at": self.now + 200}}
+        self.write("inventory.json", self.inv)
+        self.write("catalog.json", self.cat)
+        self.write(restock.NEXT_WINDOW_STATE, {"id": "t1", "done": True})
+        switch(self.md, on(self.now))
+
+    def write(self, name, d):
+        with open(os.path.join(self.md, name), "w", encoding="utf-8") as f:
+            json.dump(d, f)
+
+    def run_main(self, agent=None, env=None):
+        """main()'s last JSON line and the carry file's lines (None when there is none). agent: what agent_turn returns."""
+        out, stubs = io.StringIO(), ("loss_watch.check", "agent_memory.maybe_consolidate", "shop_forum.maybe_run",
+                                     "tool_forge.maybe_run", "rival_vote.maybe_run", "forum.maybe_run", "measure.tick")
+        with contextlib_stack() as stack:
+            stack.enter_context(mock.patch.object(restock.sys, "argv", ["restock.py", "--state", self.md]))
+            stack.enter_context(mock.patch.object(
+                restock, "load", side_effect=lambda p, d: self.pricing if p == "pricing.json" else restock_load(p, d)))
+            stack.enter_context(mock.patch.object(restock, "read_model", return_value=self.model))
+            stack.enter_context(mock.patch.object(restock, "read_breaks", return_value=None))
+            stack.enter_context(mock.patch.object(restock, "warranted_sales", return_value=[]))
+            stack.enter_context(mock.patch.object(restock, "rows_of", return_value=[]))
+            stack.enter_context(mock.patch.object(restock, "log_prices", return_value=None))
+            stack.enter_context(mock.patch.object(restock, "agent_turn", return_value=agent))
+            for name in stubs:
+                mod, fn = name.split(".")
+                stack.enter_context(mock.patch.object(getattr(restock, mod), fn, return_value=None))
+            stack.enter_context(mock.patch.dict(os.environ, {"HARNESS": "", **(env or {})}))
+            stack.enter_context(redirect_stdout(out))
+            stack.enter_context(redirect_stderr(io.StringIO()))
+            self.assertEqual(restock.main(), 0)
+        buy = json.loads(out.getvalue().strip().splitlines()[-1])["buy"]
+        path = os.path.join(self.md, wf.CARRY)
+        return buy, (json.load(open(path))["lines"] if os.path.exists(path) else None)
+
+    def test_arm_b_plans_the_held_sku_out_and_leaves_the_next_ten(self):
+        buy, carry = self.run_main()
+        self.assertEqual([b["sku"] for b in buy], [f"G{i}" for i in range(1, 11)])          # ten lines, none of them H1
+        self.assertEqual([b["sku"] for b in carry], [f"G{i}" for i in range(11, 21)])       # the plan's next ten
+        self.assertEqual(json.load(open(os.path.join(self.md, wf.CARRY)))["opens_at"], self.inv["restock"]["opens_at"])
+
+    def test_off_and_arm_a_print_todays_nine_and_leave_no_carry(self):
+        os.remove(os.path.join(self.md, wf.SWITCH))
+        buy, carry = self.run_main()
+        self.assertEqual([b["sku"] for b in buy], [f"G{i}" for i in range(1, 10)])           # H1 planned, then dropped: nine
+        self.assertIsNone(carry)
+        os.remove(os.path.join(self.md, restock.SENT))       # the lines that run noted would count as on their way
+        switch(self.md, on(self.now))
+        with mock.patch.object(wf, "arm", return_value="A"):
+            buy, carry = self.run_main()
+        self.assertEqual([b["sku"] for b in buy], [f"G{i}" for i in range(1, 10)])
+        self.assertIsNone(carry)
+
+    def test_no_carry_while_an_agent_line_waits_and_an_old_one_is_removed(self):
+        wf.save_carry(self.md, self.inv, [{"sku": "G20", "qty": 1}], now=self.now - 30)      # a carry of an earlier run
+        self.write("restock_queue.json", {"at": self.now, "lines": [{"sku": "G24", "qty": 1}]})
+        buy, carry = self.run_main()
+        self.assertTrue(buy)
+        self.assertIsNone(carry)             # the queue's lines are the next run's: nothing carried, the old carry gone
+        self.write("restock_queue.json", {"at": self.now, "lines": []})
+        self.assertIsNotNone(self.run_main()[1])
+
+    def test_the_agents_run_carries_only_when_none_of_its_lines_waits(self):
+        self.cat["A1"] = {"kind": "goods", "category": "가구>agent", "list_price": 50000}      # the agent's own, on no list
+        self.write("catalog.json", self.cat)
+        self.write("restock_queue.json", {"at": self.now, "lines": []})
+        buy, carry = self.run_main(agent=[], env={"HARNESS": "stub"})                        # its queue is sent: the formula fills
+        self.assertEqual([b["sku"] for b in buy], [f"G{i}" for i in range(1, 11)])           # ten, H1 planned out
+        self.assertEqual([b["sku"] for b in carry], [f"G{i}" for i in range(11, 21)])
+        os.remove(os.path.join(self.md, restock.SENT))
+        # an agent line the ten listed lines push past max_lines goes back to the queue: it is the next run's, no carry
+        buy, carry = self.run_main(agent=[{"sku": "A1", "qty": 1}], env={"HARNESS": "stub"})
+        self.assertEqual([b["sku"] for b in buy], [f"G{i}" for i in range(1, 11)])
+        self.assertEqual(restock_load(os.path.join(self.md, "restock_queue.json"), {})["lines"], [{"sku": "A1", "qty": 1}])
+        self.assertIsNone(carry)
+
+    def test_no_carry_when_a_trial_runs_the_opening_decides_or_nothing_is_bought(self):
+        self.pricing["next_window"] = {"id": "t2", "targets": {"H1": 1}, "expires_hours": 2}     # a new plan: its window
+        os.remove(os.path.join(self.md, restock.NEXT_WINDOW_STATE))
+        self.inv["restock"] = {"open": True, "opens_at": self.now - 10, "closes_at": self.now + 170}
+        self.write("inventory.json", self.inv)
+        buy, carry = self.run_main()
+        self.assertEqual(buy[0], {"sku": "H1", "qty": 1})                                     # the trial's line goes first
+        self.assertIsNone(carry)
+        self.setUp()
+        with mock.patch.object(restock.opening, "lines", return_value=([{"sku": "G1", "qty": 1}], "phase 1")):
+            buy, carry = self.run_main()
+        self.assertEqual(buy, [{"sku": "G1", "qty": 1}])
+        self.assertIsNone(carry)
+        self.setUp()
+        closed = {**self.inv, "restock": {"open": False, "opens_at": self.now + 900, "closes_at": self.now + 1080}}
+        self.write("inventory.json", closed)
+        wf.save_carry(self.md, closed, [{"sku": "G20", "qty": 1}], now=self.now - 30)
+        buy, carry = self.run_main()
+        self.assertEqual(buy, [])                                                              # supply closed: nothing sent
+        self.assertIsNone(carry)                                                               # and the old carry is gone
+
+
+def name_of(dotted):
+    mod, fn = dotted.split(".")
+    return {"restock": restock, "hard_limits": hard_limits}[mod], fn
+
+
+def contextlib_stack():
+    import contextlib
+    return contextlib.ExitStack()
 
 
 class CarryPlanTest(unittest.TestCase):
