@@ -403,6 +403,29 @@ def run_tests():
     return proc.returncode == 0, "\n".join(failed[:20] + [err[-1200:]])
 
 
+def restart_pricing_snapshot(before, found):
+    """A clean, stable tracked version only; dirty or inconsistent ownership never gets the exception."""
+    if "pricing.json" in before or "pricing.json" in found:
+        return None, None
+    try:
+        path = os.path.join(ROOT, "pricing.json")
+        if os.path.islink(path):
+            return None, None
+        with open(path, "rb") as f:
+            start = os.fstat(f.fileno())
+            raw = f.read()
+        pricing = json.loads(raw)
+        revision = git("rev-parse", "HEAD")
+        expected = git("rev-parse", f"{revision}:./pricing.json")
+        actual = hashlib.sha1(f"blob {len(raw)}\0".encode() + raw).hexdigest()
+        stamp = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
+        if actual != expected or stamp(start) != stamp(os.stat(path)):
+            return None, None
+        return pricing, revision
+    except (OSError, ValueError, RecursionError, RuntimeError):
+        return None, None
+
+
 def seller_pricing_unchanged(before, after):
     """Only valid restock target counts may differ; unknown input never suppresses a restart."""
     reduced, target_keys = [], []
@@ -659,7 +682,7 @@ def pricing_now():
             return json.load(f)
     except FileNotFoundError:
         return {}
-    except (OSError, ValueError) as e:
+    except (OSError, ValueError, RecursionError) as e:
         return {"_unreadable": str(e)}
 
 
@@ -1057,10 +1080,10 @@ def refresh_scorecard():
 
 
 def cycle(kind):
-    restart_pricing_before = pricing_now()   # actual settings before this cycle, never a post-commit HEAD guess
     before = dirty_paths()        # what the folder already held: not this cycle's change
     FOUND["pricing"] = pricing_now() if "pricing.json" in before else None
     found = start_contents(before)
+    restart_pricing_before, restart_pricing_head = restart_pricing_snapshot(before, found)
     cid = f"{kind}-{time.strftime('%m%d-%H%M%S')}"
     os.makedirs(os.path.join(ROOT, "meta", "evidence"), exist_ok=True)
     pack = os.path.join(ROOT, "meta", "evidence", f"{cid}.json")
@@ -1147,6 +1170,8 @@ def cycle(kind):
     body = "\n".join(x for x in (f"이유: {why}" if why else "", ("설정: " + "; ".join(moved)) if moved else "",
                                  f"기대: {(answer or {}).get('target_metric', '')} {(answer or {}).get('expected', '')}".strip()) if x)
     sha = commit(f"feat(week-08): [{cid}] {title}"[:300] + (f"\n\n{body}" if body else ""), paths)
+    if restart_pricing_head != git("rev-parse", f"{sha}^", check=False):
+        restart_pricing_before = None   # bind the actual commit parent, including concurrent commits during commit()
     rec.update(commit=sha, files=code, settings=moved)
     log(f"{cid}: applied {sha[:8]}: {title}")
     if docs_only:

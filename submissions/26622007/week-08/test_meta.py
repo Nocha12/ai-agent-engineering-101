@@ -467,6 +467,75 @@ class HarnessCycleTest(unittest.TestCase):
         with open(os.path.join(self.root, "pricing.json")) as f:
             self.assertEqual(json.load(f), old)
 
+    def test_deep_json_snapshot_does_not_block_the_required_rollback(self):
+        old = {"restock": {"sku_target_units": {"G1": 2}}, "price": {"min_profit": 1}}
+        new = {"restock": {"sku_target_units": {"G1": 2}}, "price": {"min_profit": 2}}
+        path = os.path.join(self.root, "pricing.json")
+        with open(path, "w") as f:
+            json.dump(old, f)
+        self.git("add", "pricing.json")
+        self.git("commit", "-qm", "deep JSON rollback fixture")
+        broken, parser_faults = [], []
+        real_load = json.load
+        def canary():
+            with open(path, "w") as f:
+                f.write("[" * 2000 + "0" + "]" * 2000)
+            broken.append(True)
+            return ["isolated canary failure"]
+        def load(f, *args, **kwargs):
+            # Parser-failure injection: nesting thresholds differ across Python builds.
+            if broken and not parser_faults and getattr(f, "name", None) == path:
+                parser_faults.append(True)
+                raise RecursionError("isolated pricing parser failure")
+            return real_load(f, *args, **kwargs)
+        killed, real_run = [], subprocess.run
+        def run(cmd, *args, **kwargs):
+            if cmd and cmd[0] == "pkill":
+                killed.append(tuple(cmd))
+                return subprocess.CompletedProcess(cmd, 0)
+            return real_run(cmd, *args, **kwargs)
+        with mock.patch.dict(os.environ, {"FAKE_SIDE": json.dumps({"pricing.json": json.dumps(new)})}), \
+                mock.patch.object(mh, "KIT_PATTERN", "isolated-kit"), \
+                mock.patch.object(mh, "canary", side_effect=canary), \
+                mock.patch.object(mh.json, "load", side_effect=load), \
+                mock.patch.object(mh.subprocess, "run", side_effect=run):
+            rec = self.go("good")
+        self.assertEqual(parser_faults, [True])
+        self.assertEqual(rec["status"], "canary_failed")
+        self.assertEqual(len(killed), 2)
+        with open(path) as f:
+            self.assertEqual(json.load(f), old)
+
+    def test_concurrent_dirty_price_is_not_mistaken_for_target_only(self):
+        old = {"restock": {"sku_target_units": {"G1": 2}}, "price": {"min_profit": 1}}
+        foreign = {"restock": {"sku_target_units": {"G1": 2}}, "price": {"min_profit": 2}}
+        new = {"restock": {"sku_target_units": {"G1": 3}}, "price": {"min_profit": 1}}
+        path = os.path.join(self.root, "pricing.json")
+        with open(path, "w") as f:
+            json.dump(old, f)
+        self.git("add", "pricing.json")
+        self.git("commit", "-qm", "concurrent price fixture")
+        real_dirty, real_run = mh.dirty_paths, subprocess.run
+        visits, killed = [], []
+        def dirty():
+            if not visits:
+                with open(path, "w") as f:
+                    json.dump(foreign, f)
+            visits.append(True)
+            return real_dirty()
+        def run(cmd, *args, **kwargs):
+            if cmd and cmd[0] == "pkill":
+                killed.append(tuple(cmd))
+                return subprocess.CompletedProcess(cmd, 0)
+            return real_run(cmd, *args, **kwargs)
+        with mock.patch.dict(os.environ, {"FAKE_SIDE": json.dumps({"pricing.json": json.dumps(new)})}), \
+                mock.patch.object(mh, "KIT_PATTERN", "isolated-kit"), \
+                mock.patch.object(mh, "dirty_paths", side_effect=dirty), \
+                mock.patch.object(mh.subprocess, "run", side_effect=run):
+            rec = self.go("good")
+        self.assertEqual(rec["status"], "running", rec.get("problems"))
+        self.assertEqual(killed, [("pkill", "-f", "seller.py --port")])
+
     def exists(self):
         return os.path.exists(os.path.join(self.root, "changed.py"))
 
