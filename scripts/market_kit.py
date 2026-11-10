@@ -550,7 +550,7 @@ def failed_payment_checks(response):
     """Read full JSON before selecting bounded, allowlisted names; never echo raw data."""
     try:
         body = response.json()
-    except ValueError:
+    except (ValueError, RecursionError):
         return "unavailable"
     market = body.get("market") if isinstance(body, dict) else None
     checks = market.get("checks") if isinstance(market, dict) else None

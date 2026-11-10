@@ -48,6 +48,10 @@ class FailureChecksTest(unittest.TestCase):
             with self.subTest(body=type(body).__name__):
                 self.assertEqual(self.pay(body, raw), "payment not completed: 402 failed_checks=unavailable")
 
+    def test_deep_json_is_still_a_recorded_refusal_not_an_exception(self):
+        self.assertEqual(self.pay("[" * 10000 + "0" + "]" * 10000, raw=True),
+                         "payment not completed: 402 failed_checks=unavailable")
+
     def test_all_known_false_checks_are_sorted_only_boolean_false_counts(self):
         self.assertEqual(self.pay({"market": {"checks": {
             "round_3_order": False, "amount_in_range": False, "not_expired": True}}}),
