@@ -11,8 +11,14 @@ check after the reader is unchanged (the offer must be written in the message, n
 ask only with words of agreement, the SUSPECT screen, the price guards in seller.py), so the turn ends as it did when
 Jev read the same number. Any other wording, an extra word or a second line still goes to Jev.
 
-Switch: MARKET_DIR/market_ref_read.json {"enabled": true, "start_at": <epoch>, "stop_at": <epoch, optional>}, read at
-every turn; absent, invalid, not a regular file, before start_at or at/after stop_at: off (Jev reads as before).
+Only where Jev would read: with no Jev (FAST_JEV=0, another backend) the line goes to the harness as before, even in
+the reader trial's arm B. The reader trial (seller_reader_trial.json) reads it by code in both arms while this is on;
+its traces then count it as source "rule_market_ref", so do not judge that trial's Jev counts across the switch.
+seller.py logs " [market-ref line read by code, no Jev call]" after the FAST reason of such a turn.
+
+Switch: .market/market_ref_read.json (MARKET_DIR) {"enabled": true, "start_at": <epoch>, "stop_at": <epoch, optional>},
+read at every such turn; absent, invalid, not a regular file, larger than 4 KiB, before start_at or at/after stop_at:
+off (Jev reads as before). meta_harness.SWITCHES watches it; sol_seller_margin.SOURCE_FILES hashes this file.
 """
 import json
 import math
@@ -48,19 +54,31 @@ class Switch:
 
     def on(self, now=None):
         now = time.time() if now is None else now
-        p = self.root / "market_ref_read.json"
-        try:
-            st = os.stat(p)
-            if not stat.S_ISREG(st.st_mode) or st.st_size > MAX_CONFIG_BYTES:
-                return False
-            c = json.loads(p.read_bytes().decode("utf-8"))
-        except Exception:  # noqa: BLE001 - absent or unreadable: off
+        try:   # non-blocking open, then fstat: a FIFO swapped in never holds the turn; never more than the cap read
+            fd = os.open(self.root / "market_ref_read.json", os.O_RDONLY | os.O_NONBLOCK)
+        except OSError:
             return False
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                return False
+            data = os.read(fd, MAX_CONFIG_BYTES + 1)
+            if len(data) > MAX_CONFIG_BYTES:
+                return False
+            c = json.loads(data.decode("utf-8"))
+        except Exception:  # noqa: BLE001 - unreadable: off
+            return False
+        finally:
+            os.close(fd)
         if not isinstance(c, dict) or set(c) - KEYS or c.get("enabled") is not True or not _time(c.get("start_at")):
             return False
         if "stop_at" in c and not _time(c["stop_at"]):
             return False
         return c["start_at"] <= now and ("stop_at" not in c or now < c["stop_at"])
+
+
+def log_note(reader):
+    """What seller.py adds to a FAST line when this turn's offer was read by code here."""
+    return " [market-ref line read by code, no Jev call]" if getattr(reader, "source", None) == "rule_market_ref" else ""
 
 
 SWITCH = Switch()

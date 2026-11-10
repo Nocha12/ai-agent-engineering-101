@@ -172,5 +172,80 @@ class DecisionParityTests(Switched):
         return market_ref_read.Switch(self.root / "absent")
 
 
+class ReviewTests(Switched):
+    """Independent review of e30fc2e (C0 I2 M6)."""
+
+    def test_switch_is_watched_and_source_is_hashed(self):   # I1, I2
+        import meta_harness
+        import sol_seller_margin
+        self.assertIn(".market/market_ref_read.json", meta_harness.SWITCHES)
+        self.assertIn("market_ref_read.py", sol_seller_margin.SOURCE_FILES)
+
+    def test_without_jev_the_line_is_not_read_by_code(self):   # M1: arm B with FAST_JEV=0 went to the harness
+        self.config(enabled=True, start_at=0)
+        r = Reader(None, "B", market_ref=self.switch)
+        self.assertEqual(r(LINE), (None, 0))
+        self.assertEqual(r.source, "none")
+
+    def test_fifo_config_is_off_without_blocking(self):   # M2
+        os.mkfifo(self.root / "market_ref_read.json")
+        self.assertFalse(self.switch.on(now=200))
+
+    def test_growing_config_is_capped(self):   # M2: read at most the cap even if stat said small
+        p = self.root / "market_ref_read.json"
+        p.write_text(json.dumps(dict(enabled=True, start_at=0)))
+        real = os.fstat
+        with patch.object(market_ref_read.os, "fstat", lambda fd: real(fd)):
+            p.write_text(json.dumps(dict(enabled=True, start_at=0)) + " " * 10000)
+            self.assertFalse(self.switch.on(now=200))
+
+    def test_log_note_names_the_code_read(self):   # M3
+        self.config(enabled=True, start_at=0)
+        r = Reader(no_jev, "A", market_ref=self.switch)
+        self.assertEqual(market_ref_read.log_note(r), "")
+        r(LINE)
+        self.assertEqual(market_ref_read.log_note(r), " [market-ref line read by code, no Jev call]")
+        j = Reader(lambda t: (263291, 0.95), "A", market_ref=self.switch_off())
+        j(LINE)
+        self.assertEqual(market_ref_read.log_note(j), "")
+
+    def test_seller_passes_its_own_switch(self):   # M4: fixtures can point it at a temp root
+        import seller
+        self.assertIsInstance(seller.MARKET_REF, market_ref_read.Switch)
+
+    def test_default_reader_uses_the_module_switch(self):   # M5
+        self.config(enabled=True, start_at=0)
+        with patch.object(market_ref_read, "SWITCH", self.switch):
+            r = Reader(no_jev)
+            self.assertEqual(r(LINE), (263291, 1.0))
+
+    def test_parity_grid(self):   # M5: accept, counter, last round, above our ask, one of our older asks
+        self.config(enabled=True, start_at=0)
+        y = 263291
+        for ask in (250000, 263291, 300000, 600000):
+            for least in (90000, 200000, 263291, 263292):
+                for rnd in (1, 2, 5, 6):
+                    for older in ((), (y,), (310000,)):
+                        if least > ask:
+                            continue
+                        d = {"id": "sku", "unit": "unit", "kind": "goods", "open": ask, "ask": ask, "reserve": least,
+                             "rounds": rnd, "history": [("you asked", p) for p in older] + [("you asked", ask)]}
+                        got = []
+                        for reader in (Reader(lambda t: (y, 0.95), "A", market_ref=self.switch_off()),
+                                       Reader(no_jev, "A", market_ref=self.switch)):
+                            random.seed(3)
+                            with patch.object(negotiate, "engine_on", return_value=True), \
+                                    patch.object(negotiate, "formula", return_value=negotiate.share_price):
+                                dd = json.loads(json.dumps(d))
+                                dd["history"] = [tuple(h) for h in dd["history"]]
+                                f = (fast_classify.seller_turn(LINE, dd, least, reader)
+                                     or negotiate.seller_turn_if_on(LINE, dd, least, reader, 6))
+                            got.append(f and {k: v for k, v in f.items() if k != "why"})
+                        self.assertEqual(got[1], got[0], (ask, least, rnd, older))
+
+    def switch_off(self):
+        return market_ref_read.Switch(self.root / "absent")
+
+
 if __name__ == "__main__":
     unittest.main()

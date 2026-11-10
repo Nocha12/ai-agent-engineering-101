@@ -62,6 +62,7 @@ import acp_gate
 import fast_classify
 import negotiate
 import seller_reader_trial
+import market_ref_read
 import seller_concession_trial
 import seller_late_concession
 import seller_opening_default
@@ -95,6 +96,7 @@ DRAIN = seller_drain.Drain()
 OPENING_CUE = seller_opening_cue.OpeningCue()
 LATE_SPEED = seller_late_speed.LateSpeed()
 JEV_TRANSPORT = seller_jev_transport.JevTransport()
+MARKET_REF = market_ref_read.Switch()        # the market-reference line read by code (지시23 11/10), default off
 SHELF_REPLY = shelf_life_reply.ShelfLifeTrial()
 SHELF_JEV = shelf_jev_skip.Trial()
 SHELF_FACT = shelf_fact.Trial(r1=SHELF_JEV)     # S-shelf A/B (11/10), never answers while an R1 trial (ab) is on
@@ -873,7 +875,7 @@ class Seller(AgentExecutor):
         deal["reader_trial_input_sha"] = hashlib.sha256(text.encode()).hexdigest()
         deal["reader_trial_template_offer"] = seller_reader_trial.template_offer(text)
         reader = seller_reader_trial.Reader(JEV_TRANSPORT.reader(deal) if fast_classify.JEV_ON else None,
-                                            READER_TRIAL.arm(deal.get("reader_trial") or {}))
+                                            READER_TRIAL.arm(deal.get("reader_trial") or {}), market_ref=MARKET_REF)
         deal["reader_trial_floor"] = floor_now
         jev = reader if fast_classify.JEV_ON or reader.arm == "B" else None   # lazy, one call a turn
         shelf_text = SHELF_REPLY.reply(text, deal)
@@ -901,7 +903,7 @@ class Seller(AgentExecutor):
         if not fast:   # NEGOTIATE_ENGINE=jevrule: Jev reads, a rule counters (negotiate.py); None when off
             fast = await asyncio.to_thread(negotiate.seller_turn_if_on, text, deal, floor_now, jev, MAX_ROUNDS)
         if fast:
-            log(f"task {task.id[:8]} FAST {fast['why']}: no harness call")
+            log(f"task {task.id[:8]} FAST {fast['why']}{market_ref_read.log_note(reader)}: no harness call")
         deal["reader_trial_harness_used"] = fast is None
         SHELF_JEV.decided(task.id, deal, fast, reader)
         try:

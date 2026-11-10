@@ -57,7 +57,7 @@ class Reader:
         ref = market_ref_read.offer(text) if offer is None else None
         if offer is not None:
             self.source, self.result = "rule", (offer, 1.0)
-        elif ref is not None and self.market_ref.on():   # every arm: the same number Jev read (market_ref_read.py)
+        elif ref is not None and self.jev is not None and self.market_ref.on():   # where Jev would read (market_ref_read.py)
             self.source, self.result = "rule_market_ref", (ref, 1.0)
         elif self.jev is not None:
             self.source = "jev"

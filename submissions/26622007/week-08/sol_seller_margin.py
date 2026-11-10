@@ -42,6 +42,7 @@ SOURCE_FILES = ('sol_source_load.py', 'sol_seller_margin.py', 'seller.py', 'prof
 # run in the same epoch. Its source is attested above; its controller is not in
 # the baseline, so its ON/OFF never pauses this study. Each quote records the
 # warranty cell instead (warranty_cell), so the 2x2 cell is attributable.
+SOURCE_FILES += ('market_ref_read.py',)   # the seller's market-reference line read (지시23 11/10)
 WARRANTY_CELL_KEYS = ('study', 'version', 'epoch', 'eligible', 'assigned_arm', 'arm', 'reason', 'offered_hours')
 
 

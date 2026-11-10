@@ -187,6 +187,7 @@ class EndToEnd(unittest.TestCase):
                      "MARGIN_STUDY"):
             patches.append(mock.patch.object(seller, name,
                                             type(getattr(seller, name))(root=fixture_root)))
+        patches.append(mock.patch.object(seller, "MARKET_REF", type(seller.MARKET_REF)(root=fixture_root)))
         for p in patches:
             p.start()
             self.addCleanup(p.stop)
