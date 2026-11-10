@@ -1,0 +1,141 @@
+"""One food SKU, .89 instead of .90 first offer; journaled 30-minute pilot, default OFF.
+
+The old food-ladder switch/history is never changed. Notes use food_ladder so its
+existing B-trade learning exclusions also exclude this pilot's changed prices.
+Only the first offer changes; no new rung, selector, cap, receipt, or counter rule.
+"""
+import fcntl
+import hashlib
+import json
+import math
+import os
+import re
+import time
+
+SWITCH = 'buyer_food_open30.json'
+JOURNAL = 'buyer_food_open30_assignments.json'
+POLICY = 'food-first-089'
+SHOP = 'cheapest-in-town'
+SKU = 'G2108d9bc'
+MAX_SECONDS = 1800
+MAX_ORDERS = 12
+MAX_B = 6
+
+
+def _epoch(x):
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and abs(x) < 1e12 and math.isfinite(x)
+
+
+def config(md, env=None, now=None):
+    env = os.environ if env is None else env
+    now = time.time() if now is None else now
+    if any(str(env.get(k) or '').strip().lower() in ('0', 'false', 'no', 'off')
+           for k in ('BUYER_FOOD_OPEN30', 'BUYER_FOOD_LADDER')) or not _epoch(now):
+        return None
+    try:
+        with open(os.path.join(md, SWITCH), encoding='utf-8') as f:
+            raw = f.read()
+            mtime = os.fstat(f.fileno()).st_mtime
+        d = json.loads(raw)
+        if not isinstance(d, dict) or d.get('enabled') is not True:
+            return None
+        start, end = d.get('start'), d.get('end')
+        if not (_epoch(start) and _epoch(end) and 0 < start < end <= start + MAX_SECONDS
+                and mtime <= start <= now < end
+                and isinstance(d.get('study'), str) and d['study']
+                and isinstance(d.get('salt'), str) and d['salt']):
+            return None
+        return {k: d[k] for k in ('study', 'salt', 'start', 'end')} | {
+            'config_sha256': hashlib.sha256(raw.encode()).hexdigest()}
+    except (OSError, ValueError, TypeError, RecursionError):
+        return None
+
+
+def assign(md, order, shop, quote, steps, resume, *, probing, code_priced, limit, env=None, now=None):
+    """Persist assignment before returning it; journal failure leaves the original talk unchanged."""
+    injected_now = now
+    now = time.time() if now is None else now
+    try:
+        if not isinstance(order, dict) or not isinstance(quote, dict):
+            return None
+        ask = quote.get('ask')
+        if (order.get('kind') != 'food' or shop != SHOP or quote.get('sku') != SKU
+                or set(re.findall(r'\bG[0-9a-f]{8}\b', quote.get('text') or '')) != {SKU}
+                or tuple(steps or ()) != (.9,) or not resume or probing or not code_priced
+                or quote.get('ask_src') != 'text' or not _epoch(ask) or int(ask) != ask or ask <= 0
+                or not _epoch(limit) or limit < 1 or order.get('_one_won_default')
+                or order.get('_food_quote_yield') or order.get('_b3') is not None
+                or order.get('_food_ladder') is not None
+                or (order.get('_food_shelf') or {}).get('would_drop')
+                or not isinstance(order.get('order'), str) or not order['order']):
+            return None
+        baseline, candidate = min(int(.90 * ask), int(ask), int(limit)), int(.89 * ask)
+        if not 0 < candidate < baseline:
+            return None
+        cfg = config(md, env, now)
+        if cfg is None:
+            return None
+        path = os.path.join(md, JOURNAL)
+        with open(path + '.lock', 'a', encoding='utf-8') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                with open(path, encoding='utf-8') as f:
+                    journal = json.load(f)
+            except FileNotFoundError:
+                journal = {'config_sha256': cfg['config_sha256'], 'orders': {}}
+            if (not isinstance(journal, dict) or journal.get('config_sha256') != cfg['config_sha256']
+                    or not isinstance(journal.get('orders'), dict)):
+                return None
+            rows = journal['orders']
+            if any(not isinstance(x, dict) or x.get('arm') not in ('A', 'B') for x in rows.values()):
+                return None
+            old = rows.get(order['order'])
+            if old is not None:
+                return dict(old) if old.get('ask') == ask and old.get('baseline') == baseline else None
+            if len(rows) >= MAX_ORDERS or sum(x['arm'] == 'B' for x in rows.values()) >= MAX_B:
+                return None   # exposure bound, not a model-call cap; stop both arms together
+            arm = 'B' if hashlib.sha256(f"{cfg['salt']}:{order['order']}".encode()).digest()[0] % 2 else 'A'
+            note = {k: cfg[k] for k in ('study', 'start', 'end', 'config_sha256')}
+            note.update(policy=POLICY, arm=arm, grade=None, steps=[.9], shop=shop, sku=SKU,
+                        ask=ask, baseline=baseline, candidate=candidate, applied=False, assigned_at=now,
+                        order=order['order'], quote_task=(quote.get('task') or {}).get('id'))
+            rows[order['order']] = note
+            tmp = path + f'.tmp.{os.getpid()}'
+            created = False
+            try:
+                with open(tmp, 'x', encoding='utf-8') as f:
+                    created = True
+                    json.dump(journal, f)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp, path)
+            finally:
+                if created and os.path.exists(tmp):
+                    os.unlink(tmp)
+            # Recheck after I/O: expiry/OFF while assigning never permits a treatment.
+            fresh = config(md, env, time.time() if injected_now is None else injected_now)
+            if fresh is None or fresh['config_sha256'] != cfg['config_sha256']:
+                return None
+            return dict(note)
+    except (OSError, ValueError, TypeError, RecursionError, OverflowError):
+        return None
+
+
+def apply(decision, history, limit, steps, note, *, md=None, env=None, now=None):
+    """Only lower the original, code-priced first offer; later turns/expired/OFF are identical."""
+    if not isinstance(note, dict) or note.get('policy') != POLICY or md is None:
+        return decision
+    cfg = config(md, env, now)
+    if (cfg is None or cfg['config_sha256'] != note.get('config_sha256')
+            or tuple(steps or ()) != (.9,) or any(who == 'you offered' for who, _ in history)
+            or not decision or decision.get('action') != 'offer'
+            or decision.get('shop_price') != note.get('ask') or decision.get('price') != note.get('baseline')):
+        return decision
+    note['first_observed'] = decision['price']
+    if note.get('arm') != 'B':
+        return decision
+    price = note.get('candidate')
+    if not isinstance(price, int) or isinstance(price, bool) or not 0 < price < decision['price'] or price > limit:
+        return decision
+    note.update(applied=True, first_observed=price)
+    return {**decision, 'price': price}

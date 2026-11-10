@@ -71,6 +71,7 @@ import buyer_accept_band
 import buyer_saved_floor
 import buyer_quote_deadline
 import buyer_food_ladder
+import buyer_food_open30
 import buyer_goods_grade
 import buyer_goods_ladder
 import buyer_food_shelf
@@ -2471,11 +2472,24 @@ def main():
         if order["_goods_ladder"]:
             log(f"[goods-ladder] {shop['name']}: arm {order['_goods_ladder']['arm']}")
 
+        # A new finite pilot, not a restart of the expired food-ladder study. Reuse its
+        # trade/selection learning exclusions for B; the old switch and history stay intact.
+        if r3 and order.get('_food_ladder') is None:
+            order['_food_ladder'] = buyer_food_open30.assign(
+                md, order, shop['name'], dict(q, sku=key), steps, resume,
+                probing=bool(probe_arm or discount_arm), limit=limit,
+                code_priced=bool(steps and resume and q.get('ask_src') == 'text' and
+                                 oneshot.turn(None, q.get('text'), [], limit, steps, q.get('ask'), False) is not None))
+            if order['_food_ladder']:
+                log(f"[food-open30] {shop['name']}: arm {order['_food_ladder']['arm']}, study {order['_food_ladder']['study']}")
+
         def price_ladder(meta, text, history):
             d = (buyer_opening_discount.turn if discount_arm else opening_probe_turn)(
                 meta, text, history, limit, steps, q.get("ask") if resume and q.get("ask_src") != "text_rank" else None,
                 order.get("kind") == "goods", discount_arm or probe_arm or
                 ("B" if order.get("_one_won_default") else None))
+            if (order.get('_food_ladder') or {}).get('policy') == 'food-first-089':
+                d = buyer_food_open30.apply(d, history, limit, steps, order['_food_ladder'], md=md)
             # buyer_moss_first arm B (default off): moss-and-oak's whole quote, first turn, priced by code, not the harness
             if order.get("_moss_first") or order.get("_final_m1") is not None:
                 d = moss_first_and_final_m1(d, meta, text, history, limit, steps, q, resume, key, order, md, shop["name"])
