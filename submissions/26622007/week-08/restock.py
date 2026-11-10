@@ -38,6 +38,7 @@ import measure
 import market_model
 import opening
 import profit_price
+import restock_fresh_slots
 import rival_vote
 import shop_forum
 import shop_memory
@@ -138,9 +139,14 @@ def urgent_listed(cfg, inv, catalog, waiting=(), model=None):
     while G75f11c19 (8.5 sold/h), G0667d440 and G19a70f63 sat at 0, held back in every window, with ~39M over the cash
     buffer (main 01:30: sold-out food, then the new high-price SKUs, then the fast sellers)."""
     now = time.time()
-    have = collections.Counter(u.get("sku") for u in inv.get("units") or [] if isinstance(u, dict) and not gone(u, now))
+    live = [u for u in inv.get("units") or [] if isinstance(u, dict) and not gone(u, now)]
+    have = collections.Counter(u.get("sku") for u in live)
+    # the refills go by the units the targets count (restock_fresh_slots, default off: the same units): a SKU whose
+    # units have all waited past its hours is nearly out of what sells at the market's price
+    stock = restock_fresh_slots.counted(live, cfg, catalog, surge(inv), now)[0]
     for w in waiting or ():
         have[w.get("sku")] += w.get("qty") or 0
+        stock[w.get("sku")] += w.get("qty") or 0
     food = lambda s: (catalog.get(s) or {}).get("kind") == "food"
     skus = (model or {}).get("skus") if isinstance(model, dict) else None
 
@@ -155,7 +161,7 @@ def urgent_listed(cfg, inv, catalog, waiting=(), model=None):
         # our own sales over the model's price_hours when faster: the weighted share lags a day behind a SKU we only
         # began to stock (07:46 window held back G429bd69e, 4 held: 4.3 h at the model, 0.9 h at our 4.3 sold/h)
         mine = m.get("mine_rate")
-        return have[s] / max(r * sh, mine if num(mine) and mine > 0 else 0)
+        return stock[s] / max(r * sh, mine if num(mine) and mine > 0 else 0)
     if not isinstance(skus, dict):
         return sorted(listed(cfg), key=lambda s: (have[s] > 0, not food(s)))     # stable: list order within each group
     # empty (food first), then refills with a rate by hours left, then refills without one as before (food first)
@@ -199,7 +205,8 @@ def plan(inv, catalog, demand, cfg, model=None, breaks=None, waiting=()):
     now = time.time()
     live = [u for u in units if u.get("grade") != "expired" and not (u.get("expires_at") and u["expires_at"] <= now)]
     have = collections.Counter(u.get("category") for u in live)
-    have_sku = collections.Counter(u.get("sku") for u in live)
+    # the units of each SKU as its target counts them (restock_fresh_slots, default off: every live unit)
+    have_sku = restock_fresh_slots.counted(live, cfg, catalog, surge(inv), now)[0]
     active = bool(model and model.get("active"))
     hours_left = (cfg["round_ends_at"] - now) / 3600 if cfg.get("round_ends_at") else float("inf")
     picks = []
@@ -328,7 +335,9 @@ def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
     now = time.time()
     live = [u for u in units if not (u.get("expires_at") and u["expires_at"] <= now)]
     kind = lambda sku: (catalog.get(sku) or {}).get("kind")
-    count = collections.Counter(u.get("sku") for u in live)
+    # units per SKU as the caps count them: every unit, or with restock_fresh_slots on (cfg["fresh_slots"], set by
+    # main() from its switch) a listed goods SKU's units that waited past its hours leave room, a step at a time
+    count = restock_fresh_slots.counted(live, cfg, catalog, surge(inv), now)[0]
     held = sum(u.get("cost") or 0 for u in live)
     food = sum(u.get("cost") or 0 for u in live if u.get("kind") == "food")
     for w in waiting:
@@ -826,6 +835,14 @@ def main():
     pricing = load("pricing.json", {})
     cfg = hard_limits.clamp_cfg("restock", {**DEFAULTS, **pricing.get("restock", {})})
     catalog = load(os.path.join(args.state, "catalog.json"), {})
+    cfg["fresh_slots"] = restock_fresh_slots.config(args.state)      # its own switch file, None when off: today's count
+    if cfg["fresh_slots"]:
+        _, moved = restock_fresh_slots.counted([u for u in inv.get("units") or [] if isinstance(u, dict)
+                                                and not gone(u, time.time())], cfg, catalog, surge(inv))
+        print(f"[restock] fresh_slots {cfg['fresh_slots']['study']}: {len(moved)} listed goods SKUs count fewer units "
+              f"than held ({sum(m['held'] - m['counted'] for m in moved.values())} units waited past "
+              f"{cfg['fresh_slots']['hours']:g} h): "
+              + ", ".join(f"{k} {m['held']}->{m['counted']}" for k, m in sorted(moved.items())), file=sys.stderr, flush=True)
     demand, model = load(os.path.join(args.state, "demand.json"), []), read_model(args.state, catalog, cfg)
     loss_watch.check(args.state, rows=rows_of(args.state))     # after read_model: the ledger rows are fresh
     breaks = read_breaks(args.state, catalog)
