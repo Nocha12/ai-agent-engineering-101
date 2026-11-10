@@ -141,12 +141,14 @@ def urgent_listed(cfg, inv, catalog, waiting=(), model=None):
     now = time.time()
     live = [u for u in inv.get("units") or [] if isinstance(u, dict) and not gone(u, now)]
     have = collections.Counter(u.get("sku") for u in live)
-    # the refills go by the units the targets count (restock_fresh_slots, default off: the same units): a SKU whose
-    # units have all waited past its hours is nearly out of what sells at the market's price
-    stock = restock_fresh_slots.counted(live, cfg, catalog, surge(inv), now)[0]
     for w in waiting or ():
         have[w.get("sku")] += w.get("qty") or 0
-        stock[w.get("sku")] += w.get("qty") or 0
+    # restock_fresh_slots (default off: none): a SKU that holds its target and is asked again only because its units
+    # waited goes after every other line, so the lines of today's order keep their places in the window's ~14-18 calls
+    # (independent review 8023a19 I1: ordered by the units that count, such SKUs went ahead of food refills)
+    targets = cfg.get("sku_target_units") if isinstance(cfg.get("sku_target_units"), dict) else {}
+    extra = {s for s in restock_fresh_slots.counted(live, cfg, catalog, surge(inv), now)[1]
+             if type(targets.get(s)) is int and have[s] >= targets[s]}
     food = lambda s: (catalog.get(s) or {}).get("kind") == "food"
     skus = (model or {}).get("skus") if isinstance(model, dict) else None
 
@@ -161,11 +163,11 @@ def urgent_listed(cfg, inv, catalog, waiting=(), model=None):
         # our own sales over the model's price_hours when faster: the weighted share lags a day behind a SKU we only
         # began to stock (07:46 window held back G429bd69e, 4 held: 4.3 h at the model, 0.9 h at our 4.3 sold/h)
         mine = m.get("mine_rate")
-        return stock[s] / max(r * sh, mine if num(mine) and mine > 0 else 0)
+        return have[s] / max(r * sh, mine if num(mine) and mine > 0 else 0)
     if not isinstance(skus, dict):
-        return sorted(listed(cfg), key=lambda s: (have[s] > 0, not food(s)))     # stable: list order within each group
+        return sorted(listed(cfg), key=lambda s: (s in extra, have[s] > 0, not food(s)))     # stable: list order within each group
     # empty (food first), then refills with a rate by hours left, then refills without one as before (food first)
-    return sorted(listed(cfg), key=lambda s: (0, not food(s), 0) if have[s] <= 0
+    return sorted(listed(cfg), key=lambda s: (3, 0, 0) if s in extra else (0, not food(s), 0) if have[s] <= 0
                   else (1, 0, lasts(s)) if lasts(s) is not None else (2, not food(s), 0))
 
 
@@ -335,13 +337,17 @@ def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
     now = time.time()
     live = [u for u in units if not (u.get("expires_at") and u["expires_at"] <= now)]
     kind = lambda sku: (catalog.get(sku) or {}).get("kind")
-    # units per SKU as the caps count them: every unit, or with restock_fresh_slots on (cfg["fresh_slots"], set by
-    # main() from its switch) a listed goods SKU's units that waited past its hours leave room, a step at a time
-    count = restock_fresh_slots.counted(live, cfg, catalog, surge(inv), now)[0]
+    count = collections.Counter(u.get("sku") for u in live)
+    # units per SKU as its sku_target_units counts them: the same, or with restock_fresh_slots on (cfg["fresh_slots"],
+    # set by main() from its switch) a listed goods SKU's units that waited past its hours leave room, a step at a
+    # time. Only the target reads it: max_units_per_sku, the high-price and surge caps count every unit held
+    # (independent review 8023a19 I2: a target of 12 could have held 24 past the 20 a SKU may hold)
+    slots = restock_fresh_slots.counted(live, cfg, catalog, surge(inv), now)[0]
     held = sum(u.get("cost") or 0 for u in live)
     food = sum(u.get("cost") or 0 for u in live if u.get("kind") == "food")
     for w in waiting:
         count[w["sku"]] += w["qty"]
+        slots[w["sku"]] += w["qty"]
         held += w["worst"] * w["qty"]
         food += w["worst"] * w["qty"] if kind(w["sku"]) == "food" else 0
     room = cfg.get("max_stock_cost", float("inf")) - held
@@ -366,7 +372,7 @@ def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
             if chance is not None and chance > cfg["max_break"]:
                 print(f"[restock] guard: {b['sku']} breaks {chance:.0%} > {cfg['max_break']:.0%}, left out", file=sys.stderr)
                 continue
-        cap = cfg.get("max_units_per_sku", MAX_LOT)
+        cap = other = cfg.get("max_units_per_sku", MAX_LOT)     # other: the caps but the target, on every unit held
         high = x.get("kind") == "goods" and (x.get("list_price") or 0) > cfg.get("high_price_goods", float("inf"))
         if high and cfg.get("high_price_listed_only") is True and b["sku"] not in listed(cfg):
             # 04:43-04:45 the agent bought 2 jacquard mattresses, 2 bed frames, 4 toppers no list had: unsold at 05:00
@@ -377,13 +383,15 @@ def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
             cap = min(cap, target)          # units held + waiting + new <= target (G6b9db161 3 while proven ones get 4)
         if high:
             proven = b["sku"] in listed({"high_price_proven_skus": cfg.get("high_price_proven_skus")})
-            cap = min(cap, cfg.get("high_price_proven_max_units", cfg.get("high_price_max_units", 1)) if proven
-                      else cfg.get("high_price_max_units", 1))
+            top = cfg.get("high_price_proven_max_units", cfg.get("high_price_max_units", 1)) if proven \
+                else cfg.get("high_price_max_units", 1)
+            cap, other = min(cap, top), min(other, top)
         if f >= SURGE_SKIP:         # a proven / priority SKU keeps one unit on the shelf, no more, deep in a surge
-            cap = min(cap, 1)
+            cap, other = min(cap, 1), min(other, 1)
         elif f >= SURGE_HALF and not proven_or_priority and cap > 1:
             cap //= 2               # half the units held + waiting + new, not half of each run's line
-        asked, capped = qty, min(qty, cap - count[b["sku"]])
+        # off, slots is count and cap <= other: cap - count, as before
+        asked, capped = qty, min(qty, cap - slots[b["sku"]], other - count[b["sku"]])
         # priced on the capped line, not the line the cash leaves: a few won high at most, never low
         unit = worst(b["sku"], capped, catalog, factors) if x.get("list_price") else float("inf")
         paid = unit * (1 + hard_limits.BUY_STORAGE)      # the cash a unit takes: its cost and the storage it adds
@@ -406,6 +414,7 @@ def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
             continue
         out.append({"sku": b["sku"], "qty": qty})
         count[b["sku"]] += qty
+        slots[b["sku"]] += qty
         spare, room = spare - paid * qty, room - unit * qty
         if x.get("kind") == "food":
             food_room -= unit * qty

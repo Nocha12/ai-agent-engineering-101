@@ -19,8 +19,12 @@ floor(aged_units x T) (1.0) do not, the rest do; and a line may take at most `st
 allowed, so a SKU fills again over a few supply windows and never holds more than T + floor(aged_units x T) units.
 A waiting unit stays in stock at its cost (Book counts it at cost, /rules; storage 1% of cost a day) and sells when a
 buyer pays its floor; nothing is sold cheaper for this. Not while the SKU is in a surge over MAX_SURGE (the units
-would be dear ones), not food, not a SKU without a target or off the proven / priority lists. Every other cap in
-restock.guard (cash buffer, stock cost, breaks, high price) applies to the lines as before. Arm A counts as today.
+would be dear ones), not food, not a SKU without a target or off the proven / priority lists. Only the target reads
+this count: max_units_per_sku and the high-price and surge caps still count every unit held (so a target of 12 holds
+at most 20), and the cash buffer, stock cost and break guards apply to the lines as before. A SKU that already holds
+its target and is asked again only for this goes after every other line of the run (restock.urgent_listed), so today's
+lines keep their places in a window's ~14-18 supply calls; a SKU under its target keeps its place and asks a larger
+line (independent review 8023a19 I1-I3). Arm A counts as today.
 Arms by SKU, sha256("fresh-slots|salt|sku"): the first four bytes under treat (0.7 by default, 0.3-1.0) is B, an axis
 of its own (goods-margin hashes SKU x grade under its own salt).
 
