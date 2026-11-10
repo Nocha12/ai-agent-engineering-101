@@ -146,7 +146,58 @@ class Write(unittest.TestCase):
         with open(os.path.join(self.md, sw.STUDIES["final_m1"]["file"]), "w") as f:
             json.dump({"enabled": False}, f)                                   # history gone, nothing to go on
         with self.assertRaises(sw.Refused):
-            sw.write(self.md, "final_m1", self.t + 13 * H, self.t + 14 * H, new_study=True)
+            sw.write(self.md, "final_m1", self.t + 13 * H, self.t + 14 * H)
+        sw.write(self.md, "final_m1", self.t + 13 * H, self.t + 14 * H, new_study=True)   # said to be another
+
+    def test_the_same_window_written_again_still_ran(self):                   # review 4eaf0b6 I1
+        s = self.t + 600
+        sw.write(self.md, "our_ask", s, s + 9 * H, salt="a")
+        sw.write(self.md, "our_ask", s, s + 9 * H, salt="a")
+        sw.write(self.md, "final_m1", s, s + 1800)
+        sw.write(self.md, "final_m1", s, s + 1800)
+        with at(s + 10 * H):
+            with self.assertRaises(sw.Refused):
+                sw.write(self.md, "our_ask", s + 11 * H, s + 20 * H, salt="a")
+            with self.assertRaises(sw.Refused):
+                sw.write(self.md, "final_m1", s + 11 * H, s + 12 * H)
+        md2 = tempfile.mkdtemp()
+        sw.write(md2, "our_ask", s, s + 9 * H, salt="a")
+        sw.off(md2, "our_ask")                                                # stopped before it started
+        sw.write(md2, "our_ask", s, s + 9 * H, salt="a")                    # then ran
+        with at(s + 10 * H):
+            with self.assertRaises(sw.Refused):
+                sw.write(md2, "our_ask", s + 11 * H, s + 20 * H, salt="a")
+
+    def test_a_stopped_record_is_carried_into_the_history(self):              # review 4eaf0b6 M1
+        p = os.path.join(self.md, sw.STUDIES["our_ask"]["file"])
+        with open(p, "w") as f:
+            json.dump({"enabled": True, "salt": "x", "start": self.t - 13 * H, "end": self.t - 4 * H}, f)
+        with unittest.mock.patch.object(sw, "_log", return_value=False):
+            self.assertFalse(sw.off(self.md, "our_ask")["history"])
+        sw.off(self.md, "our_ask")                                            # a second off keeps the record
+        self.assertEqual(body(self.md, "our_ask")["stopped"]["salt"], "x")
+        sw.write(self.md, "our_ask", self.t + 600, self.t + 600 + 9 * H, salt="y", new_study=True)
+        with at(self.t + 10 * H):
+            with self.assertRaises(sw.Refused):
+                sw.write(self.md, "our_ask", self.t + 11 * H, self.t + 20 * H, salt="x")
+
+    def test_an_unknown_past_needs_new_study(self):                           # review 4eaf0b6 N1
+        p = os.path.join(self.md, sw.STUDIES["our_ask"]["file"])
+        with open(p, "w") as f:
+            json.dump({"enabled": False}, f)
+        sw.off(self.md, "our_ask")                                            # an off knows no more than before
+        with self.assertRaises(sw.Refused):
+            sw.write(self.md, "our_ask", self.t + 600, self.t + 600 + 9 * H, salt="a")
+        sw.write(self.md, "our_ask", self.t + 600, self.t + 600 + 9 * H, salt="a", new_study=True)
+        md2 = tempfile.mkdtemp()                                               # nothing at all: a first use
+        sw.write(md2, "our_ask", self.t + 600, self.t + 600 + 9 * H, salt="a")
+
+    def test_a_salt_that_is_not_a_string_is_refused_not_a_crash(self):        # review 4eaf0b6 N2
+        p = os.path.join(self.md, sw.STUDIES["our_ask"]["file"])
+        with open(p, "w") as f:
+            json.dump({"enabled": True, "salt": ["x"], "start": self.t - 13 * H, "end": self.t - 4 * H}, f)
+        self.assertEqual(sw.main(["--market-dir", self.md, "our_ask", "--start", str(self.t + 600),
+                                  "--end", str(self.t + 600 + 9 * H), "--salt", "b"]), 0)
 
     def test_a_window_about_to_start_is_not_overwritten(self):                 # review 523fd38 N1
         start = self.t + 600

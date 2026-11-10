@@ -13,8 +13,11 @@ window by hand that has no end, starts in the past, or runs past the study's max
   says (review 77cdbef I1, M1: a record kept only in the switch was lost when the next window was written). A window
   ran if it started before it was stopped, replaced or over. Each write line keeps the window it replaced and each off
   line the window it stopped, so a window written by hand is not forgotten by off or by the next write (review 523fd38
-  M1); with HISTORY gone the switch's stopped record stands in, and a switch with neither is refused (N3). Then a
-  later window of the same study:
+  M1). Every time a window was on is its own run, never merged, so writing the same window again keeps the run that
+  ran (review 4eaf0b6 I1); a write keeps the stopped record it overwrites and a second off keeps the first's (M1).
+  With HISTORY gone the switch's stopped record stands in; when what ran is not known at all (a switch with neither,
+  or an off that found it so) the next window needs new_study (N1). Only what HISTORY or the switch still says is
+  known: a HISTORY deleted by hand loses the windows before the last. Then a later window of the same study:
   - an A/B study (moss_first, our_ask) never reuses the salt of a window that ran: the same arms again would be the same
     study made longer; with a new salt it may start before the old end only if new_study (--new-study) says so;
   - final_m1 starts only after the end of every window that ran, and then only with new_study (review 77cdbef M2: off
@@ -83,7 +86,7 @@ def _stopped(path):
         return None
     s = d.get("stopped") if isinstance(d, dict) else None
     if isinstance(s, dict) and _epoch(s.get("start")) and _epoch(s.get("end")) and _epoch(s.get("at")):
-        return {"start": s["start"], "end": s["end"], "salt": s.get("salt"), "stop": s["at"]}
+        return {"start": s["start"], "end": s["end"], "salt": _salt(s.get("salt")), "stop": s["at"]}
     return None
 
 
@@ -106,7 +109,7 @@ def _current_window(raw):
     except (ValueError, RecursionError):
         return None
     if isinstance(d, dict) and d.get("enabled") is True and _epoch(d.get("start")) and _epoch(d.get("end")):
-        return {"start": d["start"], "end": d["end"], **({"salt": d["salt"]} if "salt" in d else {})}
+        return {"start": d["start"], "end": d["end"], "salt": _salt(d.get("salt"))}   # review 4eaf0b6 N2
     return None
 
 
@@ -131,35 +134,53 @@ def _history(md, name):
     return out
 
 
+def _salt(v):
+    return v if isinstance(v, str) else None
+
+
 def _ran(events, current, now, stopped=None):
-    """The windows that ran: [{"start", "end", "salt", "stop"}], from HISTORY (each write, the window it replaced
-    and the window each off stopped, hand-written ones too), the switch as it is now and its stopped record."""
-    wins = {}
+    """The windows that ran: [{"start", "end", "salt", "stop"}], one per time a window was on, never merged (review
+    4eaf0b6 I1: the same window written twice is two runs, and the second ran even if the first was replaced before its
+    start). From HISTORY (each write, open until the next line, and the window each write replaced or off stopped,
+    hand-written ones too), the switch as it is now and its stopped record."""
+    runs = []
 
-    def add(start, end, salt, stop):
-        if _epoch(start) and _epoch(end) and _epoch(stop):
-            k = (start, end, salt)
-            wins[k] = min(wins.get(k, stop), stop)
+    def add(w, stop):
+        if isinstance(w, dict) and _epoch(w.get("start")) and _epoch(w.get("end")) and _epoch(stop):
+            runs.append({"start": w["start"], "end": w["end"], "salt": _salt(w.get("salt")), "stop": min(stop, w["end"])})
+            return runs[-1]
+        return None
 
-    last = None
+    open_ = None
     for e in events:
         at = e.get("at")
-        for key in ("replaces", "window"):
-            w = e.get(key)
-            if isinstance(w, dict):
-                add(w.get("start"), w.get("end"), w.get("salt"), at)
-        if last is not None and _epoch(at):
-            add(*last, at)
-            last = None
-        if e.get("k") == "write" and _epoch(e.get("start")) and _epoch(e.get("end")):
-            add(e["start"], e["end"], e.get("salt"), e["end"])
-            last = (e["start"], e["end"], e.get("salt"))
+        if open_ is not None and _epoch(at):
+            open_["stop"] = min(open_["stop"], at)
+            open_ = None
+        add(e.get("replaces"), at)
+        add(e.get("window"), at)
+        if isinstance(e.get("replaced_stopped"), dict):
+            add(e["replaced_stopped"], e["replaced_stopped"].get("stop"))
+        if e.get("k") == "write":
+            open_ = add(e, e.get("end"))
     if current is not None:
-        add(current["start"], current["end"], current.get("salt"), current["end"])
+        add(current, current["end"])
     if stopped is not None:
-        add(stopped["start"], stopped["end"], stopped["salt"], stopped["stop"])
-    return [{"start": s, "end": e, "salt": salt, "stop": stop} for (s, e, salt), stop in wins.items()
-            if s < min(stop, now)]
+        add(stopped, stopped["stop"])
+    return [r for r in runs if r["start"] < min(r["stop"], now)]
+
+
+def _unknown(events, old, window, stopped):
+    """Whether what ran before is not known (review 4eaf0b6 N1): a switch is there with no window and no stopped record
+    and this study has no HISTORY line, or the last off that found it so (unknown_past) has no write after it. An off
+    that knew the past (none there, or a window) is a line that knows it."""
+    unknown = False
+    for e in events:
+        if e.get("unknown_past"):
+            unknown = True
+        elif e.get("k") == "write":
+            unknown = False
+    return unknown or (old is not None and window is None and stopped is None and not events)
 
 
 def _guard(md, name, path, start, salt, new_study):
@@ -171,8 +192,9 @@ def _guard(md, name, path, start, salt, new_study):
                       "or extended")
     events = _history(md, name)
     stopped = _stopped(path)
-    if old is not None and window is None and stopped is None and not os.path.exists(os.path.join(md, HISTORY)):
-        raise Refused("the switch is there but the history is not: what ran is not known")
+    if _unknown(events, old, window, stopped) and not new_study:
+        raise Refused("what ran before is not known (a switch without a window, a stopped record or history): a window "
+                      "now is another study (--new-study)")
     for w in _ran(events, window, now, stopped):
         if STUDIES[name]["salt"]:
             if salt == w["salt"]:
@@ -239,6 +261,7 @@ def write(md, name, start, end, salt=None, new_study=False):
         raise Refused("this study takes no salt")
     path = os.path.join(md, s["file"])
     old = _guard(md, name, path, start, salt, new_study)
+    old_stopped = _stopped(path)
     if not start > time.time():
         raise Refused("the start must be after now: the file is written before its window")
     d = {"enabled": True, **({"salt": salt} if s["salt"] else {}), "start": start, "end": end}
@@ -248,21 +271,27 @@ def write(md, name, start, end, salt=None, new_study=False):
     replaces = _current_window(old)
     if ok and not _log(md, {"k": "write", "study": name, "at": time.time(), "start": start, "end": end,
                             "salt": salt, "new_study": bool(new_study),
-                            **({"replaces": replaces} if replaces is not None else {})}):
+                            **({"replaces": replaces} if replaces is not None else {}),
+                            **({"replaced_stopped": old_stopped} if old_stopped is not None else {})}):
         ok = False
     if not ok:
+        back = "put back as it was"
         try:
             if old is None:
                 os.unlink(path)
             else:
                 _replace(path, old)
-        except OSError:
+        except OSError as e:
+            back = f"putting it back failed ({e}); the switch was removed, so it is off"
             try:
                 os.unlink(path)        # no switch is off for every reader; a window without history never stays
             except FileNotFoundError:
                 pass
+            except OSError as e2:
+                back = f"putting it back failed ({e}) and removing it failed ({e2}): run --off now"
+                print(json.dumps({"warning": back}, ensure_ascii=False), file=sys.stderr)
         raise Refused(f"the study's reader or the history would not take it (written {written}, start {start}); "
-                      "put back as it was")
+                      + back)
     return {"path": path, "body": d, "written": written}
 
 
@@ -270,14 +299,25 @@ def off(md, name):
     """{"enabled": false} over the study's switch, at once, with the window it stops."""
     s = _study(name)
     path = os.path.join(md, s["file"])
-    _, window = _current(path)
+    old, window = _current(path)
+    stopped = _stopped(path)
+    try:
+        events = _history(md, name)
+    except Refused:
+        events = None
+    unknown = events is not None and _unknown(events, old, window, stopped)
     at = time.time()
     d = {"enabled": False}
     if window is not None:
         d["stopped"] = {"start": window["start"], "end": window["end"], "at": at,
                         **({"salt": window["salt"]} if isinstance(window.get("salt"), str) else {})}
+    elif stopped is not None:              # a second off keeps the record of the first (review 4eaf0b6 M1)
+        d["stopped"] = {"start": stopped["start"], "end": stopped["end"], "at": stopped["stop"],
+                        **({"salt": stopped["salt"]} if stopped["salt"] is not None else {})}
     _replace(path, (json.dumps(d) + "\n").encode())
-    logged = _log(md, {"k": "off", "study": name, "at": time.time(), **({"window": d["stopped"]} if window is not None else {})})
+    logged = _log(md, {"k": "off", "study": name, "at": time.time(),
+                       **({"window": d["stopped"]} if window is not None else {}),
+                       **({"unknown_past": True} if unknown else {})})
     return {"path": path, "body": d, "written": os.stat(path).st_mtime, "history": logged}
 
 
