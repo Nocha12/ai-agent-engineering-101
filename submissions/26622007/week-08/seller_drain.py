@@ -10,6 +10,9 @@ is refused, a talk under way goes on, and every TICK s .market/seller_drain_stat
 true when no turn is being answered, no unit is promised and no deal waits for its payment (memory writes flushed).
 A talk whose hold ran out (HOLD_SECONDS silent) has let its unit go by the shop's own rule: it is "stale", not waited for.
 "late" deals and stale SDK talks are counted; "quiet" requires both absent. A deadline may therefore abort a future restart.
+When inactive the same loop writes a memory_only census without refreshing inventory, settling payments, releasing expired
+holds or flushing. Its timestamp is the resident-state observation time, not the inventory/payment as-of time. Counts include
+expired but unreleased holds; flushed is always false and this observation cannot authorize a quiet restart.
 """
 import asyncio
 import contextlib
@@ -42,10 +45,11 @@ class Drain:
         finally:
             self.inflight -= 1
 
-    def census(self, shop, now=None):
+    def census(self, shop, now=None, *, refresh=True):
         now = time.time() if now is None else now
         stock = shop.stock
-        stock.units()                       # settles payments and lets run-out holds go, as every talk does
+        if refresh:
+            stock.units()                   # active drain only: settles payments and lets run-out holds go
         live = sum(1 for task, deal in list(shop.open.items())
                    if not deal.get("unit") or (deal["unit"] in stock.held and stock.owner.get(deal["unit"]) == task))
         c = {"pid": self.pid, "at": now, "inflight": self.inflight, "open": live, "stale": len(shop.open) - live,
@@ -57,6 +61,12 @@ class Drain:
     async def tick(self, shop, flush):
         if not self.active():
             self.closed = False
+            # Observe resident state only: do not settle, load inventory, expire holds or flush.
+            # Expired-but-not-released holds remain held/open, unlike the active refreshed census.
+            with shop.stock._lock:
+                c = self.census(shop, refresh=False)
+            c.update(census_mode="memory_only", flushed=False)
+            self._write(c)
             return None
         c = self.census(shop)
         c["flushed"] = False
@@ -65,10 +75,13 @@ class Drain:
             await asyncio.to_thread(flush)
             c = self.census(shop)
             c["flushed"] = c["quiet"] and self.closed
+        self._write(c)
+        return c
+
+    def _write(self, c):
         tmp = self.root / f".seller_drain_status.{self.pid}.tmp"
         tmp.write_text(json.dumps(c))
         os.replace(tmp, self.root / "seller_drain_status.json")
-        return c
 
     async def loop(self, shop, flush, log):
         was = False
