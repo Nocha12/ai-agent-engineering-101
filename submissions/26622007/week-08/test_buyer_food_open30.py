@@ -134,6 +134,60 @@ class FoodOpen30Guards(unittest.TestCase):
         self.assertIsNone(self.assign(env={'BUYER_FOOD_OPEN30':'0'}))
         self.assertIsNone(self.assign(env={'BUYER_FOOD_LADDER':'0'}))
 
+    def test_explicit_retry_scope_treats_a_real_selected_alternate_food_sku(self):
+        # Real selected order o-f7e3333dd50b: ask10866, baseline9779, food G2560a8c9.
+        self.flag(scope='food-code90-five-shops-v2')
+        q = {'ask':10866, 'ask_src':'text', 'sku':'G2560a8c9',
+             'text':'사세 직화K버팔로윙 1kg (G2560a8c9), grade B, about 562.5 h shelf life left. Market certificate included; warranty 0 h. Asking price: 10866. Send one price as a number, or accept.'}
+        note = self.assign(quote=q, limit=12530)
+        self.assertIsNotNone(note)
+        self.assertEqual(note['scope'],'food-code90-five-shops-v2')
+        self.assertEqual(note['sku'],'G2560a8c9')
+        baseline = {'shop_price':10866, 'action':'offer', 'price':9779}
+        out = pilot.apply(baseline, [], 12530, (.9,), note, md=self.md, env={}, now=2000000001)
+        self.assertEqual(out['price'],9670)
+        self.assertTrue(note['applied'])
+        # New scope does not bypass goods, opening-probe, or first-price ceilings.
+        self.assertIsNone(self.assign(quote=q, order=dict(self.order, kind='goods'), limit=12530))
+        self.assertIsNone(self.assign(quote=q, limit=9600))
+        self.assertIsNone(self.assign(quote=q, shop='unapproved-food-shop', limit=12530))
+
+    def test_retry_assignment_cannot_be_reused_for_a_different_selected_sku(self):
+        self.flag(scope='food-code90-five-shops-v2')
+        self.assertIsNotNone(self.assign())
+        q = dict(self.quote, sku='G2560a8c9', text=self.quote['text'].replace('G2108d9bc','G2560a8c9'))
+        self.assertIsNone(self.assign(quote=q))
+        self.assertIsNone(self.assign(shop='YAHO1212'))
+
+    def test_real_quote_flows_through_the_actual_assignment_and_first_price_hook(self):
+        import ast
+        from pathlib import Path
+        import oneshot
+        self.flag(scope='food-code90-five-shops-v2')
+        source = ast.parse(Path('market_buyer.py').read_text())
+        hook = next(n for n in ast.walk(source) if isinstance(n,ast.If) and
+                    any(isinstance(c,ast.Call) and isinstance(c.func,ast.Attribute) and
+                        isinstance(c.func.value,ast.Name) and c.func.value.id=='buyer_food_open30' and
+                        c.func.attr=='assign' for c in ast.walk(n)) and
+                    not any(isinstance(c,ast.FunctionDef) for c in n.body))
+        price = next(n for n in ast.walk(source) if isinstance(n,ast.FunctionDef) and n.name=='price_ladder')
+        price.body = price.body[:2] + [ast.Return(ast.Name('d',ast.Load()))]
+        opener = next(n for n in ast.walk(source) if isinstance(n,ast.FunctionDef) and n.name=='opening_probe_turn')
+        q = dict(self.quote)
+        order = dict(self.order, _food_ladder=None)
+        env = dict(r3=True, order=order, shop={'name':'cheapest-in-town'}, q=q, key=q['sku'],
+                   md=self.md, steps=(.9,), resume=True, probe_arm=None, discount_arm=None, limit=13230,
+                   buyer_food_open30=pilot, log=lambda *args:None, oneshot=oneshot)
+        # Only copied-source call sites execute; live market_buyer module/main is never imported.
+        from unittest.mock import patch
+        with patch.object(pilot.time,'time',return_value=2000000001):
+            exec(compile(ast.fix_missing_locations(ast.Module([opener,hook,price],type_ignores=[])),
+                         '<actual-food-hooks>','exec'),env)
+            self.assertEqual(env['price_ladder'](None,q['text'],[])['price'],8732)
+            self.assertTrue(order['_food_ladder']['applied'])
+        with patch.object(pilot.time,'time',return_value=2000001800):
+            self.assertEqual(env['price_ladder'](None,q['text'],[])['price'],8830)
+
 
 class FoodOpen30JournalContract(FoodOpen30Guards):
     def corrupt(self, change):

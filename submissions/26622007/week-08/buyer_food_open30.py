@@ -1,4 +1,4 @@
-"""One food SKU, .89 instead of .90 first offer; journaled 30-minute pilot, default OFF.
+"""Explicit food scope, .89 instead of .90 first offer; journaled 30-minute pilot, default OFF.
 
 The old food-ladder switch/history is never changed. Notes use food_ladder so its
 existing B-trade learning exclusions also exclude this pilot's changed prices.
@@ -17,6 +17,8 @@ JOURNAL = 'buyer_food_open30_assignments.json'
 POLICY = 'food-first-089'
 SHOP = 'cheapest-in-town'
 SKU = 'G2108d9bc'
+RETRY_SCOPE = 'food-code90-five-shops-v2'
+RETRY_SHOPS = frozenset(('cheapest-in-town', 'YAHO1212', 'thisjonghoon', 'choo-chu', 'olstjr'))
 MAX_SECONDS = 1800
 MAX_ORDERS = 12
 MAX_B = 6
@@ -40,19 +42,28 @@ def config(md, env=None, now=None):
         if not isinstance(d, dict) or d.get('enabled') is not True:
             return None
         start, end = d.get('start'), d.get('end')
+        if d.get('scope') not in (None, RETRY_SCOPE):
+            return None
         if not (_epoch(start) and _epoch(end) and 0 < start < end <= start + MAX_SECONDS
                 and mtime <= start <= now < end
                 and isinstance(d.get('study'), str) and d['study']
                 and isinstance(d.get('salt'), str) and d['salt']):
             return None
         return {k: d[k] for k in ('study', 'salt', 'start', 'end')} | {
-            'config_sha256': hashlib.sha256(raw.encode()).hexdigest()}
+            'config_sha256': hashlib.sha256(raw.encode()).hexdigest()} | (
+            {'scope': RETRY_SCOPE} if d.get('scope') == RETRY_SCOPE else {})
     except (OSError, ValueError, TypeError, RecursionError):
         return None
 
 
 def _arm(cfg, order_id):
     return 'B' if hashlib.sha256(f"{cfg['salt']}:{order_id}".encode()).digest()[0] % 2 else 'A'
+
+
+def _target(cfg, shop, sku):
+    if cfg.get('scope') == RETRY_SCOPE:
+        return shop in RETRY_SHOPS and isinstance(sku, str) and re.fullmatch(r'G[0-9a-f]{8}', sku) is not None
+    return shop == SHOP and sku == SKU
 
 
 def _valid_row(order_id, row, cfg, *, journal=True):
@@ -63,7 +74,8 @@ def _valid_row(order_id, row, cfg, *, journal=True):
                   'order', 'quote_task', 'limit'}
         if (not isinstance(row, dict) or not fields.issubset(row)
                 or not isinstance(order_id, str) or re.fullmatch(r'[A-Za-z0-9_-]{1,96}', order_id) is None
-                or row['order'] != order_id or row['policy'] != POLICY or row['shop'] != SHOP or row['sku'] != SKU
+                or row['order'] != order_id or row['policy'] != POLICY or not _target(cfg, row['shop'], row['sku'])
+                or row.get('scope') != cfg.get('scope')
                 or row['arm'] != _arm(cfg, order_id) or row['grade'] is not None or row['steps'] != [.9]
                 or any(row[k] != cfg[k] for k in ('study', 'start', 'end', 'config_sha256'))
                 or not _epoch(row['assigned_at']) or not cfg['start'] <= row['assigned_at'] < cfg['end']
@@ -95,8 +107,12 @@ def assign(md, order, shop, quote, steps, resume, *, probing, code_priced, limit
         if not isinstance(order, dict) or not isinstance(quote, dict):
             return None
         ask = quote.get('ask')
-        if (order.get('kind') != 'food' or shop != SHOP or quote.get('sku') != SKU
-                or set(re.findall(r'\bG[0-9a-f]{8}\b', quote.get('text') or '')) != {SKU}
+        cfg = config(md, env, now)
+        if cfg is None:
+            return None
+        sku = quote.get('sku')
+        if (order.get('kind') != 'food' or not _target(cfg, shop, sku)
+                or set(re.findall(r'\bG[0-9a-f]{8}\b', quote.get('text') or '')) != {sku}
                 or tuple(steps or ()) != (.9,) or not resume or probing or not code_priced
                 or quote.get('ask_src') != 'text' or not _epoch(ask) or int(ask) != ask or ask <= 0
                 or not _epoch(limit) or limit < 1 or order.get('_one_won_default')
@@ -108,9 +124,6 @@ def assign(md, order, shop, quote, steps, resume, *, probing, code_priced, limit
             return None
         baseline, candidate = min(int(.90 * ask), int(ask), int(limit)), int(.89 * ask)
         if not 0 < candidate < baseline:
-            return None
-        cfg = config(md, env, now)
-        if cfg is None:
             return None
         path = os.path.join(md, JOURNAL)
         with open(path + '.lock', 'a', encoding='utf-8') as lock:
@@ -132,15 +145,17 @@ def assign(md, order, shop, quote, steps, resume, *, probing, code_priced, limit
             note = rows.get(order['order'])
             if note is not None:
                 if any(note[k] != value for k, value in {'ask': ask, 'baseline': baseline,
-                        'limit': limit, 'quote_task': task_id}.items()):
+                        'limit': limit, 'quote_task': task_id, 'shop': shop, 'sku': sku}.items()):
                     return None
             else:
                 if len(rows) >= MAX_ORDERS or sum(x['arm'] == 'B' for x in rows.values()) >= MAX_B:
                     return None   # exposure bound, not a model-call cap; stop both arms together
                 note = {k: cfg[k] for k in ('study', 'start', 'end', 'config_sha256')}
-                note.update(policy=POLICY, arm=_arm(cfg, order['order']), grade=None, steps=[.9], shop=shop, sku=SKU,
+                note.update(policy=POLICY, arm=_arm(cfg, order['order']), grade=None, steps=[.9], shop=shop, sku=sku,
                             ask=ask, limit=limit, baseline=baseline, candidate=candidate, applied=False, assigned_at=now,
                             order=order['order'], quote_task=task_id)
+                if cfg.get('scope'):
+                    note['scope'] = cfg['scope']
                 if not _valid_row(order['order'], note, cfg):
                     return None
                 rows[order['order']] = note
