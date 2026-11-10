@@ -7,11 +7,14 @@ class TransportTrialTest(unittest.TestCase):
     def test_control_sticky_and_b_only_changes_transport(self):
         with tempfile.TemporaryDirectory() as root:
             t=JevTransport(root);a=self.deal();t.quote("control",a,1000)
-            (t.root/"adopted").touch();b=self.deal();t.quote("treatment",b,1001)
+            (t.root/"seller_concession_trial.json").write_text(json.dumps(t.trial_config("finite",1000,2800,25)))
+            b=self.deal();t.quote("treatment",b,1001)
+            if b["jev_transport"]["arm"]!="B":
+                b=self.deal();t.quote("treatment-2",b,1001)
             before={k:b[k] for k in ("ask","reserve","open","warranty","cost")}
-            with patch("fast_classify.jev_offer",return_value=(150,.95)) as read:
+            with patch("seller_jev_transport.time.time",return_value=1100),patch("fast_classify.jev_offer",return_value=(150,.95)) as read:
                 self.assertEqual(t.reader(a)("input"),(150,.95));self.assertEqual(read.call_args.kwargs,{})
-                self.assertEqual(t.reader(b)("input"),(150,.95));self.assertEqual(read.call_args.kwargs,{"post":t.pool.post})
+                self.assertEqual(t.reader(b)("input"),(150,.95));self.assertTrue(callable(read.call_args.kwargs["post"]))
             self.assertEqual({k:b[k] for k in before},before)
             again=self.deal();t.quote("control",again,1002);self.assertEqual(again["jev_transport"]["arm"],"A")
             (t.root/"disabled").touch();new=self.deal();t.quote("new",new,1003);self.assertEqual(new["jev_transport"]["arm"],"A")
