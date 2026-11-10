@@ -128,7 +128,7 @@ def decide(item, budget, history, text, meta_ask, turn, note=""):
 
 
 def negotiate(card_url, item, budget, note="", request=None, resume=None, stop_if=None, take_at=None, reply_to=None,
-              ladder=None, ceiling=None):
+              ladder=None, ceiling=None, decision_guard=None):
     """One A2A negotiation. Returns {"state", "task", "receipt", "history", "agreed"}.
 
     agreed is the last price we offered, which is what the shop accepted when the task completes.
@@ -145,7 +145,8 @@ def negotiate(card_url, item, budget, note="", request=None, resume=None, stop_i
     if resume:
         url, t = resume
         log(f"going on with task {str(t.get('id'))[:8]} at {url}; item {item}, budget {budget}")
-        return talk(url, t, item, budget, note, out, stop_if, take_at, reply_to, ladder, ceiling)
+        return talk(url, t, item, budget, note, out, stop_if, take_at, reply_to, ladder, ceiling,
+                    **({'decision_guard': decision_guard} if decision_guard is not None else {}))
     try:
         r = httpx.get(card_url.rstrip("/") + "/.well-known/agent-card.json", headers=HEADERS, timeout=30)
         card = r.json()
@@ -167,10 +168,12 @@ def negotiate(card_url, item, budget, note="", request=None, resume=None, stop_i
     if t is None:
         out["state"] = "ERROR"
         return out
-    return talk(url, t, item, budget, note, out, stop_if, take_at, reply_to, ladder, ceiling)
+    return talk(url, t, item, budget, note, out, stop_if, take_at, reply_to, ladder, ceiling,
+                **({'decision_guard': decision_guard} if decision_guard is not None else {}))
 
 
-def talk(url, t, item, budget, note, out, stop_if=None, take_at=None, reply_to=None, ladder=None, ceiling=None):
+def talk(url, t, item, budget, note, out, stop_if=None, take_at=None, reply_to=None, ladder=None, ceiling=None,
+         decision_guard=None):
     """reply_to(shop text) -> an answer to a question with no price in it ("use within 360h"), or None."""
     task_id, history = t["id"], out["history"]
     out["task"] = task_id
@@ -276,6 +279,22 @@ def talk(url, t, item, budget, note, out, stop_if=None, take_at=None, reply_to=N
         if offer > ask_price:
             log(f"GUARD offer {offer} > ask {ask_price} -> {ask_price}")
             offer = ask_price
+        if decision_guard is not None:
+            # Run after standing-ask, HOLD, FAST and price clamps. This optional policy may only lower or veto.
+            try:
+                guarded = decision_guard({'shop_price': ask_price, 'action': 'offer', 'price': offer}, history[:-1])
+                if not isinstance(guarded, dict) or guarded.get('action') == 'walk_away':
+                    log('final decision guard: walk away')
+                    break
+                price = guarded.get('price')
+                if (guarded.get('action') != 'offer' or type(price) not in (int, float)
+                        or not 0 < price <= offer):
+                    log('final decision guard: invalid or raised offer; walk away')
+                    break
+                offer = price
+            except Exception as e:
+                log(f'final decision guard failed: {type(e).__name__}; walking away')
+                break
         history.append(("you offered", offer))
         out["agreed"] = offer
         nt = send(url, str(offer), task_id)

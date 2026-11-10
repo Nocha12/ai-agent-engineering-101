@@ -71,13 +71,13 @@ def _valid(row, key, cfg, journal=True):
                 or type(row['applied']) is not bool or (journal and row['applied'])
                 or any(row[k] != cfg[k] for k in ('study', 'start', 'end', 'config_sha256'))
                 or not _epoch(row['assigned_at']) or not cfg['start'] <= row['assigned_at'] < cfg['end']
-                or not (row['quote_task'] is None or isinstance(row['quote_task'], str))):
+                or not _id(row['quote_task'])):
             return False
         if not all(_money(row[k]) for k in ('quote_ask', 'list_price', 'limit', 'baseline', 'last_offer', 'candidate')):
             return False
         return (row['candidate'] == min(row['limit'], row['list_price'] * 67 // 100)
                 and row['baseline'] > row['candidate'] and row['baseline'] <= row['quote_ask']
-                and row['last_offer'] <= row['baseline'])
+                and row['last_offer'] <= row['quote_ask'])
     except (ValueError, TypeError, OverflowError):
         return False
 
@@ -95,8 +95,23 @@ def receipt_problem(md, order, receipt, catalog, *, now=None, env=None):
     try:
         cfg = config(md, env, now)
         note = (order or {}).get('_food_floor30')
-        if (cfg is None or not isinstance(note, dict) or note.get('arm') != 'B' or note.get('applied') is not True
+        if (cfg is None or (order or {}).get('_food_floor30_disabled') or not isinstance(note, dict)
+                or note.get('baseline_fallback') or note.get('arm') != 'B' or note.get('applied') is not True
                 or not _valid(note, (order or {}).get('order'), cfg, journal=False)):
+            return None
+        with open(os.path.join(md, JOURNAL), encoding='utf-8') as f:
+            backed = json.load(f)
+        rows = backed.get('orders') if isinstance(backed, dict) else None
+        if (not isinstance(backed, dict) or backed.get('config_sha256') != cfg['config_sha256']
+                or not isinstance(rows, dict) or len(rows) > MAX_ORDERS
+                or any(not _valid(v, k, cfg) for k, v in rows.items())
+                or sum(v['arm'] == 'B' for v in rows.values()) > MAX_B):
+            return None
+        stored = rows.get(order['order'])
+        if stored is None or any(note.get(k) != v for k, v in stored.items() if k != 'applied'):
+            return None
+        fresh = config(md, env, now)
+        if fresh is None or fresh['config_sha256'] != cfg['config_sha256']:
             return None
         sku = (receipt or {}).get('item')
         lp = ((catalog or {}).get(sku) or {}).get('list_price')
@@ -105,8 +120,8 @@ def receipt_problem(md, order, receipt, catalog, *, now=None, env=None):
             return 'food floor trial cannot bound the shipped SKU price'
         cap = lp * 67 // 100
         return f'food floor trial receipt price exceeds {cap} for {sku}' if price > cap else None
-    except (ValueError, TypeError, OverflowError):
-        return 'food floor trial cannot validate the shipped SKU price'
+    except (OSError, ValueError, TypeError, OverflowError, RecursionError):
+        return None  # unavailable durable identity disables this extra policy, never a baseline receipt
 
 
 def turn(decision, history, limit, steps, *, md, order, shop, sku, quote, list_price,
@@ -117,7 +132,7 @@ def turn(decision, history, limit, steps, *, md, order, shop, sku, quote, list_p
     try:
         cfg = config(md, env, now)
         if (cfg is None or not isinstance(order, dict) or order.get('kind') != 'food' or shop != SHOP
-                or not isinstance(quote, dict) or quote.get('sku') != sku
+                or order.get('_food_floor30_disabled') or not isinstance(quote, dict) or quote.get('sku') != sku
                 or not isinstance(sku, str) or re.fullmatch(r'G[0-9a-f]{8}', sku) is None
                 or set(re.findall(r'\bG[0-9a-f]{8}\b', quote.get('text') or '')) != {sku}
                 or not _id(order.get('order')) or not _money(list_price) or not _money(limit)
@@ -127,9 +142,12 @@ def turn(decision, history, limit, steps, *, md, order, shop, sku, quote, list_p
             return decision, None
         task = quote.get('task')
         task_id = task.get('id') if isinstance(task, dict) else None
+        if not _id(task_id):
+            return decision, None
         prior = order.get('_food_floor30')
         if prior is not None:
-            if (not _valid(prior, order['order'], cfg, journal=False)
+            if (not isinstance(prior, dict) or (prior.get('arm') == 'B' and prior.get('applied') is not True)
+                    or not _valid(prior, order['order'], cfg, journal=False)
                     or any(prior[k] != v for k, v in {'shop': shop, 'sku': sku, 'quote_task': task_id,
                         'quote_ask': quote.get('ask'), 'list_price': list_price, 'limit': limit}.items())):
                 return decision, None
@@ -166,7 +184,7 @@ def turn(decision, history, limit, steps, *, md, order, shop, sku, quote, list_p
                 or any(who != ('shop asked' if i % 2 == 0 else 'you offered') or not _money(v)
                        for i, (who, v) in enumerate(history))
                 or history[0] != ('shop asked', quote['ask'])
-                or p > history[-2][1] or history[-1][1] > p):
+                or p > history[-2][1]):
             return decision, None
         cap = min(limit, list_price * 67 // 100)
         if not 0 < cap < p:

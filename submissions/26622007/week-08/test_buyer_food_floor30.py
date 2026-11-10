@@ -154,6 +154,55 @@ class FoodFloor30(unittest.TestCase):
         self.assertEqual(result['action'], 'walk_away')
         self.assertTrue(note['applied'])
 
+    def test_shipping_veto_survives_standing_ask_guard(self):
+        import buyer
+        import market_buyer as m
+        _, note = self.decide()
+        self.order['_food_floor30'] = note
+        self.order['_food_ladder'] = note
+        hist = self.history + [('shop asked', 19652), ('you offered', 19363)]
+        task = {'id': self.quote['task']['id'], 'status': {'state': 'TASK_STATE_INPUT_REQUIRED',
+                'message': {'parts': [{'text': 'At your price 19363, no.'}]}}}
+        def guard(d, h):
+            return m.food_floor30_turn(d, h, 20230, (.9,), md=self.md, order=self.order,
+                shop='buzllightyear', sku='Gef4d3036', quote=self.quote, list_price=28900, now=1001)
+        with mock.patch.object(buyer, 'send') as send, mock.patch.object(buyer, 'rpc',
+                return_value={'status': {'state': 'TASK_STATE_CANCELED'}}), mock.patch.object(buyer, 'decide',
+                side_effect=AssertionError('no model')):
+            buyer.talk('fixture', task, 'food', 20230, '', {'history': hist, 'agreed': 19363, 'holds': 0},
+                ladder=lambda *a: {'shop_price': 19652, 'action': 'walk_away', 'price': 0}, decision_guard=guard)
+        send.assert_not_called()
+
+    def test_fast_counter_is_assigned_and_vetoed_at_send_seam(self):
+        import buyer
+        import market_buyer as m
+        q = dict(self.quote, ask=8000)
+        task = {'id': q['task']['id'], 'status': {'state': 'TASK_STATE_INPUT_REQUIRED',
+                'message': {'metadata': {'ask': 6900}, 'parts': [{'text': 'Counteroffer: 6900.'}]}}}
+        def guard(d, h):
+            return m.food_floor30_turn(d, h, 7000, (.9,), md=self.md, order=self.order,
+                shop='buzllightyear', sku='Gef4d3036', quote=q, list_price=10000, now=1001)
+        with mock.patch.object(buyer, 'send') as send, mock.patch.object(buyer, 'rpc',
+                return_value={'status': {'state': 'TASK_STATE_CANCELED'}}), mock.patch.object(buyer, 'decide',
+                side_effect=AssertionError('no model')):
+            out = buyer.talk('fixture', task, 'food', 7000, '',
+                {'history': [('shop asked', 8000), ('you offered', 7000)], 'agreed': 7000, 'holds': 0},
+                ladder=lambda *a: self.fail('FAST must not need ladder'), decision_guard=guard)
+        send.assert_not_called()
+        self.assertEqual(out['turns']['fast'], 1)
+        self.assertTrue(self.order['_food_floor30']['applied'])
+
+    def test_baseline_fallback_disables_stale_receipt_guard(self):
+        import market_buyer as m
+        kw = dict(md=self.md, order=self.order, shop='buzllightyear', sku='Gef4d3036',
+                  quote=self.quote, list_price=28900, now=1001)
+        m.food_floor30_turn(self.original, self.history, 20230, (.9,), **kw)
+        (Path(self.md) / trial.JOURNAL).unlink()
+        self.assertEqual(m.food_floor30_turn(self.original, self.history, 20230, (.9,), **kw), self.original)
+        self.assertIsNone(trial.receipt_problem(self.md, self.order,
+            {'item': 'Gef4d3036', 'price': 19652}, {'Gef4d3036': {'list_price': 28900}}, now=1001, env={}))
+        self.assertTrue(self.order['_food_ladder']['baseline_fallback'])
+
 
 if __name__ == '__main__':
     unittest.main()
