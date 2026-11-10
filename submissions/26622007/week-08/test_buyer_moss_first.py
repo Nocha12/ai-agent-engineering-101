@@ -435,9 +435,13 @@ class FinalM1(unittest.TestCase):
         self.assertFalse(oneshot.final_m1_on(md, now=NOW - 61))
         self.assertTrue(oneshot.final_m1_on(md, now=NOW - 60 + 1799))
         self.assertFalse(oneshot.final_m1_on(md, now=NOW - 60 + 1800))   # the end is out
-        for now in (float("nan"), None, "x", True):
+        for now in (float("nan"), "x", True):
             self.assertFalse(oneshot.final_m1_on(md, now=now), now)
+        # now=None reads the clock: the clock is injected, so the test does not fail at real 17:39~18:09 11/10 (NOW's window)
+        with unittest.mock.patch.object(oneshot.time, "time", return_value=NOW - 61):
+            self.assertFalse(oneshot.final_m1_on(md, now=None))
         with unittest.mock.patch.object(oneshot.time, "time", return_value=NOW):
+            self.assertTrue(oneshot.final_m1_on(md, now=None))
             self.assertTrue(oneshot.final_m1_on(md))
         with unittest.mock.patch.object(oneshot.time, "time", return_value=NOW + 1800):
             self.assertFalse(oneshot.final_m1_on(md))
