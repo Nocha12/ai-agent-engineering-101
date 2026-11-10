@@ -216,7 +216,8 @@ def _body_shape(body):
             if type(code) is int and 100 <= code <= 999:
                 shape["choice_error_code"] = code
             if "finish_reason" in first:
-                shape["finish_reason"] = first["finish_reason"] if first["finish_reason"] in FINISH_REASONS else "other"
+                reason = first["finish_reason"]
+                shape["finish_reason"] = "null" if reason is None else reason if reason in FINISH_REASONS else "other"
             if isinstance(first.get("message"), dict):
                 shape["message_keys"] = sorted(k for k in first["message"] if k in MESSAGE_KEYS)
     return shape

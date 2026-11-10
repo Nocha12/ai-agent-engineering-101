@@ -158,3 +158,7 @@ class OuterShape(unittest.TestCase):
                         harness.ask("offline",SCHEMA,"offline",tag="restock-agent")
         self.assertEqual(len(seconds),1)
         self.assertLess(seconds[0],0.25)
+
+    def test_a_null_finish_reason_is_named_null(self):
+        m=self.meta(b'{"choices":[{"message":{"role":"assistant"},"finish_reason":null}]}')
+        self.assertEqual((m["finish_reason"],m["message_keys"]),("null",["role"]))
