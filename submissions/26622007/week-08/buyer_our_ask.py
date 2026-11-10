@@ -7,9 +7,12 @@ The quote_alignment study (11/07, buyer_quote_alignment) reads the same text but
   before the start: a file written after its start is off (written <= start), so the window cannot be cut short or moved;
 - arm = sha256("buyer_our_ask:" + salt + ":" + order)[0] % 2 (A legacy, B reads); every order started in the window is assigned (ITT),
   and the assignment is journaled in JOURNAL when it is made, so an order that never writes its orders.jsonl row is still
-  in the ITT list; so is each arm B read (applied). An assignment that cannot be journaled leaves arm B untreated
-  (journaled false in the row: assigned, not treated). An order run again journals its assignment again (same arm): the
-  analysis takes each order's first assign line;
+  in the ITT list. An assignment that cannot be journaled leaves arm B untreated (journaled false in the row: assigned,
+  not treated). Each arm B read is journaled ("read") before the quote lock, before it can be used: a read that cannot
+  be journaled is not used, so no treated quote goes without its line (independent review e552f9c M1). Whether the
+  quote then used it ("applied", after the lock) is a second line: a read line with no applied line is a read the
+  choice came before, or an applied line that could not be written, which the orders row marks journaled false on that
+  read. An order run again journals its assignment again (same arm): the analysis takes each order's first assign line;
 - arm B reads only while the switch still says the same salt and window (read again each quote): turning it off, or any
   change, stops arm B in orders already running;
 - an arm B read counts as that shop's opening ask wherever quotes are compared: the ranking (surplus, fits, rank_pg
@@ -97,6 +100,16 @@ def reads(ctx, now=None):
         and s["start"] <= now < s["end"]
 
 
+def ready(ctx, shop, ask, now=None):
+    """{"shop", "ask"} when arm B reads ask now and its "read" line is in JOURNAL, else None (market_buyer.quote calls it
+    before the quote lock: it reads the switch and writes the line)."""
+    if not isinstance(ask, int) or isinstance(ask, bool) or ask <= 0 or not reads(ctx, now):
+        return None
+    read = {"shop": shop, "ask": ask}
+    ok = _journal(ctx["md"], {"k": "read", "order": ctx.get("order"), "arm": ctx.get("arm"), "salt": ctx.get("salt"), **read})
+    return read if ok else None
+
+
 def note(ctx, shop, ask):
     """An arm B read, kept on the order (market_buyer.quote calls it under the quote lock: no file IO here)."""
     read = {"shop": shop, "ask": ask}
@@ -105,13 +118,18 @@ def note(ctx, shop, ask):
 
 
 def journal(ctx, read):
-    """The read in JOURNAL (after the quote lock is let go)."""
-    _journal(ctx.get("md"), {"k": "applied", "order": ctx.get("order"), "arm": ctx.get("arm"), "salt": ctx.get("salt"), **read})
+    """The read the quote used, in JOURNAL (after the quote lock is let go); whether it was written. One that was not is
+    marked journaled false on the order (its "read" line came first)."""
+    ok = _journal(ctx.get("md"), {"k": "applied", "order": ctx.get("order"), "arm": ctx.get("arm"),
+                                  "salt": ctx.get("salt"), **read})
+    if not ok:
+        read["journaled"] = False
+    return ok
 
 
 def applied(ctx, shop, ask):
     """note and journal at once."""
-    journal(ctx, note(ctx, shop, ask))
+    return journal(ctx, note(ctx, shop, ask))
 
 
 def measurement(ctx):

@@ -156,6 +156,7 @@ class Turn(unittest.TestCase):
         try:
             self.assertIsNone(self.run_turn(ctx))
             self.assertEqual(ctx["applied"], [])
+            self.assertIs(ctx["seen"][-1]["journaled"], False)        # the row tells it from a not-live turn (review M2)
         finally:
             os.chmod(os.path.join(self.md, mf.JOURNAL), 0o600)
         self.assertEqual(self.run_turn(ctx)["action"], "offer")      # journal back: treated

@@ -150,11 +150,40 @@ class Journal(unittest.TestCase):
             self.assertEqual((ctx["arm"], ctx["journaled"]), ("B", False))
             self.assertFalse(oa.reads(ctx, now=NOW))
             self.assertIs(oa.measurement(ctx)["journaled"], False)
-            oa.applied(ctx, "kimauve", 1)          # a read journal that fails afterwards changes nothing more
-            self.assertEqual(ctx["applied"], [{"shop": "kimauve", "ask": 1}])
+            self.assertIsNone(oa.ready(dict(ctx, journaled=True), "kimauve", 1, now=NOW))   # nor any read line
+            self.assertIs(oa.applied(ctx, "kimauve", 1), False)
+            self.assertEqual(ctx["applied"], [{"shop": "kimauve", "ask": 1, "journaled": False}])
         finally:
             os.chmod(os.path.join(self.md, os.path.dirname(oa.JOURNAL)), 0o700)
         self.assertTrue(oa.reads(oa.assign(self.md, {"order": order_in("B")}, now=NOW), now=NOW))
+
+    def test_a_read_is_journaled_before_it_is_used(self):
+        # independent review e552f9c M1: the "applied" line came after the treatment, so a failed write left a treated
+        # quote with no line. ready() writes "read" before the lock and returns None (untreated) if it cannot.
+        ctx = oa.assign(self.md, {"order": order_in("B")}, now=NOW)
+        read = oa.ready(ctx, "kimauve", 29617, now=NOW)
+        self.assertEqual((read, ctx["applied"]), ({"shop": "kimauve", "ask": 29617}, []))
+        self.assertEqual([(e["k"], e.get("shop"), e.get("ask")) for e in events(self.md)],
+                         [("assign", None, None), ("read", "kimauve", 29617)])
+        for ask in (None, 0, True, "5"):
+            self.assertIsNone(oa.ready(ctx, "kimauve", ask, now=NOW), ask)
+        self.assertIsNone(oa.ready(oa.assign(self.md, {"order": order_in("A")}, now=NOW), "kimauve", 5, now=NOW))
+        self.assertIsNone(oa.ready(ctx, "kimauve", 5, now=NOW + 9 * 3600))
+        self.assertEqual(len([e for e in events(self.md) if e["k"] == "read"]), 1)
+
+    def test_a_read_that_cannot_be_journaled_is_not_used(self):
+        ctx = oa.assign(self.md, {"order": order_in("B")}, now=NOW)
+        p = os.path.join(self.md, oa.JOURNAL)
+        os.chmod(p, 0o400)
+        try:
+            self.assertIsNone(oa.ready(ctx, "kimauve", 5, now=NOW))
+            read = oa.note(ctx, "kimauve", 5)
+            self.assertIs(oa.journal(ctx, read), False)     # the applied line after the lock: its loss is on the row
+            self.assertEqual(oa.measurement(ctx)["applied"], [{"shop": "kimauve", "ask": 5, "journaled": False}])
+        finally:
+            os.chmod(p, 0o600)
+        self.assertIs(oa.journal(ctx, oa.note(ctx, "kimauve", 6)), True)
+        self.assertEqual(ctx["applied"][-1], {"shop": "kimauve", "ask": 6})
 
     def test_a_context_not_journaled_reads_none(self):
         ctx = oa.assign(self.md, {"order": order_in("B")}, now=NOW)
@@ -174,8 +203,11 @@ class Wired(unittest.TestCase):
         import inspect
         src = inspect.getsource(market_buyer.quote)
         lock_at = src.index("with lock if lock is not None")
-        self.assertLess(src.index('buyer_our_ask.reads(order.get("_our_ask"))'), lock_at)
-        self.assertGreater(src.index('our_ask_read = buyer_our_ask.note(order["_our_ask"], shop["name"], rank_ask)'), lock_at)
+        self.assertLess(src.index('buyer_our_ask.ready(order.get("_our_ask"), shop["name"], our_ask_said(text, shop))'),
+                        lock_at)
+        self.assertNotIn("buyer_our_ask.reads(", src)
+        self.assertGreater(src.index('our_ask_read = buyer_our_ask.note(order["_our_ask"], *our_ask_ready.values())'),
+                           lock_at)
         self.assertGreater(src.index('buyer_our_ask.journal(order["_our_ask"], our_ask_read)'),
                            src.index('out[shop["name"]] = dict(q, closed=True) if late else q'))
         self.assertNotIn('order["_our_ask"]["applied"].append', src)

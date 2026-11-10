@@ -18,7 +18,10 @@ goods and the hour differ between those groups, so what 0.90 does to goods talks
   limit). Every later turn is as before in both arms. "applied" is that decision, not what was sent or paid: the kit log
   has the send, the ledger the payment (GPT Pro mw9tn6kj code review M);
 - the assignment (order, arm, started_at) and every seen turn (live, applied) go to JOURNAL as they happen, before any
-  send, so an order that never writes its orders.jsonl row is still in the ITT list (GPT Pro mw9tn6kj code review I);
+  send, so an order that never writes its orders.jsonl row is still in the ITT list (GPT Pro mw9tn6kj code review I).
+  Either line that cannot be written leaves arm B untreated (fail closed): an assignment so is journaled false in the
+  row (assigned, never treated), a seen turn so has journaled false in the row's seen (GPT Pro mwa48k8z I, independent
+  review e552f9c M2);
 - arm B acts only while the switch still says the same window: turning it off (or another salt) stops arm B at the next
   turn of an order already running, not only for new orders;
 - the switch file must be written before its start (mtime <= start): a window started in the past, or one edited after its
@@ -117,6 +120,7 @@ def turn(d, meta, text, history, limit, steps, quoted, moss, goods, ctx, md, sho
     if not _journal(md, dict(note, k="seen", order=ctx.get("order"), arm=ctx.get("arm"), step=STEP, limit=limit,
                              goods=bool(goods), live=on, applied=apply)):
         apply = False           # a treated turn always has its line (fail closed)
+        note["journaled"] = False   # in the row's seen: untreated for want of its line, not because it was off
     if not apply:
         return d
     ctx["applied"].append(dict(note))

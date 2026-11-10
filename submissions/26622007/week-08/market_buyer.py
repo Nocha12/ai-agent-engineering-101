@@ -1020,7 +1020,9 @@ def quote(shop, label, key, order, out, ctl=None):
             buyer_stock_evidence.observe(order["_stock_evidence_md"], shop, key, text=text,
                 ask=aligned if aligned is not None else buyer_metadata_ask(t) or raw or buyer_text_ask(text),
                 snapshot_at=order.get("_stock_snapshot_at"))
-        our_ask_live = open_ and q["ask"] is None and buyer_our_ask.reads(order.get("_our_ask"))  # switch file read: not under the lock
+        # switch file read and its "read" line: not under the lock; a read that cannot be journaled is not used
+        our_ask_ready = buyer_our_ask.ready(order.get("_our_ask"), shop["name"], our_ask_said(text, shop)) \
+            if open_ and q["ask"] is None and order.get("_our_ask") else None
         our_ask_read = None
         with lock if lock is not None else contextlib.nullcontext():
             late = ctl is not None and ctl.get("done") and ctl.get("winner") != shop["name"]
@@ -1031,11 +1033,9 @@ def quote(shop, label, key, order, out, ctl=None):
                 order.setdefault("_quote_alignment_applied", []).append(
                     {"shop": shop["name"], "sku": (shop.get("_offer") or {}).get("sku")})
             # off: as before; a quote that comes in after the choice cannot rank, so it is not read (nor counted applied)
-            if our_ask_live and q["ask"] is None and not (ctl and ctl.get("done")):
-                rank_ask = our_ask_said(text, shop)
-                if rank_ask is not None:
-                    q.update(ask=rank_ask, ask_src="text_rank")
-                    our_ask_read = buyer_our_ask.note(order["_our_ask"], shop["name"], rank_ask)
+            if our_ask_ready is not None and q["ask"] is None and not (ctl and ctl.get("done")):
+                q.update(ask=our_ask_ready["ask"], ask_src="text_rank")
+                our_ask_read = buyer_our_ask.note(order["_our_ask"], *our_ask_ready.values())
             out[shop["name"]] = dict(q, closed=True) if late else q      # closed before anyone can read it
         if our_ask_read is not None:
             buyer_our_ask.journal(order["_our_ask"], our_ask_read)
