@@ -10,6 +10,28 @@ from unittest import mock
 import negotiate
 import seller_price_first as pf
 
+def trace_leaks(rows):
+ needles=("Opening","task-249","warranty","9000","10000")
+ hashes={"event":32,"task_sha":64,"config_sha":64,"baseline_sha":64,"candidate_sha":64,"render_sha":64}
+ found=[]
+ def walk(value,path):
+  if isinstance(value,dict):
+   for key,item in value.items():
+    if any(needle in key for needle in needles):found.append((path+(key,),key))
+    walk(item,path+(key,))
+  elif isinstance(value,list):
+   for i,item in enumerate(value):walk(item,path+(i,))
+  elif isinstance(value,str):
+   field=path[1] if len(path)==2 else None
+   size=hashes.get(field)
+   if not (size and re.fullmatch(r"[0-9a-f]{"+str(size)+r"}",value)) and any(needle in value for needle in needles):
+    found.append((path,value))
+  elif type(value) in (int,float) and value in (9000,10000) and not (
+    value==10000 and type(value) is int and path==(path[0],"price") and isinstance(rows[path[0]],dict) and rows[path[0]].get("kind")=="intent"):
+   found.append((path,value))
+ for i,row in enumerate(rows):walk(row,(i,))
+ return found
+
 class PriceFirstTest(unittest.TestCase):
  def setUp(self):
   self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
@@ -81,10 +103,19 @@ class PriceFirstTest(unittest.TestCase):
   self.assertTrue(all(r["itt_arm"] in ("A","B") for r in intents))
   self.render(task="task-249")
   self.assertEqual([r for r in self.rows() if r["kind"]=="intent"][-1]["itt_arm"],intents[-1]["itt_arm"])
-  raw=(self.r.root/"trace.jsonl").read_text()
-  for needle in ("Opening","9000","task-249","warranty"):self.assertNotIn(needle,raw)
+  self.assertEqual(trace_leaks(self.rows()),[])
   self.save(dict(self.cfg,start=200,end=2000))
   self.assertEqual(self.render(now=300,task="new-task"),self.a)
+ def test_trace_leak_classifier_counterexamples(self):
+  self.assertEqual(trace_leaks([{"event":"a"*28+"9000","task_sha":"b"*60+"9000"}]),[])
+  for row in ({"text":"Opening warranty 6 hours"},{"task_sha":"task-249"},
+    {"warranty":"redacted"},{"count":9000},{"text":"price 9000"},
+    {"event":"a"*27+"9000g"},{"nested":[{"text":"task-249"}]},
+    {"nested":{"price":10000}},{"price":"10000"},
+    {"kind":"selection_observed","price":10000},{"kind":"intent","price":10000.0}):
+   self.assertTrue(trace_leaks([row]),row)
+  self.assertTrue(trace_leaks([{"kind":"intent","price":9000}]))   # the buyer's offer is never the recorded ask
+  self.assertEqual(trace_leaks([{"kind":"intent","price":10000}]),[])
  def test_io_failures_cleanup_and_final_clock_never_leak_b(self):
   for target in ("record","config"):
    with mock.patch.object(self.r,target,side_effect=OSError("failure")):self.assertEqual(self.render(),self.a)
