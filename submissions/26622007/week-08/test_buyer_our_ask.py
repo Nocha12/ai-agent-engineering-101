@@ -10,6 +10,9 @@ import buyer_our_ask as oa
 import market_buyer
 
 NOW = 1_794_300_000.0
+SKU = "G12345678"
+TEXT = (f"상품 ({SKU}), grade A, market certificate included, 506h full-refund warranty, list price 10640. "
+        "Send the ask or say ok to buy. Our ask: 8510")
 
 
 def write(md, mtime=None, **kw):
@@ -152,7 +155,7 @@ class Journal(unittest.TestCase):
             self.assertIs(oa.measurement(ctx)["journaled"], False)
             self.assertIsNone(oa.ready(dict(ctx, journaled=True), "kimauve", 1, now=NOW))   # nor any read line
             self.assertIs(oa.applied(ctx, "kimauve", 1), False)
-            self.assertEqual(ctx["applied"], [{"shop": "kimauve", "ask": 1, "journaled": False}])
+            self.assertEqual((ctx["applied"], ctx["unjournaled"]), ([{"shop": "kimauve", "ask": 1}],) * 2)
         finally:
             os.chmod(os.path.join(self.md, os.path.dirname(oa.JOURNAL)), 0o700)
         self.assertTrue(oa.reads(oa.assign(self.md, {"order": order_in("B")}, now=NOW), now=NOW))
@@ -179,11 +182,14 @@ class Journal(unittest.TestCase):
             self.assertIsNone(oa.ready(ctx, "kimauve", 5, now=NOW))
             read = oa.note(ctx, "kimauve", 5)
             self.assertIs(oa.journal(ctx, read), False)     # the applied line after the lock: its loss is on the row
-            self.assertEqual(oa.measurement(ctx)["applied"], [{"shop": "kimauve", "ask": 5, "journaled": False}])
+            m = oa.measurement(ctx)
+            self.assertEqual((m["applied"], m["unjournaled"]), ([read], [read]))
+            self.assertEqual(read, {"shop": "kimauve", "ask": 5})          # the shared read is not touched
+            self.assertIsNot(m["applied"][0], read)
         finally:
             os.chmod(p, 0o600)
         self.assertIs(oa.journal(ctx, oa.note(ctx, "kimauve", 6)), True)
-        self.assertEqual(ctx["applied"][-1], {"shop": "kimauve", "ask": 6})
+        self.assertEqual((ctx["applied"][-1], len(ctx["unjournaled"])), ({"shop": "kimauve", "ask": 6}, 1))
 
     def test_a_context_not_journaled_reads_none(self):
         ctx = oa.assign(self.md, {"order": order_in("B")}, now=NOW)
@@ -194,7 +200,8 @@ class Journal(unittest.TestCase):
     def test_measurement_has_no_market_dir(self):
         ctx = oa.assign(self.md, {"order": order_in("B")}, now=NOW)
         self.assertEqual(oa.measurement(ctx), {"salt": "our-ask-1110", "start": NOW - 60, "end": NOW - 60 + 9 * 3600,
-                                               "written": NOW - 61, "journaled": True, "arm": "B", "applied": []})
+                                               "written": NOW - 61, "journaled": True, "arm": "B", "applied": [],
+                                               "unjournaled": []})
         self.assertIsNone(oa.measurement(None))
 
 
@@ -206,11 +213,63 @@ class Wired(unittest.TestCase):
         self.assertLess(src.index('buyer_our_ask.ready(order.get("_our_ask"), shop["name"], our_ask_said(text, shop))'),
                         lock_at)
         self.assertNotIn("buyer_our_ask.reads(", src)
-        self.assertGreater(src.index('our_ask_read = buyer_our_ask.note(order["_our_ask"], *our_ask_ready.values())'),
-                           lock_at)
+        self.assertGreater(src.index('our_ask_read = buyer_our_ask.note(order["_our_ask"], our_ask_ready["shop"], '
+                                     'our_ask_ready["ask"])'), lock_at)
         self.assertGreater(src.index('buyer_our_ask.journal(order["_our_ask"], our_ask_read)'),
                            src.index('out[shop["name"]] = dict(q, closed=True) if late else q'))
         self.assertNotIn('order["_our_ask"]["applied"].append', src)
+
+    def quote(self, md, ctx, late=False):
+        """market_buyer.quote on one kimauve-style quote (no live services), as test_quote_alignment does."""
+        from unittest import mock
+        from test_buyer_reply import task
+        order = {"order": (ctx or {}).get("order", "o-x"), "kind": "goods", "_our_ask": ctx}
+        shop = {"name": "kimauve", "url": "https://fixture.invalid", "_offer": {"sku": SKU, "list_price": 10640}}
+        card = {"supportedInterfaces": [{"protocolBinding": "JSONRPC", "protocolVersion": "1.0", "url": "fixture"}]}
+        ctl = market_buyer.quote_ctl()
+        ctl["done"] = late
+        out = {}
+        with mock.patch.object(oa.time, "time", return_value=NOW), \
+                mock.patch.object(market_buyer, "serves_acp", return_value=True), \
+                mock.patch.object(market_buyer.httpx, "get", return_value=mock.Mock(json=lambda: card)), \
+                mock.patch.object(market_buyer, "buyer_send", return_value=task(TEXT)), \
+                mock.patch.object(market_buyer, "buyer_rpc", return_value=None), mock.patch.object(market_buyer, "log"):
+            market_buyer.quote(shop, "fixture", SKU, order, out, ctl)
+        return out["kimauve"]
+
+    def test_quote_arm_b_reads_after_its_read_line(self):
+        md = tempfile.mkdtemp()
+        write(md)
+        ctx = oa.assign(md, {"order": order_in("B")}, now=NOW)
+        q = self.quote(md, ctx)
+        self.assertEqual((q["ask"], q["ask_src"]), (8510, "text_rank"))
+        self.assertEqual([e["k"] for e in events(md)], ["assign", "read", "applied"])
+
+    def test_quote_arm_b_with_no_read_line_reads_none(self):
+        md = tempfile.mkdtemp()
+        write(md)
+        ctx = oa.assign(md, {"order": order_in("B")}, now=NOW)
+        os.chmod(os.path.join(md, oa.JOURNAL), 0o400)
+        try:
+            q = self.quote(md, ctx)
+        finally:
+            os.chmod(os.path.join(md, oa.JOURNAL), 0o600)
+        self.assertIsNone(q["ask"])
+        self.assertNotEqual(q["ask_src"], "text_rank")
+        self.assertEqual(ctx["applied"], [])
+
+    def test_quote_after_the_choice_writes_no_read_line(self):
+        md = tempfile.mkdtemp()
+        write(md)
+        ctx = oa.assign(md, {"order": order_in("B")}, now=NOW)
+        self.quote(md, ctx, late=True)
+        self.assertEqual([e["k"] for e in events(md)], ["assign"])
+
+    def test_quote_off_reads_no_switch_and_no_text(self):
+        from unittest import mock
+        with mock.patch.object(market_buyer, "our_ask_said") as said, mock.patch.object(oa, "_switch") as sw:
+            q = self.quote(tempfile.mkdtemp(), None)
+        self.assertEqual((said.call_count, sw.call_count, q["ask"]), (0, 0, None))
 
     def test_note_does_no_file_io(self):
         md = tempfile.mkdtemp()

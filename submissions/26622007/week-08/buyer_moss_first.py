@@ -120,7 +120,7 @@ def turn(d, meta, text, history, limit, steps, quoted, moss, goods, ctx, md, sho
     if not _journal(md, dict(note, k="seen", order=ctx.get("order"), arm=ctx.get("arm"), step=STEP, limit=limit,
                              goods=bool(goods), live=on, applied=apply)):
         apply = False           # a treated turn always has its line (fail closed)
-        note["journaled"] = False   # in the row's seen: untreated for want of its line, not because it was off
+        note["journaled"] = False   # in the row's seen: this turn's line is missing (arm B so went untreated)
     if not apply:
         return d
     ctx["applied"].append(dict(note))
@@ -130,8 +130,8 @@ def turn(d, meta, text, history, limit, steps, quoted, moss, goods, ctx, md, sho
 def measurement(ctx):
     return None if not isinstance(ctx, dict) else {"salt": ctx["salt"], "start": ctx["start"], "end": ctx["end"],
                                                    "written": ctx["written"], "journaled": ctx.get("journaled") is True,
-                                                   "arm": ctx["arm"], "seen": list(ctx["seen"]),
-                                                   "applied": list(ctx["applied"])}
+                                                   "arm": ctx["arm"], "seen": [dict(n) for n in ctx["seen"]],
+                                                   "applied": [dict(n) for n in ctx["applied"]]}
 
 
 def trade_mark(order):

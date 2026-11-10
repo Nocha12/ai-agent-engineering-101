@@ -11,8 +11,8 @@ The quote_alignment study (11/07, buyer_quote_alignment) reads the same text but
   not treated). Each arm B read is journaled ("read") before the quote lock, before it can be used: a read that cannot
   be journaled is not used, so no treated quote goes without its line (independent review e552f9c M1). Whether the
   quote then used it ("applied", after the lock) is a second line: a read line with no applied line is a read the
-  choice came before, or an applied line that could not be written, which the orders row marks journaled false on that
-  read. An order run again journals its assignment again (same arm): the analysis takes each order's first assign line;
+  choice came before, or that the quote_alignment study read first, or an applied line that could not be written,
+  which the orders row lists under unjournaled. An order run again journals its assignment again (same arm): the analysis takes each order's first assign line;
 - arm B reads only while the switch still says the same salt and window (read again each quote): turning it off, or any
   change, stops arm B in orders already running;
 - an arm B read counts as that shop's opening ask wherever quotes are compared: the ranking (surplus, fits, rank_pg
@@ -85,7 +85,7 @@ def assign(md, order, now=None):
     arm = "AB"[hashlib.sha256(("buyer_our_ask:" + s["salt"] + ":" + oid).encode()).digest()[0] % 2]
     journaled = _journal(md, {"k": "assign", "order": oid, "arm": arm, "salt": s["salt"], "start": s["start"],
                               "end": s["end"], "written": s["written"], "started_at": now})
-    return dict(s, journaled=journaled, order=oid, md=md, arm=arm, applied=[])
+    return dict(s, journaled=journaled, order=oid, md=md, arm=arm, applied=[], unjournaled=[])
 
 
 def reads(ctx, now=None):
@@ -118,12 +118,13 @@ def note(ctx, shop, ask):
 
 
 def journal(ctx, read):
-    """The read the quote used, in JOURNAL (after the quote lock is let go); whether it was written. One that was not is
-    marked journaled false on the order (its "read" line came first)."""
+    """The read the quote used, in JOURNAL (after the quote lock is let go); whether it was written. One that was not
+    goes on the order's unjournaled list (its "read" line came first); the read in applied, which other quotes'
+    threads can be copying, is not touched (independent review ae84363 M1)."""
     ok = _journal(ctx.get("md"), {"k": "applied", "order": ctx.get("order"), "arm": ctx.get("arm"),
                                   "salt": ctx.get("salt"), **read})
     if not ok:
-        read["journaled"] = False
+        ctx.setdefault("unjournaled", []).append(dict(read))
     return ok
 
 
@@ -135,4 +136,5 @@ def applied(ctx, shop, ask):
 def measurement(ctx):
     return None if not isinstance(ctx, dict) else {"salt": ctx["salt"], "start": ctx["start"], "end": ctx["end"],
                                                    "written": ctx["written"], "journaled": ctx.get("journaled") is True,
-                                                   "arm": ctx["arm"], "applied": list(ctx["applied"])}
+                                                   "arm": ctx["arm"], "applied": [dict(r) for r in ctx["applied"]],
+                                                   "unjournaled": [dict(r) for r in ctx.get("unjournaled", [])]}

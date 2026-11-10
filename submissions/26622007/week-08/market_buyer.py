@@ -1022,7 +1022,7 @@ def quote(shop, label, key, order, out, ctl=None):
                 snapshot_at=order.get("_stock_snapshot_at"))
         # switch file read and its "read" line: not under the lock; a read that cannot be journaled is not used
         our_ask_ready = buyer_our_ask.ready(order.get("_our_ask"), shop["name"], our_ask_said(text, shop)) \
-            if open_ and q["ask"] is None and order.get("_our_ask") else None
+            if open_ and q["ask"] is None and order.get("_our_ask") and not (ctl and ctl.get("done")) else None
         our_ask_read = None
         with lock if lock is not None else contextlib.nullcontext():
             late = ctl is not None and ctl.get("done") and ctl.get("winner") != shop["name"]
@@ -1035,7 +1035,7 @@ def quote(shop, label, key, order, out, ctl=None):
             # off: as before; a quote that comes in after the choice cannot rank, so it is not read (nor counted applied)
             if our_ask_ready is not None and q["ask"] is None and not (ctl and ctl.get("done")):
                 q.update(ask=our_ask_ready["ask"], ask_src="text_rank")
-                our_ask_read = buyer_our_ask.note(order["_our_ask"], *our_ask_ready.values())
+                our_ask_read = buyer_our_ask.note(order["_our_ask"], our_ask_ready["shop"], our_ask_ready["ask"])
             out[shop["name"]] = dict(q, closed=True) if late else q      # closed before anyone can read it
         if our_ask_read is not None:
             buyer_our_ask.journal(order["_our_ask"], our_ask_read)

@@ -271,7 +271,7 @@ class OurAskStudyTest(unittest.TestCase):
             self.assertFalse(oa.reads(dict(ctx, arm="A"), now=1500))
             self.assertFalse(oa.reads(None, now=1500))
             self.assertEqual(oa.measurement(ctx), {"salt": "our-ask-t", "start": 1000, "end": END, "written": 999, "journaled": True,
-                                                   "arm": "B", "applied": []})
+                                                   "arm": "B", "applied": [], "unjournaled": []})
             self.assertIsNone(oa.measurement(None))
 
     def test_no_switch_is_committed(self):
