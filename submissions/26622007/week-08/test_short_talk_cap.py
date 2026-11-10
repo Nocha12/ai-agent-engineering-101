@@ -146,6 +146,17 @@ class OurAskSentenceTest(unittest.TestCase):
 
     B = {"arm": "B", "salt": "t", "start": 0, "end": 4e9, "applied": []}
 
+    def _live_b(self):
+        """An arm B context whose switch is on now (buyer_our_ask reads the switch again at each quote)."""
+        import buyer_our_ask
+        md = tempfile.mkdtemp()
+        start = time.time() - 60
+        p = os.path.join(md, buyer_our_ask.SWITCH)
+        with open(p, "w") as f:
+            json.dump({"enabled": True, "salt": "t", "start": start, "end": start + 9 * 3600}, f)
+        os.utime(p, (start - 1, start - 1))
+        return dict(salt="t", start=start, end=start + 9 * 3600, written=start - 1, order="o-t", md=md, arm="B", applied=[])
+
     def _quote(self, text, meta=None, alignment=None, our_ask="B", ctl=None, order_out=None):
         from unittest import mock
         card = mock.Mock()
@@ -153,7 +164,7 @@ class OurAskSentenceTest(unittest.TestCase):
                                                              "url": "https://k.example/rpc"}]}
         out = {}
         order = {"kind": "food", "_quote_alignment": alignment,
-                 "_our_ask": dict(self.B, applied=[]) if our_ask == "B" else our_ask}
+                 "_our_ask": self._live_b() if our_ask == "B" else our_ask}
         if order_out is not None:
             order_out.append(order)
         with mock.patch.object(market_buyer, "serves_acp", lambda u: True), \
@@ -211,12 +222,17 @@ class OurAskSentenceTest(unittest.TestCase):
         self.assertEqual(market_buyer.our_ask_said(t1, {"_offer": {"sku": "G76ba0184", "list_price": 19900}}), 15920)
 
 
+END = 1000 + 9 * 3600
+
+
 class OurAskStudyTest(unittest.TestCase):
     """buyer_our_ask: default off, a finite window of at most MAX_HOURS, both arms, and shared row fields as legacy."""
     def switch(self, d, **kw):
         import buyer_our_ask
-        with open(os.path.join(d, buyer_our_ask.SWITCH), "w") as f:
-            json.dump(dict({"enabled": True, "salt": "our-ask-t", "start": 1000, "end": 2000}, **kw), f)
+        p = os.path.join(d, buyer_our_ask.SWITCH)
+        with open(p, "w") as f:
+            json.dump(dict({"enabled": True, "salt": "our-ask-t", "start": 1000, "end": END}, **kw), f)
+        os.utime(p, (999, 999))         # written before its start (buyer_our_ask: written <= start)
 
     def test_assign_only_in_a_finite_window_and_both_arms(self):
         import buyer_our_ask as oa
@@ -225,11 +241,11 @@ class OurAskStudyTest(unittest.TestCase):
             self.switch(d)
             arms = {oa.assign(d, {"order": f"o-{i}"}, now=1500)["arm"] for i in range(40)}
             self.assertEqual(arms, {"A", "B"})
-            self.assertEqual(oa.assign(d, {"order": "o-1"}, now=1500)["arm"], oa.assign(d, {"order": "o-1"}, now=1999)["arm"])
-            for now in (999, 2000, 3000):
+            self.assertEqual(oa.assign(d, {"order": "o-1"}, now=1500)["arm"], oa.assign(d, {"order": "o-1"}, now=END - 1)["arm"])
+            for now in (999, END, END + 1000):
                 self.assertIsNone(oa.assign(d, {"order": "o-1"}, now=now), now)
             for bad in ({"enabled": False}, {"enabled": "true"}, {"end": float("inf")}, {"start": float("nan")},
-                        {"end": 1000 + 13 * 3600 + 1}, {"end": 900}, {"salt": ""}, {"salt": "a b"}, {"salt": 5},
+                        {"end": 1000 + 12 * 3600 + 1}, {"end": 1000 + 9 * 3600 - 1}, {"end": 900}, {"salt": ""}, {"salt": "a b"}, {"salt": 5},
                         {"start": True}, {"start": 0}, {"end": 10 ** 400}):
                 self.switch(d, **bad)
                 self.assertIsNone(oa.assign(d, {"order": "o-1"}, now=1500), bad)
@@ -248,11 +264,12 @@ class OurAskStudyTest(unittest.TestCase):
                        == "AB"[hashlib.sha256(f"our-ask-t:o-{i}".encode()).digest()[0] % 2] for i in range(400))
             self.assertLess(same, 260)
             ctx = dict(oa.assign(d, {"order": "o-1"}, now=1500), arm="B")
-            self.assertTrue(oa.reads(ctx, now=1999))
-            self.assertFalse(oa.reads(ctx, now=2000))
+            self.assertTrue(oa.reads(ctx, now=END - 1))
+            self.assertFalse(oa.reads(ctx, now=END))
             self.assertFalse(oa.reads(dict(ctx, arm="A"), now=1500))
             self.assertFalse(oa.reads(None, now=1500))
-            self.assertEqual(oa.measurement(ctx), {"salt": "our-ask-t", "arm": "B", "applied": []})
+            self.assertEqual(oa.measurement(ctx), {"salt": "our-ask-t", "start": 1000, "end": END, "written": 999,
+                                                   "arm": "B", "applied": []})
             self.assertIsNone(oa.measurement(None))
 
     def test_no_switch_is_committed(self):

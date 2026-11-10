@@ -1033,7 +1033,7 @@ def quote(shop, label, key, order, out, ctl=None):
                 rank_ask = our_ask_said(text, shop)
                 if rank_ask is not None:
                     q.update(ask=rank_ask, ask_src="text_rank")
-                    order["_our_ask"]["applied"].append({"shop": shop["name"], "ask": rank_ask})
+                    buyer_our_ask.applied(order["_our_ask"], shop["name"], rank_ask)
             out[shop["name"]] = dict(q, closed=True) if late else q      # closed before anyone can read it
         if late:
             cancel_quietly(q, shop["name"])
