@@ -37,7 +37,9 @@ class FirmFoodQuote(unittest.TestCase):
                      TEXT.replace('520.3h', 'NaNh'), TEXT.replace('520.3h', 'infh'),
                      TEXT.replace('firm price 7729,', 'firm price 7729.5,'),
                      TEXT.replace('7729', '99999'), TEXT.replace('7729', '0'),
-                     TEXT + 'x' * 2000, TEXT.replace('프레주', '다른 제품')):
+                     TEXT + 'x' * 2000, TEXT.replace('프레주', '다른 제품'),
+                     TEXT + ' The price is 9000 from tomorrow.',
+                     TEXT.replace('7729', '600').replace('41%', '95%')):
             with self.subTest(text=text[:35]):
                 self.assertIsNone(self.quote(text)['ask'])
         self.assertIsNone(self.quote(lp=True)['ask'])
