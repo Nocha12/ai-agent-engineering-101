@@ -117,15 +117,17 @@ class MarketBuyerPassesTakeAtForFoodOnly(unittest.TestCase):
 class SavedCap(unittest.TestCase):
     """Patch 3.4 Saved: a deal must be expected to keep SAVED_MIN_SHARE of list; food is taken at once only at FOOD_TAKE_SHARE."""
 
-    def test_food_cap_is_70_percent_of_list(self):
+    def test_food_cap_is_67_percent_of_list(self):
         import market_buyer as mb
-        self.assertEqual(mb.SAVED_MIN_SHARE, 0.30)
-        self.assertEqual(mb.saved_cap({"list_price": 10000}, None), 7000)
-        self.assertEqual(mb.saved_cap({"list_price": 10000}, 0), 7000)
+        self.assertEqual(mb.SAVED_MIN_SHARE, 0.33)
+        self.assertEqual(mb.saved_cap({"list_price": 10000}, None), 6699)
+        self.assertEqual(mb.saved_cap({"list_price": 10000}, 0), 6699)
 
     def test_goods_cap_counts_the_refunded_breaks(self):
         import market_buyer as mb
-        self.assertEqual(mb.saved_cap({"list_price": 100000}, 0.10), 66666)   # (1 - 0.1)(1 - p/L) >= 0.30
+        self.assertEqual(mb.saved_cap({"list_price": 100000}, 0.10), 63333)   # (1 - 0.1)(1 - p/L) >= 0.33
+        self.assertEqual(mb.saved_cap({"list_price": 100000}, 0.5), 34000)
+        self.assertEqual(mb.saved_cap({"list_price": 100000}, 0.10, 0.30), 66666)
         self.assertEqual(mb.saved_cap({"list_price": 100000}, 0.75), 0)
         self.assertEqual(mb.saved_cap({"list_price": 100000}, 1.0), 0)
 

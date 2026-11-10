@@ -54,7 +54,7 @@ class Share(unittest.TestCase):
     def test_on_uses_board_saved(self):
         board(self.md, 0.3096)
         switch(self.md)
-        st = sf.state(self.md, "o-1", env={})
+        st = sf.state(self.md, "o-1", env={}, base=0.30)  # legacy study uses its explicit base
         self.assertEqual(st["arm"], "B")
         self.assertAlmostEqual(st["share"], 0.3096)
         self.assertTrue(st["band_off"])
@@ -62,7 +62,7 @@ class Share(unittest.TestCase):
     def test_margin_and_bounds(self):
         board(self.md, 0.3096)
         switch(self.md, margin=0.002)
-        self.assertAlmostEqual(sf.state(self.md, "o-1", env={})["share"], 0.3116)
+        self.assertAlmostEqual(sf.state(self.md, "o-1", env={}, base=0.30)["share"], 0.3116)
         switch(self.md, margin=0.5)            # out of range: off (review I2)
         self.assertIsNone(sf.state(self.md, "o-1", env={}))
         board(self.md, 0.62)                   # a board Saved over MAX_SHARE is not trusted: off (review N6)
@@ -84,6 +84,11 @@ class Share(unittest.TestCase):
         with open(os.path.join(self.md, "board_history.jsonl"), "wb") as f:
             f.write(b"\xff\xfe{bad\n")
         self.assertIsNone(sf.state(self.md, "o-1", env={}))
+
+    def test_public_default_is_033_even_when_board_is_lower(self):
+        board(self.md, 0.3096)
+        switch(self.md)
+        self.assertEqual(sf.state(self.md, "o-1", env={})["share"], 0.33)
 
     def test_never_under_base(self):
         board(self.md, 0.25)
@@ -348,9 +353,9 @@ class Cap(unittest.TestCase):
         mb.SAVED_SHARE = mb.SAVED_MIN_SHARE
 
     def test_saved_cap_default_follows_saved_share(self):
-        self.assertEqual(mb.saved_cap({"list_price": 10000}, 0), 7000)
+        self.assertEqual(mb.saved_cap({"list_price": 10000}, 0), 6699)
         mb.SAVED_SHARE = 0.31
-        self.assertEqual(mb.saved_cap({"list_price": 10000}, 0), int(10000 * (1 - 0.31)))
+        self.assertEqual(mb.saved_cap({"list_price": 10000}, 0), 6899)  # existing float truncation, never rounded up
         self.assertEqual(mb.saved_cap({"list_price": 10000}, 0, 0.30), 7000)   # an explicit share still wins
 
     def test_main_sets_and_logs_the_floor(self):

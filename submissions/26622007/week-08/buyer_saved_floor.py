@@ -43,7 +43,7 @@ import time
 import buyer_short_warranty
 
 SWITCH = "buyer_saved_floor.json"
-BASE_SHARE = 0.30          # market_buyer.SAVED_MIN_SHARE
+BASE_SHARE = 0.33          # market_buyer.SAVED_MIN_SHARE
 MAX_SHARE = 0.40           # a board S above this is not trusted: off
 MAX_MARGIN = 0.05
 MAX_WINDOW_HOURS = 12      # the experiments' max (ax-pro-cycle 5: min 9 h, max 12 h)
