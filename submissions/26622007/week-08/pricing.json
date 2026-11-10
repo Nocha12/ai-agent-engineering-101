@@ -292,6 +292,12 @@
     "source": "review/W-20261103-2120/gpt-pro-answer1.md 2-b",
     "min_profit": 1,
     "min_profit_share": 0.0,
+    "grade_profit_share": {
+      "A": 0.08,
+      "B": 0.08,
+      "C": 0.08
+    },
+    "grade_profit_share_source": "W-20261110-1346-AXFable검토 (11/11 07:0x), goods-margin-1110's verdict (arms by SKU x grade, 11/10 12:52:25 - 11/11 00:52:25, refunds matured at 06:55; every unit that had a study talk, settles and refunds joined by unit in the public ledger, real unit cost): net of refunds per list price of every unit talked +0.0093 in arm A (275 units, 89% sold) and +0.0718 in arm B (270 units, 84% sold), 6.3k and 71.3k a unit; difference +0.0625, 90% [+0.029, +0.095] by bootstrap over SKU x grade cells. By grade: A -0.007 and +0.062 (difference +0.069, 90% [+0.037, +0.100]): at break-even a grade A unit earned nothing after its refunds; B +0.098 and +0.108 (+0.010, [-0.020, +0.041]); C -0.009 and +0.039 (+0.048, [-0.136, +0.248]). Per hour by arm, the 9 h before against the 12 h on: net 0.51 -> 0.28M in arm A, 0.93 -> 1.88M in arm B; sales 8.9 -> 10.1M and 17.0 -> 16.6M (13% less than arm A's growth); deals 18.1 -> 25.1 and 20.1 -> 24.6. Book is 0.5 of shop ALL and our weakest part (15th), revenue 0.3: kept as the rule for every goods unit. floor = (C + 0.0025 C + 0.08 L) / (1 - b), never over list unless break-even is (profit_price.quote). Remove a grade (or the key) to go back to break-even for it",
     "storage_share": 0.0025,
     "goods_break": 0.035,
     "grade_break": {

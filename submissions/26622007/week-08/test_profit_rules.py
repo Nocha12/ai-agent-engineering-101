@@ -394,9 +394,15 @@ class PriceTest(unittest.TestCase):
         # B 0.122 -> 0.15 (11/10): our own grade B breaks 14.3% over the round, 15.2% over the last 72 h (market 11.6-11.9%)
         self.assertEqual(profit_price.cfg_of(p)["grade_break"], {"A": 0.03, "B": 0.15, "C": 0.344})
         b_unit = {"sku": "G85a1a856", "unit": "u", "kind": "goods", "grade": "B", "cost": 500000, "list_price": 922000}
-        # (500,000 + 1,250 + 1) / 0.85 = 589,707.06 -> 589,708 (was / 0.878 = 570,900): a sale at the floor keeps the cost
-        # after a 15% chance of refunding the whole price
-        self.assertEqual(profit_price.quote(b_unit, median=None, measured=0.12, pricing=p)["floor"], 589708)
+        # goods-margin-1110 kept (11/11): every grade's floor keeps 8% of list after the expected refund
+        self.assertEqual(profit_price.cfg_of(p)["grade_profit_share"], {"A": 0.08, "B": 0.08, "C": 0.08})
+        # (500,000 + 1,250 + 0.08 x 922,000) / 0.85 = 676,482.4 -> 676,483 (break-even at b 0.15: 589,708; at 0.122: 570,900)
+        self.assertEqual(profit_price.quote(b_unit, median=None, measured=0.12, pricing=p)["floor"], 676483)
+        a_unit = {"sku": "G03d0199f", "unit": "u", "kind": "goods", "grade": "A", "cost": 575000, "list_price": 1000000}
+        # (575,000 + 1,437.5 + 80,000) / 0.965 = 680,246.1 -> 680,247 (break-even 597,346): 0.68 of list, what buyers pay
+        self.assertEqual(profit_price.quote(a_unit, median=None, measured=None, pricing=p)["floor"], 680247)
+        food = {"sku": "F", "unit": "u", "kind": "food", "grade": "A", "cost": 6000, "list_price": 10000}
+        self.assertEqual(profit_price.quote(food, median=None, measured=None, pricing=p)["floor"], 6016)      # food: break-even
         self.assertEqual(profit_price.quote(b_unit, median=None, measured=0.2, pricing=p)["b"], 0.2)   # a higher measured rate wins
         self.assertEqual(p["warranty"]["max_break"], 0.5)         # C units (34% of them break) are priced, not refused
         r = p["restock"]
