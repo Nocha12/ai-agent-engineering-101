@@ -1,7 +1,0 @@
-.SQLITE_GATE_HEARTBEAT {"drift": false, "locked": 190674.531812833, "heartbeat": 0.031919125001877546, "other_quote": 0.061978999990969896}
-SQLITE_GATE_HEARTBEAT {"drift": true, "locked": 190674.721884833, "heartbeat": 0.02999245800310746, "other_quote": 0.053587667003739625}
-.
-----------------------------------------------------------------------
-Ran 2 tests in 0.373s
-
-OK

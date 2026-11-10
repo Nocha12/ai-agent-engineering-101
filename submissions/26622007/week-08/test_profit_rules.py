@@ -353,7 +353,7 @@ class PriceTest(unittest.TestCase):
         self.assertIn("G07ec17d5", r["skip_skus"])
         self.assertFalse({"G57d8dfa6", "G04ee8423", "Gc44de87c"} & (set(r["priority_skus"]) | set(r["sku_target_units"])))
         self.assertEqual(len(set(r["priority_skus"])), len(r["priority_skus"]))
-        self.assertEqual(r["sku_target_units"]["G2c023a8c"], 3)      # Restore after g2-loss-target-1110
+        self.assertEqual(r["sku_target_units"]["G2c023a8c"], 2)      # Terra g2-loss-target-1110 stays as it is
 
     def test_shipped_settings(self):
         with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
