@@ -309,6 +309,58 @@ class FoodOpen88Test(unittest.TestCase):
             self.assertEqual(pilot.apply(self.baseline, [], 13230, (.9,), dict(n, **changes),
                 md=self.md, env={}, now=2000000001), self.baseline)
 
+    def test_actual_caller_to_first_send_supports_new_policy_and_keeps_A_OFF_legacy(self):
+        import ast
+        from pathlib import Path
+        from unittest.mock import patch
+        import buyer
+        import oneshot
+        cases = (
+            (self.SCOPE, 'o-food30-0', 2000000001, True, '8634', 'food-first-088'),
+            (pilot.RETRY_SCOPE, 'o-food30-0', 2000000001, True, '8732', pilot.POLICY),
+            (None, 'o-food30-0', 2000000001, True, '8732', pilot.POLICY),
+            (self.SCOPE, 'o-food30-2', 2000000001, True, '8830', 'food-first-088'),
+            (self.SCOPE, 'o-food30-0', 2000001800, True, '8830', None),
+            (self.SCOPE, 'o-food30-0', 2000000001, False, '8830', None),
+        )
+        for scope, oid, now, enabled, expected, policy in cases:
+            with self.subTest(scope=scope, order=oid, now=now, enabled=enabled):
+                with tempfile.TemporaryDirectory() as md:
+                    cfg = dict(self.cfg, enabled=enabled)
+                    if scope is not None:
+                        cfg['scope'] = scope
+                    path = os.path.join(md, pilot.SWITCH)
+                    with open(path, 'w') as f:
+                        json.dump(cfg, f)
+                    os.utime(path, (1999999990, 1999999990))
+                    source = ast.parse(Path('market_buyer.py').read_text())
+                    hook = next(n for n in ast.walk(source) if isinstance(n, ast.If) and
+                        any(isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) and
+                            isinstance(c.func.value, ast.Name) and c.func.value.id == 'buyer_food_open30' and
+                            c.func.attr == 'assign' for c in ast.walk(n)) and
+                        not any(isinstance(c, ast.FunctionDef) for c in n.body))
+                    price = next(n for n in ast.walk(source) if isinstance(n, ast.FunctionDef) and n.name == 'price_ladder')
+                    # Keep the real opening hook and policy dispatch; unrelated later policies are off.
+                    price.body = price.body[:2] + [ast.Return(ast.Name('d', ast.Load()))]
+                    opener = next(n for n in ast.walk(source) if isinstance(n, ast.FunctionDef) and n.name == 'opening_probe_turn')
+                    q = dict(self.quote, task={'id': 'isolated-food88-task'})
+                    order = dict(self.order, order=oid, _food_ladder=None)
+                    env = dict(r3=True, order=order, shop={'name': 'cheapest-in-town'}, q=q, key=q['sku'],
+                               md=md, steps=(.9,), resume=True, probe_arm=None, discount_arm=None, limit=13230,
+                               buyer_food_open30=pilot, log=lambda *args: None, oneshot=oneshot)
+                    with patch.object(pilot.time, 'time', return_value=now):
+                        exec(compile(ast.fix_missing_locations(ast.Module([opener, hook, price], type_ignores=[])),
+                                     '<actual-food88-hooks>', 'exec'), env)
+                        task = {'id': 'isolated-food88-task', 'status': {'state': 'TASK_STATE_INPUT_REQUIRED',
+                            'message': {'parts': [{'text': q['text']}]}}}
+                        with patch.object(buyer, 'send', return_value={'id': task['id'],
+                                'status': {'state': 'TASK_STATE_CANCELED'}}) as send, \
+                                patch.object(buyer, 'decide', side_effect=AssertionError('model forbidden')):
+                            buyer.talk('fixture', task, 'food', 13230, '',
+                                       {'history': [], 'agreed': 0, 'holds': 0}, ladder=env['price_ladder'])
+                        self.assertEqual(send.call_args.args[1], expected)
+                        self.assertEqual((order.get('_food_ladder') or {}).get('policy'), policy)
+
     def test_five_shops_accept_only_canonical_single_sku(self):
         self.flag(scope=self.SCOPE)
         for shop in sorted(pilot.RETRY_SHOPS):

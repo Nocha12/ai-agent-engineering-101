@@ -2511,7 +2511,7 @@ def main():
                 meta, text, history, limit, steps, q.get("ask") if resume and q.get("ask_src") != "text_rank" else None,
                 order.get("kind") == "goods", discount_arm or probe_arm or
                 ("B" if order.get("_one_won_default") else None))
-            if (order.get('_food_ladder') or {}).get('policy') == 'food-first-089':
+            if (order.get('_food_ladder') or {}).get('policy') in (buyer_food_open30.POLICY, buyer_food_open30.SPEED_POLICY):
                 d = buyer_food_open30.apply(d, history, limit, steps, order['_food_ladder'], md=md)
             # buyer_moss_first arm B (default off): moss-and-oak's whole quote, first turn, priced by code, not the harness
             if order.get("_moss_first") or order.get("_final_m1") is not None:
