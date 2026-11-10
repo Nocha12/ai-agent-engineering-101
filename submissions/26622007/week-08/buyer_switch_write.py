@@ -166,11 +166,17 @@ def _ran(events, current, now, stopped=None):
         return None
 
     open_ = None
+    mark = 0
     for e in events:
         at = e.get("at")
         if open_ is not None and _epoch(at):
-            open_["stop"] = min(open_["stop"], at)
+            if e.get("k") == "abort" and e.get("published") is False:
+                del runs[mark:]    # never on file: neither its window nor the one it said it replaced changed (M-a)
+            else:
+                open_["stop"] = min(open_["stop"], at)
             open_ = None
+        if e.get("k") == "write":
+            mark = len(runs)
         add(e.get("replaces"), at)
         add(e.get("window"), at)
         if isinstance(e.get("replaced_stopped"), dict):
@@ -187,7 +193,11 @@ def _ran(events, current, now, stopped=None):
 def _unknown(events, old, window, stopped):
     """Whether what ran before is not known (review 4eaf0b6 N1): a switch is there with no window and no stopped record
     and this study has no HISTORY line, or the last off that found it so (unknown_past) has no write after it. An off
-    that knew the past (none there, or a window) is a line that knows it."""
+    that knew the past (none there, or a window) is a line that knows it. A write the next line aborted is no line: the
+    switch was put back or never on file (review 5399207 M-b)."""
+    events = [e for i, e in enumerate(events)
+              if not (e.get("k") == "write" and i + 1 < len(events) and events[i + 1].get("k") == "abort")
+              and not (e.get("k") == "abort" and i > 0 and events[i - 1].get("k") == "write")]
     unknown = False
     for e in events:
         if e.get("unknown_past"):
@@ -336,8 +346,8 @@ def _write(md, name, s, start, end, salt, new_study):
     path = os.path.join(md, s["file"])
     old = _guard(md, name, path, start, salt, new_study)
     old_stopped = _stopped(path)
-    if not start > time.time():
-        raise Refused("the start must be after now: the file is written before its window")
+    if not start > time.time() + SOON:      # else the last check aborts a window HISTORY already has (review 5399207 M-a)
+        raise Refused(f"the start must be more than {SOON}s after now: the file is written before its window")
     d = {"enabled": True, **({"salt": salt} if s["salt"] else {}), "start": start, "end": end}
     tmp = _prepare(path, (json.dumps(d) + "\n").encode())     # the slow write and fsync before the last checks (I-1)
     try:
@@ -352,7 +362,7 @@ def _write(md, name, s, start, end, salt, new_study):
         now = time.time()
         if again != old or not start > now or (window is not None and window["start"] <= now + SOON
                                                and now < window["end"]):
-            _log(md, {"k": "abort", "study": name, "at": now})
+            _log(md, {"k": "abort", "study": name, "at": now, "published": False})
             raise Refused("the switch changed, a window started or the start passed while this was checked: "
                           "nothing written")
         _publish(tmp, path)
@@ -378,7 +388,7 @@ def _write(md, name, s, start, end, salt, new_study):
             except OSError as e2:
                 back = f"putting it back failed ({e}) and removing it failed ({e2}): run --off now"
                 print(json.dumps({"warning": back}, ensure_ascii=False), file=sys.stderr)
-        _log(md, {"k": "abort", "study": name, "at": time.time()})   # the write line's window ends here
+        _log(md, {"k": "abort", "study": name, "at": time.time(), "published": True})   # its window ends here
         raise Refused(f"the study's reader would not take it (written {written}, start {start}); " + back)
     return {"path": path, "body": d, "written": written}
 

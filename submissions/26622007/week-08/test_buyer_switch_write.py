@@ -329,6 +329,31 @@ class Write(unittest.TestCase):
                 sw.write(self.md, "final_m1", start, start + 1800)
         self.assertFalse(os.path.exists(os.path.join(self.md, sw.STUDIES["final_m1"]["file"])))
 
+    def test_a_window_never_published_never_ran(self):                         # review 5399207 M-a
+        t = self.t
+        with self.assertRaises(sw.Refused):                                    # too near: refused before any line
+            sw.write(self.md, "moss_first", t + 5, t + 5 + 9 * H, salt="e")
+        self.assertFalse(os.path.exists(os.path.join(self.md, sw.HISTORY)))
+        s, e = t + 600, t + 600 + 9 * H
+        events = [{"k": "write", "study": "moss_first", "start": s, "end": e, "salt": "e", "at": s - 5},
+                  {"k": "abort", "study": "moss_first", "at": s + 5, "published": False}]
+        self.assertEqual(sw._ran(events, None, s + 100), [])
+        events[1]["published"] = True                                          # on file before it was put back
+        self.assertEqual(len(sw._ran(events, None, s + 100)), 1)
+
+    def test_an_aborted_write_leaves_the_past_unknown(self):                  # review 5399207 M-b
+        with open(os.path.join(self.md, sw.STUDIES["our_ask"]["file"]), "w") as f:
+            f.write("{}")
+        s = self.t + 600
+        with self.assertRaises(sw.Refused):
+            sw.write(self.md, "our_ask", s, s + 9 * H, salt="u1")
+        with unittest.mock.patch.dict(sw.STUDIES["our_ask"], {"reads": lambda md, x: False}):
+            with self.assertRaises(sw.Refused):
+                sw.write(self.md, "our_ask", s, s + 9 * H, salt="u1", new_study=True)
+        with self.assertRaises(sw.Refused):
+            sw.write(self.md, "our_ask", s, s + 9 * H, salt="u2")
+        sw.write(self.md, "our_ask", s, s + 9 * H, salt="u2", new_study=True)
+
     def test_a_window_the_reader_refused_is_closed_in_the_history(self):
         start = self.t + 600
         with unittest.mock.patch.dict(sw.STUDIES["moss_first"], {"reads": lambda md, s: False}):
