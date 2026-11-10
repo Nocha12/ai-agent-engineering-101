@@ -2514,7 +2514,7 @@ def main():
             log(f"[offer] oneshot: {', '.join(f'{s:.2f}' for s in steps)} of the first ask, then the counter, priced by code")
         talk_mode = f"oneshot {list(steps)}" if steps else "harness"
         out = negotiate(shop["url"], label, limit, note, request_text(label, key, order) if r3 else None, resume=resume,
-                        stop_if=(lambda text, turn: (quote_refused(text, order) if turn == 1 else None)
+                        stop_if=(lambda text, turn: (quote_refused(text, order, item=(label, key)) if turn == 1 else None)
                                  or goods_text_refused(text, order)) if r3 else None,
                         reply_to=(lambda text: shop_question_reply(text, order)) if r3 else None,
                         ladder=price_ladder if steps else None, ceiling=top if top > limit else None,

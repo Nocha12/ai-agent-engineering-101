@@ -122,6 +122,53 @@ class DatedCatalogueQuote(unittest.TestCase):
             with self.subTest(now=now):
                 self.assertIsNone(self.quote(now=now)['refused'])
 
+    def test_direct_talk_without_quotes_refuses_before_first_offer(self):
+        import contextlib
+        import io
+        import json
+        import os
+        import sys
+        import tempfile
+        import buyer
+        sent = []
+        now = 1794311731.0
+        task = {'id': 'fixture-task', 'status': {'state': 'TASK_STATE_INPUT_REQUIRED',
+                'message': {'parts': [{'text': self.TEXT}], 'metadata': {'ask': 7904}}}}
+        cancelled = {'id': 'fixture-task', 'status': {'state': 'TASK_STATE_CANCELED'}}
+        def negotiate(url, label, budget, note, request, **kwargs):
+            return buyer.talk(url, task, label, budget, note,
+                    {'history': [], 'agreed': None, 'holds': 0, 'receipt': None},
+                    stop_if=kwargs['stop_if'], take_at=kwargs.get('take_at'))
+        with tempfile.TemporaryDirectory() as d:
+            shops, order_path = os.path.join(d, 'shops.json'), os.path.join(d, 'order.json')
+            with open(shops, 'w') as f:
+                json.dump([{'name': 'fixture-shop', 'url': 'https://fixture.invalid', 'reviews': [],
+                            'offers': [{'sku': self.SKU, 'name': self.LABEL, 'qty': 1}]}], f)
+            with open(order_path, 'w') as f:
+                json.dump({'order': 'fixture-order', 'kind': 'food', 'category': '식품>음료', 'budget': 28630,
+                           'acceptable': [self.SKU], 'use_within_hours': 360.0}, f)
+            with open(os.path.join(d, 'catalog.json'), 'w') as f:
+                json.dump({self.SKU: {'kind': 'food', 'category': '식품>음료', 'name': self.LABEL,
+                                     'list_price': 15200}}, f)
+            with mock.patch.object(m, 'MEMORY', os.path.join(d, 'memory.json')), \
+                    mock.patch.object(m, 'SETTLED', os.path.join(d, 'settled.jsonl')), \
+                    mock.patch.object(m, 'AGENT_DIR', d), mock.patch.object(m, 'SAVED_SHARE', .3), \
+                    mock.patch.dict(m._SW_CTX, clear=True), mock.patch.object(m, 'STARTED', now-.01), \
+                    mock.patch.object(m.time, 'time', return_value=now), \
+                    mock.patch.object(m, 'market_round', return_value=3), \
+                    mock.patch.object(m, 'serves_acp', return_value=True), \
+                    mock.patch.object(m, 'buyer_cfg', return_value={'quote_shops': 1}), \
+                    mock.patch.object(m, 'choose', side_effect=lambda shops, *a, **k: (shops[0], 'fixture')), \
+                    mock.patch.object(m, 'negotiate', side_effect=negotiate), \
+                    mock.patch.object(buyer, 'send', side_effect=lambda url, text, *a: sent.append(text) or cancelled), \
+                    mock.patch.object(buyer, 'rpc', return_value=cancelled), \
+                    mock.patch.object(buyer, 'decide', return_value={'shop_price': 7904, 'action': 'walk_away', 'price': 0}), \
+                    mock.patch.object(sys, 'argv', ['fixture', '--shops', shops, '--item', '음료',
+                                                    '--budget', '28630', '--order', order_path]), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                m.main()
+        self.assertEqual(sent, [])
+
     def test_goods_and_existing_relative_shelf_checks_are_unchanged(self):
         item = (self.LABEL, self.SKU)
         self.assertIsNone(m.shelf_refused(self.TEXT, {'kind': 'goods', 'use_within_hours': 360.0}, item))
