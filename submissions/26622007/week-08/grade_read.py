@@ -20,16 +20,20 @@ the name, or anything before or after it (e.g. "No damaged box units") keeps the
 Randomization unit: the task, by sha256(salt|study|version|task) against share, journaled (event "assigned") before the
 pick, so every eligible opening is in the ITT list whatever is in stock; a failed write keeps the original path.
 "selected" records the unit picked and, in both arms, the unit each arm's pick gives (unit_a/unit_b, switch): only a
-talk with switch true can differ between the arms. "rejected" (reason selection, warranty, unit_unavailable) ends a talk
-before a quote (M1); outcome rows (seller.remember: deal, unpaid, canceled, ...) follow a quote. Rows carry the other
-trials' arms (others) for the cross tables; payment and refunds are joined from the ledger by task and unit.
+talk with switch true can differ between the arms; both picks read one units() snapshot. "no_quote" (reason selection,
+warranty, unit_unavailable) ends a talk before a quote (M1); "outcome" rows (result: seller.remember's deal, unpaid,
+canceled, rejected, ...) follow a quote, so a buyer's rejection after a quote is never read as a talk with no quote. An
+assigned task with neither (an error after the pick) is an unknown outcome, never a loss or a non-sale. Rows carry the
+other trials' arms (others) for the cross tables; payment and refunds are joined from the ledger by task and unit.
 Window: [start_at, stop_at) with stop_at - start_at <= 12 h (make_config writes 9-12 h), else the original path; NaN,
 inf, bool, a huge int, a missing field, a start in the future and the stop itself are off. Switch (GRADE_READ_CONFIG
 overrides): {study, salt, version, epoch, enabled, mode "ab"|"adopted", share, start_at, stop_at}.
 Overlap: a talk moved to a B unit leaves the grade A only trials (floor_margin, a_open) and enters goods_margin's SKU x
 grade B cell; for furniture it would enter a grade-break trial (GBT) unit: none is on after 11/10 13:00, and a new GBT
 window inside this one is analysed together (rows carry the unit and its grade). The pick ranks by today's floor, before
-any of those trials moves a price, so which unit is quoted never depends on their arms.
+any of those trials moves a price, so which unit is quoted never depends on their arms; while a GBT window is open
+(price.grade_break_trial, or a setting that cannot be read) every opening keeps the original path and gets no row, since
+floor_rank does not see the GBT b (independent review 8a694a5 M).
 Switch: .market/grade_read/config.json
 """
 import hashlib
@@ -39,6 +43,7 @@ from pathlib import Path
 import re
 import time
 
+import profit_price
 import shelf_jev_skip
 import shop_stock
 
@@ -50,7 +55,8 @@ SENTENCE = re.compile(r"I prefer grade C \(refurbished\) or B \(damaged box\) wi
                       r"nothing else\.")
 FRAME = re.compile(r"I want to buy (?P<name>[^\n]+?) \((?P<sku>G[0-9a-f]{8})\)\. (?P<sentence>I prefer grade C .+?) "
                    r"Please quote your cheapest unit that way\.")
-NAME_GRADE_WORDS = re.compile(r"\b[ABC]\b|(?i:\bgrades?\b|damaged|refurbished|warranty|\bonly\b|\bnot?\b)")
+NAME_GRADE_WORDS = re.compile(r"\b[ABC]\b|[ABC]급|싫|제외|말고|빼고|"
+                              r"(?i:\bgrades?\b|damaged|refurbished|warranty|\bonly\b|\bnot?\b|without|avoid|except)")
 MORE_TRIALS = ("floor_margin", "a_open", "goods_margin", "food_margin", "shelf_jev", "warranty_fact")
 
 
@@ -63,7 +69,7 @@ def extra_grades(text):
     m = FRAME.fullmatch(text)
     if m is None or not SENTENCE.fullmatch(m["sentence"]) or NAME_GRADE_WORDS.search(m["name"]):
         return None
-    if shop_stock.needs(text)["grades"] != {"A", "C"}:
+    if len(shop_stock.SKU.findall(text)) != 1 or shop_stock.needs(text)["grades"] != {"A", "C"}:
         return None
     return {"B"}
 
@@ -91,7 +97,18 @@ class Trial(shelf_jev_skip.Trial):
             return None
         return cfg
 
-    def assign(self, task, text, now=None):
+    @staticmethod
+    def _gbt_open(pricing, now):
+        """Whether price.grade_break_trial may be on now; anything unreadable counts as on."""
+        try:
+            t = profit_price.cfg_of(pricing).get("grade_break_trial")
+            if t is None:
+                return False
+            return not profit_price.trial_setting_ok(t) or now < t["stop_at"]
+        except Exception:
+            return True
+
+    def assign(self, task, text, now=None, pricing=None):
         """(assignment, grades to add to the pick) or (None, None) for the original path; never raises."""
         try:
             extra = extra_grades(text)
@@ -99,7 +116,7 @@ class Trial(shelf_jev_skip.Trial):
                 return None, None
             now = time.time() if now is None else now
             cfg = self.config(now)
-            if cfg is None:
+            if cfg is None or self._gbt_open(pricing, now):
                 return None, None
             a = dict(study=cfg["study"], version=cfg["version"], epoch=cfg["epoch"], mode=cfg["mode"],
                      salt_sha256=hashlib.sha256(cfg["salt"].encode()).hexdigest(), arm=self._arm(cfg, task),
@@ -129,13 +146,13 @@ class Trial(shelf_jev_skip.Trial):
         except Exception:
             pass
 
-    def rejected(self, task, a, reason, unit, now=None):
+    def no_quote(self, task, a, reason, unit, now=None):
         """The talk ended before a quote (selection, warranty, unit_unavailable); never raises."""
         if not isinstance(a, dict) or "arm" not in a:
             return
         try:
             u = unit if isinstance(unit, dict) else {}
-            self._write(dict(event="rejected", ts=time.time() if now is None else now, task=task, study=a["study"],
+            self._write(dict(event="no_quote", ts=time.time() if now is None else now, task=task, study=a["study"],
                              version=a["version"], arm=a["arm"], mode=a["mode"], reason=reason, unit=u.get("unit"),
                              sku=u.get("sku"), grade=u.get("grade")))
         except Exception:
@@ -146,8 +163,8 @@ class Trial(shelf_jev_skip.Trial):
         if not isinstance(a, dict) or "arm" not in a:
             return
         try:
-            self._write(dict(event=result, ts=time.time() if now is None else now, task=task, study=a["study"],
-                             version=a["version"], arm=a["arm"], mode=a["mode"], price=price, sku=deal.get("id"),
+            self._write(dict(event="outcome", result=result, ts=time.time() if now is None else now, task=task,
+                             study=a["study"], version=a["version"], arm=a["arm"], mode=a["mode"], price=price, sku=deal.get("id"),
                              unit=deal.get("unit"), kind=deal.get("kind"), rounds=deal.get("rounds"),
                              others=self._others(deal)))
         except Exception:

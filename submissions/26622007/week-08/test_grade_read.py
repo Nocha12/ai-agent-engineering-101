@@ -98,6 +98,12 @@ class EligibleOnlyTheExternalForm(unittest.TestCase):
                   "grade A only. " + REAL,
                   REAL.replace("소파+스툴", "소파 grade A+스툴"),
                   REAL.replace("소파+스툴", "소파 B 스툴"),
+                  REAL.replace("소파+스툴", "소파 not damaged 스툴"),
+                  REAL.replace("소파+스툴", "소파 refurbished only 스툴"),
+                  REAL.replace("소파+스툴", "소파 without box damage 스툴"),
+                  REAL.replace("소파+스툴", "소파 (B급 싫어요) 스툴"),
+                  REAL.replace("소파+스툴", "소파 A급 제외 스툴"),
+                  REAL.replace("[자코모]", "lamp (G0123abcd) and "),
                   REAL.replace(" Please quote your cheapest unit that way.", ""),
                   REAL.split(". ", 1)[1]):
             self.assertIsNone(grade_read.extra_grades(t), t)
@@ -177,10 +183,25 @@ class Assign(unittest.TestCase):
         self.t.event(tb, deal, "deal", 1546976)
         self.t.event(tb, {}, "deal", 1)          # no assignment: no row
         r = rows(self.root)
-        self.assertEqual([x["event"] for x in r], ["assigned", "selected", "deal"])
+        self.assertEqual([(x["event"], x.get("result")) for x in r], [("assigned", None), ("selected", None), ("outcome", "deal")])
         self.assertEqual(r[1]["grade"], "B")
         self.assertEqual(r[2]["price"], 1546976)
         self.assertEqual(r[2]["others"]["floor_margin"]["arm"], "A")
+
+    def test_off_while_a_grade_break_trial_is_open(self):
+        write_cfg(self.root)
+        tb = self.task_for("B")
+        now = time.time()
+        gbt = dict(start_at=now - 60, stop_at=now + 3600, salt="x", share=0.5, grade_break={"B": 0.19},
+                   categories=["가구/침구>"])
+        self.assertEqual(self.t.assign(tb, REAL, now=now, pricing={"price": {"grade_break_trial": gbt}}), (None, None))
+        self.assertEqual(self.t.assign(tb, REAL, now=now, pricing={"price": {"grade_break_trial": "odd"}}), (None, None))
+        self.assertEqual(rows(self.root), [])
+        closed = dict(gbt, start_at=now - 7200, stop_at=now - 60)       # 13:00 stop passed: on
+        a, g = self.t.assign(tb, REAL, now=now, pricing={"price": {"grade_break_trial": closed}})
+        self.assertEqual((a["arm"], g), ("B", {"B"}))
+        a, g = self.t.assign(tb, REAL, now=now, pricing={"price": {}})
+        self.assertEqual((a["arm"], g), ("B", {"B"}))
 
     def test_window_cap_12h(self):
         now = time.time()
@@ -223,17 +244,21 @@ class Assign(unittest.TestCase):
             self.assertEqual(self.t.assign("t1", REAL, now=now), (None, None), c[:120])
         self.assertEqual(rows(self.root), [])
 
-    def test_rejected_rows(self):
+    def test_no_quote_rows_apart_from_outcomes(self):
         write_cfg(self.root)
         tb = self.task_for("B")
         a, _ = self.t.assign(tb, REAL)
-        self.t.rejected(tb, a, "warranty", unit("u-b", "B", 1))
-        self.t.rejected(tb, a, "unit_unavailable", None)
-        self.t.rejected(tb, None, "selection", None)              # no assignment: no row
-        self.t.rejected(tb, {"bad": 1}, "selection", None)
+        self.t.no_quote(tb, a, "warranty", unit("u-b", "B", 1))
+        self.t.no_quote(tb, a, "unit_unavailable", None)
+        self.t.no_quote(tb, None, "selection", None)              # no assignment: no row
+        self.t.no_quote(tb, {"bad": 1}, "selection", None)
+        deal = {"grade_read": a, "id": "G8ec51935", "unit": "u-b", "kind": "goods", "rounds": 3}
+        self.t.event(tb, deal, "rejected", 1500000)                # seller.remember after a quote: an outcome row
         r = rows(self.root)
         self.assertEqual([(x["event"], x.get("reason")) for x in r],
-                         [("assigned", None), ("rejected", "warranty"), ("rejected", "unit_unavailable")])
+                         [("assigned", None), ("no_quote", "warranty"), ("no_quote", "unit_unavailable"),
+                          ("outcome", None)])
+        self.assertEqual((r[3]["result"], r[3]["price"]), ("rejected", 1500000))
         self.assertEqual((r[1]["unit"], r[1]["grade"], r[1]["arm"]), ("u-b", "B", "B"))
         self.assertIsNone(r[2]["unit"])
 
@@ -298,10 +323,11 @@ class SellerWiring(unittest.TestCase):
         s = self.SRC
         self.assertIn("import grade_read", s)
         self.assertRegex(s, r"GRADE_READ = grade_read\.Trial\(\)")
-        i = s.index("asyncio.to_thread(GRADE_READ.assign, task.id, text)")
+        i = s.index("asyncio.to_thread(GRADE_READ.assign, task.id, ")
         j = s.index("self.stock.pick(text, rank=lambda x: floor_rank(x, ranked)")
         self.assertLess(i, j)
-        self.assertIn("add_grades=grade_add", s[j:j + 200])
+        i = j
+        self.assertIn("add_grades=grade_add", s[i:i + 900])
         self.assertIn("asyncio.to_thread(GRADE_READ.selected, task.id, grade_read_assignment, u, miss, alt=grade_read_alt)", s)
         self.assertRegex(s, r'deal\["grade_read"\] = grade_read_assignment')
         self.assertIn("GRADE_READ.event(task_id, deal, result, price, observed_at)", s)
@@ -312,18 +338,26 @@ class SellerWiring(unittest.TestCase):
         for reason, before in (("selection", 'await up.reject(say("Sorry, we have none of that in stock."'),
                                ("warranty", 'await up.reject(say("Sorry, we cannot sell this item with a fair warranty'),
                                ("unit_unavailable", 'await up.reject(say("That unit is no longer available')):
-            call = f'GRADE_READ.rejected, task.id, grade_read_assignment, "{reason}", u)'
+            call = f'GRADE_READ.no_quote, task.id, grade_read_assignment, "{reason}", u)'
             self.assertIn(call, s)
             self.assertLess(s.index(call), s.index(before))
             self.assertLess(s.index(before) - s.index(call), 600)
+            self.assertIn("if grade_read_assignment is not None:", s[s.index(call) - 140:s.index(call)])
 
     def test_other_pick_before_any_await(self):
         s = self.SRC
-        i = s.index("self.stock.pick(text, rank=lambda x: floor_rank(x, ranked), add_grades=grade_add")
-        j = s.index("asyncio.to_thread(GRADE_READ.selected, task.id, grade_read_assignment, u, miss, alt=")
+        i = s.index("snapshot = self.stock.units()")
+        j = s.index("await asyncio.to_thread(GRADE_READ.selected, task.id, grade_read_assignment, u, miss, alt=")
         between = s[i:j]
+        self.assertEqual(between.count("units=snapshot"), 2)       # both arms' picks on one stock read
         self.assertIn('add_grades=None if grade_add else {"B"}', between)
-        self.assertNotIn("await", between.split("\n", 1)[1].rsplit("\n", 1)[0])
+        self.assertNotIn("await", between)
+        # OFF and ineligible: the original call, exactly
+        self.assertIn("u, miss = self.stock.pick(text, rank=lambda x: floor_rank(x, ranked), **grade_kwargs)", s)
+
+    def test_assign_reads_the_whole_message_and_pricing(self):
+        self.assertIn("GRADE_READ.assign, task.id, text if warranty_text is None else warranty_text,\n"
+                      "                                                                  pricing=pricing)", self.SRC)
 
     def test_switch_listed(self):
         import meta_harness
@@ -349,7 +383,7 @@ if mode!='off':
   share=1.0 if mode.startswith('B') else 0.0,start_at=time.time()-5,stop_at=time.time()+3600)))
 def unit(u,g,cost):
  return dict(unit=u,sku='G8ec51935',grade=g,kind='goods',name='소파',cost=cost,list_price=2320000,category='가구>소파',supplied_at=1,expires_at=None,cert=True)
-units=[] if mode.endswith('none') else [unit('u-a','A',1642751),unit('u-b','B',1322319)]
+units=([] if mode.endswith('none') else [unit('u-b','B',1322319)] if mode.endswith('war') else [unit('u-a','A',1642751),unit('u-b','B',1322319)])
 class Capture:
  def new_agent_message(self,**kw):return kw
  async def requires_input(self,message):self.message=message
@@ -377,7 +411,8 @@ class SellerSeam(unittest.TestCase):
         if mode not in cls.runs:
             with tempfile.TemporaryDirectory() as td:
                 p = Path(td)
-                (p / "pricing.json").write_text("{}")
+                (p / "pricing.json").write_text(json.dumps({"price": {"grade_break": {"A": 0.03, "B": 0.9, "C": 0.344}}})
+                                                if mode.endswith("war") else "{}")
                 (p / "memory.json").write_text('{"negotiations":[]}')
                 env = dict(os.environ, MARKET_DIR=td, SHOP_PRICING=str(p / "pricing.json"),
                            SHOP_MEMORY=str(p / "memory.json"), NEGOTIATE_ENGINE="jevrule")
@@ -410,12 +445,21 @@ class SellerSeam(unittest.TestCase):
         self.assertEqual(b["rows"][1]["grade"], "B")
         self.assertEqual((b["rows"][1]["unit_a"], b["rows"][1]["unit_b"], b["rows"][1]["switch"]), ("u-a", "u-b", True))
 
-    def test_none_in_stock_leaves_a_rejected_row(self):
+    def test_none_in_stock_leaves_a_no_quote_row(self):
         r = self.run_mode("Bnone")
         self.assertIn("none of that in stock", r["msg"])
         self.assertEqual([(x["event"], x.get("reason")) for x in r["rows"]],
-                         [("assigned", None), ("selected", None), ("rejected", "selection")])
+                         [("assigned", None), ("selected", None), ("no_quote", "selection")])
         self.assertEqual(r["rows"][1]["miss"], "not in stock")
+        self.assertFalse(r["rows"][1]["switch"])
+
+    def test_warranty_refusal_leaves_a_no_quote_row(self):
+        # only a grade B unit, and B breaks over warranty.max_break: arm B picks it and the quote refuses it
+        r = self.run_mode("Bwar")
+        self.assertIn("fair warranty", r["msg"])
+        self.assertEqual([(x["event"], x.get("reason")) for x in r["rows"]],
+                         [("assigned", None), ("selected", None), ("no_quote", "warranty")])
+        self.assertEqual((r["rows"][2]["unit"], r["rows"][2]["grade"]), ("u-b", "B"))
 
 
 if __name__ == "__main__":
