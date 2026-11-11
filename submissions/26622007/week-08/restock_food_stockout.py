@@ -1,7 +1,7 @@
 """List unlisted food SKUs that sell out between supply windows, during a finite study.
 
 Why: over 11/10 14:19-11/11 14:19 (our units_in/units_out and stock counts, .market/measure; review
-W-20261111-1415-AXPro주기 food-stockout.md) six unlisted food SKUs with 168 h shelf life sat at zero stock
+W-20261111-1415-AXPro주기 verdict-kit/cand-24h.json) six unlisted food SKUs with 168 h shelf life sat at zero stock
 62-92% of the time and sold within 0.25-0.8 h when held: G7e48d0d9 bought 202, sold 201, 2.5k net/unit,
 zero 62%; Gcbadc27c 88/87, 2.0k, zero 82%; Gc23914fc 18/18, 2.2k, 90%; G2968d8bd 22/21, 1.9k, 92%;
 G69ee6a63 18/18, 1.6k, 92%; Geb6684be 32/32, 1.5k, 86% (net is sale price less unit cost less the cost
@@ -13,7 +13,9 @@ urgent_listed's first group with the listed food that has none held, as G200e39a
 Only arm B's named SKUs, food in the catalog with at least MIN_SHELF_HOURS of shelf life, are appended to
 the end of priority_skus with a target of `units` (1-20) inside the switch window. Arm A and all others
 keep pricing.json. guard() still applies food_max_qty, food_max_stock_cost, the cash buffer and the line
-cap; prices do not change. Units bought in the window may sell afterwards as usual but are not bought
+cap; prices do not change. The default target is 20 (the demand model asks up to 20 for G7e48d0d9, 19 for
+Gcbadc27c), so listing does not hold an SKU below what wanted() would buy. Listed, a SKU leaves the
+unlisted-only surge halving and exclusion rules in restock.py like any listed SKU. Units bought in the window may sell afterwards as usual but are not bought
 again. Switch: .market/restock_food_stockout.json. RESTOCK_FOOD_STOCKOUT=0 turns it off. A new salt or
 treat needs a new study id.
 """
@@ -26,7 +28,7 @@ from pathlib import Path
 
 SWITCH = "restock_food_stockout.json"
 MAX_WINDOW_HOURS = 12
-UNITS, UNITS_LOW, UNITS_HIGH = 10, 1, 20
+UNITS, UNITS_LOW, UNITS_HIGH = 20, 1, 20
 TREAT, TREAT_LOW, TREAT_HIGH = 0.5, 0.3, 1.0
 MIN_SHELF_HOURS = 72        # the 48 h food (G56827374, G9f10544a) waits: a 10-unit line could spoil
 
