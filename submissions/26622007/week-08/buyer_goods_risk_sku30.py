@@ -50,7 +50,7 @@ def switch_on(md, *, study, salt, start, end):
 
 
 def number(value):
-    return type(value) in (int, float) and math.isfinite(value)
+    return type(value) in (int, float) and -10**12 < value < 10**12 and math.isfinite(value)
 
 
 def candidate(offers, baseline, budget, chance):
@@ -74,7 +74,7 @@ def _shape(shop):
     return [(o.get('sku'), o.get('list_price'), o.get('qty')) for o in shop.get('usable') or []]
 
 
-def reserve(md, order, shops, budget, baseline, chance, now=None):
+def reserve(md, order, shops, budget, baseline, chance, now=None, conflict=None):
     """Freeze the same acceptable inventory before selection. No model work OFF.
 
     A tombstone makes retries/colliding processes untreated, never reassigned.
@@ -89,6 +89,11 @@ def reserve(md, order, shops, budget, baseline, chance, now=None):
             not cfg['start'] <= started <= now < cfg['end'] or
             any(order.get(k) for k in ('_goods_take30', '_stock_evidence', '_goods_extra_quote_probe',
                                       '_quote_alignment', '_our_ask', '_moss_first'))):
+        return None
+    try:
+        if conflict is not None and conflict():
+            return None
+    except Exception:  # another trial whose state is unknown never permits a new treatment
         return None
     note = dict(study=cfg['study'], arm=arm(cfg, order['order']), applied=False, eligible_shops=0)
     order[KEY] = note

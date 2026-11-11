@@ -208,6 +208,20 @@ class RiskSkuCandidateTest(unittest.TestCase):
         self.assertEqual(sum(r is not None for r in results),1)
         self.assertEqual(len(list(Path(self.md).glob(trial.PREFIX+'*.json'))),1)
 
+    def test_oversize_integer_switch_fails_closed_without_crashing_main(self):
+        self.flag(start=10**400,end=10**400+1800)
+        self.assertIsNone(trial.config(self.md,2000000001))
+        with patch.object(trial.time,'time',return_value=1999999990):
+            with self.assertRaises(ValueError):
+                trial.switch_on(self.md,study='fixture',salt='fixture',start=10**400,end=10**400+1800)
+
+    def test_existing_price_trials_are_excluded_before_selection_but_not_read_off(self):
+        self.assertIsNone(self.reserve(conflict=lambda: (_ for _ in ()).throw(AssertionError('OFF conflict lookup'))))
+        self.flag()
+        self.assertIsNone(self.reserve(conflict=lambda:True))
+        self.assertIsNone(trial.measurement(self.order))
+        self.assertEqual(len(list(Path(self.md).iterdir())),1)
+
     def test_existing_break_model_can_choose_lower_risk_acceptable_sku(self):
         high = dict(sku='G11111111', name='fixture high', list_price=10000, qty=1)
         low = dict(sku='G22222222', name='fixture low', list_price=8000, qty=1)
