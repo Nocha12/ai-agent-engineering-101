@@ -31,6 +31,10 @@ Switch: .market/seller_food_margin.json {"enabled": true, "study": "<id>", "salt
 Missing, unreadable, a bad value or time, or anything else is off, and off is today's price exactly.
 SELLER_FOOD_MARGIN=0 in the environment is off too. Write it with switch_on(). Read at every quote: no restart either
 way, and the treatment stops by itself at stop_at. Never raises. A new salt or share needs a new study id.
+
+Default: price.food_reserve_margin (0.02-0.10) applies arm-B pricing to every eligible food unit as arm "D"
+when no study switch is on; a running study wins. SELLER_FOOD_MARGIN=0 turns both off. Remove the key to go back
+to today's price. Verdict: review/W-20261111-1938-AXPro주기/verdict-food-margin10.md.
 """
 import hashlib
 import json
@@ -115,19 +119,26 @@ def decide(u, q, *, reserve, ask, keep, margin_assignment, pricing=None, md=None
     """(reserve, ask, record|None). u: the unit; q: profit_price.quote()'s result; reserve and ask: the talk's so far.
     Today's reserve and ask unless arm B raises them."""
     try:
+        env = os.environ if env is None else env
+        if str(env.get("SELLER_FOOD_MARGIN") or "").strip().lower() in ("0", "false", "no", "off"):
+            return reserve, ask, None
         cfg = config(md, env, now)
+        if cfg is None:
+            share = profit_price.cfg_of(pricing).get("food_reserve_margin")
+            if _share_ok(share):
+                cfg = {"study": "default", "share": float(share), "stop_at": None}
         if (not cfg or not isinstance(u, dict) or u.get("kind") != "food" or not _num(u.get("list_price"))
                 or u["list_price"] <= 0 or not _num(u.get("cost")) or u["cost"] <= 0
                 or not _num(reserve) or not _num(ask) or not _num(keep) or keep < 1 or margin_assignment is not None
                 or str(q.get("why") or "").startswith(("ask cap", "scarce ask", "trial "))
                 or profit_price.ask_cap(profit_price.cfg_of(pricing), u) is not None):
             return reserve, ask, None
-        a = arm(cfg, u.get("unit"))
+        a = "D" if cfg["stop_at"] is None else arm(cfg, u.get("unit"))
         if a is None:
             return reserve, ask, None
         lp = u["list_price"]
         new_reserve, new_ask = reserve, ask
-        if a == "B":
+        if a in ("B", "D"):
             new_reserve = int(max(reserve, min(math.ceil(u["cost"] * (1 + cfg["share"])), lp)))
             new_ask = int(max(ask, new_reserve))
         return new_reserve, new_ask, {"study": cfg["study"], "arm": a, "share": cfg["share"], "usual_reserve": reserve,

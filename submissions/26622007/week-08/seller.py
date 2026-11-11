@@ -627,7 +627,7 @@ class Seller(AgentExecutor):
                     f" reserve {reserve} ask {ask_price} (usual {market_floor['usual_reserve']} / {market_floor['usual_ask']},"
                     f" median {market_floor['median']})")
         food_margin = None
-        if keep >= 1:         # food reserve margin A/B (seller_food_margin, default off): never a markdown talk
+        if keep >= 1:         # food reserve margin (default D or study A/B): never a markdown talk
             reserve, ask_price, food_margin = seller_food_margin.decide(
                 u, q, reserve=reserve, ask=ask_price, keep=keep, margin_assignment=margin_assignment, pricing=pricing)
             if food_margin:

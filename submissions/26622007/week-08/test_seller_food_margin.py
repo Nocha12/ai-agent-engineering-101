@@ -50,6 +50,71 @@ class SellerFoodMarginTest(unittest.TestCase):
         self.assertEqual(q["floor"], 30000)                 # ceil(29924 x 1.0025 + 1): 0.25% over cost
         self.assertEqual(q["open"], 30000)                  # the SKU median is under it: the first ask is the floor
 
+    def test_default_food_margin_raises_reserve_and_records_default(self):
+        u = unit()
+        q = self.q(u)
+        reserve, ask, rec = self.run_(u, q, pricing={"price": {"food_reserve_margin": 0.10}})
+        self.assertEqual((reserve, ask), (32917, 32917))
+        self.assertIsNotNone(rec)
+        self.assertEqual((rec["study"], rec["arm"], rec["share"], rec["stop_at"]),
+                         ("default", "D", 0.10, None))
+        self.assertEqual((rec["usual_reserve"], rec["usual_ask"], rec["cost"], rec["unit"]),
+                         (30000, 30000, 29924, u["unit"]))
+
+    def test_repository_pricing_enables_default_food_margin(self):
+        with Path(fd.__file__).with_name("pricing.json").open(encoding="utf-8") as f:
+            pricing = json.load(f)
+        u = unit()
+        rec = self.run_(u, self.q(u), pricing=pricing)[2]
+        self.assertIsNotNone(rec)
+        self.assertEqual((rec["arm"], rec["share"]), ("D", 0.10))
+
+    def test_default_caps_at_list_and_never_lowers_today(self):
+        pricing = {"price": {"food_reserve_margin": 0.10}}
+        for cost, reserve, ask, expected in ((37000, 37100, 37200, (37900, 37900)),
+                                             (38000, 39000, 40000, (39000, 40000)),
+                                             (10000, 12000, 15000, (12000, 15000))):
+            with self.subTest(cost=cost):
+                result = fd.decide(unit(cost=cost), {}, reserve=reserve, ask=ask, keep=1,
+                                   margin_assignment=None, pricing=pricing, md=self.md.name, env={}, now=ON)
+                self.assertEqual(result[:2], expected)
+                self.assertEqual(result[2]["arm"], "D")
+
+    def test_default_ineligible_talks_and_env_off_unchanged(self):
+        u = unit()
+        q = self.q(u)
+        pricing = {"price": {"food_reserve_margin": 0.10}}
+        same = (q["floor"], q["open"], None)
+        for changes in ({"keep": 0.9}, {"margin": {}}, {"env": {"SELLER_FOOD_MARGIN": "0"}}):
+            with self.subTest(changes=changes):
+                self.assertEqual(self.run_(u, q, pricing=pricing, **changes), same)
+        for changes in ({"kind": "goods"}, {"list_price": 0}, {"cost": 0}):
+            self.assertEqual(self.run_(unit(**changes), q, pricing=pricing), same)
+        for why in ("ask cap 30500", "scarce ask 31000", "trial 0.9 x median"):
+            self.assertEqual(self.run_(u, {**q, "why": why}, pricing=pricing), same)
+        capped = {"price": {**pricing["price"], "ask_caps": {u["sku"]: {"A": 30500}}}}
+        self.assertEqual(self.run_(u, q, pricing=capped), same)
+
+    def test_default_missing_or_bad_share_keeps_today(self):
+        u = unit()
+        q = self.q(u)
+        for pricing in (None, {}, {"price": {}}, *({"price": {"food_reserve_margin": bad}}
+                        for bad in (0.01, 0.11, True, float("nan"), "0.10", None))):
+            with self.subTest(pricing=pricing):
+                self.assertEqual(self.run_(u, q, pricing=pricing), (q["floor"], q["open"], None))
+
+    def test_running_study_wins_over_default(self):
+        u = unit()
+        q = self.q(u)
+        pricing = {"price": {"food_reserve_margin": 0.10}}
+        for arm, expected in (("A", 30000), ("B", 31421)):
+            self.on(salt=self.salt_for(arm))
+            reserve, ask, rec = self.run_(u, q, pricing=pricing)
+            self.assertEqual((reserve, ask, rec["study"], rec["arm"], rec["share"]),
+                             (expected, expected, "food-margin-t", arm, 0.05))
+            self.assertEqual(self.run_(u, q, pricing=pricing, env={"SELLER_FOOD_MARGIN": "0"}),
+                             (30000, 30000, None))
+
     def test_off_is_todays_price(self):
         u = unit()
         q = self.q(u)
