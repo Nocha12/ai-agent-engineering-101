@@ -4,6 +4,7 @@ import threading
 import unittest
 from unittest import mock
 
+import buyer_stats
 import market_buyer
 import market_model
 
@@ -57,6 +58,79 @@ class BuyerStatsTests(unittest.TestCase):
         self.saved = dict(market_buyer._LEDGER)
         market_buyer._LEDGER.clear()
         self.addCleanup(lambda: (market_buyer._LEDGER.clear(), market_buyer._LEDGER.update(self.saved)))
+
+    def test_break_window_matches_original_contract(self):
+        self.assertEqual(buyer_stats.BREAK_WINDOW, 25200)
+        self.assertEqual(buyer_stats.BREAK_WINDOW, market_model.BREAK_WINDOW)
+
+    def test_link_and_stats_contract_table(self):
+        # These are worked examples, not expectations computed by either implementation.
+        # All table entries below are (key, sold, broke), in required insertion order.
+        def sale(seq, ts, *, sku="g", buyer="b", order=None, grade="A", shop="s"):
+            return dict(k="settle", seq=seq, ts=ts, sku=sku, buyer=buyer,
+                        order=order, grade=grade, shop=shop)
+
+        def broken(seq, ts, *, sku="g", buyer="b", order=None):
+            return dict(k="broken", seq=seq, ts=ts, sku=sku, buyer=buyer, order=order)
+
+        cases = [
+            # An existing order with the wrong SKU must not link or fall back.
+            ("03_direct_sku", [sale(1, 100, order="o"),
+                               broken(11, 101, sku="h", order="o")],
+             [], 1, 0, 0.0, [("g", 1, 0)], [("A", 1, 0)], [("s", 1, 0)], [("g|A", 1, 0)]),
+            ("06_future_sale", [sale(1, 101), broken(11, 100)],
+             [], 1, 0, 0.0, [("g", 1, 0)], [("A", 1, 0)], [("s", 1, 0)], [("g|A", 1, 0)]),
+            ("window_zero_inclusive", [sale(1, 100), broken(11, 100)],
+             [(11, 1)], 1, 1, 1.0, [("g", 1, 1)], [("A", 1, 1)], [("s", 1, 1)], [("g|A", 1, 1)]),
+            ("window_7h_inclusive", [sale(1, 100), broken(11, 25300)],
+             [(11, 1)], 1, 1, 1.0, [("g", 1, 1)], [("A", 1, 1)], [("s", 1, 1)], [("g|A", 1, 1)]),
+            ("07_window_7h_plus_one", [sale(1, 100), broken(11, 25301)],
+             [], 1, 0, 0.0, [("g", 1, 0)], [("A", 1, 0)], [("s", 1, 0)], [("g|A", 1, 0)]),
+            ("10_latest", [sale(1, 100), sale(2, 101, grade="B", shop="t"), broken(11, 102)],
+             [(11, 2)], 2, 1, 0.5, [("g", 2, 1)], [("A", 1, 0), ("B", 1, 1)],
+             [("s", 1, 0), ("t", 1, 1)], [("g|A", 1, 0), ("g|B", 1, 1)]),
+            ("13_used_once", [sale(1, 100), broken(11, 101), broken(12, 102)],
+             [(11, 1)], 1, 1, 1.0, [("g", 1, 1)], [("A", 1, 1)], [("s", 1, 1)], [("g|A", 1, 1)]),
+            ("16_goods_only", [sale(1, 100, sku="food"), sale(2, 100),
+                               broken(11, 101, sku="food"), broken(12, 101)],
+             [(11, 1), (12, 2)], 1, 1, 1.0, [("g", 1, 1)], [("A", 1, 1)], [("s", 1, 1)], [("g|A", 1, 1)]),
+            ("17_same_buyer", [sale(1, 100), sale(2, 101, buyer="other", grade="B", shop="t"),
+                               broken(11, 102)],
+             [(11, 1)], 2, 1, 0.5, [("g", 2, 1)], [("A", 1, 1), ("B", 1, 0)],
+             [("s", 1, 1), ("t", 1, 0)], [("g|A", 1, 1), ("g|B", 1, 0)]),
+            # Direct links are emitted first, even when the fallback row arrived first.
+            ("direct_before_fallback", [sale(1, 100, order="one"),
+                                        sale(2, 101, order="two", grade="B", shop="t"),
+                                        broken(11, 102), broken(12, 103, order="two")],
+             [(12, 2), (11, 1)], 2, 2, 1.0, [("g", 2, 2)],
+             [("A", 1, 1), ("B", 1, 1)], [("s", 1, 1), ("t", 1, 1)],
+             [("g|A", 1, 1), ("g|B", 1, 1)]),
+        ]
+        catalog = {"g": {"kind": "goods"}, "h": {"kind": "goods"}, "food": {"kind": "food"}}
+        for name, rows, pairs, sold, broke, rate, skus, grades, shops, sku_grades in cases:
+            with self.subTest(rule=name):
+                original_links = market_model.link_broken(rows)
+                candidate_links, sales = buyer_stats._scan(rows)
+                self.assertEqual([(b["seq"], s["seq"]) for b, s in original_links], pairs)
+                self.assertEqual([(b["seq"], s["seq"]) for b, s in candidate_links], pairs)
+                self.assertEqual(json.dumps(candidate_links), json.dumps(original_links))
+                self.assertEqual(sales, [r for r in rows if r["k"] == "settle"])
+
+                def table(entries):
+                    return {key: {"sold": s, "broke": b} for key, s, b in entries}
+
+                expected = dict(sold=sold, broke=broke, rate=rate,
+                                by_sku=table(skus), by_grade=table(grades),
+                                by_shop=table(shops), by_sku_grade=table(sku_grades))
+                original = market_model.break_stats(rows, catalog)
+                actual = buyer_stats.break_stats(rows, catalog)
+                # JSON comparison protects key insertion order as well as values.
+                self.assertEqual(json.dumps(original), json.dumps(expected))
+                self.assertEqual(json.dumps(actual), json.dumps(expected))
+                self.assertEqual(json.dumps(actual), json.dumps(original))
+                with mock.patch.object(market_buyer.market_model, "load_rows", return_value=rows):
+                    via_buyer = market_buyer.ledger_breaks("contract-" + name, catalog)
+                self.assertEqual(json.dumps(via_buyer), json.dumps(expected))
 
     def test_all_sales_snapshot_is_classified_once_without_changing_link_priority(self):
         catalog = {"g": {"kind": "goods"}}
