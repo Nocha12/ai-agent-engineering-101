@@ -1,0 +1,882 @@
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_acp_gate.py:19: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient
+.........19:49:50 [acp] gate failed: RuntimeError: boom
+19:49:50 [acp] settled G1 at 77000, ledger #9
+.19:49:50 [acp] checkout gate acp_gate.py loaded
+.19:49:50 [acp] settled G1 at 77000, ledger #9
+...................................................TRIAL_INVALID at_floor_snapshot
+...TRIAL_INVALID at_floor_quote
+.........[19:49:54] buyer [band] fixture: counter 10500 is over my limit 10000 but within 10500: taken
+.[19:49:54] buyer [b3] fixture: counter 9800 over 0.92 of 10500, offer 9660
+.[19:49:54] buyer [band] fixture: counter 10500 is over my limit 10000 but within 10500: taken
+.....[19:49:54] buyer FAST the ask 10420 is at or under my last offer -> offering it, no harness call
+[19:49:54] buyer shop price 10420 (metadata)
+[19:49:54] buyer DEAL {"price": 10420, "item": "G1"}
+[19:49:54] buyer FAST the ask 10420 is at or under my last offer -> offering it, no harness call
+[19:49:54] buyer shop price 10420 (metadata)
+[19:49:54] buyer GUARD offer 10420 > budget 10000 -> 10000
+[19:49:54] buyer DEAL {"price": 10000, "item": "G1"}
+.[19:49:54] buyer CODE the ask 10400 (metadata) -> offer 10400, no harness call
+[19:49:54] buyer shop price 10400 (metadata)
+[19:49:54] buyer GUARD offer 10400 > budget 10000 -> 10000
+[19:49:54] buyer DEAL {"price": 10000, "item": "G1"}
+[19:49:54] buyer CODE the ask 10400 (metadata) -> offer 10400, no harness call
+[19:49:54] buyer shop price 10400 (metadata)
+[19:49:54] buyer GUARD offer 10400 > budget 10000 -> 10000
+[19:49:54] buyer DEAL {"price": 10000, "item": "G1"}
+.[19:49:54] buyer CODE the ask 10400 (metadata) -> offer 10400, no harness call
+[19:49:54] buyer shop price 10400 (metadata)
+[19:49:54] buyer DEAL {"price": 10400, "item": "G1"}
+...................[19:49:54] buyer [b3] fixture: counter 960 over 0.92 of 1000, offer 920
+..[19:49:54] buyer [cap95-assignment] {"arm": "A", "order": "o1", "shop": "fixture", "sku": "G123", "study": "goods-cap95-20261107-2150", "time": 100}
+[19:49:54] buyer [cap95-matched] {"arm": "A", "ask": 100, "baseline_price": 80, "candidate_price": 76, "decision_price": 80, "history_index": 0, "limit": 80, "order": "o1", "shop": "fixture", "sku": "G123", "study": "goods-cap95-20261107-2150"}
+[19:49:54] buyer CODE the ask 100 (metadata) -> offer 80, no harness call
+[19:49:54] buyer shop price 100 (metadata)
+[19:49:54] buyer END TASK_STATE_CANCELED, no deal
+[19:49:54] buyer [cap95-assignment] {"arm": "B", "order": "o0", "shop": "fixture", "sku": "G123", "study": "goods-cap95-20261107-2150", "time": 100}
+[19:49:54] buyer [cap95-matched] {"arm": "B", "ask": 100, "baseline_price": 80, "candidate_price": 76, "decision_price": 76, "history_index": 0, "limit": 80, "order": "o0", "shop": "fixture", "sku": "G123", "study": "goods-cap95-20261107-2150"}
+[19:49:54] buyer CODE the ask 100 (metadata) -> offer 76, no harness call
+[19:49:54] buyer shop price 100 (metadata)
+[19:49:54] buyer END TASK_STATE_CANCELED, no deal
+[19:49:54] buyer CODE the ask 100 (metadata) -> offer 80, no harness call
+[19:49:54] buyer shop price 100 (metadata)
+[19:49:54] buyer END TASK_STATE_CANCELED, no deal
+...............................................[19:49:56] buyer [first95-assignment] {"arm": "A", "order": "o6", "shop": "fixture", "sku": "G123", "study": "goods-first95-20261107-2115", "time": 100}
+[19:49:56] buyer [first95-matched] {"arm": "A", "ask": 100, "baseline_price": 90, "candidate_price": 95, "decision_price": 90, "history_index": 0, "limit": 100, "order": "o6", "shop": "fixture", "sku": "G123", "study": "goods-first95-20261107-2115"}
+[19:49:56] buyer CODE the ask 100 (metadata) -> offer 90, no harness call
+[19:49:56] buyer shop price 100 (metadata)
+[19:49:56] buyer END TASK_STATE_CANCELED, no deal
+[19:49:56] buyer [first95-assignment] {"arm": "B", "order": "o0", "shop": "fixture", "sku": "G123", "study": "goods-first95-20261107-2115", "time": 100}
+[19:49:56] buyer [first95-matched] {"arm": "B", "ask": 100, "baseline_price": 90, "candidate_price": 95, "decision_price": 95, "history_index": 0, "limit": 100, "order": "o0", "shop": "fixture", "sku": "G123", "study": "goods-first95-20261107-2115"}
+[19:49:56] buyer CODE the ask 100 (metadata) -> offer 95, no harness call
+[19:49:56] buyer shop price 100 (metadata)
+[19:49:56] buyer END TASK_STATE_CANCELED, no deal
+[19:49:56] buyer CODE the ask 100 (metadata) -> offer 90, no harness call
+[19:49:56] buyer shop price 100 (metadata)
+[19:49:56] buyer END TASK_STATE_CANCELED, no deal
+.........[19:49:56] buyer [food-floor30] {"applied": true, "arm": "B", "baseline": 19652, "candidate": 19363, "decision": {"action": "offer", "price": 19363, "shop_price": 19652}, "order": "o-floor-2", "shop": "buzllightyear", "sku": "Gef4d3036", "study": "food-floor-test"}
+.[19:49:56] buyer [food-floor30] {"applied": true, "arm": "B", "baseline": 19652, "candidate": 19363, "decision": {"action": "offer", "price": 19363, "shop_price": 19652}, "order": "o-floor-2", "shop": "buzllightyear", "sku": "Gef4d3036", "study": "food-floor-test"}
+.....[19:49:56] buyer FAST the ask 6900 is at or under my last offer -> offering it, no harness call
+[19:49:56] buyer shop price 6900 (metadata)
+[19:49:56] buyer [food-floor30] {"applied": true, "arm": "B", "baseline": 6900, "candidate": 6700, "decision": {"action": "walk_away", "price": 0, "shop_price": 6900}, "order": "o-floor-2", "shop": "buzllightyear", "sku": "Gef4d3036", "study": "food-floor-test"}
+[19:49:56] buyer final decision guard: walk away
+[19:49:56] buyer stopping after turn 1; walking away
+[19:49:56] buyer -> CancelTask 38fa492d
+[19:49:56] buyer <- TASK_STATE_CANCELED
+[19:49:56] buyer END TASK_STATE_CANCELED, no deal
+.....[19:49:56] buyer CODE the ask 19652 (shop template) -> walk_away , no harness call
+[19:49:56] buyer GUARD harness read the price as 19652: not in this message, which names only my offer, but the shop's last ask -> offer 19652
+[19:49:56] buyer shop price 19652 (read by the harness)
+[19:49:56] buyer [food-floor30] {"applied": true, "arm": "B", "baseline": 19652, "candidate": 19363, "decision": {"action": "walk_away", "price": 0, "shop_price": 19652}, "order": "o-floor-2", "shop": "buzllightyear", "sku": "Gef4d3036", "study": "food-floor-test"}
+[19:49:56] buyer final decision guard: walk away
+[19:49:56] buyer stopping after turn 1; walking away
+[19:49:56] buyer -> CancelTask 38fa492d
+[19:49:56] buyer <- TASK_STATE_CANCELED
+[19:49:56] buyer END TASK_STATE_CANCELED, no deal
+.....................[19:49:56] buyer [choose] mode trusted: 2 of 2 shops (0 new with <= 3 reviews, 0 found cheap before)
+[19:49:56] buyer [choose-key] sku_key=Gef4d3036 canonical=0 pool_matches=1 receipt_memory_only=1
+..........................[19:49:57] buyer CODE the ask 9812 (shop template) -> offer 8634, no harness call
+[19:49:57] buyer shop price 9812 (read by the harness)
+[19:49:57] buyer END TASK_STATE_CANCELED, no deal
+[19:49:57] buyer CODE the ask 9812 (shop template) -> offer 8732, no harness call
+[19:49:57] buyer shop price 9812 (read by the harness)
+[19:49:57] buyer END TASK_STATE_CANCELED, no deal
+[19:49:57] buyer CODE the ask 9812 (shop template) -> offer 8732, no harness call
+[19:49:57] buyer shop price 9812 (read by the harness)
+[19:49:57] buyer END TASK_STATE_CANCELED, no deal
+[19:49:57] buyer CODE the ask 9812 (shop template) -> offer 8830, no harness call
+[19:49:57] buyer shop price 9812 (read by the harness)
+[19:49:57] buyer END TASK_STATE_CANCELED, no deal
+[19:49:57] buyer CODE the ask 9812 (shop template) -> offer 8830, no harness call
+[19:49:57] buyer shop price 9812 (read by the harness)
+[19:49:57] buyer END TASK_STATE_CANCELED, no deal
+[19:49:57] buyer CODE the ask 9812 (shop template) -> offer 8830, no harness call
+[19:49:57] buyer shop price 9812 (read by the harness)
+[19:49:57] buyer END TASK_STATE_CANCELED, no deal
+....................................[19:49:59] buyer [choose] no shops with this order in stock
+..................[19:49:59] buyer [choose] mode trusted: 2 of 2 shops (0 new with <= 3 reviews, 0 found cheap before)
+[19:49:59] buyer [choose-key] sku_key=Gx canonical=0 pool_matches=1 receipt_memory_only=1
+.........../Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_buyer_goods_grade.py:222: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/market_buyer.py' mode='r' encoding='utf-8'>
+  src = open(mb.__file__, encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+....../Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_buyer_goods_ladder.py:352: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/market_buyer.py' mode='r' encoding='utf-8'>
+  src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "market_buyer.py"), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+.............[19:49:59] buyer [choose] mode trusted: 2 of 2 shops (0 new with <= 3 reviews, 0 found cheap before)
+[19:49:59] buyer [choose-key] sku_key=G8ec51935 canonical=0 pool_matches=1 receipt_memory_only=1
+.......[19:49:59] buyer order: 음료, budget 28630; 1 shops; 0 trades in memory
+[19:49:59] buyer [choose] https://fixture.invalid: fixture-shop - fixture
+[19:49:59] buyer [offer] Gdf79cd07 풀무원 워터루틴 무라벨 생수 500mL X 60병(무라벨/유라벨 랜덤발송): list 15200, limit 10335, 1 fit
+[19:49:59] buyer stop before any offer: the shop's unit lasts 119.522 h, the order needs 360.1 h
+[19:49:59] buyer stopping after turn 1; walking away
+[19:49:59] buyer -> CancelTask fixture-
+[19:49:59] buyer <- TASK_STATE_CANCELED
+[19:49:59] buyer END TASK_STATE_CANCELED, no deal
+[19:49:59] buyer [memory] no deal, on the shop side
+[19:49:59] buyer memory: 1 trades saved to /tmp/tmpowjdmtd9/memory.json
+..........[19:49:59] buyer card 'fixture' -> http://127.0.0.1:50355/; item fixture item, budget 6000
+[19:49:59] buyer -> SendMessage 'fixture item'
+[19:49:59] buyer <- TASK_STATE_INPUT_REQUIRED | fixture asking 5000
+[19:49:59] buyer TAKE the ask 5000 is within 5000 -> offering it
+[19:49:59] buyer -> SendMessage '5000' taskId=887e7b92
+[19:49:59] buyer <- TASK_STATE_COMPLETED | Deal: fixture item (G12345678) at 5000. Signed receipt attached; the checkout ships unit u-123456abcdef with its market certificate. Your Moss & Oak member code is MOSS-ABCDEFGH; include it next time for member pricing.
+[19:49:59] buyer DEAL {"sig_seller": "fixture-signature", "item": "G12345678", "warranty_hours": 6.0, "shop": "moss-and-oak", "task": "887e7b92-2c6d-4db8-a4d1-706fa719c28f", "unit": "u-123456abcdef", "price": 5000.0}
+.[19:50:00] buyer card 'fixture' -> http://127.0.0.1:50361/; item fixture item, budget 6000
+[19:50:00] buyer -> SendMessage 'fixture item'
+[19:50:00] buyer <- TASK_STATE_INPUT_REQUIRED | fixture asking 5000
+[19:50:00] buyer TAKE the ask 5000 is within 5000 -> offering it
+[19:50:00] buyer -> SendMessage '5000' taskId=f8946f9e
+[19:50:00] buyer <- TASK_STATE_COMPLETED | Deal: fixture item (G12345678) at 5000. Signed receipt attached; the checkout ships unit u-123456abcdef with its market certificate. Your Moss & Oak member code is MOSS-ABCDEFGH; include it next time for member pricing.
+[19:50:00] buyer DEAL {"sig_seller": "fixture-signature", "item": "G12345678", "warranty_hours": 6.0, "shop": "moss-and-oak", "task": "f8946f9e-b33f-4a98-a2f7-2ff2c0eabadc", "unit": "u-123456abcdef", "price": 5000.0}
+..[19:50:00] buyer card 'fixture' -> http://127.0.0.1:50367/; item fixture item, budget 6000
+[19:50:00] buyer -> SendMessage 'fixture item'
+[19:50:00] buyer <- TASK_STATE_INPUT_REQUIRED | fixture asking 5000
+[19:50:00] buyer TAKE the ask 5000 is within 5000 -> offering it
+[19:50:00] buyer -> SendMessage '5000' taskId=6b3c15a8
+[19:50:00] buyer <- TASK_STATE_COMPLETED | Deal: fixture item (G12345678) at 5000. Signed receipt attached; the checkout ships unit u-123456abcdef with its market certificate. Your Moss & Oak member code is MOSS-ABCDEFGH; include it next time for member pricing.
+[19:50:00] buyer DEAL {"sig_seller": "fixture-signature", "item": "G12345678", "warranty_hours": 6.0, "shop": "moss-and-oak", "task": "6b3c15a8-baa3-48b2-ab1b-a08adfa8bdfc", "unit": "u-123456abcdef", "price": 5000.0}
+.[19:50:00] buyer order: fixture category, budget 10000; 1 shops; 0 trades in memory
+[19:50:00] buyer [quote] asking moss-and-oak while choosing
+[19:50:00] buyer [choose] mode explore: 1 of 1 shops (1 new with <= 3 reviews, 0 found cheap before)
+[19:50:00] buyer [choose-key] sku_key=G12345678 canonical=1 pool_matches=0 receipt_memory_only=1
+[19:50:00] buyer [choose] http://127.0.0.1:50376/: moss-and-oak - explore rule: asked already, 0 reviews
+[19:50:00] buyer -> SendMessage 'I want to buy fixture item (G12345678) with a 6 h warranty'
+[19:50:00] buyer <- TASK_STATE_INPUT_REQUIRED | fixture asking 5000
+[19:50:00] buyer [quote] moss-and-oak 5000 -> moss-and-oak
+[19:50:00] buyer memory note for the harness: it opened at 5000
+[19:50:00] buyer [offer] G12345678 fixture item: list 10000, limit 6799, 1 fit
+[19:50:00] buyer [offer] oneshot: 0.90 of the first ask, then the counter, priced by code
+[19:50:00] buyer going on with task b2653b28 at http://127.0.0.1:50376/; item fixture item, budget 6799
+[19:50:00] buyer CODE the ask 5000 (metadata) -> offer 4500, no harness call
+[19:50:00] buyer shop price 5000 (metadata)
+[19:50:00] buyer -> SendMessage '4500' taskId=b2653b28
+[19:50:00] buyer <- TASK_STATE_COMPLETED | Deal: fixture item (G12345678) at 4500. Signed receipt attached; the checkout ships unit u-123456abcdef with its market certificate. Your Moss & Oak member code is MOSS-ABCDEFGH; include it next time for member pricing.
+[19:50:00] buyer DEAL {"sig_seller": "fixture-signature", "item": "G12345678", "warranty_hours": 6.0, "shop": "moss-and-oak", "task": "b2653b28-c841-46d7-a6dc-dfeaa2f06c0c", "unit": "u-123456abcdef", "price": 4500.0}
+[19:50:00] buyer [member-price] issued offer retained pending this order's payment
+[19:50:00] buyer memory: 1 trades saved to /tmp/tmphpyi9dat/memory.json
+[19:50:00] buyer order: fixture category, budget 10000; 1 shops; 1 trades in memory
+[19:50:00] buyer [quote] asking moss-and-oak while choosing
+[19:50:00] buyer [choose] mode trusted: 1 of 1 shops (0 new with <= 3 reviews, 0 found cheap before)
+[19:50:00] buyer [choose-key] sku_key=G12345678 canonical=1 pool_matches=1 receipt_memory_only=1
+[19:50:00] buyer [choose] http://127.0.0.1:50376/: moss-and-oak - trusted rule: asked already, sold me G12345678 at 4500, 0 reviews
+[19:50:00] buyer [member-price] using paid code for moss-and-oak at its issuing RPC
+[19:50:00] buyer -> SendMessage 'I want to buy fixture item (G12345678) with a 6 h warranty Member code: MOSS-ABCDEFGH.'
+[19:50:00] buyer <- TASK_STATE_INPUT_REQUIRED | fixture asking 4500
+[19:50:00] buyer [quote] moss-and-oak 4500 -> moss-and-oak
+[19:50:00] buyer memory note for the harness: it sold fixture item to you at 4500; its lowest ask for fixture item so far was 5000; it opened at 4500
+[19:50:00] buyer [offer] G12345678 fixture item: list 10000, limit 6799, 1 fit
+[19:50:00] buyer [offer] oneshot: 0.90 of the first ask, then the counter, priced by code
+[19:50:00] buyer going on with task ec5b34cb at http://127.0.0.1:50376/; item fixture item, budget 6799
+[19:50:00] buyer CODE the ask 4500 (metadata) -> offer 4050, no harness call
+[19:50:00] buyer shop price 4500 (metadata)
+[19:50:00] buyer -> SendMessage '4050' taskId=ec5b34cb
+[19:50:00] buyer <- TASK_STATE_COMPLETED | Deal: fixture item (G12345678) at 4050. Signed receipt attached; the checkout ships unit u-123456abcdef with its market certificate. Your Moss & Oak member code is MOSS-ABCDEFGH; include it next time for member pricing.
+[19:50:00] buyer DEAL {"sig_seller": "fixture-signature", "item": "G12345678", "warranty_hours": 6.0, "shop": "moss-and-oak", "task": "ec5b34cb-2495-4cbe-aa7c-0f191b6999f0", "unit": "u-123456abcdef", "price": 4050.0}
+[19:50:00] buyer [member-price] issued offer retained pending this order's payment
+[19:50:00] buyer memory: 2 trades saved to /tmp/tmphpyi9dat/memory.json
+.[19:50:01] buyer order: fixture category, budget 10000; 1 shops; 0 trades in memory
+[19:50:01] buyer [quote] asking moss-and-oak while choosing
+[19:50:01] buyer [choose] mode explore: 1 of 1 shops (1 new with <= 3 reviews, 0 found cheap before)
+[19:50:01] buyer [choose-key] sku_key=G12345678 canonical=1 pool_matches=0 receipt_memory_only=1
+[19:50:01] buyer [choose] http://127.0.0.1:50386/: moss-and-oak - explore rule: asked already, 0 reviews
+[19:50:01] buyer -> SendMessage 'I want to buy fixture item (G12345678) with a 6 h warranty'
+[19:50:01] buyer <- TASK_STATE_INPUT_REQUIRED | fixture asking 5000
+[19:50:01] buyer [quote] moss-and-oak 5000 -> moss-and-oak
+[19:50:01] buyer memory note for the harness: it opened at 5000
+[19:50:01] buyer [offer] G12345678 fixture item: list 10000, limit 6799, 1 fit
+[19:50:01] buyer [offer] oneshot: 0.90 of the first ask, then the counter, priced by code
+[19:50:01] buyer going on with task bcc8411b at http://127.0.0.1:50386/; item fixture item, budget 6799
+[19:50:01] buyer CODE the ask 5000 (metadata) -> offer 4500, no harness call
+[19:50:01] buyer shop price 5000 (metadata)
+[19:50:01] buyer -> SendMessage '4500' taskId=bcc8411b
+[19:50:01] buyer <- TASK_STATE_COMPLETED | Deal: fixture item (G12345678) at 4500. Signed receipt attached; the checkout ships unit u-123456abcdef with its market certificate. Your Moss & Oak member code is MOSS-ABCDEFGH; include it next time for member pricing.
+[19:50:01] buyer DEAL {"sig_seller": "fixture-signature", "item": "G12345678", "warranty_hours": 6.0, "shop": "moss-and-oak", "task": "bcc8411b-b180-4f7d-9f78-234e8285c3e2", "unit": "u-123456abcdef", "price": 4500.0}
+[19:50:01] buyer [member-price] issued offer retained pending this order's payment
+[19:50:01] buyer memory: 1 trades saved to /tmp/tmpt1l0nkkv/memory.json
+[19:50:01] buyer [payments] moss-and-oak: G12345678 not paid: None
+[19:50:01] buyer order: fixture category, budget 10000; 1 shops; 1 trades in memory
+[19:50:01] buyer [quote] asking moss-and-oak while choosing
+[19:50:01] buyer [choose] mode low-review: 1 of 1 shops (0 new with <= 3 reviews, 0 found cheap before)
+[19:50:01] buyer [choose-key] sku_key=G12345678 canonical=1 pool_matches=0 receipt_memory_only=1
+[19:50:01] buyer [choose] http://127.0.0.1:50386/: moss-and-oak - low-review rule: asked already, 0 reviews
+[19:50:01] buyer -> SendMessage 'I want to buy fixture item (G12345678) with a 6 h warranty'
+[19:50:01] buyer <- TASK_STATE_INPUT_REQUIRED | fixture asking 5000
+[19:50:01] buyer [quote] moss-and-oak 5000 -> moss-and-oak
+[19:50:01] buyer memory note for the harness: its lowest ask for fixture item so far was 5000; it opened at 5000
+[19:50:01] buyer [offer] G12345678 fixture item: list 10000, limit 6799, 1 fit
+[19:50:01] buyer [offer] oneshot: 0.90 of the first ask, then the counter, priced by code
+[19:50:01] buyer going on with task f9b51939 at http://127.0.0.1:50386/; item fixture item, budget 6799
+[19:50:01] buyer CODE the ask 5000 (metadata) -> offer 4500, no harness call
+[19:50:01] buyer shop price 5000 (metadata)
+[19:50:01] buyer -> SendMessage '4500' taskId=f9b51939
+[19:50:01] buyer <- TASK_STATE_COMPLETED | Deal: fixture item (G12345678) at 4500. Signed receipt attached; the checkout ships unit u-123456abcdef with its market certificate. Your Moss & Oak member code is MOSS-ABCDEFGH; include it next time for member pricing.
+[19:50:01] buyer DEAL {"sig_seller": "fixture-signature", "item": "G12345678", "warranty_hours": 6.0, "shop": "moss-and-oak", "task": "f9b51939-bb05-4eaf-b60f-a879071ca5f3", "unit": "u-123456abcdef", "price": 4500.0}
+[19:50:01] buyer [member-price] issued offer retained pending this order's payment
+[19:50:01] buyer memory: 2 trades saved to /tmp/tmpt1l0nkkv/memory.json
+.[19:50:01] buyer card 'fixture' -> http://127.0.0.1:50393/; item fixture item, budget 6000
+[19:50:01] buyer -> SendMessage 'fixture item'
+[19:50:01] buyer <- TASK_STATE_INPUT_REQUIRED | fixture asking 5000
+[19:50:01] buyer TAKE the ask 5000 is within 5000 -> offering it
+[19:50:01] buyer -> SendMessage '5000' taskId=e39bbe77
+[19:50:01] buyer <- TASK_STATE_COMPLETED | Deal: fixture item (G12345678) at 5000. Signed receipt attached; the checkout ships unit u-123456abcdef with its market certificate. Your Moss & Oak member code is MOSS-ABCDEFGH; include it next time for member pricing.
+[19:50:01] buyer DEAL {"sig_seller": "fixture-signature", "item": "G12345678", "warranty_hours": 6.0, "shop": "moss-and-oak", "task": "e39bbe77-07d5-4a4f-8aee-a870d71d369f", "unit": "u-123456abcdef", "price": 5000.0}
+[19:50:01] buyer [member-price] using paid code for moss-and-oak at its issuing RPC
+[19:50:01] buyer -> SendMessage 'I want to buy fixture item (G12345678) with a 6 h warranty Member code: MOSS-ABCDEFGH.'
+[19:50:01] buyer <- TASK_STATE_INPUT_REQUIRED | fixture asking 4500
+[19:50:01] buyer [quote] closing the talk with moss-and-oak
+.[19:50:01] buyer order: fixture category, budget 10000; 1 shops; 0 trades in memory
+[19:50:01] buyer [quote] asking moss-and-oak while choosing
+[19:50:01] buyer [choose] mode explore: 1 of 1 shops (1 new with <= 3 reviews, 0 found cheap before)
+[19:50:01] buyer [choose-key] sku_key=G12345678 canonical=1 pool_matches=0 receipt_memory_only=1
+[19:50:01] buyer [choose] http://127.0.0.1:50400/: moss-and-oak - explore rule: asked already, 0 reviews
+[19:50:01] buyer -> SendMessage 'I want to buy fixture item (G12345678) with a 6 h warranty'
+[19:50:01] buyer <- TASK_STATE_INPUT_REQUIRED | fixture asking 5000
+[19:50:01] buyer [quote] moss-and-oak 5000 -> moss-and-oak
+[19:50:01] buyer memory note for the harness: it opened at 5000
+[19:50:01] buyer [offer] G12345678 fixture item: list 10000, limit 6799, 1 fit
+[19:50:01] buyer [offer] oneshot: 0.90 of the first ask, then the counter, priced by code
+[19:50:01] buyer going on with task c03c0d8a at http://127.0.0.1:50400/; item fixture item, budget 6799
+[19:50:01] buyer CODE the ask 5000 (metadata) -> offer 4500, no harness call
+[19:50:01] buyer shop price 5000 (metadata)
+[19:50:01] buyer -> SendMessage '4500' taskId=c03c0d8a
+[19:50:01] buyer <- TASK_STATE_COMPLETED | Deal: fixture item (G12345678) at 4500. Signed receipt attached; the checkout ships unit u-123456abcdef with its market certificate. Your Moss & Oak member code is MOSS-ABCDEFGH; include it next time for member pricing.
+[19:50:01] buyer DEAL {"sig_seller": "fixture-signature", "item": "G12345678", "warranty_hours": 6.0, "shop": "moss-and-oak", "task": "c03c0d8a-7402-439c-8ed8-362e697e8c4b", "unit": "u-123456abcdef", "price": 4500.0}
+[19:50:01] buyer [member-price] issued offer retained pending this order's payment
+[19:50:01] buyer memory: 1 trades saved to /tmp/tmp5z9thyt3/memory.json
+[19:50:01] buyer order: fixture category, budget 10000; 1 shops; 1 trades in memory
+[19:50:01] buyer [choose] mode trusted: 1 of 1 shops (0 new with <= 3 reviews, 0 found cheap before)
+[19:50:01] buyer [choose] http://127.0.0.1:50400/: moss-and-oak - trusted: the only shop in the pool
+[19:50:01] buyer memory note for the harness: it sold fixture item to you at 4500; its lowest ask for fixture item so far was 5000
+[19:50:01] buyer [offer] G12345678 fixture item: list 10000, limit 6799, 1 fit
+[19:50:01] buyer [offer] oneshot: 0.90 of the first ask, then the counter, priced by code
+[19:50:01] buyer card 'fixture' -> http://127.0.0.1:50400/; item fixture item, budget 6799
+[19:50:01] buyer -> SendMessage 'I want to buy fixture item (G12345678) with a 6 h warranty'
+[19:50:01] buyer <- TASK_STATE_INPUT_REQUIRED | fixture asking 5000
+[19:50:01] buyer CODE the ask 5000 (metadata) -> offer 4500, no harness call
+[19:50:01] buyer shop price 5000 (metadata)
+[19:50:01] buyer -> SendMessage '4500' taskId=82077884
+[19:50:01] buyer <- TASK_STATE_COMPLETED | Deal: fixture item (G12345678) at 4500. Signed receipt attached; the checkout ships unit u-123456abcdef with its market certificate. Your Moss & Oak member code is MOSS-ABCDEFGH; include it next time for member pricing.
+[19:50:01] buyer DEAL {"sig_seller": "fixture-signature", "item": "G12345678", "warranty_hours": 6.0, "shop": "moss-and-oak", "task": "82077884-b39d-4dca-b9aa-79fde6d6cce4", "unit": "u-123456abcdef", "price": 4500.0}
+[19:50:01] buyer [member-price] issued offer retained pending this order's payment
+[19:50:01] buyer memory: 2 trades saved to /tmp/tmp5z9thyt3/memory.json
+.......[19:50:02] buyer [final-m1 shadow] kimauve: Final price 9600 is my last offer, offers spent: would offer it, walking as before
+............................[19:50:02] buyer [moss-first] moss-and-oak: arm B, the quote's ask 518149 -> offer 466334 by code
+.[19:50:02] buyer [final-m1 shadow] moss-and-oak: Final price 9600 is my last offer, offers spent: would offer it, walking as before
+..........[19:50:02] buyer [opening probe] assignment unavailable (JSONDecodeError); keeping baseline
+........[19:50:02] buyer CODE the ask 10000 (metadata) -> offer 1, no harness call
+[19:50:02] buyer shop price 10000 (metadata)
+[19:50:02] buyer CODE the ask 9500 (metadata) -> offer 9500, no harness call
+[19:50:02] buyer shop price 9500 (metadata)
+[19:50:02] buyer DEAL {"price": 9500, "item": "G1"}
+................................................................[19:50:07] buyer [quote] failed: TimeoutError: test network boundary
+....[19:50:07] buyer [choose] no shops with this order in stock
+.........................................[19:50:13] buyer [saved-floor] arm B: share 0.3200 (board Saved 0.3096), band off True
+[19:50:13] buyer [choose] no shops with this order in stock
+.....................................................................................................[19:50:14] buyer [quote] a: no ACP checkout, a deal there cannot settle
+...[19:50:14] buyer [quote] a: no ACP checkout, a deal there cannot settle
+.[19:50:14] buyer [quote] b: no ACP checkout, a deal there cannot settle
+................{"warning": "off was written without the writers' lock: a writer still running could put a window back; run --off again"}
+....usage: -c [-h] [--market-dir MARKET_DIR] [--start START] [--end END]
+          [--salt SALT] [--off] [--new-study]
+          {final_m1,moss_first,our_ask}
+-c: error: argument study: invalid choice: '0' (choose from final_m1, moss_first, our_ask)
+....................[19:50:15] buyer shop price 12000 (metadata)
+[19:50:15] buyer harness: walk away
+[19:50:15] buyer stopping after turn 1; walking away
+[19:50:15] buyer -> CancelTask t-1
+[19:50:15] buyer <- TASK_STATE_CANCELED
+[19:50:15] buyer END TASK_STATE_CANCELED, no deal
+.[19:50:15] buyer TAKE the ask 9000 is within 10000 -> offering it
+[19:50:15] buyer DEAL {"price": 9000, "item": "G1"}
+.[19:50:15] buyer TAKE the ask 9000 is within 10000 -> offering it
+[19:50:15] buyer TAKE the ask 8500 is within 10000 -> offering it
+[19:50:15] buyer DEAL {"price": 8500}
+.[19:50:15] buyer shop price 9000 (read by the harness)
+[19:50:15] buyer harness: walk away
+[19:50:15] buyer stopping after turn 1; walking away
+[19:50:15] buyer -> CancelTask t-1
+[19:50:15] buyer <- TASK_STATE_CANCELED
+[19:50:15] buyer END TASK_STATE_CANCELED, no deal
+.[19:50:15] buyer TAKE the ask 9000 is within 10000 -> offering it
+[19:50:15] buyer shop price 9000 (metadata)
+[19:50:15] buyer harness: walk away
+[19:50:15] buyer stopping after turn 2; walking away
+[19:50:15] buyer -> CancelTask t-1
+[19:50:15] buyer <- TASK_STATE_CANCELED
+[19:50:15] buyer END TASK_STATE_CANCELED, no deal
+.[19:50:15] buyer shop price 10500 (metadata)
+[19:50:15] buyer harness: walk away
+[19:50:15] buyer stopping after turn 1; walking away
+[19:50:15] buyer -> CancelTask t-1
+[19:50:15] buyer <- TASK_STATE_CANCELED
+[19:50:15] buyer END TASK_STATE_CANCELED, no deal
+............{"refused": "[Errno 2] the market dir is not there: '/tmp/tmpzo_ae85u/nope/.market'"}
+{"refused": "the writers' lock cannot be taken: [Errno 2] the market dir is not there: '/tmp/tmpzo_ae85u/nope/.market'"}
+{"refused": "[Errno 28] No space left on device"}
+{"path": "/tmp/tmpsh7n_mkg/buyer_our_ask.json", "body": {"enabled": true, "salt": "b", "start": 1794394814.8444831, "end": 1794427214.8444831}, "written": 1794394214.8454452}
+{"path": "/tmp/tmppj9k2iin/buyer_our_ask.json", "body": {"enabled": false, "stopped": {"start": 1794394814.869798, "end": 1794427214.869798, "at": 1794394214.870859, "salt": "b"}}, "written": 1794394214.874319, "history": true, "locked": false}
+{"path": "/tmp/tmpqfscjbsd/buyer_final_m1.json", "body": {"enabled": true, "start": 1794394814.8948438, "end": 1794396614.8948438}, "written": 1794394214.8959723}
+{"refused": "window 12.9833 h is over the study's maximum 12 h"}
+{"path": "/tmp/tmpqfscjbsd/buyer_final_m1.json", "body": {"enabled": false, "stopped": {"start": 1794394814.8948438, "end": 1794396614.8948438, "at": 1794394214.898093}}, "written": 1794394214.8983557, "history": true, "locked": true}
+.....Dispatcher task is not running. Cannot wait for event dispatch.
+........................................................................................[restock] guard: H1 breaks 39% > 15%, left out
+.[restock] guard: H1 5 -> 0 (units per SKU)
+[restock] guard: H1 20 -> 0 (cash kept)
+[restock] guard: H1 20 -> 2 (cash kept)
+[restock] guard: H1 20 -> 1 (cash kept)
+.[restock] guard: M2 4 -> 2 (units per SKU)
+[restock] guard: M3 high price, not in high_price_proven_skus / priority_skus, left out
+[restock] guard: H1 4 -> 1 (units per SKU)
+[restock] guard: M2 4 -> 2 (units per SKU)
+[restock] guard: M3 4 -> 2 (units per SKU)
+[restock] guard: H1 4 -> 1 (units per SKU)
+[restock] guard: M1 4 -> 2 (units per SKU)
+[restock] guard: M2 4 -> 1 (units per SKU)
+[restock] guard: M3 4 -> 2 (units per SKU)
+.[tools] left out bad: exit 3: 
+[tools] left out flaky: 5 of its last 5 calls failed
+.../Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/catalog.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/tool_forge.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/negotiate_pro.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_accept_band.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_switch_write.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/market_ref_read.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/measure.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_first95_trial.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/seller_goods_margin.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/strategy_screen.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_post_market.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/seller_late_concession.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/harness.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_warranty_said.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_food_sku.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/sim_restock.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/seller_concession_trial.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_post.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/run_market.sh' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_goods_quote_probe.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_food_shelf.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/SHELF_LIFE_TRIAL.md' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/AT_FLOOR_EXACT_TRIAL.md' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_firm_followup.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/jev_connection_pool.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/quote_hold.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/seller_food_margin.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/seller_terminal_observation.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_short_warranty.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/oneshot.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/market_model.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_saved_floor.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_stats.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/profit_price.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_food_floor30.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/shelf_fact.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/EXACT_COUNTER_TRIAL.md' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/agent_loop.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/food_opening_trial.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/seller_reader_trial.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/SELLER_DRAIN.md' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/exact_accept_trial.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_moss_first.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/opening.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_goods_first_one.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/shelf_life_reply.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/restock_turnover_targets.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/warranty_fact.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/review.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_stock_evidence.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/grade_break_trial_switch.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/shop_stock.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/agent_memory.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_shop_profile.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/scorecard.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_cap95_trial.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/README.md' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/ask_read.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/SELLER_CONCESSION_TRIAL.md' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/seller_send_observation.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/restock_breadth.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/seller_opening_default.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/OPENING_CUE_TRIAL.md' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/GRADE_PREFERENCE_TRIAL.md' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_opening_discount.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/sol_seller_margin.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_firm_trial.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/rival_deny.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/restock.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/B1_STOCK_EVIDENCE.md' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/lib_single.sh' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_rank_pg.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/restock_fresh_slots.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/deep_lowball_trial.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/rank-integrity.md' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/at_floor_exact_trial.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/seller.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/rival_vote.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/isolated_suite.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/hard_limits.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/profit_cohorts.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/isolated_checks.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/shop_forum.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_food_open30.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/sol_source_load.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/install_launchd.sh' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/forum.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/acp_gate.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_quote_alignment.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_food_ladder.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/run_meta.sh' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/seller_market_floor.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/seller_single_price.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/seller_price_first.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/seller_warranty_trial.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_b3b1.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/seller_opening_cue.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/seller_floor_margin.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/loss_watch.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/meta_harness.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/keep_logs.sh' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/render_start.sh' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/shop_memory.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/seller_grade_preference.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_quote_deadline.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/acp_local_check.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/shelf_jev_skip.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/restock_food_stockout.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_goods_ladder.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/fast_classify.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/JEV_TRANSPORT_TRIAL.md' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_quote_alignment_policy.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_goods_grade.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/decision_memory.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/scale_measure.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_our_ask.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/acp_shop.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/buyer_member.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/restock_window_fast.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/ensure_running.sh' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/grade_read.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/agent_tools.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/EXACT_ACCEPT_TRIAL.md' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/seller_jev_transport.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/seller_drain.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/FOOD_OPENING_TRIAL.md' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/seller_a_open.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/acp_render_check.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/negotiate.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/seller_late_speed.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/market_buyer.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/exact_counter_trial.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/patch_notes.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_caution.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/seller_drain_wait.py' mode='r' encoding='utf-8'>
+  text = open(os.path.join(HERE, name), encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+..[19:50:18] buyer [choose] mode trusted: 3 of 3 shops (0 new with <= 3 reviews, 0 found cheap before)
+[19:50:18] buyer [choose-key] sku_key=<category> canonical=0 pool_matches=3 receipt_memory_only=1
+[19:50:18] buyer [choose] mode trusted: 3 of 3 shops (0 new with <= 3 reviews, 0 found cheap before)
+[19:50:18] buyer [choose-key] sku_key=<category> canonical=0 pool_matches=3 receipt_memory_only=1
+.[19:50:18] buyer [choose] mode trusted: 2 of 2 shops (0 new with <= 3 reviews, 0 found cheap before)
+[19:50:18] buyer [choose-key] sku_key=G1 canonical=1 pool_matches=2 receipt_memory_only=1
+[19:50:18] buyer [choose] mode trusted: 2 of 2 shops (0 new with <= 3 reviews, 0 found cheap before)
+[19:50:18] buyer [choose-key] sku_key=G2 canonical=1 pool_matches=2 receipt_memory_only=1
+[19:50:18] buyer [choose] mode trusted: 2 of 2 shops (0 new with <= 3 reviews, 0 found cheap before)
+[19:50:18] buyer [choose-key] sku_key=goods canonical=0 pool_matches=0 receipt_memory_only=1
+[19:50:18] buyer [choose] mode trusted: 2 of 2 shops (0 new with <= 3 reviews, 0 found cheap before)
+[19:50:18] buyer [choose-key] sku_key=goods canonical=0 pool_matches=0 receipt_memory_only=1
+[19:50:18] buyer [choose] mode trusted: 2 of 2 shops (0 new with <= 3 reviews, 0 found cheap before)
+[19:50:18] buyer [choose-key] sku_key=goods canonical=0 pool_matches=0 receipt_memory_only=1
+[19:50:18] buyer [choose] mode gem: 1 of 2 shops (0 new with <= 3 reviews, 1 found cheap before)
+[19:50:18] buyer [choose-key] sku_key=<category> canonical=0 pool_matches=1 receipt_memory_only=1
+.[19:50:18] buyer [choose] mode trusted: 2 of 2 shops (0 new with <= 3 reviews, 0 found cheap before)
+[19:50:18] buyer [choose-key] sku_key=G1 canonical=1 pool_matches=2 receipt_memory_only=1
+.[19:50:18] buyer [choose] skip 'cheat': my memory caught it 1 time(s): ['receipt did not match']
+[19:50:18] buyer [choose] mode all: 2 of 2 shops (0 new with <= 3 reviews, 0 found cheap before)
+[19:50:18] buyer [choose-key] sku_key=<category> canonical=0 pool_matches=0 receipt_memory_only=1
+.[19:50:18] buyer [choose] skip 'excluded': my memory caught it 1 time(s): ['bad receipt']
+[19:50:18] buyer [choose] mode trusted: 2 of 2 shops (0 new with <= 3 reviews, 0 found cheap before)
+[19:50:18] buyer [choose-key] sku_key=G1 canonical=1 pool_matches=2 receipt_memory_only=1
+[19:50:18] buyer [choose] skip 'excluded': my memory caught it 1 time(s): ['bad receipt']
+[19:50:18] buyer [choose] mode trusted: 2 of 2 shops (0 new with <= 3 reviews, 0 found cheap before)
+[19:50:18] buyer [choose-key] sku_key=G1 canonical=1 pool_matches=2 receipt_memory_only=1
+[19:50:18] buyer [choose] mode trusted: 2 of 2 shops (0 new with <= 3 reviews, 0 found cheap before)
+[19:50:18] buyer [choose-key] sku_key=G1 canonical=1 pool_matches=0 receipt_memory_only=1
+[19:50:18] buyer [choose] mode trusted: 2 of 2 shops (0 new with <= 3 reviews, 0 found cheap before)
+[19:50:18] buyer [choose-key] sku_key=G1 canonical=1 pool_matches=0 receipt_memory_only=1
+[19:50:18] buyer [choose] mode trusted: 2 of 2 shops (0 new with <= 3 reviews, 0 found cheap before)
+[19:50:18] buyer [choose-key] sku_key=G1 canonical=1 pool_matches=0 receipt_memory_only=1
+[19:50:18] buyer [choose] skip 'b': my memory caught it 1 time(s): ['bad']
+[19:50:18] buyer [choose] mode trusted: 1 of 1 shops (0 new with <= 3 reviews, 0 found cheap before)
+[19:50:18] buyer [choose-key] sku_key=G1 canonical=1 pool_matches=0 receipt_memory_only=1
+[19:50:18] buyer [choose] mode trusted: 2 of 2 shops (0 new with <= 3 reviews, 0 found cheap before)
+[19:50:18] buyer [choose-key] sku_key=G1 canonical=1 pool_matches=0 receipt_memory_only=1
+..[19:50:19] buyer-choose attempt 1: timeout after 1s
+.[19:50:19] seller-harness codex gpt-6-luna effort=low output-schema 0.2s -> {"a": 1}
+[19:50:19] seller-harness codex gpt-6-luna effort=low output-schema 0.0s -> {"a": 2}
+.[19:50:19] harness attempt 1: codex exit 0: stream closed
+[19:50:19] harness attempt 2: codex exit 0: stream closed
+.[19:50:19] harness attempt 1: codex exit 1: 
+[19:50:19] harness codex gpt-6-luna effort=low output-schema 0.0s -> {"a": 6}
+.[19:50:20] harness codex gpt-6-luna effort=low output-schema 0.2s -> {"a": 1}
+.[19:50:21] harness attempt 1: timeout after 1s
+.[19:50:22] harness attempt 1: timeout after 1s
+.[19:50:22] harness attempt 1: codex took actions ['command_execution'] with every tool off
+[19:50:22] harness attempt 1: codex took actions ['collab_tool_call:spawn_agent'] with every tool off
+.[19:50:23] restock-agent attempt 1: codex exit 1: You've hit your usage limit.
+..[19:50:23] harness codex gpt-6-luna effort=low output-schema 0.3s -> {"a": 4}
+.[19:50:24] harness attempt 1: invalid answer: a='x' is not an integer
+[19:50:24] harness codex gpt-6-luna effort=low output-schema 0.0s -> {"a": 2}
+[19:50:24] buyer-agent attempt 1: invalid answer: Expecting value: line 1 column 1 (char 0)
+[19:50:24] buyer-agent attempt 2: invalid answer: missing field 'a' in {'b': 1}
+..[19:50:24] seller-harness codex gpt-6-luna effort=low output-schema 0.3s -> {"a": 1}
+.[19:50:24] seller-harness codex gpt-6-luna effort=low output-schema 0.3s -> {"a": 1}
+[19:50:25] seller-harness codex gpt-6-luna effort=low output-schema 0.2s -> {"a": 2}
+[19:50:25] buyer/agent codex gpt-6-luna effort=low output-schema 0.1s -> {"a": 3}
+[19:50:25] seller-harness codex gpt-6-luna effort=low output-schema 0.3s -> {"a": 4}
+.[19:50:25] buyer-agent codex gpt-6-luna effort=low output-schema 0.4s -> {"reason": "look", "evidence": [], "action": "call_tool", "tool": "t", "args_json": "{}", "final": null}
+[19:50:26] buyer-agent codex gpt-6-luna effort=low output-schema 0.2s -> {"reason": "c1", "evidence": ["c1"], "action": "finish", "tool": "", "args_json": "", "final": {"x": 1}}
+..[19:50:26] seller-harness codex gpt-6-luna effort=low output-schema 0.3s -> {"a": 3}
+.[19:50:26] harness codex gpt-6-luna effort=low output-schema 0.2s -> {"a": 1}
+.[tools] left out auto_auto_market_brief: exit 1: e "/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/tools/auto_auto_market_brief/tool.py", line 46, in <module>
+    main()
+  File "/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/tools/auto_auto_market_brief/tool.py", line 40, in main
+    with open(os.path.join(md, 'catalog.json'), encoding='utf-8') as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tmpw4qmspce/catalog.json'
+
+[tools] left out auto_market_research: exit 1:  File "/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/tools/auto_market_research/tool.py", line 46, in <module>
+    main()
+  File "/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/tools/auto_market_research/tool.py", line 35, in main
+    with open(os.path.join(md, 'catalog.json'), encoding='utf-8') as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tmpw4qmspce/catalog.json'
+
+[tools] left out auto_market_research_pack: exit 1: /tool.py", line 62, in main
+    print(json.dumps(research(read('catalog.json'), market_model.load_rows(md),
+                              ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/tools/auto_market_research_pack/tool.py", line 56, in read
+    with open(os.path.join(md, name), encoding='utf-8') as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tmpw4qmspce/catalog.json'
+
+[tools] left out auto_market_scan: exit 1: last):
+  File "/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/tools/auto_market_scan/tool.py", line 46, in <module>
+    main()
+  File "/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/tools/auto_market_scan/tool.py", line 40, in main
+    with open(os.path.join(md, 'catalog.json'), encoding='utf-8') as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tmpw4qmspce/catalog.json'
+
+[19:50:28] restock-agent codex gpt-6-luna effort=low output-schema 0.2s -> {"reason": "c0 shows it", "evidence": ["c0"], "action": "finish", "tool": "", "args_json": "", "final": {"x": 5}}
+..[19:50:28] t wire model=openai/gpt-6-luna response_format=json_schema/strict=True provider={'only': ['openai'], 'allow_fallbacks': False, 'require_parameters': True} reasoning={'effort': 'low'} temperature_sent=False
+[19:50:28] t attempt 1: HTTP 500: no
+[19:50:28] t wire model=openai/gpt-6-luna response_format=json_schema/strict=True provider={'only': ['openai'], 'allow_fallbacks': False, 'require_parameters': True} reasoning={'effort': 'low'} temperature_sent=False
+[19:50:28] t openrouter openai/gpt-6-luna response_format=json_schema(strict) 0.0s -> {"a": 1}
+................TRIAL_INVALID deep_lowball_snapshot
+TRIAL_INVALID deep_lowball_no_adoption
+..TRIAL_INVALID deep_lowball_quote
+..TRIAL_INVALID deep_lowball_fixed_window
+.TRIAL_INVALID deep_lowball_snapshot
+....TRIAL_INVALID exact_snapshot
+.........TRIAL_INVALID exact_counter_snapshot
+....[19:50:31] seller break rates unavailable: FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tmpjg7vtcwx/catalog.json'
+[19:50:31] seller PRICE G00000002 unit u-G00000002-0000 cost 100000 list 500000: floor 119118 (b 15%), first ask 300000 (1 x median 300000), floor at b 25% 135000
+[19:50:32] seller task ba213142 -> INPUT_REQUIRED G00000002 ask 291000
+[19:50:32] seller task ba213142 <- '291000'
+[19:50:32] seller WARRANTY 72 h for G00000002: break chance 15.0% is in the reserve 119118
+[19:50:32] seller task ba213142 FAST bare offer 291000 >= floor 119118: no harness call
+[19:50:32] seller task ba213142 harness read the offer as 291000 from [291000]
+[19:50:32] seller no shop_key.pem or SHOP_KEY_PEM: receipt goes out unsigned
+[19:50:32] seller task ba213142 -> COMPLETED G00000002 at 291000
+.[19:50:33] seller PRICE G00000002 unit u-G00000002-0000 cost 100000 list 500000: floor 119118 (b 15%), first ask 300000 (1 x median 300000), floor at b 25% 135000
+[19:50:33] seller WARRANTY 72 h for G00000002: break chance 15.0% is in the reserve 119118
+[19:50:33] seller task 91c9dbc3 -> INPUT_REQUIRED G00000002 ask 291000
+.[19:50:34] seller PRICE G00000002 unit u-G00000002-0000 cost 100000 list 500000: floor 119118 (b 15%), first ask 300000 (1 x median 300000), floor at b 25% 135000
+[19:50:35] seller task e0bbb410 -> INPUT_REQUIRED G00000002 ask 291000
+[19:50:35] seller task e0bbb410 <- 'I need 6 hrs refund if broken'
+[19:50:35] seller WARRANTY 72 h for G00000002: break chance 15.0% is in the reserve 119118
+[19:50:35] seller task e0bbb410 no offer in the message; asking again
+[19:50:35] seller task e0bbb410 <- '291000'
+[19:50:35] seller task e0bbb410 FAST bare offer 291000 >= floor 119118: no harness call
+[19:50:35] seller task e0bbb410 harness read the offer as 291000 from [291000]
+[19:50:35] seller no shop_key.pem or SHOP_KEY_PEM: receipt goes out unsigned
+[19:50:35] seller task e0bbb410 -> COMPLETED G00000002 at 291000
+.[19:50:35] seller PRICE G00000000 unit u-G00000000-0000 cost 100000 list 500000: floor 119118 (b 15%), first ask 291000 (0.97 x median 300000), floor at b 25% 135000
+[19:50:35] seller WARRANTY 72 h for G00000000: break chance 15.0% is in the reserve 119118
+[19:50:36] seller task 00998201 -> INPUT_REQUIRED G00000000 ask 282270
+[19:50:36] seller PRICE G00000000 unit u-G00000000-0001 cost 100000 list 500000: floor 119118 (b 15%), first ask 291000 (0.97 x median 300000), floor at b 25% 135000
+[19:50:37] seller task 069ecd2d -> INPUT_REQUIRED G00000000 ask 282270
+[19:50:38] seller PRICE G00000002 unit u-G00000002-0001 cost 100000 list 500000: floor 119118 (b 15%), first ask 300000 (1 x median 300000), floor at b 25% 135000
+[19:50:38] seller WARRANTY 72 h for G00000002: break chance 15.0% is in the reserve 119118
+[19:50:38] seller task ed1c299c -> INPUT_REQUIRED G00000002 ask 291000
+[19:50:39] seller PRICE G00000002 unit u-G00000002-0000 cost 100000 list 500000: floor 119118 (b 15%), first ask 300000 (1 x median 300000), floor at b 25% 135000
+[19:50:39] seller task f0c116b5 -> INPUT_REQUIRED G00000002 ask 291000
+.

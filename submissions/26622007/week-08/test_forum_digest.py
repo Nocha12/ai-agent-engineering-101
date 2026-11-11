@@ -3,7 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 import agent_tools
-from tools.auto_forum_ledger_digest.tool import digest
+from tools.auto_forum_ledger_digest.tool import digest, bounded_digest
 
 
 class ForumDigestEvidence(unittest.TestCase):
@@ -38,6 +38,17 @@ class ForumDigestEvidence(unittest.TestCase):
         self.assertTrue(out['reference_evidence'])
         self.assertTrue(all(r['status'] == 'paid' and r['seq'] == r['ledger']['seq']
                             for r in out['reference_evidence']))
+
+    def test_bounded_live_sized_result_keeps_both_sources_and_joins(self):
+        posts = [{'id': n, 'ts': n, 'text': 'x' * 500, 'refs': [n]} for n in range(30)]
+        rows = [{'seq': n, 'ts': n, 'k': 'settle', 'amount': 10, 'item': 'item'} for n in range(30)]
+        result = bounded_digest(posts, rows, 30)
+        out = json.loads(agent_tools.shrink(result))
+        self.assertTrue(out['forum_posts'])
+        self.assertTrue(out['ledger_rows'])
+        self.assertTrue(out['reference_evidence'])
+        self.assertTrue(all(r['seq'] == r['ledger']['seq'] for r in out['reference_evidence']))
+        self.assertTrue(any(out['omitted'].values()))
 
     def test_missing_and_malformed_forum_is_not_false_claim(self):
         for forum in (None, {}, [None, {'id': 1, 'refs': None}]):
