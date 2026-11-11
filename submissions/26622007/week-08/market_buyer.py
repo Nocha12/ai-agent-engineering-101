@@ -79,6 +79,7 @@ import buyer_goods_grade
 import buyer_goods_ladder
 import buyer_goods_take30
 import buyer_goods_risk_sku30
+import buyer_goods_quote_yield30
 import buyer_food_shelf
 import buyer_rank_pg
 import buyer_shop_profile
@@ -276,7 +277,8 @@ def priced(trades):
     buyer_goods_grade.priced, buyer_food_ladder.priced)."""
     return buyer_moss_first.priced(
         buyer_saved_floor.priced(buyer_food_ladder.priced(buyer_goods_grade.priced(buyer_goods_ladder.priced(
-            [t for t in trades if not buyer_goods_take30.applied_b(t) and not buyer_goods_risk_sku30.applied_b(t)])))))
+            [t for t in trades if not buyer_goods_take30.applied_b(t) and not buyer_goods_risk_sku30.applied_b(t)
+             and not buyer_goods_quote_yield30.applied_b(t)])))))
 
 
 def my_history(memory, name):
@@ -1255,7 +1257,7 @@ def recent_orders(md, now, hours):
         except ValueError:
             continue
         if (isinstance(r, dict) and isinstance(r.get("ts"), (int, float)) and now - hours * 3600 <= r["ts"] <= now
-                and not buyer_goods_risk_sku30.applied_b(r)):
+                and not buyer_goods_risk_sku30.applied_b(r) and not buyer_goods_quote_yield30.applied_b(r)):
             out.append(r)
     return out
 
@@ -1486,12 +1488,13 @@ def start_quotes(shops, order, budget, chance_of, got, ctl):
         shops[:] = order["_stock_quotable"][:max(0, order["_stock_k"] - 1)]
         order["_stock_dispatched"] = True
     threads = {}
-    for s in shops:
+    for s in buyer_goods_quote_yield30.dispatch_shops(order, shops, budget):
         o = buyer_goods_risk_sku30.dispatch(s, budget, pick_offer) if buyer_goods_risk_sku30.KEY in s else selected_offer(s, budget)
         s["_offer"], s["_b"] = o, chance_of(o["sku"]) or 0
         s["_quote_attempted"] = True  # published before the thread: failed or still pending calls must be counted
         th = threading.Thread(target=quote, args=(s, o["name"], o["sku"], order, got, ctl), daemon=True)
         th.start()
+        buyer_goods_quote_yield30.dispatched(order, s, o)
         if order.get("_stock_evidence") and not buyer_stock_evidence.attempt(
                 order["_stock_evidence"], s["name"], o["sku"], phase=order.get("_stock_phase", "quotes"),
                 intended_reorder=order.get("_stock_reordered", False)):
@@ -1501,7 +1504,7 @@ def start_quotes(shops, order, budget, chance_of, got, ctl):
 
 
 def prefetch_pool(left, memory, md, category, k, rival=frozenset(), kind=None, order_id=None, yield_arm=None,
-                  order=None, budget=None):
+                  order=None, budget=None, chance_of=None):
     """The k - 1 shops quoted before the harness has chosen (the chosen shop takes the last slot of the first batch),
     and every shop that could be quoted, in quote order; revenue rivals of my shop after the others (rival_deny)."""
     t0 = time.time()        # one reading for the baseline and current(at), so a cool ending between them changes neither
@@ -1523,7 +1526,7 @@ def prefetch_pool(left, memory, md, category, k, rival=frozenset(), kind=None, o
         order["_b1"] = {"on": True, "prior": rates[1], "reordered": plain != [s["name"] for s in quote_order(others, fits, k, yields, rates)]}
     others = rival_deny.others_first(quote_order(others, fits, k, yields, rates), rival)
     if kind == "goods" and order is not None and budget is not None:
-        def current(at):
+        def current_baseline(at):
             latest_fits = recent_fits(md, category, now=at)
             current_left = left
             if order.get("_stock_shops_path"):
@@ -1538,6 +1541,12 @@ def prefetch_pool(left, memory, md, category, k, rival=frozenset(), kind=None, o
             current_others = [s for s in current_left if quotable_shop(memory, s["name"], t0)]
             # rates as read at prefetch: a few seconds do not move a 6 h paid share
             current_others = rival_deny.others_first(quote_order(current_others, latest_fits, k, rates=rates), current_rival)
+            return current_others, latest_fits, current_rival
+        def current(at):
+            fresh = current_baseline(at)
+            if fresh is None:
+                return None
+            current_others, latest_fits, current_rival = fresh
             return buyer_stock_evidence.plan(md, current_others, latest_fits, current_rival,
                 {s["name"]: selected_offer(s, budget)["sku"] for s in current_others}, k=k, now=at)
         decision = buyer_stock_evidence.plan(md, others, fits, rival,
@@ -1550,7 +1559,33 @@ def prefetch_pool(left, memory, md, category, k, rival=frozenset(), kind=None, o
             by_name = {s["name"]: s for s in others}
             others = [by_name[n] for n in scheduled]
         order["_stock_quotable"] = others
-    return others[:max(0, k - 1)], others
+        quote_cfg = []  # lazy: OFF/A/no-plan do not read pricing for this policy
+        def cap(s, o, b, q):
+            # Stored q retains bounded text, not the transient warranty_h fields.
+            # Reuse the live parser/cap on a copy, without adding history fields.
+            observed = short_warranty_quote(dict(q), q.get('text') if isinstance(q.get('text'), str) else '', order, s['name'])
+            if observed.get('refused'):
+                return 0
+            sc = short_cap(o, b, order, s['name'], observed, s)
+            if not quote_cfg:
+                quote_cfg.append(buyer_cfg())
+            limits = [value_limit(o, budget, b or 0, quote_cfg[0]), saved_cap(o, b or 0)] + ([sc] if sc is not None else [])
+            return min(limits) if all(buyer_goods_quote_yield30.number(v) for v in limits) else None
+        def conflict():
+            return (any(order.get(key) for key in ('_goods_take30', '_stock_evidence', '_goods_extra_quote_probe',
+                '_quote_alignment', '_our_ask', '_moss_first', '_final_m1_window', '_goods_grade', '_goods_ladder', '_saved_floor')) or
+                buyer_goods_grade.config(md) is not None or buyer_goods_ladder.config(md) is not None or
+                buyer_goods_risk_sku30.config(md) is not None or buyer_goods_take30.config(md) is not None or
+                buyer_saved_floor.config(md) is not None)
+        others = buyer_goods_quote_yield30.plan(order, others, k, fits, rates, rival, budget, selected_offer,
+            chance_of or (lambda sku: None), cap, lambda: recent_orders(md, time.time(), 3),
+            rival_deny.others_first, conflict, lambda: current_baseline(time.time()))
+        order['_stock_quotable'][:] = others
+        others = order['_stock_quotable']
+    early = others[:max(0, k - 1)]
+    if order is not None:
+        buyer_goods_quote_yield30.bind(order, early, others)
+    return early, others
 
 
 def hurried(pre):
@@ -2220,6 +2255,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "goods_take30": order.get("_goods_take30"),
         **({"goods_risk_sku30": buyer_goods_risk_sku30.measurement(order)}
            if order.get(buyer_goods_risk_sku30.KEY) is not None else {}),
+        **buyer_goods_quote_yield30.fields(order),
         **({"goods_take30_witness": buyer_goods_take30.compact_witness(order["_goods_take30_witness"])}
            if order.get("kind") == "goods" and order.get("_goods_take30_witness") is not None else {}),
         "turns": dict(out.get("turns") or {}),
@@ -2276,7 +2312,7 @@ def main():
         MEMORY = "memory/test_memory.json" if test else "memory/market_memory.json"
     order = load_json(args.order, {}) if args.order else {}
     if isinstance(order, dict):
-        for k in ("_sw", "_sw_buy", "_sw_h_est", "_sw_zero", "_rank_pg", "_rank_selection", "_saved_floor", "_food_floor30", "_food_floor30_window", "_food_floor30_disabled", "_member_offers", "_goods_take30", "_goods_take30_witness", "_goods_risk_sku30"):  # internal state, never read in
+        for k in ("_sw", "_sw_buy", "_sw_h_est", "_sw_zero", "_rank_pg", "_rank_selection", "_saved_floor", "_food_floor30", "_food_floor30_window", "_food_floor30_disabled", "_member_offers", "_goods_take30", "_goods_take30_witness", "_goods_risk_sku30", "_goods_quote_yield30"):  # internal state, never read in
             order.pop(k, None)
     md = os.path.dirname(args.shops) or "."
     rk = buyer_rank_pg.state(md, order) if args.order else None
@@ -2305,10 +2341,12 @@ def main():
         order["_final_m1"] = [] if order["_final_m1_window"] is not None else None  # default off: when on, the turns it would take (shadow)
         order['_food_floor30_window'] = buyer_food_floor30.config(md) if order.get('kind') == 'food' else None
         buyer_goods_take30.assign(md, order)  # ITT before selection/early exits; default OFF
+        buyer_goods_quote_yield30.assign(md, order)
     with open(args.shops, encoding="utf-8") as f:
         shops = [s for s in json.load(f) if s.get("url") and s.get("name")]
     for s in shops:
         s.pop(buyer_goods_risk_sku30.KEY, None)  # never trust internal selection state from a listing
+        s.pop(buyer_goods_quote_yield30.KEY, None)
     if r3:
         order["_stock_evidence_md"] = md
         order["_stock_shops_path"] = args.shops
@@ -2346,6 +2384,7 @@ def main():
                                          "our_ask": buyer_our_ask.measurement(order.get("_our_ask")),
                                          "moss_first": buyer_moss_first.measurement(order.get("_moss_first")),
                                          "goods_take30": order.get("_goods_take30"),
+                                         **buyer_goods_quote_yield30.fields(order),
                                          "final_m1": order.get("_final_m1"),
                                          "unpaid_skip": order.get("_unpaid_skip"),
                                          "stock_evidence": buyer_stock_evidence.measurement(order),
@@ -2419,16 +2458,16 @@ def main():
             for s in left:
                 s["_food_sku"] = frozen["shops"].get(s["name"])
         k = int(buyer_cfg().get("quote_shops", 1))
+        stats = ledger_breaks(md, catalog) if order.get("kind") == "goods" else None
+        chance_of = (lambda sku: market_model.break_chance(stats, sku)) if stats else (lambda sku: None)
         early, quotable = prefetch_pool(left, memory, md, order.get("category"), k, rival, kind=order.get("kind"), order_id=order.get("order"),
-                                         yield_arm=order["_food_quote_yield"], order=order, budget=args.budget)
+                                         yield_arm=order["_food_quote_yield"], order=order, budget=args.budget, chance_of=chance_of)
         try:
             gave_up = hopeless(quotable or left, args.budget, recent_asks(md), buyer_cfg())
         except Exception as e:  # noqa: BLE001 - an odd record line must not end the run before the result line
             log(f"[quote] give-up check failed: {type(e).__name__}: {e}")
         if gave_up:
             log(f"[quote] every SKU of {len(quotable)} shops asked over my limit in the last {HOPELESS_HOURS} h: no quote, no talk")
-        stats = ledger_breaks(md, catalog) if order.get("kind") == "goods" else None
-        chance_of = (lambda sku: market_model.break_chance(stats, sku)) if stats else (lambda sku: None)
         if PREFETCH_QUOTES and not gave_up and k >= 2 and early:
             order["_stock_phase"] = "prefetch"
             pre = {"got": {}, "ctl": quote_ctl(), "asked": {s["name"] for s in early}}
@@ -2752,7 +2791,8 @@ def main():
             "moss_first": buyer_moss_first.trade_mark(order),
             "goods_take30": order.get("_goods_take30"),
             **({"goods_risk_sku30": buyer_goods_risk_sku30.measurement(order)}
-               if order.get(buyer_goods_risk_sku30.KEY) is not None else {})} if r3 else {}),
+               if order.get(buyer_goods_risk_sku30.KEY) is not None else {}),
+            **buyer_goods_quote_yield30.fields(order)} if r3 else {}),
         "result": "no_warranty" if short else "over_limit" if over else "deal" if rec is not None else (out["state"] or "error").replace("TASK_STATE_", "").lower(),
         "price": rec.get("price") if rec else None,
         "asks": asks, "holds": out.get("holds", 0), "problems": problems, "warnings": warnings, "why": why,
