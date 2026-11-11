@@ -490,7 +490,7 @@ class PriceTest(unittest.TestCase):
         self.assertEqual(profit_price.cfg_of(p)["grade_profit_share"], {"A": 0.08})
         self.assertEqual(profit_price.cfg_of(p)["grade_profit_hours"], 6)
         until = profit_price.cfg_of(p)["grade_profit_until"]
-        self.assertTrue(isinstance(until, int) and 1794349000 < until <= 1794349000 + 13 * 3600)    # an end within hours
+        self.assertTrue(isinstance(until, int) and 1794393000 < until <= 1794393000 + 13 * 3600)    # renewed 11/11 19:30 as a new finite window (verdict-a08), not a retro extension
         c_unit = {"sku": "G85a1a856", "unit": "u", "kind": "goods", "grade": "C", "cost": 350000, "list_price": 922000}
         a_unit = {"sku": "G03d0199f", "unit": "u", "kind": "goods", "grade": "A", "cost": 575000, "list_price": 1000000}
         with mock.patch.object(profit_price.time, "time", return_value=until - 3600):
