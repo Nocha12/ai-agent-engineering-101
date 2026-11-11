@@ -327,7 +327,17 @@ class NoBankruptcyReplayTest(unittest.TestCase):
         self.assertEqual((hl.BUYER_GOODS_WARRANTY_HOURS, hl.SELLER_GOODS_WARRANTY_HOURS), (6, 72))
         self.assertEqual(hl.PROTECTED, ("hard_limits.py", "test_hard_limits.py", "run_market.sh", "run_meta.sh", "ensure_running.sh"))
         self.assertEqual(hl.MAX_STEP_DOWN, 0.5)
-        self.assertEqual(hl.BOUNDS["restock.max_lines"], (1, 10))
+        self.assertEqual(hl.BOUNDS["restock.max_lines"], (1, 30))
+        self.assertEqual(hl.BOUNDS["buyer.quote_shops"], (1, 100))
+        self.assertEqual(hl.clamp_cfg("restock", {"max_lines": 18})["max_lines"], 18)
+        self.assertEqual(hl.clamp_cfg("restock", {"max_lines": 31})["max_lines"], 30)
+        self.assertEqual(hl.SAFE["restock"]["max_lines"], 10)
+        self.assertEqual(hl.SAFE["buyer"]["quote_shops"], 3)
+        self.assertEqual(hl.META_FLOOR, {"restock.max_stock_cost": 10000000, "restock.keep_cash": 3000000})
+        self.assertEqual(hl.FIXED, {"restock.high_price_listed_only": True, "buyer.oneshot": True,
+                                    "negotiate.engine": "llm", "negotiate.formula": "share",
+                                    "negotiate.counter_share": [], "restock.window_fast": False,
+                                    "price.grade_profit_until": 0, "price.grade_profit_hours": 0})
 
     def test_settings_that_are_not_numbers_fall_back_to_the_cautious_start(self):
         cfg = hl.clamp_cfg("restock", {"food_max_qty": None, "keep_cash": "0", "max_stock_cost": None})

@@ -29,7 +29,8 @@ class Pinned(unittest.TestCase):
     def test_quote_shops_stays_at_the_hard_limit_and_the_prefetch_stays_on(self):
         with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
             shipped = json.load(f)["buyer"]["quote_shops"]
-        self.assertEqual(shipped, hard_limits.BOUNDS["buyer.quote_shops"][1])
+        self.assertEqual(shipped, 10)       # the bound was opened to 100 on 11/11 (a person); the shipped value stays
+        self.assertEqual(hard_limits.BOUNDS["buyer.quote_shops"], (1, 100))
         self.assertTrue(market_buyer.PREFETCH_QUOTES)
         with open(os.path.join(HERE, "meta", "terra.md"), encoding="utf-8") as f:
             terra = f.read()

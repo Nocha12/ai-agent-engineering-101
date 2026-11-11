@@ -360,7 +360,7 @@ def sent_waiting(md, now=None):
 def cash_note(buy, inv, catalog, buffer):
     """{"floor", "unit": {sku: the most one unit of the line can cost, storage included}} for the kit, which reads the
     balance again before every supply call (scripts/market_kit.py cash_ok) and sends no line that would take it under
-    floor: this run's check is up to ~100 s old by its last line (GPT Pro 14, 대표님 11/10 23:48). floor is the run's
+    floor: this run's check can be stale by its last line (GPT Pro 14, 대표님 11/10 23:48). floor is the run's
     cash buffer (hard_limits.cash_buffer); unit is guard()'s own cost of a unit (worst() and BUY_STORAGE). None with no
     line or no finite floor (the lines are then none anyway)."""
     if not buy or not hard_limits.number(buffer) or buffer >= hard_limits.OPEN:
@@ -875,6 +875,7 @@ def with_trial(trial, buy, inv, catalog, cfg, breaks=None, waiting=(), hold=()):
 
 
 LATE_MARGIN = 5     # seconds the kit needs to read this run's output and make its first supply call
+KIT_LINES = 20      # the kit sends the first 20 lines of a run (scripts/market_kit.py MAX_SUPPLY_LINES; 10 until 11/11)
 
 
 def late_lines(state, inv, buy, agent_skus=(), now=None):
@@ -898,7 +899,7 @@ def late_lines(state, inv, buy, agent_skus=(), now=None):
 
 def without_held(cfg, hold):
     """cfg with the next_window SKUs it holds among skip_skus: the guard leaves them out before the cut at max_lines.
-    Planned and dropped after the cut (main, "if hold and not trial") a held SKU took one of a run's ten lines: every
+    Planned and dropped after the cut (main, "if hold and not trial") a held SKU took one of a run's max_lines slots: every
     first run of a window printed 9 (11/10 14:44-16:24, G1465c678). restock_window_fast's arm only."""
     skip = cfg.get("skip_skus")
     skip = list(skip) if isinstance(skip, (list, tuple)) else []
@@ -988,7 +989,7 @@ def window_fast(state, inv, pricing, cfg, catalog, now=None, note=None):
         if not buy:
             return None
         try:
-            note_sent(state, buy[:10], catalog, factors=surge(inv))
+            note_sent(state, buy[:KIT_LINES], catalog, factors=surge(inv))
         except OSError as e:
             print(f"[restock] could not note the lines sent: {e}", file=sys.stderr, flush=True)
         return {"buy": buy}
@@ -1046,11 +1047,11 @@ def main():
     fast_note = {}
     fast = window_fast(args.state, inv, pricing, cfg, catalog, note=fast_note)      # restock_window_fast, default off: None
     if fast is not None:
-        cash = cash_note(fast["buy"][:10], inv, catalog, fast_note.get("buffer"))
+        cash = cash_note(fast["buy"][:KIT_LINES], inv, catalog, fast_note.get("buffer"))
         if cash:
             fast = {**fast, "cash": cash}
         print(json.dumps(fast, ensure_ascii=False), flush=True)
-        measure.tick(args.state, inv, fast["buy"][:10], pricing, skip_sales=True,     # the 6 h sales wait for the usual run
+        measure.tick(args.state, inv, fast["buy"][:KIT_LINES], pricing, skip_sales=True,     # the 6 h sales wait for the usual run
                      window_arm=f"{window_arm}-fast")
         return 0
     demand, model = load(os.path.join(args.state, "demand.json"), []), read_model(args.state, catalog, cfg)
@@ -1148,20 +1149,20 @@ def main():
     out["buy"] = hard_limits.final_buy(out.get("buy"), inv.get("balance"), catalog, buffer=cfg["cash_buffer"] + owed)
     if out["buy"]:
         try:
-            note_sent(args.state, out["buy"][:10], catalog, factors=surge(inv))    # the kit sends ten lines a run
+            note_sent(args.state, out["buy"][:KIT_LINES], catalog, factors=surge(inv))    # the kit sends no more
         except OSError as e:
             print(f"[restock] could not note the lines sent: {e}", file=sys.stderr, flush=True)
     if fast_b:      # restock_window_fast: the plan's next lines wait for this window's next run; none: the old carry goes
         carry = []
         if first is None and not trial and out["buy"] and not out.get("bankrupt") \
                 and not (load(os.path.join(args.state, "restock_queue.json"), {}).get("lines") or []):
-            carry = carry_lines(inv, catalog, demand, cfg, model, breaks, waiting, out["buy"][:10], hold)
+            carry = carry_lines(inv, catalog, demand, cfg, model, breaks, waiting, out["buy"][:KIT_LINES], hold)
         restock_window_fast.save_carry(args.state, inv, carry)
-    cash = cash_note(out["buy"][:10], inv, catalog, cfg["cash_buffer"])     # the kit checks each line against it again
+    cash = cash_note(out["buy"][:KIT_LINES], inv, catalog, cfg["cash_buffer"])     # the kit checks each line against it again
     if cash:
         out["cash"] = cash
     print(json.dumps(out, ensure_ascii=False), flush=True)
-    measure.tick(args.state, inv, out["buy"][:10], pricing,     # after the line the kit reads; local files only, never raises
+    measure.tick(args.state, inv, out["buy"][:KIT_LINES], pricing,     # after the line the kit reads; local files only, never raises
                  window_arm=window_arm)
     return 0
 

@@ -1,6 +1,6 @@
 """Round 3's opening stock, from the GPT Pro review (review/W-20261103-2025/gpt-pro-answer1.md §5, §6):
 
-- Supply opens every 20 minutes for 3 minutes (agent.md); the kit sends at most 10 lines a run, 10 s apart.
+- Supply opens every 20 minutes for 3 minutes (agent.md); the kit sends at most 20 lines a run (10 until 11/11), 10 s apart.
 - Window 1: phase 1, ten categories near their median price, one unit each (six food with shelf_hours 720 and list
   price <= 30,000, four goods <= 45,000). Windows 2 and 3: phases 2 (ten) and 3 (four), each a conditional candidate:
   once the Round 3 ledger has judge_settles settles, a candidate whose category has settled nothing is dropped, and one

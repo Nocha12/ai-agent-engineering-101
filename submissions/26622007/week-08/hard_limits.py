@@ -108,7 +108,11 @@ BOUNDS = {
     # 11/06 19:03 a person opened it (was 150M): the cash buffer (cash_buffer) is what limits a buy now.
     "restock.max_stock_cost": (100000, OPEN),
     "restock.target_per_category": (0, 100),
-    "restock.max_lines": (1, 10),     # the kit sends the first 10 lines of a restock (scripts/market_kit.py), no more
+    # A person, 11/11 12:05 (대표님): "하드 리밋 풀어버려 왜 쓸데없는거 유지하고 잇지?"
+    # Open to 30: /rules allows ~18 calls per 180 s window; the kit's 10-line cut left 3-8 lines behind
+    # at each close in four measured windows (12-14 calls), with 220M above the 20M cash buffer.
+    # The first 10-minute window has more room; the kit itself still caps a command at MAX_SUPPLY_LINES.
+    "restock.max_lines": (1, 30),
     "restock.max_units_per_sku": (1, 1000),
     "restock.cover_hours": (1, 72),
     "restock.food_explore_qty": (0, 20),
@@ -138,7 +142,9 @@ BOUNDS = {
     "warranty.max_break": (0.0, 0.5),
     "warranty.prior_break": (0.0, 0.5),
     "buyer.max_price_share": (0.3, 1.0),
-    "buyer.quote_shops": (1, 10),
+    # The old bound equalled the working value of 10. The buyer owner chooses that value; each quote is a
+    # shop conversation, while the order budget, list price and 6 h goods warranty bound every payment.
+    "buyer.quote_shops": (1, 100),
     "markdown.min_floor_share": (0.0, 1.0),
     "forum.max_votes": (0, 30),
     "forum.every_minutes": (5, 240),

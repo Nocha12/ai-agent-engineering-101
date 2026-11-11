@@ -863,6 +863,7 @@ def handle_order(o, agent, d, market, proxy, own_shop, keys):
 # --- Round 3: .market/ files, restock, forum outbox
 
 CATALOG = {}
+MAX_SUPPLY_LINES = 20  # /rules: one call per 10 s in a 180 s window (~18 calls); was 10
 
 
 def catalog_names(market, d):
@@ -1007,7 +1008,8 @@ def restock(agent, d, market, md, inv, demand):
     # the command's cash floor, when it prints one: read the balance again before every POST and before every retry
     cash = out.get("cash") if "restock" in agent and isinstance(out.get("cash"), dict) else None
     balance = None                                      # what the last supply answered; None: read it
-    for b in buy[:10]:
+    lines = buy[:MAX_SUPPLY_LINES]
+    for i, b in enumerate(lines):
         if not isinstance(b, dict):
             continue
         r = None
@@ -1020,7 +1022,21 @@ def restock(agent, d, market, md, inv, demand):
                     break
             r = market.call("POST", "/api/supply", "shop", json={"sku": b.get("sku"), "qty": b.get("qty")})
             if r.status_code == 429:
-                time.sleep(min(float(r.json().get("wait", 10)), 30))
+                try:
+                    body = r.json()
+                except (ValueError, TypeError):
+                    body = {}
+                body = body if isinstance(body, dict) else {}
+                try:
+                    wait = float(body.get("wait", 10))
+                except (TypeError, ValueError):
+                    wait = 10
+                if not 0 <= wait < float("inf"):
+                    wait = 10
+                if wait > 30:                           # closed until the next window (the 10 s pace asks for less)
+                    log(f"[supply] window closed: {len(lines) - i} line(s) not sent")
+                    return
+                time.sleep(min(wait, 30))
                 balance = None                          # the wait is long enough for a refund: read it again
                 continue
             break

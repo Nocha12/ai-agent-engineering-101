@@ -29,6 +29,8 @@ class Market:
         if path == "/api/inventory":
             return httpx.Response(self.inventory_status, json={"round": 3, "balance": self.balance, "units": []})
         step = self.script.pop(0) if self.script else "ok"
+        if isinstance(step, httpx.Response):
+            return step
         if step == "ok":
             self.balance -= self.cost * kw["json"]["qty"]
             return httpx.Response(200, json={"total": self.cost * kw["json"]["qty"], "balance": self.balance})
@@ -38,11 +40,11 @@ class Market:
         return httpx.Response(step, json={"wait": 0, "error": "x"})
 
 
-def run(market, out, logs=None):
+def run(market, out, logs=None, sleep=None):
     md = Path(tempfile.mkdtemp())
     logs = [] if logs is None else logs
     with mock.patch.object(kit, "run_buyer", return_value=[]), mock.patch.object(kit, "last_json", return_value=out), \
-            mock.patch.object(kit, "log", side_effect=logs.append), mock.patch.object(kit.time, "sleep", return_value=None):
+            mock.patch.object(kit, "log", side_effect=logs.append), mock.patch.object(kit.time, "sleep", side_effect=sleep):
         kit.restock({"restock": {"cmd": "x"}}, md, market, md, {"balance": market.balance, "units": []}, [])
     posts = [c[2] for c in market.calls if c[1] == "/api/supply"]
     return posts, logs
@@ -53,6 +55,63 @@ BUY = [{"sku": "G1", "qty": 2}, {"sku": "G2", "qty": 2}, {"sku": "G3", "qty": 2}
 
 
 class KitCashRecheckTest(unittest.TestCase):
+    def test_a_command_sends_up_to_twenty_lines(self):
+        buy = [{"sku": f"G{i}", "qty": 1} for i in range(25)]
+        self.assertEqual(run(Market(10000000), {"buy": buy[:18]})[0], [b["sku"] for b in buy[:18]])
+        self.assertEqual(run(Market(10000000), {"buy": buy})[0], [b["sku"] for b in buy[:20]])
+
+    def test_closed_window_stops_later_lines_without_sleeping(self):
+        closed = httpx.Response(429, json={"error": "supply is closed", "wait": 1054.0,
+                                           "opens_at": 12345, "closes_at": 12525})
+        m = Market(10000000, script=["ok", "ok", closed])
+        sleep = mock.Mock()
+        posts, logs = run(m, {"buy": [{"sku": f"G{i}", "qty": 1} for i in range(18)]}, sleep=sleep)
+        self.assertEqual(posts, ["G0", "G1", "G2"])
+        sleep.assert_not_called()
+        self.assertIn("[supply] window closed: 16 line(s) not sent", logs)
+
+    def test_short_wait_still_retries_and_rechecks_cash(self):
+        m = Market(4000000, script=[httpx.Response(429, json={"wait": 7}), "ok"])
+        sleep = mock.Mock()
+        cash = {"floor": 1000000, "unit": {"G0": 100000}}
+        posts, _ = run(m, {"buy": [{"sku": "G0", "qty": 1}], "cash": cash}, sleep=sleep)
+        self.assertEqual(posts, ["G0", "G0"])
+        sleep.assert_called_once_with(7)
+        self.assertEqual([c[1] for c in m.calls[:4]],
+                         ["/api/inventory", "/api/supply", "/api/inventory", "/api/supply"])
+
+    def test_a_short_wait_that_names_the_window_is_still_retried(self):
+        m = Market(10000000, script=[httpx.Response(429, json={"wait": 7, "opens_at": 12345, "closes_at": 12525}), "ok"])
+        sleep = mock.Mock()
+        posts, logs = run(m, {"buy": [{"sku": "G0", "qty": 1}, {"sku": "G1", "qty": 1}]}, sleep=sleep)
+        self.assertEqual(posts, ["G0", "G0", "G1"])
+        sleep.assert_called_once_with(7)
+        self.assertFalse(any("window closed" in line for line in logs))
+
+    def test_long_wait_without_open_time_stops_and_bad_429_bodies_retry(self):
+        buy = [{"sku": "G0", "qty": 1}, {"sku": "G1", "qty": 1}]
+        sleep = mock.Mock()
+        posts, logs = run(Market(10000000, script=[httpx.Response(429, json={"wait": 31})]),
+                          {"buy": buy}, sleep=sleep)
+        self.assertEqual(posts, ["G0"])
+        self.assertIn("[supply] window closed: 2 line(s) not sent", logs)
+        sleep.assert_not_called()
+        for answer in (httpx.Response(429, text="not json"), httpx.Response(429, json=[]),
+                       httpx.Response(429, json={}), httpx.Response(429, json={"wait": "bad"})):
+            sleep.reset_mock()
+            posts, _ = run(Market(10000000, script=[answer, "ok"]), {"buy": buy[:1]}, sleep=sleep)
+            self.assertEqual(posts, ["G0", "G0"])
+            sleep.assert_called_once_with(10)
+
+    def test_cash_floor_holds_a_later_line_among_eighteen(self):
+        buy = [{"sku": f"G{i}", "qty": 1} for i in range(18)]
+        cash = {"floor": 1000000, "unit": {b["sku"]: 100000 for b in buy}}
+        m = Market(2700000)
+        posts, logs = run(m, {"buy": buy, "cash": cash})
+        self.assertEqual(posts, [b["sku"] for b in buy[:17]])
+        self.assertEqual(m.balance, 1000000)
+        self.assertTrue(any("G17" in line and "held" in line for line in logs))
+
     def test_a_command_without_a_cash_floor_is_sent_as_before(self):
         m = Market(10)                                       # no "cash" in the answer: the kit asks nothing more
         posts, logs = run(m, {"buy": BUY})
