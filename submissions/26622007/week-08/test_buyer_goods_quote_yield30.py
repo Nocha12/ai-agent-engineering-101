@@ -1,4 +1,5 @@
 """Finite quote selection at the public prefetch/dispatch boundary; no transport."""
+import copy
 import json
 import os
 from pathlib import Path
@@ -40,18 +41,43 @@ class QuoteYieldDispatch(unittest.TestCase):
         return mb.prefetch_pool(self.shops,{'trades':[]},self.md,'fixture',k,rival,
             kind='goods',order=self.order,budget=10000,chance_of=lambda sku:.1)
 
-    def dispatch(self, early, fail=None):
+    def dispatch(self, early, fail=None, order=None, after_start=None):
         sent=[]
-        class Thread:
+        real_thread=mb.threading.Thread
+        io_threads=[]
+        class QuoteThread:
             def __init__(self, target, args, **kw): self.args=args
             def start(self):
                 if self.args[0]['name']==fail: raise RuntimeError('fixture start failure')
                 sent.append(self.args[0]['name'])
-        with patch.object(mb.threading,'Thread',Thread):
-            try: mb.start_quotes(early,self.order,10000,lambda sku:.1,{},mb.quote_ctl())
+                if after_start is not None: after_start(self.args[0])
+        def thread(target, args=(), **kw):
+            if target is mb.quote:
+                return QuoteThread(target,args,**kw)
+            th=real_thread(target=target,args=args,**kw)
+            io_threads.append(th)
+            return th
+        with patch.object(mb.threading,'Thread',thread):
+            try: self.dispatch_threads=mb.start_quotes(early,self.order if order is None else order,10000,lambda sku:.1,{},mb.quote_ctl())
             except RuntimeError:
                 if fail is None: raise
+        for th in io_threads:
+            th.join(1)
+            self.assertFalse(th.is_alive())
+        self.dispatch_io_count=len(io_threads)
         return sent
+
+    def test_normal_over_budget_selected_lp_does_not_disable_other_valid_b_slots(self):
+        over=dict(name='f',url='https://f.example/rpc',reviews=[],usable=[dict(
+            sku='G33333333',name='fixture',list_price=12000,qty=1)])
+        self.shops.append(over)
+        self.assertEqual(mb.selected_offer(over,10000)['list_price'],12000)
+        self.enable(); early,_=self.prefetch()
+        self.assertNotIn('trace',trial.measurement(self.order))
+        self.assertTrue(any(Path(self.md).glob(trial.PREFIX+'*.plan.json')))
+        self.assertEqual([s['name'] for s in early],['d','c'])
+        self.assertEqual(self.dispatch(early),['d','c'])
+        self.assertTrue(trial.measurement(self.order)['applied'])
 
     def test_off_and_a_exact_baseline_and_b_changes_actual_initial_membership_after_stock_reset(self):
         early,allshops=self.prefetch()
@@ -91,28 +117,69 @@ class QuoteYieldDispatch(unittest.TestCase):
         self.assertFalse(trial.measurement(self.order)['applied'])
         self.assertEqual(self.dispatch(early),[])
 
-    def test_current_baseline_membership_change_falls_back_to_current_baseline(self):
+    def test_current_baseline_membership_change_falls_back_to_original_a_baseline(self):
         self.enable(); early,allshops=self.prefetch()
-        # New category fit evidence changes the actual baseline while choosing.
+        # Review I2: drift invalidates B; A's stock reset still uses the original pool.
         self.rows.append(dict(ts=NOW,kind='goods',category='fixture',quotes=[dict(
             shop='c',sku='G11111111',list_price=10000,ask=1000,fit=True)]))
         (Path(self.md)/'measure'/'orders.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in self.rows))
-        self.assertEqual(self.dispatch(early),['a','e'])
-        self.assertEqual([s['name'] for s in allshops[:2]],['a','e'])
+        self.assertEqual(self.dispatch(early),['a','c'])
+        self.assertEqual([s['name'] for s in allshops[:2]],['a','c'])
+        self.assertFalse(trial.measurement(self.order)['applied'])
+
+    def test_listing_io_drift_keeps_a_original_objects_and_records_every_sent_attempt(self):
+        from types import SimpleNamespace
+        path=Path(self.md)/'shops.json'
+        path.write_text(json.dumps([dict(name=s['name'],url=s['url'],reviews=s['reviews'],
+            offers=s['usable']) for s in self.shops]))
+        self.order['_stock_shops_path']=str(path)
+        self.order['_stock_all_shop_names']=[s['name'] for s in self.shops]
+        self.enable()
+        a_shops=copy.deepcopy(self.shops)
+        a_order={k:v for k,v in self.order.items() if k!=trial.KEY}
+        a_order['order']=next(str(i) for i in range(100) if trial.arm(self.cfg,str(i))=='A')
+        trial.assign(self.md,a_order)
+        a_early,_=mb.prefetch_pool(a_shops,{'trades':[]},self.md,'fixture',3,kind='goods',
+            order=a_order,budget=10000,chance_of=lambda sku:.1)
+        early,quotable=self.prefetch()
+        self.assertEqual([s['name'] for s in early],['d','c'])
+        self.rows.append(dict(ts=NOW,kind='goods',category='fixture',quotes=[dict(
+            shop='c',sku='G11111111',list_price=10000,ask=1000,fit=True)]))
+        (Path(self.md)/'measure'/'orders.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in self.rows))
+        # Only quote targets are intercepted; listing IO threads really start and are joined.
+        a_sent=self.dispatch(a_early,order=a_order)
+        sent=self.dispatch(early)
+        self.assertGreater(self.dispatch_io_count,0)
+        self.assertEqual(a_sent,['a','c'])
+        self.assertEqual(sent,a_sent)
+        originals={s['name']:s for s in self.shops}
+        self.assertTrue(all(s is originals[s['name']] for s in early))
+        self.assertEqual({s['name'] for s in self.shops if s.get('_quote_attempted')},set(sent))
+        self.assertEqual([s['name'] for s in quotable[:2]],sent)
+        rec=mb.order_record(self.order,SimpleNamespace(budget=10000,item='goods'),self.shops,{},
+            'a','choice',self.shops[0],'chosen',self.shops[0]['usable'][0],6000,.1,
+            dict(state='NO_VALUE',history=[]),None,dict(receipt=None),[],[],False,None,{}, {})
+        self.assertEqual({q['shop'] for q in rec['quotes']},set(sent))
+        self.assertEqual(len(rec['quotes']),2)
+        self.assertTrue(all(q['sku']=='G11111111' and q['list_price']==10000 for q in rec['quotes']))
+        self.assertTrue(rec['quote_attempts_complete'])
         self.assertFalse(trial.measurement(self.order)['applied'])
 
     def test_expiry_between_thread_starts_keeps_fresh_slot_and_no_extra_dispatch(self):
         self.enable(); early,allshops=self.prefetch()
-        sent=[]; clock=self.clock; end=self.cfg['end']
-        class Thread:
-            def __init__(self,target,args,**kw): self.shop=args[0]
-            def start(self):
-                sent.append(self.shop['name']); clock.return_value=end
-        with patch.object(mb.threading,'Thread',Thread):
-            mb.start_quotes(early,self.order,10000,lambda sku:.1,{},mb.quote_ctl())
+        early_ref,quotable_ref=early,allshops
+        sent=self.dispatch(early,after_start=lambda s:setattr(self.clock,'return_value',self.cfg['end']))
         self.assertEqual(sent,['d','c'])
         self.assertTrue(trial.measurement(self.order)['applied'])
-        self.assertEqual([s['name'] for s in allshops[:2]],['a','c'])
+        # Review N1: publish the successful requests, not a fully unsent baseline prefix.
+        self.assertIs(early,early_ref)
+        self.assertIs(allshops,quotable_ref)
+        self.assertEqual([s['name'] for s in early],sent)
+        self.assertEqual([s['name'] for s in allshops[:2]],sent)
+        self.assertEqual(set(self.dispatch_threads),set(sent))
+        self.assertEqual(len(sent),len(set(sent)))
+        got={name:dict(ask=1000,text='') for name in sent}
+        self.assertFalse(mb.quotes_enough(early,got,10000,{},self.order))  # two asks do not reach the unchanged three
 
     def test_a_arm_exact_baseline_and_off_metadata_zero_bytes(self):
         before=json.dumps(self.rows[0])

@@ -131,7 +131,7 @@ def _pool(pool, budget, selected):
         if not all(ident(sku) for sku in skus) or len(set(skus)) != len(skus):
             raise ValueError('ambiguous SKU')
         o = selected(s, budget)
-        if o not in offers or type(o.get('list_price')) is not int or not 0 < o['list_price'] <= budget:
+        if o not in offers or type(o.get('list_price')) is not int or o['list_price'] <= 0:
             raise ValueError('invalid selected offer')
         seen.add(name); urls.add(url)
         result.append([name, url, offers, o])
@@ -241,7 +241,7 @@ def dispatch_shops(order, shops, budget):
         if fresh is None:
             valid = False
         elif [s['name'] for s in fresh[0]] != [s['name'] for s in baseline]:
-            baseline, valid = fresh[0], False
+            valid = False  # A's stock reset uses the original pool, never listing copies.
     except (OSError, ValueError, TypeError, KeyError, OverflowError, RecursionError):
         _unknown(ctx); valid = False
     for i in range(len(expected)):
@@ -265,6 +265,8 @@ def dispatch_shops(order, shops, budget):
         s = remaining[0]
         ctx['pending'] = (s, dict(ctx['selected'](s,budget)), valid)
         yield s
+    shops[:] = ctx.get('asked', [])
+    ctx['quotable'][:] = shops + [s for s in ctx['quotable'] if s['name'] not in ctx['sent']]
 
 
 def dispatched(order, shop, offer):
@@ -277,6 +279,7 @@ def dispatched(order, shop, offer):
         _unknown(ctx)
         return
     ctx['sent'].add(shop['name'])
+    ctx.setdefault('asked', []).append(shop)
     baseline = {s['name'] for s in ctx['pool'][:max(0,ctx['k']-1)]}
     if valid and shop['name'] not in baseline:
         ctx['note']['applied'] = True
