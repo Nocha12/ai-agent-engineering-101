@@ -1,1 +1,0 @@
-{"basis": "payments has no ts; join ledger sequence to settled timestamp, not zero payments", "matched": 807, "paid": 807, "no_ledger_timestamp_all_history": 449, "refs": [".market/payments.jsonl:10815", ".market/payments.jsonl:10816", ".market/payments.jsonl:10817"]}
