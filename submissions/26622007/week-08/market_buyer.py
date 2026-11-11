@@ -77,6 +77,7 @@ import buyer_food_open30
 import buyer_food_floor30
 import buyer_goods_grade
 import buyer_goods_ladder
+import buyer_goods_take30
 import buyer_food_shelf
 import buyer_rank_pg
 import buyer_shop_profile
@@ -2210,6 +2211,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "food_ladder": order.get("_food_ladder"),
         "goods_grade": order.get("_goods_grade"),
         "goods_ladder": order.get("_goods_ladder"),
+        "goods_take30": order.get("_goods_take30"),
         "turns": dict(out.get("turns") or {}),
         "goods_extra_quote_started": order.get("_goods_extra_quote_started"),
         "goods_extra_quote_added": order.get("_goods_extra_quote_added", 0),
@@ -2254,7 +2256,7 @@ def main():
         MEMORY = "memory/test_memory.json" if test else "memory/market_memory.json"
     order = load_json(args.order, {}) if args.order else {}
     if isinstance(order, dict):
-        for k in ("_sw", "_sw_buy", "_sw_h_est", "_sw_zero", "_rank_pg", "_rank_selection", "_saved_floor", "_food_floor30", "_food_floor30_window", "_food_floor30_disabled", "_member_offers"):  # internal state, never read in
+        for k in ("_sw", "_sw_buy", "_sw_h_est", "_sw_zero", "_rank_pg", "_rank_selection", "_saved_floor", "_food_floor30", "_food_floor30_window", "_food_floor30_disabled", "_member_offers", "_goods_take30"):  # internal state, never read in
             order.pop(k, None)
     md = os.path.dirname(args.shops) or "."
     rk = buyer_rank_pg.state(md, order) if args.order else None
@@ -2282,6 +2284,7 @@ def main():
         order["_final_m1_window"] = oneshot.final_m1_window(md, now=order["_buyer_started_at"])
         order["_final_m1"] = [] if order["_final_m1_window"] is not None else None  # default off: when on, the turns it would take (shadow)
         order['_food_floor30_window'] = buyer_food_floor30.config(md) if order.get('kind') == 'food' else None
+        buyer_goods_take30.assign(md, order)  # ITT before selection/early exits; default OFF
     with open(args.shops, encoding="utf-8") as f:
         shops = [s for s in json.load(f) if s.get("url") and s.get("name")]
     if r3:
@@ -2635,7 +2638,8 @@ def main():
         if steps:
             log(f"[offer] oneshot: {', '.join(f'{s:.2f}' for s in steps)} of the first ask, then the counter, priced by code")
         talk_mode = f"oneshot {list(steps)}" if steps else "harness"
-        out = negotiate(shop["url"], label, limit, note, request_text(label, key, order) if r3 else None, resume=resume,
+        out = buyer_goods_take30.negotiate(negotiate, md, order, offer, q, steps, shop, key,
+                        shop["url"], label, limit, note, request_text(label, key, order) if r3 else None, resume=resume,
                         stop_if=(lambda text, turn: (quote_refused(text, order, item=(label, key)) if turn == 1 else None)
                                  or goods_text_refused(text, order)) if r3 else None,
                         reply_to=(lambda text: shop_question_reply(text, order)) if r3 else None,
