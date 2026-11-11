@@ -403,8 +403,9 @@ class EndToEnd(unittest.TestCase):
     def test_reserve_is_the_floor_and_the_first_ask_is_p0(self):
         self.deal("G1")                           # food cost 6000, list 10000, no ledger median
         n = (seller.flush_memory() or shop_memory.load())["negotiations"][-1]
-        # break-even floor (a person 11/06 22:22): cost + 6 h storage + 1, no 3% profit; first ask 1.0 x 70.8% of list
-        self.assertEqual((n["reserve"], n["open"]), (6016, 7080))
+        # Food reserve = max(break-even 6016, ceil(cost x 1.10)) = 6600: price.food_reserve_margin 0.10,
+        # 11/11 W-20261111-1938; first ask 7080 unchanged (1.0 x 70.8% of list).
+        self.assertEqual((n["reserve"], n["open"]), (6600, 7080))
         with mock.patch.object(seller, "break_chance", lambda sku, grade=None: 0.1):
             buyer.negotiate(self.url, "청소기", 10000, "", "I want to buy (G2)")
         n = (seller.flush_memory() or shop_memory.load())["negotiations"][-1]

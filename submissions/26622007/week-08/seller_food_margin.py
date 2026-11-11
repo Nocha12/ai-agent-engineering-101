@@ -139,7 +139,7 @@ def decide(u, q, *, reserve, ask, keep, margin_assignment, pricing=None, md=None
         lp = u["list_price"]
         new_reserve, new_ask = reserve, ask
         if a in ("B", "D"):
-            new_reserve = int(max(reserve, min(math.ceil(u["cost"] * (1 + cfg["share"])), lp)))
+            new_reserve = int(max(reserve, min(math.ceil(round(u["cost"] * (1 + cfg["share"]), 6)), lp)))
             new_ask = int(max(ask, new_reserve))
         return new_reserve, new_ask, {"study": cfg["study"], "arm": a, "share": cfg["share"], "usual_reserve": reserve,
                                       "usual_ask": ask, "reserve": new_reserve, "ask": new_ask, "list": lp,

@@ -80,6 +80,14 @@ class SellerFoodMarginTest(unittest.TestCase):
                 self.assertEqual(result[:2], expected)
                 self.assertEqual(result[2]["arm"], "D")
 
+    def test_ten_percent_margin_has_no_float_extra_won(self):
+        u = unit(cost=6000, list_price=10000)
+        q = {"floor": 6016, "open": 7080}
+        pricing = {"price": {"food_reserve_margin": 0.10}}
+        self.assertEqual(self.run_(u, q, pricing=pricing)[:2], (6600, 7080))
+        self.on(salt=self.salt_for("B", u), share=0.10)
+        self.assertEqual(self.run_(u, q, pricing=pricing)[:2], (6600, 7080))
+
     def test_default_ineligible_talks_and_env_off_unchanged(self):
         u = unit()
         q = self.q(u)
