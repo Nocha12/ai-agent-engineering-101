@@ -134,7 +134,6 @@ class SellerFoodMarginTest(unittest.TestCase):
         u = unit()
         q = self.q(u)
         pricing = {"price": {"food_reserve_margin": 0.10}}
-        warning = "SELLER_FOOD_MARGIN switch unreadable; default applies\n"
         for error in (PermissionError("fixture"), OSError("fixture"), ValueError("bad JSON")):
             with self.subTest(error=type(error).__name__), mock.patch.object(
                     fd, "_warned_unreadable_switch", False, create=True), mock.patch(
@@ -142,7 +141,46 @@ class SellerFoodMarginTest(unittest.TestCase):
                 with mock.patch.object(Path, "read_text", side_effect=error):
                     for _ in range(2):
                         self.assertEqual(self.run_(u, q, pricing=pricing)[2]["arm"], "D")
-                self.assertEqual(stderr.getvalue(), warning)
+                self.assertEqual(stderr.getvalue(),
+                                 f"SELLER_FOOD_MARGIN switch unreadable ({type(error).__name__}); default applies\n")
+
+    def test_switch_on_refuses_invalid_or_non_dict_json_without_changing_file(self):
+        path = Path(self.md.name, fd.SWITCH)
+        for contents in (b'invalid JSON', b'[]', b'null', b'"text"', b'42'):
+            with self.subTest(contents=contents):
+                path.write_bytes(contents)
+                before = path.stat()
+                with self.assertRaisesRegex(ValueError, r"existing switch unreadable \([A-Za-z]+\); not replaced") as raised:
+                    fd.switch_on(self.md.name, study="test", salt="test", start_at=ON, hours=1)
+                self.assertNotIn(self.md.name, str(raised.exception))
+                after = path.stat()
+                self.assertEqual(path.read_bytes(), contents)
+                self.assertEqual((after.st_mode, after.st_mtime_ns), (before.st_mode, before.st_mtime_ns))
+                self.assertEqual(list(Path(self.md.name).glob(fd.SWITCH + '.tmp-*')), [])
+
+    @unittest.skipIf(os.geteuid() == 0, "root can read mode 000")
+    def test_switch_on_refuses_permission_denied_without_changing_file(self):
+        fd.default_off(self.md.name)
+        path = Path(self.md.name, fd.SWITCH)
+        with path.open('rb') as original:
+            contents = original.read()
+            path.chmod(0)
+            try:
+                before = path.stat()
+                with self.assertRaisesRegex(ValueError, r"existing switch unreadable \(PermissionError\); not replaced"):
+                    fd.switch_on(self.md.name, study="test", salt="test", start_at=ON, hours=1)
+                after = path.stat()
+                self.assertEqual((after.st_ino, after.st_mode, after.st_mtime_ns),
+                                 (before.st_ino, before.st_mode, before.st_mtime_ns))
+                original.seek(0)
+                self.assertEqual(original.read(), contents)
+                self.assertEqual(list(Path(self.md.name).glob(fd.SWITCH + '.tmp-*')), [])
+            finally:
+                path.chmod(0o600)  # restore this temporary fixture for cleanup only
+
+    def test_switch_on_creates_missing_file(self):
+        result = fd.switch_on(self.md.name, study="test", salt="test", start_at=ON, hours=1)
+        self.assertEqual(json.loads(Path(self.md.name, fd.SWITCH).read_text()), result)
 
     def test_missing_switch_keeps_default_silently(self):
         with mock.patch.object(fd, "_warned_unreadable_switch", False, create=True), mock.patch(

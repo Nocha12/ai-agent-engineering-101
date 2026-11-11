@@ -28,14 +28,13 @@ study.
 
 Switch: .market/seller_food_margin.json {"enabled": true, "study": "<id>", "salt": "<salt>", "share": 0.05,
 "start_at": <epoch>, "stop_at": <epoch>}; on only in [start_at, stop_at), a window of at most MAX_WINDOW_HOURS.
-Missing, unreadable, a bad value or time, or anything else is off, and off is today's price exactly.
-SELLER_FOOD_MARGIN=0 in the environment is off too. Write it with switch_on(). Read at every quote: no restart either
-way, and the treatment stops by itself at stop_at. Never raises. A new salt or share needs a new study id.
-
-Default: price.food_reserve_margin (0.02-0.10) applies arm-B pricing to every eligible food unit as arm "D"
-when no study switch is on; a running study wins. SELLER_FOOD_MARGIN=0 turns both off. Remove the key to go back
-to today's price. Verdict: review/W-20261111-1938-AXPro주기/verdict-food-margin10.md.
-The switch field default_off: true disables the default without restarting; a running study is unaffected.
+Quote order: SELLER_FOOD_MARGIN=0 keeps today's price; an active study uses A/B; otherwise default_off: true keeps
+today's price; otherwise valid price.food_reserve_margin (0.02-0.10) applies B pricing as arm D; else today's price.
+A missing switch allows D; an unreadable switch also allows D and warns once per process. Quotes never raise.
+switch_on() preserves default_off and refuses to replace unreadable switches. A new salt/share needs a new study id.
+To restore the default after default_off, as the seller's user (market), replace the switch with {"enabled": false}
+or delete it once no study is needed; no restart. Remove the margin key to restore today's price.
+Verdict: review/W-20261111-1938-AXPro주기/verdict-food-margin10.md.
 """
 import hashlib
 import json
@@ -68,11 +67,14 @@ def _share_ok(v):
 
 def _read_switch(md):
     try:
-        return json.loads((Path(md) / SWITCH).read_text(encoding="utf-8")), "readable"
+        d = json.loads((Path(md) / SWITCH).read_text(encoding="utf-8"))
+        if not isinstance(d, dict):
+            return None, "unreadable", "ValueError"
+        return d, "readable", None
     except FileNotFoundError:
-        return None, "missing"
-    except (OSError, ValueError):
-        return None, "unreadable"
+        return None, "missing", None
+    except (OSError, ValueError) as e:
+        return None, "unreadable", type(e).__name__
 
 
 def config(md=None, env=None, now=None):
@@ -82,7 +84,7 @@ def config(md=None, env=None, now=None):
     if str(env.get("SELLER_FOOD_MARGIN") or "").strip().lower() in ("0", "false", "no", "off"):
         return None
     md = Path(md) if md is not None else Path(env.get("MARKET_DIR") or Path(__file__).parent / ".market")
-    d, _ = _read_switch(md)
+    d, _, _ = _read_switch(md)
     return _config_of(d, now)
 
 
@@ -105,7 +107,9 @@ def switch_on(md, *, study, salt, start_at, hours, share=SHARE):
     if (not (isinstance(study, str) and study and isinstance(salt, str) and salt) or not _share_ok(share)
             or not _window(start_at, stop_at)):
         raise ValueError("seller_food_margin: bad switch")
-    previous, _ = _read_switch(md)
+    previous, status, error = _read_switch(md)
+    if status == "unreadable":
+        raise ValueError(f"seller_food_margin: existing switch unreadable ({error}); not replaced")
     if isinstance(previous, dict) and previous.get("default_off") is True:
         d["default_off"] = True
     return _write_switch(md, d)
@@ -149,11 +153,11 @@ def decide(u, q, *, reserve, ask, keep, margin_assignment, pricing=None, md=None
         if str(env.get("SELLER_FOOD_MARGIN") or "").strip().lower() in ("0", "false", "no", "off"):
             return reserve, ask, None
         switch_dir = Path(md) if md is not None else Path(env.get("MARKET_DIR") or Path(__file__).parent / ".market")
-        switch, status = _read_switch(switch_dir)
+        switch, status, error = _read_switch(switch_dir)
         cfg = _config_of(switch, time.time() if now is None else now)
         if cfg is None:
             if status == "unreadable" and not _warned_unreadable_switch:
-                print("SELLER_FOOD_MARGIN switch unreadable; default applies", file=sys.stderr)
+                print(f"SELLER_FOOD_MARGIN switch unreadable ({error}); default applies", file=sys.stderr)
                 _warned_unreadable_switch = True
             if isinstance(switch, dict) and switch.get("default_off") is True:
                 return reserve, ask, None
