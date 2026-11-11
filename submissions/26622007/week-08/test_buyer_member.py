@@ -166,6 +166,24 @@ class MemberWire(unittest.TestCase):
         self.assertEqual(buyer_member.available({}, now), {})
 
     def test_main_persists_offer_then_syncs_payment_before_the_next_actual_quote(self):
+        self._main_pair()
+
+    def test_main_refused_payment_does_not_send_a_code_on_the_next_quote(self):
+        self._main_pair(paid=False)
+
+    def test_paid_code_is_not_sent_on_the_direct_no_quote_path(self):
+        self._main_pair(quote=False)
+
+    def test_food_request_preserves_its_exact_shelf_requirement_before_suffix(self):
+        import buyer_member
+        import market_buyer as mb
+        original = mb.request_text("fixture item", SKU, {"kind": "food", "use_within_hours": 12})
+        self.assertEqual(original, "I want to buy fixture item (G12345678). Must last at least 12.1 hours")
+        offers = {"moss-and-oak": {"code": CODE, "url": self.url}}
+        self.assertEqual(buyer_member.request(original, "moss-and-oak", self.url, offers),
+                         original+" Member code: "+CODE+".")
+
+    def _main_pair(self, paid=True, quote=True):
         import market_buyer as mb
         with tempfile.TemporaryDirectory() as directory:
             md = pathlib.Path(directory)
@@ -174,10 +192,12 @@ class MemberWire(unittest.TestCase):
             (md/"shops.json").write_text(json.dumps(shops))
             (md/"catalog.json").write_text(json.dumps({SKU: {"list_price": 10000, "name": "fixture item", "kind": "goods"}}))
             order = {"order": "order-first", "category": "fixture category", "kind": "goods",
-                     "acceptable": [SKU], "_member_offers": {"untrusted": CODE}}
+                     "acceptable": [SKU], "_member_offers": {"moss-and-oak": {"code": CODE, "url": self.url}}}
             memory_path = str(md/"memory.json")
             cfg = {"quote_shops": 2, "oneshot": True, "oneshot_steps": [.9], "max_price_share": .9}
             for turn in (1, 2):
+                started = len(self.executor.requests)
+                cfg["quote_shops"] = 2 if quote or turn == 1 else 1
                 order["order"] = "order-first" if turn == 1 else "order-next"
                 (md/"order.json").write_text(json.dumps(order))
                 args = ["market_buyer.py", "--shops", str(md/"shops.json"), "--item", "fixture category",
@@ -204,11 +224,12 @@ class MemberWire(unittest.TestCase):
                 self.assertIn("member_offer", saved[-1])
                 if turn == 1:
                     self.assertTrue(all(CODE not in request for request in self.executor.requests))
-                    (md/"payments.jsonl").write_text(json.dumps({"order": "order-first", "paid": True})+"\n")
+                    (md/"payments.jsonl").write_text(json.dumps({"order": "order-first", "paid": paid})+"\n")
                 else:
-                    self.assertTrue(saved[0]["paid"])
-                    self.assertTrue(any(" Member code: "+CODE+"." in request for request in self.executor.requests))
-                    self.assertEqual(result["receipt"]["price"], 4050)
+                    self.assertIs(saved[0]["paid"], paid)
+                    self.assertEqual(any(" Member code: "+CODE+"." in request
+                                         for request in self.executor.requests[started:]), paid and quote)
+                    self.assertEqual(result["receipt"]["price"], 4050 if paid and quote else 4500)
                 self.assertNotIn("member_offer", result["receipt"])
 
 
