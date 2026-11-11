@@ -2256,6 +2256,9 @@ def negotiate(*args, goods_take_context=None, **kwargs):
     """Buyer-only policy adapter; the transport and food take_at stay in buyer.negotiate."""
     if goods_take_context is None:
         return buyer_negotiate(*args, **kwargs)
+    md, order, offer, q, steps, shop, sku = goods_take_context
+    if buyer_goods_risk_sku30.KEY in shop:
+        buyer_goods_risk_sku30.lock(shop, offer, dispatched=True)  # same lock as quote dispatch, no mark on planning/NoValue
     return buyer_goods_take30.negotiate(buyer_negotiate, *goods_take_context, *args, **kwargs)
 
 
@@ -2395,7 +2398,8 @@ def main():
     if r3:
         buyer_goods_risk_sku30.reserve(md, order, shops, args.budget, pick_offer,
             lambda sku: market_model.break_chance(ledger_breaks(md, catalog), sku),
-            conflict=lambda: buyer_goods_grade.config(md) is not None or buyer_goods_ladder.config(md) is not None)
+            conflict=lambda: buyer_goods_grade.config(md) is not None or buyer_goods_ladder.config(md) is not None,
+            stats=lambda: ledger_breaks(md, catalog))
     left, brief = skip_short_warranty(shops, memory, catalog, order) if r3 else (list(shops), [])
     if brief:
         log(f"[choose] skip for goods {brief}: their recent receipts to me had too short a warranty to pay for")
@@ -2477,7 +2481,8 @@ def main():
             shop = best
             log(f"[choose] {shop['url']}: {shop['name']} - {reason}")
         stages["quotes"] = time.time()
-    offer = selected_offer(shop, args.budget) if r3 else None
+    offer = (buyer_goods_risk_sku30.prepare_final(shop, args.budget, pick_offer)
+             if buyer_goods_risk_sku30.KEY in shop and not gave_up else selected_offer(shop, args.budget)) if r3 else None
     key = offer["sku"] if r3 else args.item     # prices are comparable within a SKU, not within a category
     label = offer["name"] if r3 else args.item
     chance = None

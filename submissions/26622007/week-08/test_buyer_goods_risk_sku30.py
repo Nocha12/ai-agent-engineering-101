@@ -1,6 +1,7 @@
 """Goods-only risk SKU choice: finite dispatch and original negotiation guards."""
 import unittest
 import copy
+import collections
 import math
 import json
 import os
@@ -221,6 +222,104 @@ class RiskSkuCandidateTest(unittest.TestCase):
         self.assertIsNone(self.reserve(conflict=lambda:True))
         self.assertIsNone(trial.measurement(self.order))
         self.assertEqual(len(list(Path(self.md).iterdir())),1)
+
+    def test_I1_planning_hopeless_and_prefetch_never_mark_B_as_dispatched(self):
+        import market_buyer as mb
+        self.flag()
+        with patch.object(trial.time,'time',return_value=2000000001):
+            self.reserve()
+            self.assertEqual(mb.selected_offer(self.shops[0],12000),self.low)
+            self.assertFalse(trial.measurement(self.order)['applied'])
+            self.assertFalse(mb.hopeless(self.shops,12000,{},{}))
+            with patch.object(mb,'recent_fits',return_value=collections.Counter()),patch.object(mb.buyer_b3b1,'enabled',return_value=False), \
+                 patch.object(mb.buyer_stock_evidence,'decide',return_value=None):
+                mb.prefetch_pool(self.shops,{'trades':[]},self.md,'fixture',2,kind='goods',
+                                 order=self.order,budget=12000)
+            self.assertFalse(trial.measurement(self.order)['applied'])
+            self.assertFalse(trial.applied_b({'goods_risk_sku30':trial.measurement(self.order)}))
+        with patch.object(trial.time,'time',return_value=self.cfg['end']):
+            sent=[]
+            with patch.object(mb,'quote',side_effect=lambda s,label,sku,*a:sent.append(sku)):
+                threads=mb.start_quotes(self.shops,self.order,12000,self.risk,{},mb.quote_ctl())
+                for th in threads.values():th.join(1)
+            self.assertEqual(sent,['G11111111'])
+            self.assertFalse(trial.measurement(self.order)['applied'])
+
+    def test_I1_actual_main_gave_up_keeps_B_untreated_and_no_new_dispatch(self):
+        import contextlib,io
+        import market_buyer as mb
+        self.flag()
+        p=Path(self.md)
+        (p/'shops.json').write_text(json.dumps([dict(name='fixture',url='fixture',offers=[self.high,self.low],reviews=[])]))
+        (p/'catalog.json').write_text(json.dumps({o['sku']:dict(o,kind='goods') for o in [self.high,self.low]}))
+        (p/'order.json').write_text(json.dumps(self.order|dict(acceptable=[self.high['sku'],self.low['sku']],round=3,category='fixture')))
+        argv=['market_buyer.py','--shops',str(p/'shops.json'),'--item','fixture','--budget','12000','--order',str(p/'order.json')]
+        with patch('sys.argv',argv),patch.object(mb.time,'time',return_value=2000000001), \
+             patch.object(mb,'warm_ledger'),patch.object(mb,'ledger_breaks',return_value={'sold':100,'rate':.1,
+                    'by_sku':{'G11111111':{'sold':80,'broke':12},'G22222222':{'sold':20,'broke':1}}}), \
+             patch.object(mb.market_model,'break_chance',side_effect=lambda stats,sku:self.risk(sku)), \
+             patch.object(mb,'hopeless',return_value=True),patch.object(mb,'ledger_rows',return_value=[]), \
+             patch.object(mb,'MEMORY',str(p/'memory.json')),patch.object(mb,'AGENT_DIR',self.md), \
+             patch.object(mb,'SAVED_SHARE',mb.SAVED_MIN_SHARE),patch.object(mb,'buyer_negotiate',side_effect=AssertionError('no talk')), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(mb.main(),0)
+        row=json.loads((p/'measure/orders.jsonl').read_text().splitlines()[-1])
+        self.assertEqual(row['state'],'NO_VALUE')
+        self.assertFalse(row['goods_risk_sku30']['applied'])
+        self.assertFalse(trial.applied_b(row))
+
+    def test_I1_final_direct_main_offer_locks_then_actual_protocol_marks_B(self):
+        import ast
+        import buyer
+        import market_buyer as mb
+        from types import SimpleNamespace
+        from test_buyer_reply import task
+        self.flag()
+        tree=ast.parse(Path(mb.__file__).read_text())
+        main=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='main')
+        assignment=next(n for n in ast.walk(main) if isinstance(n,ast.Assign) and
+                        any(isinstance(t,ast.Name) and t.id=='offer' for t in n.targets))
+        with patch.object(trial.time,'time',return_value=2000000001):
+            self.reserve()
+            env=dict(mb.__dict__,shop=self.shops[0],args=SimpleNamespace(budget=12000),r3=True,gave_up=False)
+            exec(compile(ast.fix_missing_locations(ast.Module([assignment],type_ignores=[])),'<actual-final-offer>','exec'),env)
+            chosen=env['offer']
+            self.assertEqual(chosen['sku'],'G22222222')
+            self.assertEqual(self.shops[0][trial.KEY]['locked'],'G22222222')
+            self.assertFalse(trial.measurement(self.order)['applied'],'selection preparation is not dispatch')
+            text='fixture low (G22222222). Asking 4000. Includes a 6-hour warranty.'
+            replies=iter([task(text,4000),task('',state='TASK_STATE_COMPLETED')])
+            with patch.object(buyer.httpx,'get',return_value=SimpleNamespace(json=lambda:
+                    {'supportedInterfaces':[{'protocolBinding':'JSONRPC','protocolVersion':'1.0','url':'fixture'}]})), \
+                 patch.object(buyer,'send',side_effect=lambda *a,**k:next(replies)) as send, \
+                 patch.object(buyer,'rpc',return_value=None),patch.object(buyer,'log'), \
+                 patch.object(buyer,'decide',side_effect=AssertionError('no model')):
+                mb.negotiate('fixture','fixture low',5186,'',mb.request_text('fixture low',chosen['sku'],self.order),
+                   goods_take_context=(self.md,self.order,chosen,{},(.9,),self.shops[0],chosen['sku']),
+                   ladder=lambda meta,text,history:dict(action='offer',price=3600,shop_price=4000),take_at=None)
+            self.assertIn('G22222222',send.call_args_list[0].args[1])
+            self.assertEqual(send.call_args_list[1].args[1],'3600')
+            self.assertTrue(trial.measurement(self.order)['applied'])
+
+    def test_prior_only_alternative_is_kept_and_snapshot_records_sample_counts(self):
+        import market_model
+        self.flag()
+        stats=dict(sold=100,broke=10,rate=.1,by_sku={'G11111111':dict(sold=80,broke=12)})
+        with patch.object(trial.time,'time',return_value=2000000001):
+            trial.reserve(self.md,self.order,self.shops,12000,self.base,
+                          lambda sku:market_model.break_chance(stats,sku),stats=lambda:stats)
+        snapshot=json.loads(next(Path(self.md).glob(trial.PREFIX+'*.json')).read_text())
+        entry=snapshot['choices']['fixture']
+        self.assertEqual(entry['candidate'],'G22222222','keep existing prior, never a new min-sold gate')
+        self.assertEqual(entry['baseline_evidence']['sold'],80)
+        self.assertEqual(entry['baseline_evidence']['broke'],12)
+        self.assertEqual(entry['candidate_evidence']['sold'],0)
+        self.assertEqual(entry['candidate_evidence']['broke'],0)
+        self.assertTrue(entry['candidate_evidence']['prior_only'])
+        self.assertEqual(entry['candidate_evidence']['prior_weight'],20)
+        self.assertEqual(entry['candidate_evidence']['prior_rate'],.1)
+        self.assertNotIn('salt',snapshot['config'])
+        self.assertFalse(trial.measurement(self.order)['applied'])
 
     def test_existing_break_model_can_choose_lower_risk_acceptable_sku(self):
         high = dict(sku='G11111111', name='fixture high', list_price=10000, qty=1)

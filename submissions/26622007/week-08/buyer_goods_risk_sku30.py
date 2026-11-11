@@ -54,7 +54,7 @@ def number(value):
 
 
 def candidate(offers, baseline, budget, chance):
-    """Same acceptable/in-stock list; never infer an unknown SKU's break rate."""
+    """Same acceptable/in-stock list and existing estimator, including its zero-sale prior."""
     b = chance(baseline['sku'])
     if not number(b) or not 0 <= b <= 1 or not number(budget) or budget <= 0:
         return None
@@ -74,11 +74,11 @@ def _shape(shop):
     return [(o.get('sku'), o.get('list_price'), o.get('qty')) for o in shop.get('usable') or []]
 
 
-def reserve(md, order, shops, budget, baseline, chance, now=None, conflict=None):
+def reserve(md, order, shops, budget, baseline, chance, now=None, conflict=None, stats=None):
     """Freeze the same acceptable inventory before selection. No model work OFF.
 
     A tombstone makes retries/colliding processes untreated, never reassigned.
-    Files contain only identifiers/model numbers, not quote text or credentials.
+    Files retain shop identifiers/URLs and model evidence; no quote text, salt or credentials.
     """
     now = time.time() if now is None else now
     if not isinstance(order, dict) or order.get('kind') != 'goods':
@@ -101,6 +101,14 @@ def reserve(md, order, shops, budget, baseline, chance, now=None, conflict=None)
     try:
         os.mkdir(path + '.seen')  # atomic, nonblocking, survives a failed snapshot
         choices = {}
+        model = stats() if stats is not None else None
+        def evidence(sku):
+            if model is None or sku is None:
+                return None
+            observed = model['by_sku'].get(sku) or {'sold': 0, 'broke': 0}
+            return dict(sold=observed['sold'], broke=observed['broke'], prior_only=observed['sold'] == 0,
+                        prior_sold=model['sold'], prior_rate=model['rate'], prior_weight=20,
+                        estimator='existing_break_chance_default')
         for shop in shops:
             offers = shop.get('usable') or []
             if not offers or not isinstance(shop.get('name'), str) or shop['name'] in choices:
@@ -109,9 +117,11 @@ def reserve(md, order, shops, budget, baseline, chance, now=None, conflict=None)
             c = candidate(offers, b, budget, chance)
             choices[shop['name']] = dict(url=shop.get('url'), baseline=b['sku'],
                 candidate=c['sku'] if c is not None else None, shape=_shape(shop),
-                baseline_chance=chance(b['sku']), candidate_chance=chance(c['sku']) if c is not None else None)
+                baseline_chance=chance(b['sku']), candidate_chance=chance(c['sku']) if c is not None else None,
+                baseline_evidence=evidence(b['sku']), candidate_evidence=evidence(c['sku']) if c is not None else None)
             note['eligible_shops'] += c is not None
-        snapshot = dict(config=cfg, order=order['order'], started=started, choices=choices, arm=note['arm'])
+        snapshot = dict(config={k: v for k, v in cfg.items() if k != 'salt'}, order=order['order'],
+                        started=started, choices=choices, arm=note['arm'])
         fd, tmp = tempfile.mkstemp(prefix=PREFIX + 'tmp-', dir=md)
         try:
             with os.fdopen(fd, 'w', encoding='utf-8') as dst:
@@ -129,17 +139,15 @@ def reserve(md, order, shops, budget, baseline, chance, now=None, conflict=None)
 
 
 def offer(shop, budget, baseline):
-    """A sent quote retains its SKU after expiry; unsent choices recheck the window."""
+    """Pure preview. A quote/final-intent lock retains its SKU; unbound plans recheck expiry."""
     ctx = shop.get(KEY)
     if not isinstance(ctx, dict):
         return baseline(shop['usable'], budget)
     chosen = ctx.get('locked')
     offers = shop['usable']
     if chosen is not None:
-        found = [o for o in offers if o.get('sku') == chosen]
-        if len(found) != 1:
-            raise ValueError('dispatched SKU disappeared')  # never switch a sent task to a new SKU
-        return found[0]
+        # Retain the exact offer, including duplicate-SKU listings, never reinterpret a sent task.
+        return ctx['locked_offer']
     original = baseline(offers, budget)
     cfg = config(ctx['md'])
     entry = ctx['entry']
@@ -151,17 +159,30 @@ def offer(shop, budget, baseline):
     found = [o for o in offers if o.get('sku') == entry['candidate']]
     if len(found) != 1 or not 0 < found[0]['list_price'] <= budget:
         return original
-    # Selection evidence, not SendMessage/ACK/payment evidence.
-    ctx['note']['applied'] = True
     return found[0]
 
 
-def dispatch(shop, budget, baseline):
-    selected = offer(shop, budget, baseline)
+def lock(shop, selected, *, dispatched):
+    """One lock for quote and direct final talk; applied is dispatch intent, never a preview."""
     ctx = shop.get(KEY)
     if isinstance(ctx, dict):
-        ctx['locked'] = selected['sku']  # before th.start(), no thread or await in between
+        if ctx.get('locked') is not None and ctx['locked'] != selected['sku']:
+            raise ValueError('locked SKU mismatch')
+        ctx['locked'] = selected['sku']
+        ctx['locked_offer'] = dict(selected)
+        if (dispatched and ctx['arm'] == 'B' and ctx['entry']['candidate'] is not None and
+                selected['sku'] == ctx['entry']['candidate'] and selected['sku'] != ctx['entry']['baseline']):
+            ctx['note']['applied'] = True
     return selected
+
+
+def prepare_final(shop, budget, baseline):
+    # Bind before computing this SKU's cap/label, but guards may still skip negotiation entirely.
+    return lock(shop, offer(shop, budget, baseline), dispatched=False)
+
+
+def dispatch(shop, budget, baseline):
+    return lock(shop, offer(shop, budget, baseline), dispatched=True)
 
 
 def measurement(order):
