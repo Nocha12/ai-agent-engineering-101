@@ -90,6 +90,7 @@ import food_opening_trial
 import deep_lowball_trial
 import at_floor_exact_trial
 import quote_hold
+import seller_terminal_observation
 
 READER_TRIAL = seller_reader_trial.Trial()
 CONCESSION_TRIAL = seller_concession_trial.Trial()
@@ -450,10 +451,12 @@ class Seller(AgentExecutor):
         self.remember(info["task"], info["deal"], "deal", info["price"])
         log(f"PAID {info['deal']['id']} unit {info['deal']['unit']} at {info['price']} (task {info['task'][:8]})"
             + (", after the wait" if info.get("late") else ""))
+        seller_terminal_observation.observe(info, 'paid')
 
     def unpaid(self, info, why):
         self.remember(info["task"], info["deal"], "unpaid", info["price"])
         log(f"UNPAID {info['deal']['id']} unit {info['deal']['unit']} at {info['price']}: {why}; the unit is on sale again")
+        seller_terminal_observation.observe(info, 'unpaid', why)
 
     async def open_from_stock(self, task, text, up, say):
         if task.id in self.margin_blocked or (self.open.get(task.id) or {}).get('sol_margin'):
