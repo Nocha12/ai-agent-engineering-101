@@ -14,11 +14,11 @@ import restock_first_stock as trial
 import restock_first_slot as slot
 
 class FirstSlotMainTest(unittest.TestCase):
-    def run_main(self, root, arm="B", held=0, fail_write=False, injected=False, fast=False, balance=10**9, bad_pending=False, late=False, expired=False, overrides=None, onhand=False, agent_lines=None, stock=0, old_active=False, reserved=False, preopen=False, open_flag=True, sent_trial=False):
+    def run_main(self, root, arm="B", held=0, fail_write=False, injected=False, fast=False, balance=10**9, bad_pending=False, late=False, expired=False, overrides=None, onhand=False, agent_lines=None, stock=0, old_active=False, reserved=False, preopen=False, open_flag=True, sent_trial=False, old_ineligible=False):
         import contextlib, io, os, sys, time
         state = root / "market"
         state.mkdir(exist_ok=True)
-        sku = slot.SKU
+        sku = "G022ce883" if old_ineligible else slot.SKU
         now = 119960 if preopen else 120179 if late else 120001
         inv = {"round": 3, "balance": balance, "units": [],
                "restock": {"open": False if preopen else open_flag, "opens_at": 120000, "closes_at": 120180}}
@@ -43,7 +43,18 @@ class FirstSlotMainTest(unittest.TestCase):
         if old_active:
             (state/trial.SWITCH).write_text(switch.read_text())
         if arm == "OFF":switch.unlink()
+        if old_active or old_ineligible:
+            catalog[trial.SKU] = {"kind":"food","list_price":100,"shelf_hours":48}
+            (state / "catalog.json").write_text(json.dumps(catalog))
         model = {"active": True, "skus": {sku: {"mine_rate": 0, "deals": 20}}}
+        if old_active:
+            model["skus"][trial.SKU] = {"mine_rate":0,"deals":20}
+        if old_ineligible:
+            model["skus"][trial.SKU] = {"mine_rate":3,"deals":17}
+            inv["units"] = [{"sku":trial.SKU,"kind":"food","cost":75} for _ in range(5)]
+            (state / "inventory.json").write_text(json.dumps(inv))
+            (state / trial.SWITCH).write_text(json.dumps({"enabled":True,"study":"preserved-old",
+                "start":118200,"stop":120000,"b_parity":0}))
         waiting = [{"sku": sku, "qty": held, "worst": 75}] if held else []
         original_guard = restock.guard
         def plan(inv, catalog, demand, cfg, *args, **kwargs):
@@ -214,3 +225,17 @@ class FirstSlotMainTest(unittest.TestCase):
                 # Its existing cash/pacing/429 checks still govern actual sending.
                 with patch.object(time,"time",return_value=120001):
                     self.assertEqual(kit.until_open(inv),0)
+
+    def test_new_slot_is_independent_of_old_first_stock_identity_and_state(self):
+        import hashlib
+        self.assertEqual(trial.SKU,"Gb834bbb5")
+        for arm,qty in [("OFF",0),("A",0),("B",1)]:
+            with self.subTest(arm=arm),tempfile.TemporaryDirectory() as td:
+                old_bytes=json.dumps({"enabled":True,"study":"preserved-old",
+                    "start":118200,"stop":120000,"b_parity":0}).encode()
+                out,state=self.run_main(Path(td),arm=arm,old_ineligible=True)
+                self.assertEqual(sum(b["qty"] for b in out["buy"] if b["sku"]=="G022ce883"),qty)
+                self.assertFalse(any(b["sku"]=="Gb834bbb5" for b in out["buy"]))
+                self.assertEqual(hashlib.sha256((state/trial.SWITCH).read_bytes()).digest(),
+                                 hashlib.sha256(old_bytes).digest())
+                self.assertEqual(trial.SKU,"Gb834bbb5")

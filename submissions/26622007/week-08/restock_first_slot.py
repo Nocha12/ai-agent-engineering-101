@@ -8,7 +8,10 @@ import os
 import re
 import time
 from pathlib import Path
-from restock_first_stock import number, SKU
+from restock_first_stock import number
+
+# Separate finite slot study; never retarget the expired first-stock reader.
+SKU = "G022ce883"
 SWITCH = "restock_first_slot.json"
 
 def config(state, inv, model, catalog, listed, now=None):
