@@ -35,6 +35,7 @@ way, and the treatment stops by itself at stop_at. Never raises. A new salt or s
 Default: price.food_reserve_margin (0.02-0.10) applies arm-B pricing to every eligible food unit as arm "D"
 when no study switch is on; a running study wins. SELLER_FOOD_MARGIN=0 turns both off. Remove the key to go back
 to today's price. Verdict: review/W-20261111-1938-AXPro주기/verdict-food-margin10.md.
+The switch field default_off: true disables the default without restarting; a running study is unaffected.
 """
 import hashlib
 import json
@@ -49,6 +50,7 @@ import profit_price
 SWITCH = "seller_food_margin.json"
 SHARE, SHARE_LOW, SHARE_HIGH = 0.05, 0.02, 0.10
 MAX_WINDOW_HOURS = 20
+_warned_invalid_default = False
 
 
 def _num(v):
@@ -92,6 +94,15 @@ def switch_on(md, *, study, salt, start_at, hours, share=SHARE):
     if (not (isinstance(study, str) and study and isinstance(salt, str) and salt) or not _share_ok(share)
             or not _window(start_at, stop_at)):
         raise ValueError("seller_food_margin: bad switch")
+    return _write_switch(md, d)
+
+
+def default_off(md):
+    """Stop the default without restart, replacing the switch atomically (0600)."""
+    return _write_switch(md, {"enabled": False, "default_off": True})
+
+
+def _write_switch(md, d):
     path = Path(md) / SWITCH
     tmp = path.with_name(f"{SWITCH}.tmp-{os.getpid()}")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -118,15 +129,27 @@ def arm(cfg, unit):
 def decide(u, q, *, reserve, ask, keep, margin_assignment, pricing=None, md=None, env=None, now=None):
     """(reserve, ask, record|None). u: the unit; q: profit_price.quote()'s result; reserve and ask: the talk's so far.
     Today's reserve and ask unless arm B raises them."""
+    global _warned_invalid_default
     try:
         env = os.environ if env is None else env
         if str(env.get("SELLER_FOOD_MARGIN") or "").strip().lower() in ("0", "false", "no", "off"):
             return reserve, ask, None
         cfg = config(md, env, now)
         if cfg is None:
-            share = profit_price.cfg_of(pricing).get("food_reserve_margin")
+            switch_dir = Path(md) if md is not None else Path(env.get("MARKET_DIR") or Path(__file__).parent / ".market")
+            try:
+                switch = json.loads((switch_dir / SWITCH).read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                switch = None
+            if isinstance(switch, dict) and switch.get("default_off") is True:
+                return reserve, ask, None
+            price_cfg = profit_price.cfg_of(pricing)
+            share = price_cfg.get("food_reserve_margin")
             if _share_ok(share):
                 cfg = {"study": "default", "share": float(share), "stop_at": None}
+            elif "food_reserve_margin" in price_cfg and not _warned_invalid_default:
+                print("SELLER_FOOD_MARGIN invalid price.food_reserve_margin; keeping today's price", file=sys.stderr)
+                _warned_invalid_default = True
         if (not cfg or not isinstance(u, dict) or u.get("kind") != "food" or not _num(u.get("list_price"))
                 or u["list_price"] <= 0 or not _num(u.get("cost")) or u["cost"] <= 0
                 or not _num(reserve) or not _num(ask) or not _num(keep) or keep < 1 or margin_assignment is not None

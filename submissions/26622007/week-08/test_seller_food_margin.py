@@ -1,5 +1,6 @@
 """seller_food_margin: food reserve with a margin over cost, arms by unit (W-20261109-2040-AX셀러전략)."""
 import json
+import io
 import os
 import tempfile
 import unittest
@@ -87,6 +88,47 @@ class SellerFoodMarginTest(unittest.TestCase):
         self.assertEqual(self.run_(u, q, pricing=pricing)[:2], (6600, 7080))
         self.on(salt=self.salt_for("B", u), share=0.10)
         self.assertEqual(self.run_(u, q, pricing=pricing)[:2], (6600, 7080))
+
+    def test_default_off_switch_is_read_at_every_quote(self):
+        u = unit()
+        q = self.q(u)
+        pricing = {"price": {"food_reserve_margin": 0.10}}
+        path = Path(self.md.name, fd.SWITCH)
+        self.assertEqual(self.run_(u, q, pricing=pricing)[2]["arm"], "D")
+        path.write_text(json.dumps({"enabled": False, "default_off": True}))
+        self.assertEqual(self.run_(u, q, pricing=pricing), (30000, 30000, None))
+        path.write_text(json.dumps({"enabled": False}))
+        self.assertEqual(self.run_(u, q, pricing=pricing)[2]["arm"], "D")
+        path.write_text("unreadable json")
+        self.assertEqual(self.run_(u, q, pricing=pricing)[2]["arm"], "D")
+        self.assertEqual(self.run_(u, q, pricing=pricing, env={"SELLER_FOOD_MARGIN": "0"}),
+                         (30000, 30000, None))
+
+    def test_running_study_ignores_default_off_field(self):
+        u = unit()
+        self.on(salt=self.salt_for("B"), default_off=True)
+        rec = self.run_(u, self.q(u), pricing={"price": {"food_reserve_margin": 0.10}})[2]
+        self.assertEqual((rec["study"], rec["arm"]), ("food-margin-t", "B"))
+
+    def test_default_off_helper_replaces_study_with_private_stop_file(self):
+        self.on()
+        expected = {"enabled": False, "default_off": True}
+        self.assertEqual(fd.default_off(self.md.name), expected)
+        path = Path(self.md.name, fd.SWITCH)
+        self.assertEqual(json.loads(path.read_text()), expected)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+    def test_invalid_default_setting_warns_once_without_raising(self):
+        u = unit()
+        q = self.q(u)
+        stderr = io.StringIO()
+        with mock.patch.object(fd, "_warned_invalid_default", False, create=True), mock.patch("sys.stderr", stderr):
+            self.run_(u, q, pricing={"price": {}})
+            self.assertEqual(stderr.getvalue(), "")
+            for bad in (True, 0.11, "0.10", float("nan")):
+                self.assertEqual(self.run_(u, q, pricing={"price": {"food_reserve_margin": bad}}),
+                                 (30000, 30000, None))
+            self.assertEqual(stderr.getvalue().count("SELLER_FOOD_MARGIN invalid price.food_reserve_margin"), 1)
 
     def test_default_ineligible_talks_and_env_off_unchanged(self):
         u = unit()
