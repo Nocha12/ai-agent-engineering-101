@@ -11,14 +11,14 @@ import restock_first_stock as trial
 import restock_first_slot as slot
 
 class FirstSlotMainTest(unittest.TestCase):
-    def run_main(self, root, arm="B", held=0, fail_write=False, injected=False, fast=False, balance=10**9, bad_pending=False, late=False, expired=False, overrides=None, onhand=False, agent_lines=None, stock=0, old_active=False, reserved=False):
+    def run_main(self, root, arm="B", held=0, fail_write=False, injected=False, fast=False, balance=10**9, bad_pending=False, late=False, expired=False, overrides=None, onhand=False, agent_lines=None, stock=0, old_active=False, reserved=False, preopen=False, open_flag=True):
         import contextlib, io, os, sys, time
         state = root / "market"
         state.mkdir(exist_ok=True)
         sku = slot.SKU
-        now = 120179 if late else 120001
+        now = 119960 if preopen else 120179 if late else 120001
         inv = {"round": 3, "balance": balance, "units": [],
-               "restock": {"open": True, "opens_at": 120000, "closes_at": 120180}}
+               "restock": {"open": False if preopen else open_flag, "opens_at": 120000, "closes_at": 120180}}
         if stock: inv["units"] = [{"sku":"held_other","kind":"goods","cost":stock}]
         if onhand: inv["units"] = [{"sku":sku,"kind":"food","cost":75}]
         catalog = {sku: {"kind": "food", "list_price": 100, "shelf_hours": 48}}
@@ -154,3 +154,38 @@ class FirstSlotMainTest(unittest.TestCase):
                 queue=json.loads((state/"restock_queue.json").read_text())["lines"]
                 self.assertEqual(sum(x["qty"] for x in queue if x["sku"]==slot.SKU),0)
                 self.assertEqual(sum(x["qty"] for x in queue if x["sku"]=="other1"),2)
+
+    def test_preopen_plan_waits_in_native_kit_before_first_rpc(self):
+        import time
+        import market_kit as kit
+        for arm,expected in [("OFF",0),("A",0),("B",1)]:
+            with self.subTest(arm=arm),tempfile.TemporaryDirectory() as td:
+                out,state=self.run_main(Path(td),arm=arm,preopen=True)
+                inv=json.loads((state/"inventory.json").read_text())
+                self.assertIs(inv["restock"]["open"],False)
+                clock=[119965.0];calls=[]
+                class Reply:
+                    status_code=200
+                    text="offline"
+                    def json(self):return {**inv,"balance":10**9,"total":75}
+                class Market:
+                    def call(self,method,path,role,**kwargs):
+                        if method=="POST":calls.append((clock[0],kwargs["json"]))
+                        return Reply()
+                def sleep(seconds):clock[0]+=seconds
+                with patch.object(time,"time",side_effect=lambda:clock[0]), \
+                     patch.object(time,"monotonic",side_effect=lambda:clock[0]), \
+                     patch.object(time,"sleep",side_effect=sleep), \
+                     patch.object(kit,"run_buyer",return_value=[json.dumps(out)]), \
+                     patch.object(kit,"_supply_last",[None]),patch.object(kit,"log",return_value=None):
+                    kit.restock({"restock":{"cmd":"offline"}},Path(td),Market(),state,inv,[])
+                self.assertEqual(len(calls),expected)
+                if expected:
+                    self.assertGreaterEqual(calls[0][0],120000)
+                    self.assertEqual(calls[0][1],{"sku":slot.SKU,"qty":1})
+
+    def test_unknown_window_flag_cannot_enable_new_slot(self):
+        for flag in (None,"false",0):
+            with self.subTest(flag=flag),tempfile.TemporaryDirectory() as td:
+                out,state=self.run_main(Path(td),open_flag=flag)
+                self.assertEqual(out["buy"],[])

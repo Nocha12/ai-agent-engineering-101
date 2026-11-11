@@ -50,7 +50,11 @@ def select(on, buy, inv, waiting, keep):
         return buy
     try:
         now = time.time()
-        if not on["opens_at"] <= now < on["closes_at"] or (inv.get("restock") or {}).get("open") is not True:
+        window_open = (inv.get("restock") or {}).get("open")
+        # The kit accepts plans within the reader/opening's 50 s lead and waits
+        # until_open before RPC. A known closed snapshot is not a closed plan.
+        if (not on["opens_at"] - 50 <= now < on["closes_at"]
+                or type(window_open) is not bool or window_open and now < on["opens_at"]):
             on["guard"] = "outside_open_window"
             return buy
         held = [u for u in inv.get("units") or [] if u.get("sku") == SKU
