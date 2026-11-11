@@ -41,6 +41,7 @@ import market_model
 import opening
 import profit_price
 import restock_breadth
+import restock_food_stockout
 import restock_fresh_slots
 import restock_turnover_targets
 import restock_window_fast
@@ -1033,6 +1034,11 @@ def main():
         cfg["priority_skus"], cfg["sku_target_units"], added = restock_breadth.listing(cfg)
         studies = "+".join(on["study"] for on in cfg["breadth"])
         print(f"[restock] breadth {studies}: {len(added)} SKUs listed for the window: "
+              + ", ".join(f"{sku} x{units}" for sku, units in added.items()), file=sys.stderr, flush=True)
+    cfg["food_stockout"] = restock_food_stockout.config(args.state)
+    if cfg["food_stockout"]:
+        cfg["priority_skus"], cfg["sku_target_units"], added = restock_food_stockout.listing(cfg, catalog)
+        print(f"[restock] food_stockout {cfg['food_stockout']['study']}: {len(added)} food SKUs listed for the window: "
               + ", ".join(f"{sku} x{units}" for sku, units in added.items()), file=sys.stderr, flush=True)
     if cfg["fresh_slots"]:
         _, moved = restock_fresh_slots.counted([u for u in inv.get("units") or [] if isinstance(u, dict)
