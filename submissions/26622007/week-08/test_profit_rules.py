@@ -33,6 +33,11 @@ def unit(uid, sku="G1", hours=500.0, grade="A", kind="food", cost=6000, list_pri
 # scale 11 (W-20261110-1155-AXBook근본): restock breadth 7 SKUs, taken back out at the breadth-1110 max (11/11 01:41)
 SCALE_11 = {"G53b150b5": 3, "Gf3e749a1": 2, "Gea0cca52": 2, "G2af689a3": 2, "Gbf98024f": 2, "Gfbf7f983": 3,
             "G28bd9142": 2}     # G57d8dfa6, G04ee8423, Gc44de87c net <= +0.011 of list at our 0.66 (independent review)
+# breadth-1111 keep (review/W-20261111-1415-AXPro주기/verdict-breadth.md): its 10 arm-B SKUs at 2 after every older line.
+# Listed inside the window, each with its own row in the verdict's per-SKU table (G04ee8423, Gbf98024f included: that
+# measured result replaces the scale-11 estimate); arm A (Gea0cca52, Gc44de87c, ...) was never listed and stays out.
+BREADTH_1111 = ["G04ee8423", "G6841e8a3", "G7aac0d6f", "Ga4e6abc9", "Gbf98024f", "G2d1fbb87", "G5b96e0fd", "G40e27aec",
+                "Gfe4f052a", "Ge7edc329"]
 
 class NeedsTest(unittest.TestCase):
     def test_reads_what_real_buyers_wrote(self):
@@ -371,7 +376,7 @@ class PriceTest(unittest.TestCase):
         new = {"G0e4deffc": 1, "G147ae4e7": 3}      # G0e4deffc 1: its median is one buyer at one shop (independent review)
         i = r["priority_skus"].index("G0e4deffc")
         self.assertEqual(r["priority_skus"][i:i + 2], list(new))  # after the food and every older line (243a8f7 order)
-        self.assertEqual(r["priority_skus"][i + 2:], [])   # scale 11 taken back out: nothing after them
+        self.assertEqual(r["priority_skus"][i + 2:], BREADTH_1111)   # scale 11 taken back out: only breadth-1111's after them
         self.assertEqual(r["priority_skus"][:3], ["Gef4d3036", "Gb2392fa9", "G200e39a3"])
         self.assertEqual({k: r["sku_target_units"][k] for k in new}, new)
         self.assertFalse(set(new) & set(r["skip_skus"]))
@@ -381,10 +386,13 @@ class PriceTest(unittest.TestCase):
         # breadth-1110 max; units already held stay on sale, no other SKU or target changes
         with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
             r = json.load(f)["restock"]
-        self.assertFalse(set(SCALE_11) & (set(r["priority_skus"]) | set(r["sku_target_units"])))
-        self.assertEqual(r["priority_skus"][-2:], ["G0e4deffc", "G147ae4e7"])
+        back = set(SCALE_11) & (set(r["priority_skus"]) | set(r["sku_target_units"]))
+        self.assertEqual(back, {"Gbf98024f"})       # breadth-1111 arm B, on its own measured row; Gea0cca52 (arm A) stays out
+        self.assertEqual(r["sku_target_units"]["Gbf98024f"], 2)
+        self.assertEqual(r["priority_skus"][-len(BREADTH_1111) - 2:-len(BREADTH_1111)], ["G0e4deffc", "G147ae4e7"])
         self.assertIn("G07ec17d5", r["skip_skus"])
-        self.assertFalse({"G57d8dfa6", "G04ee8423", "Gc44de87c"} & (set(r["priority_skus"]) | set(r["sku_target_units"])))
+        self.assertFalse({"G57d8dfa6", "Gc44de87c"} & (set(r["priority_skus"]) | set(r["sku_target_units"])))
+        self.assertEqual([k for k in r["priority_skus"] if k == "G04ee8423"], ["G04ee8423"])   # breadth-1111 arm B only
         self.assertEqual(len(set(r["priority_skus"])), len(r["priority_skus"]))
         self.assertEqual(r["sku_target_units"]["G2c023a8c"], 3)      # Restore after g2-loss-target-1110
 
@@ -522,7 +530,8 @@ class PriceTest(unittest.TestCase):
         # G75f11c19 3 -> 8, G9c9f8f94 2 -> 4, G754bf0ca 5 -> 8, G8095ddd6 6 -> 8 (sold 2-4x their target in 6 h)
         old = [k for k in r["priority_skus"] if k not in ("Ge5fe0d41", "G19a70f63", "G0667d440", "G85a1a856", "G9f7c7d1b",
                                                            "Gd289350f", "G6b0fd5bc", "G2c023a8c", "G7978c65e", "G9357d6c2",
-                                                           "G0e4deffc", "G147ae4e7") + tuple(SCALE_11)]   # + scale 10, 11
+                                                           "G0e4deffc", "G147ae4e7") + tuple(SCALE_11)
+               and k not in BREADTH_1111]   # + scale 10, 11, breadth-1111
         self.assertEqual((old, {k: v for k, v in r["sku_target_units"].items() if k in old
                           or k in r["high_price_proven_skus"]}, r["fill_listed"], r["price_hours"]),
                          (["Gef4d3036", "Gb2392fa9", "G200e39a3", "G8ec51935", "G24f5f979", "Gbec2b68f", "Gf6b70da8", "Gb5d0dde7", "G2698c6f8", "G8095ddd6", "G021aae64", "G03d0199f", "G05277ffe", "G00327e80", "G3e0d6c67", "Gc1297f36", "G429bd69e", "G754bf0ca", "G47788edd", "G4a12722c", "G445ada94", "G2607d1f6", "G9c9f8f94", "G7a341425", "G9718023b", "G75f11c19", "G66ded25b", "G1465c678"],

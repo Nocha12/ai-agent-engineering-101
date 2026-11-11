@@ -210,5 +210,27 @@ class ListingTest(unittest.TestCase):
         self.assertEqual(restock.guard(line, poor, catalog, {**cfg, "cash_buffer": 1400000}), [])
 
 
+class DefaultTest(unittest.TestCase):
+    """breadth-1111 keep: pricing.json lists the study's 10 arm-B SKUs at 2 (arm A was never listed and stays out),
+    and the study's switch left on adds nothing more."""
+    B = ["G04ee8423", "G6841e8a3", "G7aac0d6f", "Ga4e6abc9", "Gbf98024f", "G2d1fbb87", "G5b96e0fd", "G40e27aec",
+         "Gfe4f052a", "Ge7edc329"]
+    A = ["Gea0cca52", "G4e4eabdb", "Gc44de87c", "G0132ff94", "Gcc75125e"]
+
+    def test_pricing_lists_arm_b_only_and_the_switch_adds_none(self):
+        here = os.path.dirname(os.path.abspath(restock.__file__))
+        with open(os.path.join(here, "pricing.json"), encoding="utf-8") as f:
+            cfg = json.load(f)["restock"]
+        self.assertIn("breadth_default_source", cfg)
+        self.assertEqual(cfg["priority_skus"][-10:], self.B)
+        self.assertEqual({s: cfg["sku_target_units"][s] for s in self.B}, {s: 2 for s in self.B})
+        self.assertFalse(set(self.A) & (set(cfg["priority_skus"]) | set(cfg["sku_target_units"])))
+        on = {**ON, "skus": self.B + self.A, "salt": "breadth-1111-b4", "treat": 0.5}
+        self.assertEqual([s for s in on["skus"] if breadth.arm(on, s) == "B"], self.B)     # the ops switch's own arms
+        p, t, added = breadth.listing({**cfg, "breadth": on}, NOW)
+        self.assertEqual(added, {})
+        self.assertIs(p, cfg["priority_skus"])
+
+
 if __name__ == "__main__":
     unittest.main()
