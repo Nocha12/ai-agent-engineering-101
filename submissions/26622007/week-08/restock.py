@@ -1070,7 +1070,8 @@ def main():
         return 0
     demand, model = load(os.path.join(args.state, "demand.json"), []), read_model(args.state, catalog, cfg)
     cfg["first_stock"] = restock_first_stock.config(args.state, inv, model, catalog, listed(cfg))
-    cfg["first_slot"] = restock_first_slot.config(args.state, inv, model, catalog, listed(cfg))
+    cfg["first_slot"] = restock_first_slot.config(args.state, inv, model, catalog, listed(cfg)) or \
+        restock_first_slot.default_config(args.state, inv, model, catalog, listed(cfg))
     loss_watch.check(args.state, rows=rows_of(args.state))     # after read_model: the ledger rows are fresh
     breaks = read_breaks(args.state, catalog)
     blind = False

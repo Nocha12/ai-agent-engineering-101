@@ -42,6 +42,36 @@ def config(state, inv, model, catalog, listed, now=None):
         return None
 
 
+# Adopted normal policy has a separate fail-closed control and observation file.
+# The finite reader and its original S/E are never changed into a default.
+DEFAULT_SWITCH = "restock_first_slot_default.json"
+DEFAULT_POLICY = "first-slot-default-v1"
+
+def default_config(state, inv, model, catalog, listed, now=None):
+    try:
+        now = time.time() if now is None else now
+        d = json.loads((Path(state) / DEFAULT_SWITCH).read_text(encoding="utf-8"))
+        if (not isinstance(d, dict) or set(d) != {"enabled", "policy", "sku"}
+                or d.get("enabled") is not True or d.get("policy") != DEFAULT_POLICY or d.get("sku") != SKU):
+            return None
+        window = inv.get("restock") or {}
+        opens, closes = window.get("opens_at"), window.get("closes_at")
+        m = (model or {}).get("skus", {}).get(SKU) or {}
+        item = catalog.get(SKU) or {}
+        if (not all(number(x) for x in (now, opens, closes))
+                or not 0 < closes - opens <= 180 or not opens - 50 <= now < closes
+                or not model or model.get("active") is not True
+                or not number(m.get("mine_rate")) or m["mine_rate"] != 0
+                or not number(m.get("deals")) or m["deals"] < 3
+                or SKU in listed or item.get("kind") != "food" or item.get("shelf_hours") != 48):
+            return None
+        return {"study": DEFAULT_POLICY, "opens_at": opens, "closes_at": closes,
+                "arm": "B", "mode": "default", "model_active": True,
+                "mine_rate": m["mine_rate"], "deals": m["deals"], "listed": False}
+    except Exception:  # unreadable/malformed normal control cannot enable supply
+        return None
+
+
 def select(on, buy, inv, waiting, keep):
     """Recheck the entire proposed portfolio in the existing guard, target first.
 
@@ -99,7 +129,8 @@ def record(state, on, lines):
                "guard": on.get("guard", "not_selected"), "proposed_qty": qty,
                "position": positions[0] if positions else None}
         encoded = json.dumps(row, sort_keys=True, allow_nan=False) + "\n"
-        path = Path(state) / "measure" / "restock_first_slot.jsonl"
+        name = "restock_first_slot_default.jsonl" if on.get("mode") == "default" else "restock_first_slot.jsonl"
+        path = Path(state) / "measure" / name
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
         with os.fdopen(fd, "a", encoding="utf-8") as stream:
