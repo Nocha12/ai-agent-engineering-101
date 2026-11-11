@@ -18,6 +18,21 @@ def row(shop, kind, ask, price=None, talk=10.0, ts=NOW - 600, state="TASK_STATE_
 
 
 class StatsTest(unittest.TestCase):
+    def test_actual_goods_take_B_is_excluded_but_A_and_untreated_B_are_learned(self):
+        rows=[row('a','goods',10000,8000,order='base'),
+              dict(row('a','goods',10000,9000,order='arm-a'),goods_take30={'arm':'A','applied':True}),
+              dict(row('a','goods',10000,order='untreated'),goods_take30={'arm':'B','applied':False})]
+        treated=dict(row('a','goods',10000,order='treated'),goods_take30={'arm':'B','applied':True})
+        paid={'base':'confirmed','arm-a':'confirmed'}
+        expected=rp.stats_from_rows(rows,paid,NOW)
+        actual=rp.stats_from_rows(rows+[treated],paid,NOW)
+        self.assertEqual(expected['pool']['goods']['n'],3)
+        self.assertAlmostEqual(expected['pool']['goods']['p'],2/3)
+        self.assertAlmostEqual(expected['pool']['goods']['ratio'],.85)
+        for field in ('pool','shops','nofit'):
+            self.assertEqual(actual[field],expected[field])
+        self.assertEqual(actual['counts']['excluded_rows'],expected['counts']['excluded_rows']+1)
+
     def test_shrunk_to_the_kinds_pool(self):
         rows = [row("a", "goods", 10000, 9000) for _ in range(10)] + [row("b", "goods", 10000) for _ in range(30)]
         st = rp.stats_from_rows(rows, {"o-a-goods": "confirmed"}, NOW)

@@ -22,6 +22,7 @@ import time
 import buyer_food_ladder
 import buyer_goods_grade
 import buyer_goods_ladder
+import buyer_goods_take30
 import buyer_moss_first
 import buyer_saved_floor
 import buyer_warranty_said
@@ -79,6 +80,8 @@ def profile_from_rows(rows, paid, now):
         if buyer_warranty_said.said_b(r):    # warranty-said arm B's 6 h pricing, the same (review 08b282d I2)
             continue
         if buyer_moss_first.applied_b(r):    # moss-first arm B's code-priced first turn, the same (review 5445a75 I1)
+            continue
+        if buyer_goods_take30.applied_b(r):  # actual price treatment, never assignment alone
             continue
         talks.setdefault(shop, []).append(r)
     out = {}

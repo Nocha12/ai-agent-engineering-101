@@ -1020,7 +1020,7 @@ def firm_food_take_turn(baseline, meta, text, history, limit, order, offer, quot
     return {"shop_price": price, "action": "offer", "price": price, "price_policy": "firm_food_take"}
 
 
-def quote_row(name, o, q, lim, best, *, goods_take30_witness=None):
+def quote_row(name, o, q, lim, best):
     """The orders.jsonl line of one quote. buyer_our_ask arm B (ask_src "text_rank"): the shared fields keep the ask as
     legacy read it (none), so recent_asks, recent_fits and the food shares never take arm B's number for a shop's ask;
     what arm B read, and how it stood against the limit, is under our_ask."""
@@ -1037,7 +1037,6 @@ def quote_row(name, o, q, lim, best, *, goods_take30_witness=None):
             "lost": lost, "limit": lim, "fit": fit,
             **({"member_code_used": True} if q.get("member_code_used") else {}),
             **({"our_ask": dict(zip(("ask", "lost", "fit"), (ask_,) + lost_fit(ask_)))} if rank else {}),
-            **({"goods_take30_witness": goods_take30_witness} if goods_take30_witness is not None else {}),
             "text": (q.get("text") or "")[:120]}
 
 
@@ -2181,9 +2180,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         lim = min(value_limit(o, args.budget, 0, buyer_cfg()), saved_cap(o, s.get("_b", 0))) if o.get("list_price") else None
         sc = short_cap(o, s.get("_b"), order, s["name"], q, s) if lim is not None else None
         lim = lim if sc is None else min(lim, sc)     # the quote is recorded against the cap the choice used
-        qs.append(quote_row(s["name"], o, q, lim, best,
-            goods_take30_witness=order.get("_goods_take30_witness")
-            if order.get("kind") == "goods" and s["name"] == best and o.get("sku") == (offer or {}).get("sku") else None))
+        qs.append(quote_row(s["name"], o, q, lim, best))
     # the kept shop and the asks within my limit first: with quote_shops 10 a run can hold 30 quotes, and recent_fits and
     # recent_asks (hopeless) read these, so all of them are kept
     qs.sort(key=lambda x: (x["lost"] is not None, not x["fit"]))
@@ -2217,7 +2214,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "goods_grade": order.get("_goods_grade"),
         "goods_ladder": order.get("_goods_ladder"),
         "goods_take30": order.get("_goods_take30"),
-        **({"goods_take30_witness": order["_goods_take30_witness"]}
+        **({"goods_take30_witness": buyer_goods_take30.compact_witness(order["_goods_take30_witness"])}
            if order.get("kind") == "goods" and order.get("_goods_take30_witness") is not None else {}),
         "turns": dict(out.get("turns") or {}),
         "goods_extra_quote_started": order.get("_goods_extra_quote_started"),

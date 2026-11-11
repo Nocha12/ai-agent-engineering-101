@@ -41,6 +41,7 @@ import uuid
 import buyer_food_ladder
 import buyer_goods_grade
 import buyer_goods_ladder
+import buyer_goods_take30
 import buyer_moss_first
 import buyer_saved_floor
 import buyer_warranty_said
@@ -174,6 +175,9 @@ def stats_from_rows(rows, paid, now):
             counts['excluded_rows'] += 1
             continue
         if buyer_moss_first.applied_b(r):   # moss-first arm B's code-priced first turn, the same (review 5445a75 I1)
+            counts['excluded_rows'] += 1
+            continue
+        if buyer_goods_take30.applied_b(r):  # actual price treatment, never assignment alone
             counts['excluded_rows'] += 1
             continue
         qs = [q for q in quotes if isinstance(q, dict)] if isinstance(quotes, list) else []

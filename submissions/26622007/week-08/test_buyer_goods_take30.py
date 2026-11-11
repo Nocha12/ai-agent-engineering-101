@@ -224,10 +224,8 @@ class GoodsTake30Test(unittest.TestCase):
         self.assertNotIn(self.text,json.dumps(w))
         self.assertNotIn('"task"',json.dumps(w))
         import market_buyer as mb
-        row=mb.quote_row('fixture-shop',self.offer,q,6000,'fixture-shop',goods_take30_witness=w)
-        self.assertEqual(row['goods_take30_witness'],w)
-        self.assertEqual({k:v for k,v in row.items() if k!='goods_take30_witness'},
-                         mb.quote_row('fixture-shop',self.offer,q,6000,'fixture-shop'))
+        row=mb.quote_row('fixture-shop',self.offer,q,6000,'fixture-shop')
+        self.assertNotIn('goods_take30_witness',row)
 
     def test_witness_uses_identical_guard_and_recorded_window_not_live_switch(self):
         import copy
@@ -293,10 +291,12 @@ class GoodsTake30Test(unittest.TestCase):
             measured=record(self.order)
             baseline=record({k:v for k,v in self.order.items() if k!='_goods_take30_witness'})
         w=self.order['_goods_take30_witness']
-        self.assertIs(measured['goods_take30_witness'],w)
-        chosen=next(q for q in measured['quotes'] if q['shop']==shop['name'])
-        self.assertIs(chosen['goods_take30_witness'],w)
-        self.assertNotIn('goods_take30_witness',next(q for q in measured['quotes'] if q['shop']=='other'))
+        compact=measured['goods_take30_witness']
+        self.assertIsInstance(compact,list)
+        self.assertEqual(compact[0],2)
+        self.assertEqual(compact[1:4],[w['task_sha256'],w['fulltext_sha256'],w['fulltext_len']])
+        self.assertEqual([len(compact[1]),len(compact[2])],[64,64])
+        self.assertTrue(all('goods_take30_witness' not in q for q in measured['quotes']))
         stripped=dict(measured)
         stripped.pop('goods_take30_witness')
         stripped['quotes']=[{k:v for k,v in q.items() if k!='goods_take30_witness'} for q in measured['quotes']]
@@ -310,9 +310,69 @@ class GoodsTake30Test(unittest.TestCase):
         with patch.object(mb.records.os,'write',wraps=mb.records.os.write) as write:
             mb.records.write(self.md,'orders',measured)
             self.assertEqual(write.call_count,1)
-            self.assertEqual(json.loads(write.call_args.args[1])['goods_take30_witness'],w)
-        # Bound the new fixed-schema overhead, not execution time or market frequency.
-        self.assertLess(len(json.dumps(w).encode()),1200)
+            written=write.call_args.args[1]
+            self.assertEqual(json.loads(written)['goods_take30_witness'],compact)
+            self.assertEqual(written.count(b'goods_take30_witness'),1)
+        # Actual whole-row serializer cost, not just the in-memory witness object.
+        encoded=lambda r: (json.dumps(r,ensure_ascii=False)+'\n').encode()
+        added=len(encoded(measured))-len(encoded(baseline))
+        self.assertGreater(added,150)  # two complete hashes remain, never 16hex truncations
+        self.assertLessEqual(added,300)
+        self.assertEqual(len(json.dumps(compact)),len(json.dumps(json.loads(json.dumps(compact)))))
+
+    def test_physical_byte_tail_coverage_is_measured_not_claimed_identical(self):
+        import buyer_rank_pg as rp
+        import buyer_shop_profile as sp
+        import market_buyer as mb
+        note=gt.witness(self.order,self.offer,self.q,(.9,),self.shop,'G12345678',6000,
+                        ('fixture',self.q['task']),None,now=self.now)
+        compact=gt.compact_witness(note)
+        sets={}
+        for mode in ('baseline','compact','duplicated'):
+            path=Path(self.md)/mode/'measure/orders.jsonl'
+            path.parent.mkdir(parents=True)
+            data=[]
+            for i in range(60):
+                r=dict(order='o'+str(i),ts=self.now-60*(60-i),kind='goods',shop='fixture-shop',
+                       sku='G12345678',list_price=10000,limit=6000,quotes=[dict(shop='fixture-shop',
+                       sku='G12345678',ask=4000,text='fixture '*12)])
+                if mode=='compact': r['goods_take30_witness']=compact
+                if mode=='duplicated':
+                    r['goods_take30_witness']=note
+                    r['quotes'][0]['goods_take30_witness']=note
+                data.append((json.dumps(r,ensure_ascii=False)+'\n').encode())
+            raw=b''.join(data);path.write_bytes(raw)
+            budget=3000  # scaled byte-boundary fixture; production caps are never changed
+            expected=[json.loads(x)['order'] for x in raw[-budget:].splitlines()[1:]]
+            rows=list(rp._tail(str(path),nbytes=budget))
+            self.assertEqual([r['order'] for r in rows],expected)
+            self.assertEqual([r['order'] for r in sp._tail(str(path),nbytes=budget)],expected)
+            with patch.object(mb,'RECENT_FIT_BYTES',budget):
+                self.assertEqual([r['order'] for r in mb.recent_orders(str(path.parent.parent),self.now,3)],expected)
+            sets[mode]=expected
+        self.assertLess(len(sets['compact']),len(sets['baseline']))
+        self.assertGreater(len(sets['compact']),len(sets['duplicated']))
+        # Every bounded reader keeps the newest records; missing prefix is not zero activity.
+        self.assertEqual(sets['baseline'][-len(sets['compact']):],sets['compact'])
+        self.assertEqual(rp.TAIL_BYTES,30_000_000)
+        self.assertEqual(sp.TAIL_BYTES,30_000_000)
+        self.assertEqual(mb.RECENT_FIT_BYTES,3_000_000)
+
+    def test_compact_witness_preserves_full_hashes_guards_and_failure_unknown(self):
+        base=gt.witness(self.order,self.offer,self.q,(.9,),self.shop,'G12345678',6000,
+                        ('fixture',self.q['task']),None,now=self.now)
+        for raw_type in ('NoneType','bool','int','float','str','list','dict','other'):
+            for why in (None,'invalid_runtime_shape','sku_or_warranty','witness_error'):
+                n=dict(base,raw_ask_type=raw_type,reason=why,warranty_h=999999999999.9,
+                       warranty_normal=True,warranty_short=True,short_parser_match=True,quote_closed=True)
+                c=gt.compact_witness(n)
+                self.assertEqual(c[1:4],[base['task_sha256'],base['fulltext_sha256'],base['fulltext_len']])
+                self.assertEqual(c[5],15)
+                self.assertEqual(c[7],why)
+                self.assertLessEqual(len(json.dumps({'goods_take30_witness':c}).encode()),300)
+        error=gt.compact_witness({'reason':'witness_error'})
+        self.assertEqual(error[7],'witness_error')
+        self.assertIsNone(error[1])
 
     def test_B_exact_ask_reaches_real_send(self):
         sent, out = self.run_wire()

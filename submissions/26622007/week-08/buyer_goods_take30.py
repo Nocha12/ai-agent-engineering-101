@@ -226,6 +226,28 @@ def witness(order, offer, q, steps, shop, sku, budget, resume, take_at, *, now=N
         return dict(v=1,scope='selected_pre_negotiate',input_eligible=None,reason='witness_error')
 
 
+def compact_witness(note):
+    """Orders-only v2 array; full hashes, everything else reuses the parent row.
+
+    [2, task_sha256, fulltext_sha256, fulltext_len, raw_type, flags,
+     warranty_h, reason, recorded_window, observed_at].
+    flags: normal=1, short=2, parser_match=4, quote_closed=8.
+    reason None means input_eligible; witness_error means unknown, not false.
+    shop/SKU/list/limit and the selected quote's ask stay in the parent row.
+    Scope is selected_pre_negotiate; switch_checked=False/treatment_eligible=None.
+    Physical byte tails still move: compact does not mean identical coverage.
+    """
+    if not isinstance(note,dict):
+        return None
+    types={'NoneType':'n','bool':'b','int':'i','float':'f','str':'s','list':'l','dict':'d','other':'o'}
+    windows={'unassigned':'u','before':'b','within_recorded_window':'w','expired':'e','invalid':'x'}
+    flags=sum(bit for field,bit in (('warranty_normal',1),('warranty_short',2),
+              ('short_parser_match',4),('quote_closed',8)) if note.get(field) is True)
+    return [2,note.get('task_sha256'),note.get('fulltext_sha256'),note.get('fulltext_len'),
+            types.get(note.get('raw_ask_type'),'o'),flags,note.get('warranty_h'),
+            note.get('reason'),windows.get(note.get('window_status'),'x'),note.get('observed_at')]
+
+
 def applied_b(row):
     """Only actual B price attempts, not B assignments, leave shared price learning."""
     note=row.get('goods_take30') if isinstance(row,dict) else None

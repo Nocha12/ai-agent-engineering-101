@@ -37,6 +37,18 @@ def holder(shop, fails, deals=10, n=None):
 
 
 class ProfileTest(unittest.TestCase):
+    def test_goods_take_actual_B_does_not_dilute_shared_profile(self):
+        rows=holder('H',[1.08]*20)
+        a=[dict(talk('H',[1090,1090],order='a'+str(i)),
+                goods_take30={'arm':'A','applied':True}) for i in range(40)]
+        untreated=[dict(talk('H',[1090,1090],order='u'+str(i)),
+                goods_take30={'arm':'B','applied':False}) for i in range(40)]
+        treated=[dict(talk('H',[1300,1300],order='b'+str(i)),
+                goods_take30={'arm':'B','applied':True}) for i in range(300)]
+        self.assertEqual(sp.profile_from_rows(rows,{},NOW),{'H':108})
+        self.assertEqual(sp.profile_from_rows(rows+a+untreated,{},NOW),{'H':109})
+        self.assertEqual(sp.profile_from_rows(rows+a+untreated+treated,{},NOW),{'H':109})
+
     def test_a_holding_shop_gets_the_80th_percentile_of_its_near_misses(self):
         rows = holder('H', [1.02] * 5 + [1.06] * 5 + [1.08] * 5 + [1.2] * 5)
         self.assertEqual(sp.profile_from_rows(rows, {}, now=NOW), {'H': 108})
