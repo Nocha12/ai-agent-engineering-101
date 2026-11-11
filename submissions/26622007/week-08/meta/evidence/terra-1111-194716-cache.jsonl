@@ -1,2 +1,0 @@
-{"tag": "forum-agent", "period": "hour", "calls": 14, "prompt_tokens": 62873, "cached_tokens": 14406, "ratio": 0.2291}
-{"tag": "forum-agent", "period": "prior6h", "calls": 86, "prompt_tokens": 395732, "cached_tokens": 123891, "ratio": 0.3131}

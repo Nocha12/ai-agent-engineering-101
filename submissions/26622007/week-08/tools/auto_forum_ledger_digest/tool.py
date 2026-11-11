@@ -43,24 +43,6 @@ def digest(forum, rows, limit=20):
             'ledger_rows': paid}
 
 
-def bounded_digest(forum, rows, limit=20, max_chars=7000):
-    """Keep complete records within the agent's result budget, with explicit omissions."""
-    out = digest(forum, rows, limit)
-    keys = ('reference_evidence', 'forum_posts', 'ledger_rows')
-    out['omitted'] = {key: 0 for key in keys}
-    while len(json.dumps(out, ensure_ascii=False)) > max_chars:
-        candidates = [key for key in keys if len(out[key]) > 1]
-        if not candidates:
-            candidates = [key for key in keys if out[key]]
-        if not candidates:
-            break
-        # Drop the largest last record, preserving whole and correctly linked records.
-        key = max(candidates, key=lambda k: len(json.dumps(out[k], ensure_ascii=False)))
-        out[key].pop()
-        out['omitted'][key] += 1
-    return out
-
-
 def main():
     args = json.load(sys.stdin)
     md = os.environ['MARKET_DIR']
@@ -69,7 +51,7 @@ def main():
             forum = json.load(f)
     except (OSError, ValueError):
         forum = []
-    print(json.dumps(bounded_digest(forum, market_model.load_rows(md), args.get('limit', 20)), ensure_ascii=False))
+    print(json.dumps(digest(forum, market_model.load_rows(md), args.get('limit', 20)), ensure_ascii=False))
 
 
 if __name__ == '__main__':
