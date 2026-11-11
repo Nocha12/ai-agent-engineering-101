@@ -40,14 +40,36 @@ class Market:
         return httpx.Response(step, json={"wait": 0, "error": "x"})
 
 
-def run(market, out, logs=None, sleep=None):
+NOW = 1800000000.0
+
+
+def run(market, out, logs=None, sleep=None, restock=None, last=None):
+    """One restock run on a clock that only sleep moves. sleep: a Mock that sees every wait (rounded to 0.1 s).
+    restock: inventory's supply window. last: seconds since the market took the last supply call (None: never)."""
     md = Path(tempfile.mkdtemp())
     logs = [] if logs is None else logs
+    clock = [NOW]
+
+    def slept(s):
+        clock[0] += s
+        if sleep is not None:
+            sleep(round(s, 1))
+    inv = {"balance": market.balance, "units": []}
+    if restock is not None:
+        inv["restock"] = restock
+    kit._supply_last[0] = None if last is None else NOW - last
     with mock.patch.object(kit, "run_buyer", return_value=[]), mock.patch.object(kit, "last_json", return_value=out), \
-            mock.patch.object(kit, "log", side_effect=logs.append), mock.patch.object(kit.time, "sleep", side_effect=sleep):
-        kit.restock({"restock": {"cmd": "x"}}, md, market, md, {"balance": market.balance, "units": []}, [])
+            mock.patch.object(kit, "log", side_effect=logs.append), mock.patch.object(kit.time, "sleep", side_effect=slept), \
+            mock.patch.object(kit.time, "monotonic", side_effect=lambda: clock[0]), \
+            mock.patch.object(kit.time, "time", side_effect=lambda: clock[0]):
+        kit.restock({"restock": {"cmd": "x"}}, md, market, md, inv, [])
+    kit._supply_last[0] = None
     posts = [c[2] for c in market.calls if c[1] == "/api/supply"]
     return posts, logs
+
+
+def waits(sleep):
+    return [c.args[0] for c in sleep.call_args_list]
 
 
 CASH = {"floor": 1000000, "unit": {"G1": 150000, "G2": 150000, "G3": 150000}}
@@ -67,7 +89,7 @@ class KitCashRecheckTest(unittest.TestCase):
         sleep = mock.Mock()
         posts, logs = run(m, {"buy": [{"sku": f"G{i}", "qty": 1} for i in range(18)]}, sleep=sleep)
         self.assertEqual(posts, ["G0", "G1", "G2"])
-        sleep.assert_not_called()
+        self.assertEqual(waits(sleep), [10.2, 10.2])        # the pace between calls; nothing after the closed answer
         self.assertIn("[supply] window closed: 16 line(s) not sent", logs)
 
     def test_short_wait_still_retries_and_rechecks_cash(self):
@@ -76,7 +98,7 @@ class KitCashRecheckTest(unittest.TestCase):
         cash = {"floor": 1000000, "unit": {"G0": 100000}}
         posts, _ = run(m, {"buy": [{"sku": "G0", "qty": 1}], "cash": cash}, sleep=sleep)
         self.assertEqual(posts, ["G0", "G0"])
-        sleep.assert_called_once_with(7)
+        sleep.assert_called_once_with(7.2)
         self.assertEqual([c[1] for c in m.calls[:4]],
                          ["/api/inventory", "/api/supply", "/api/inventory", "/api/supply"])
 
@@ -85,8 +107,9 @@ class KitCashRecheckTest(unittest.TestCase):
         sleep = mock.Mock()
         posts, logs = run(m, {"buy": [{"sku": "G0", "qty": 1}, {"sku": "G1", "qty": 1}]}, sleep=sleep)
         self.assertEqual(posts, ["G0", "G0", "G1"])
-        sleep.assert_called_once_with(7)
+        self.assertEqual(waits(sleep), [7.2, 10.2])
         self.assertFalse(any("window closed" in line for line in logs))
+        self.assertIn("[supply] 429 for G0 (try 1 of 3): wait 7.0 s", logs)
 
     def test_a_window_that_opens_within_a_minute_is_waited_for(self):
         # restock.py sends lines up to 50 s before a window opens (opening.WINDOW_LEAD): three tries, 30 s apart
@@ -96,8 +119,81 @@ class KitCashRecheckTest(unittest.TestCase):
         posts, logs = run(Market(10000000, script=early + ["ok"]),
                           {"buy": [{"sku": "G0", "qty": 1}, {"sku": "G1", "qty": 1}]}, sleep=sleep)
         self.assertEqual(posts, ["G0", "G0", "G0", "G1"])
-        self.assertEqual([c.args[0] for c in sleep.call_args_list], [30, 15])
+        self.assertEqual(waits(sleep), [30.2, 15.2, 10.2])
         self.assertFalse(any("window closed" in line for line in logs))
+        self.assertEqual([line for line in logs if " 429 " in line],
+                         ["[supply] 429 for G0 (try 1 of 3): wait 45.0 s", "[supply] 429 for G0 (try 2 of 3): wait 15.0 s"])
+
+    def test_a_run_that_starts_before_the_window_sends_its_first_line_when_it_opens(self):
+        # independent review 5e70b9e C1: a run 31-50 s before the window must not lose its lines
+        buy = [{"sku": f"G{i}", "qty": 1} for i in range(3)]
+        for ahead in (50, 45, 31, 5):
+            sleep, m = mock.Mock(), Market(10000000)
+            posts, logs = run(m, {"buy": buy}, sleep=sleep, restock={"open": False, "opens_at": NOW + ahead})
+            self.assertEqual(posts, ["G0", "G1", "G2"], ahead)
+            self.assertEqual(waits(sleep), [ahead + 0.2, 10.2, 10.2], ahead)       # no call before it opens: no 429
+            self.assertIn(f"[supply] window opens in {ahead} s: 3 line(s) wait for it", logs)
+            self.assertFalse(any(" 429 " in line or "window closed" in line for line in logs))
+        # the market's clock is behind ours: it still says closed for 3 s, then 45 s -> 15 s as in the review's case
+        for script, want in (([httpx.Response(429, json={"wait": 3})], [45.2, 3.2, 10.2, 10.2]),
+                             ([httpx.Response(429, json={"wait": w}) for w in (45, 15)], [45.2, 30.2, 15.2, 10.2, 10.2])):
+            sleep = mock.Mock()
+            posts, logs = run(Market(10000000, script=script + ["ok"]), {"buy": buy}, sleep=sleep,
+                              restock={"open": False, "opens_at": NOW + 45})
+            self.assertEqual(posts, ["G0"] * len(script) + ["G0", "G1", "G2"])
+            self.assertEqual(waits(sleep), want)
+
+    def test_only_a_window_that_opens_within_a_minute_is_waited_for_by_the_clock(self):
+        buy = [{"sku": "G0", "qty": 1}]
+        for restock in ({"open": True, "closes_at": NOW + 100}, {"open": False, "opens_at": NOW + 61},
+                        {"open": False, "opens_at": NOW - 5}, {"open": False, "opens_at": None},
+                        {"open": False, "opens_at": "x"}, {"open": False}, "x", None):
+            sleep = mock.Mock()
+            self.assertEqual(run(Market(10000000), {"buy": buy}, sleep=sleep, restock=restock)[0], ["G0"], restock)
+            sleep.assert_not_called()
+        sleep = mock.Mock()                                 # nothing to send: no wait
+        self.assertEqual(run(Market(10000000), {"buy": []}, sleep=sleep, restock={"open": False, "opens_at": NOW + 30})[0], [])
+        sleep.assert_not_called()
+        closed = httpx.Response(429, json={"wait": 600})   # far from a window the market's answer ends the run as before
+        posts, logs = run(Market(10000000, script=[closed]), {"buy": buy}, restock={"open": False, "opens_at": NOW + 600})
+        self.assertEqual(posts, ["G0"])
+        self.assertIn("[supply] window closed: 1 line(s) not sent", logs)
+
+    def test_the_kit_waits_out_the_markets_ten_seconds_itself(self):
+        buy = [{"sku": f"G{i}", "qty": 1} for i in range(4)]
+        sleep, m = mock.Mock(), Market(10000000)
+        posts, logs = run(m, {"buy": buy, "cash": {"floor": 1000000, "unit": {b["sku"]: 100000 for b in buy}}}, sleep=sleep)
+        self.assertEqual(posts, ["G0", "G1", "G2", "G3"])
+        self.assertEqual(waits(sleep), [10.2, 10.2, 10.2])  # one call per line, 10 s after the one before
+        self.assertFalse(any(" 429 " in line for line in logs))
+        paths = [c[1] for c in m.calls]                     # the balance is read after the wait, right before the POST
+        self.assertEqual(paths[:5], ["/api/inventory", "/api/supply", "/api/inventory", "/api/inventory", "/api/supply"])
+        sleep = mock.Mock()                                 # the run before this one ended 4 s ago: 6.2 s are left
+        self.assertEqual(run(Market(10000000), {"buy": buy[:1]}, sleep=sleep, last=4)[0], ["G0"])
+        self.assertEqual(waits(sleep), [6.2])
+        sleep = mock.Mock()
+        self.assertEqual(run(Market(10000000), {"buy": buy[:1]}, sleep=sleep, last=11)[0], ["G0"])
+        sleep.assert_not_called()
+        sleep = mock.Mock()                                 # a refusal that is not a 429 counts as a call; a held line does not
+        posts, _ = run(Market(10000000, script=[400]), {"buy": buy[:2]}, sleep=sleep)
+        self.assertEqual((posts, waits(sleep)), (["G0", "G1"], [10.2]))
+        sleep = mock.Mock()
+        cash = {"floor": 1000000, "unit": {"G0": 99999999, "G1": 100000}}
+        posts, _ = run(Market(10000000), {"buy": buy[:2], "cash": cash}, sleep=sleep)
+        self.assertEqual(posts, ["G1"])
+        sleep.assert_not_called()
+
+    def test_a_restock_run_starts_forty_seconds_before_a_window_opens(self):
+        closed = {"restock": {"open": False, "opens_at": NOW + 35}}
+        self.assertTrue(kit.restock_due({}, NOW - 61, NOW))                     # the usual minute
+        self.assertFalse(kit.restock_due({}, NOW - 59, NOW))
+        self.assertTrue(kit.restock_due(closed, NOW - 20, NOW))                 # 13:00:18's case: the last run was too early
+        self.assertFalse(kit.restock_due(closed, NOW - 4, NOW))                 # one started 39 s before the window: enough
+        self.assertFalse(kit.restock_due({"restock": {"open": False, "opens_at": NOW + 41}}, NOW - 20, NOW))
+        self.assertTrue(kit.restock_due({"restock": {"open": False, "opens_at": NOW + 40}}, NOW - 20, NOW))
+        self.assertFalse(kit.restock_due({"restock": {"open": False, "opens_at": NOW}}, NOW - 20, NOW))
+        for r in ({"open": True, "closes_at": NOW + 35}, {"open": False}, {"open": False, "opens_at": "x"}, "x", None):
+            self.assertFalse(kit.restock_due({"restock": r}, NOW - 20, NOW), r)
 
     def test_long_wait_without_open_time_stops_and_bad_429_bodies_retry(self):
         buy = [{"sku": "G0", "qty": 1}, {"sku": "G1", "qty": 1}]
@@ -112,7 +208,7 @@ class KitCashRecheckTest(unittest.TestCase):
             sleep.reset_mock()
             posts, _ = run(Market(10000000, script=[answer, "ok"]), {"buy": buy[:1]}, sleep=sleep)
             self.assertEqual(posts, ["G0", "G0"])
-            sleep.assert_called_once_with(10)
+            sleep.assert_called_once_with(10.2)
 
     def test_cash_floor_holds_a_later_line_among_eighteen(self):
         buy = [{"sku": f"G{i}", "qty": 1} for i in range(18)]

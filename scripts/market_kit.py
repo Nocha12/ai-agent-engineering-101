@@ -864,6 +864,10 @@ def handle_order(o, agent, d, market, proxy, own_shop, keys):
 
 CATALOG = {}
 MAX_SUPPLY_LINES = 20  # /rules: one call per 10 s in a 180 s window (~18 calls); was 10
+SUPPLY_EVERY = 10      # /rules: one supply call per 10 seconds
+SUPPLY_MARGIN = 0.2    # seconds added to a wait: a call that lands a moment early is refused
+SUPPLY_AHEAD = 40      # a restock run starts this long before a window opens (the command takes 10-25 s)
+_supply_last = [None]  # time.monotonic() when the market last answered a supply call with anything but 429
 
 
 def catalog_names(market, d):
@@ -936,7 +940,7 @@ def sync_loop(a, agent, d, market, state):
             outbox(market, md)
             if "buyer" in market.token:
                 broken_news(market, md, state)
-            if shop and inv and inv.get("round", 0) >= ECON_ROUND and time.time() - last_restock > RESTOCK_EVERY \
+            if shop and inv and inv.get("round", 0) >= ECON_ROUND and restock_due(inv, last_restock, time.time()) \
                     and not (state.get("restocking") and state["restocking"].is_alive()):
                 last_restock = time.time()                # its own thread: supply waits must not stall the files
                 state["restocking"] = threading.Thread(target=restock, daemon=True,
@@ -967,6 +971,35 @@ def bankrupt(market):
 
 def _amount(v):
     return isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and v not in (float("inf"),) and v >= 0
+
+
+def restock_due(inv, last_restock, now):
+    """A restock run starts RESTOCK_EVERY after the last one started, and once SUPPLY_AHEAD seconds before a supply
+    window opens: on 11/11 a run ended 56 s before the 13:00:18 window (too early for restock.py to send lines) and
+    the next one had its lines 16 s after it opened."""
+    if now - last_restock > RESTOCK_EVERY:
+        return True
+    r = inv.get("restock")
+    if not isinstance(r, dict) or r.get("open") is not False or not _amount(r.get("opens_at")):
+        return False
+    ahead = r["opens_at"] - SUPPLY_AHEAD
+    return ahead <= now < r["opens_at"] and last_restock < ahead
+
+
+def until_open(inv):
+    """Seconds to wait for a supply window that inventory says opens within a minute; 0 when it is open, further
+    away or unknown (the market's 429 answers then decide, as before)."""
+    r = inv.get("restock") if isinstance(inv, dict) else None
+    if not isinstance(r, dict) or r.get("open") is not False or not _amount(r.get("opens_at")):
+        return 0
+    left = r["opens_at"] - time.time()
+    return left + SUPPLY_MARGIN if 0 < left <= 60 else 0
+
+
+def supply_pause():
+    """Seconds until the next supply call may go: SUPPLY_EVERY after the last one the market took."""
+    last = _supply_last[0]
+    return 0 if last is None else max(0, last + SUPPLY_EVERY + SUPPLY_MARGIN - time.monotonic())
 
 
 def cash_ok(market, cash, b, balance):
@@ -1009,11 +1042,19 @@ def restock(agent, d, market, md, inv, demand):
     cash = out.get("cash") if "restock" in agent and isinstance(out.get("cash"), dict) else None
     balance = None                                      # what the last supply answered; None: read it
     lines = buy[:MAX_SUPPLY_LINES]
+    left = until_open(inv) if any(isinstance(b, dict) for b in lines) else 0
+    if left:                                            # the first call goes when the window opens, not 429 by 429
+        log(f"[supply] window opens in {left:.0f} s: {len(lines)} line(s) wait for it")
+        time.sleep(left)
     for i, b in enumerate(lines):
         if not isinstance(b, dict):
             continue
         r = None
-        for _ in range(3):
+        for n in range(3):
+            pause = supply_pause()                      # the market takes one call per 10 s: wait it out here, a call
+            if pause:                                   # sent early is refused (429) and costs a round trip
+                time.sleep(pause)
+                balance = None                          # long enough for a refund: read it again
             if cash is not None:
                 ok, balance, why = cash_ok(market, cash, b, balance)
                 if not ok:
@@ -1038,9 +1079,11 @@ def restock(agent, d, market, md, inv, demand):
                 if wait > 60:
                     log(f"[supply] window closed: {len(lines) - i} line(s) not sent")
                     return
-                time.sleep(min(wait, 30))
+                log(f"[supply] 429 for {b.get('sku')} (try {n + 1} of 3): wait {wait:.1f} s")
+                time.sleep(min(wait, 30) + SUPPLY_MARGIN)
                 balance = None                          # the wait is long enough for a refund: read it again
                 continue
+            _supply_last[0] = time.monotonic()          # any other answer: the market counted this call
             break
         if r is None:
             balance = None if cash is None else balance
