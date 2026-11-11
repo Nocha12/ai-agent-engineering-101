@@ -117,8 +117,8 @@ class FirstSlotMainTest(unittest.TestCase):
             queued=json.loads((state/"restock_queue.json").read_text())["lines"]
             self.assertEqual(queued,[lines[1]])
 
-    def test_existing_next_window_quantity_is_preserved_or_slot_is_blocked(self):
-        for limit,expected in [(1,[{"sku":"reserved","qty":1}]),(2,[{"sku":slot.SKU,"qty":1},{"sku":"reserved","qty":1}])]:
+    def test_selected_next_window_plan_is_not_overridden(self):
+        for limit,expected in [(1,[{"sku":"reserved","qty":1}]),(2,[{"sku":"reserved","qty":1}])]:
             with self.subTest(limit=limit),tempfile.TemporaryDirectory() as td:
                 out,state=self.run_main(Path(td),reserved=True,overrides={"max_lines":limit})
                 self.assertEqual(out["buy"],expected)

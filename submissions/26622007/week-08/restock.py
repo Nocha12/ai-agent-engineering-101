@@ -1160,19 +1160,10 @@ def main():
     # the last word, whatever came before. It keeps its own 0.75 x list (test_hard_limits pins it); the surge cost is
     # reserved by guard() and the waiting lines, and with the balance far above STOP_BUYING_BELOW the line does not bind
     slot = cfg["first_slot"]
-    # Preserve opening/fast/old trial and every already selected next_window quantity.
-    if slot and first is None and restock_first_slot.SKU not in hold and not fast_b and not cfg["first_stock"] and not blind and not out.get("bankrupt"):
+    # Never override an opening, selected next_window plan, fast path or old trial.
+    if slot and first is None and not trial and restock_first_slot.SKU not in hold and not fast_b and not cfg["first_stock"] and not blind and not out.get("bankrupt"):
         previous = out.get("buy") or []
         chosen = restock_first_slot.select(slot, previous, inv, waiting, keep)[:min(cfg["max_lines"], KIT_LINES)]
-        if slot.get("guard") == "passed" and trial:
-            preserved = collections.Counter()
-            for b in chosen:
-                preserved[b["sku"]] += b["qty"]
-            required = collections.Counter()
-            for b in trial:
-                required[b["sku"]] += b["qty"]
-            if any(preserved[sku] < qty for sku, qty in required.items()):
-                slot["guard"] = "reserved_plan_blocked"
         if slot.get("guard") == "passed":
             # Only displaced agent quantities return to their own queue; never the new target.
             remaining = collections.Counter()
