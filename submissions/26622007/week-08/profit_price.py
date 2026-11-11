@@ -133,16 +133,21 @@ def grade_profit_share(cfg, kind, grade, u=None, now=None):
     review 9d5c7b1 I1), for a SKU x grade with an ask cap or a SKU with a scarce ask (a cap under the new floor would
     stop capping), and for a unit that has waited price.grade_profit_hours or more since it was supplied (대표님 11/11
     00:26: stock that waits goes at cost + expected refund, never under it; a unit with no arrival time is new).
-    The end must be after now and no more than GRADE_PROFIT_MAX_HOURS ahead; a farther end is break-even."""
+    Only a price.grade_profit_default value of True bypasses the end window. Otherwise the end must be after now
+    and no more than GRADE_PROFIT_MAX_HOURS ahead; a farther end is break-even."""
     cfg = cfg or {}
     by_grade = cfg.get("grade_profit_share")
     s = by_grade.get(grade) if kind == "goods" and isinstance(by_grade, dict) and isinstance(grade, str) else None
     if not (isinstance(s, (int, float)) and not isinstance(s, bool) and 0 < s <= GRADE_SHARE_MAX):
         return 0.0
-    # price.grade_profit_until (epoch): the rule ends by itself there, and it is on only with a usable end (work-state
-    # instructions 3, 4 and 7 of 11/11: no open-ended default before the economics are confirmed; renew it to keep it)
+    # W-20261112-0815-AXbook레버: promote to a default after goods-margin-1110 B-A net/list +0.0625
+    # (grade A +0.069), twice KEEP; mature sales_6h A net/list 0.0297 -> 0.0697 / 0.0699.
+    # Only the boolean True bypasses expiry; false or an absent key keeps the finite-window rule.
     until, at_now = cfg.get("grade_profit_until"), time.time() if now is None else now
-    if not _num(until) or not _num(at_now) or not at_now < until <= at_now + GRADE_PROFIT_MAX_HOURS * 3600:
+    if not _num(at_now):
+        return 0.0
+    if cfg.get("grade_profit_default") is not True and (
+            not _num(until) or not at_now < until <= at_now + GRADE_PROFIT_MAX_HOURS * 3600):
         return 0.0
     if isinstance(u, dict):
         scarce = cfg.get("scarce_asks") if isinstance(cfg.get("scarce_asks"), dict) else {}

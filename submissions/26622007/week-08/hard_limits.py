@@ -92,8 +92,8 @@ META_FLOOR = {"restock.max_stock_cost": 10000000, "restock.keep_cash": 3000000}
 # 11/11, work-state instruction 8: the profit window and fast restock switch are a person's decisions.
 FIXED = {"restock.high_price_listed_only": True, "buyer.oneshot": True, "negotiate.engine": "llm",
          "negotiate.formula": "share", "negotiate.counter_share": [], "restock.window_fast": False,
-         "price.grade_profit_until": 0, "price.grade_profit_hours": 0}   # values unused: the keys are a person's switches
-FIXED_NEW = ("restock.window_fast", "price.grade_profit_until", "price.grade_profit_hours")
+         "price.grade_profit_until": 0, "price.grade_profit_hours": 0, "price.grade_profit_default": False}   # values unused: the keys are a person's switches
+FIXED_NEW = ("restock.window_fast", "price.grade_profit_until", "price.grade_profit_hours", "price.grade_profit_default")
 GRADE_PROFIT_PREFIX = "price.grade_profit_share."
 
 # path in pricing.json -> (lowest, highest). Outside these the shop's own data has not earned the risk.

@@ -27,7 +27,7 @@ class HardLimitsTest(unittest.TestCase):
         shipped = self.pricing()
         problems = hl.check_policy_change({}, shipped)
         added = ("restock.window_fast", "price.grade_profit_until", "price.grade_profit_hours",
-                 "price.grade_profit_share.A")
+                 "price.grade_profit_share.A", "price.grade_profit_default")
         expected = {f"pricing.json {key} was added (hard_limits.FIXED, a person's setting)" for key in added}
         self.assertEqual(set(problems), expected)
         self.assertEqual(len(problems), len(expected))
@@ -73,6 +73,15 @@ class HardLimitsTest(unittest.TestCase):
         sku = next(iter(target["restock"]["sku_target_units"]))
         target["restock"]["sku_target_units"][sku] += 1
         self.assertEqual(hl.check_policy_change(old, target), [])
+
+    def test_meta_cannot_add_change_or_remove_grade_profit_default(self):
+        absent = {"price": {}}
+        enabled = {"price": {"grade_profit_default": True}}
+        disabled = {"price": {"grade_profit_default": False}}
+        for old, new in ((absent, enabled), (enabled, disabled), (enabled, absent)):
+            with self.subTest(old=old, new=new):
+                self.assertTrue(any("price.grade_profit_default" in p
+                                    for p in hl.check_policy_change(old, new)))
 
     def test_never_spends_into_the_bankruptcy_zone(self):
         self.assertEqual(hl.spendable(900000), 0)
@@ -337,7 +346,7 @@ class NoBankruptcyReplayTest(unittest.TestCase):
         self.assertEqual(hl.FIXED, {"restock.high_price_listed_only": True, "buyer.oneshot": True,
                                     "negotiate.engine": "llm", "negotiate.formula": "share",
                                     "negotiate.counter_share": [], "restock.window_fast": False,
-                                    "price.grade_profit_until": 0, "price.grade_profit_hours": 0})
+                                    "price.grade_profit_until": 0, "price.grade_profit_hours": 0, "price.grade_profit_default": False})
 
     def test_settings_that_are_not_numbers_fall_back_to_the_cautious_start(self):
         cfg = hl.clamp_cfg("restock", {"food_max_qty": None, "keep_cash": "0", "max_stock_cost": None})
