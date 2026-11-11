@@ -967,10 +967,10 @@ FIRM_FOOD_ASK = re.compile(
 
 def firm_food_ask_said(text, label, sku, list_price):
     """Exact food quote, bound to the requested catalogue name, SKU and list price.
-    Only quote()'s food path calls this fallback; shelf/receipt checks still decide
-    eligibility. The ask joins ranking, fit/early-stop, shared quote history and
-    the existing harness note. No code-priced opening is added; that extra note
-    can still change the harness's first offer.
+    Food quote/ranking and the narrow firm-food TAKE path use this reader;
+    shelf/receipt checks still decide eligibility. Reading alone adds no opening
+    decision, but its harness note can affect the first offer. firm_food_take_turn
+    deliberately offers the exact ask for eligible cheap first-turn quotes.
     """
     if not isinstance(text, str) or len(text) > 2000 or not isinstance(label, str) or not label \
             or not isinstance(sku, str) or isinstance(list_price, bool) or not isinstance(list_price, (int, float)):
