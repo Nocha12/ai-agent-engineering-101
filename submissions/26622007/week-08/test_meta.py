@@ -419,6 +419,8 @@ class HarnessCycleTest(unittest.TestCase):
         self.git("init", "-q")
         self.git("config", "user.email", "t@example.com")
         self.git("config", "user.name", "t")
+        # This fixture owns the repository until cleanup: finish native background work too.
+        self.git("config", "maintenance.autoDetach", "false")
         self.git("add", "-A")
         self.git("commit", "-qm", "start")
         # cycle() reloads scorecard (79df539), which put the real board() back over the fake one below: the tests read the
@@ -831,6 +833,21 @@ class HarnessCycleTest(unittest.TestCase):
             self.assertTrue(mh.gap_problems({"evidence_gap": gap, "evidence": quote}, [], carried))
         abs_log = [{"ref": os.path.join(self.root, "logs", "market-kit.log") + ":3", "excerpt": log_quote[0]["excerpt"]}]
         self.assertEqual(mh.gap_problems({"evidence_gap": gap, "evidence": abs_log}, [], carried), [])
+
+    def test_native_commit_graph_finishes_before_both_fixture_git_helpers_return(self):
+        # Real native work, not a config-value assertion. The deterministic
+        # post-stdio actor barrier RED/GREEN is preserved in the review evidence.
+        self.git("config", "maintenance.commit-graph.enabled", "true")
+        self.git("config", "maintenance.commit-graph.auto", "1")
+        self.git("commit", "--allow-empty", "-qm", "native graph fixture")
+        chain = os.path.join(self.root, ".git", "objects", "info", "commit-graphs", "commit-graph-chain")
+        with open(chain, "rb") as f:
+            before = f.read()
+        self.assertTrue(before)
+        mh.git("commit", "--allow-empty", "-qm", "native graph harness")
+        with open(chain, "rb") as f:
+            after = f.read()
+        self.assertNotEqual(before, after, "the harness Git helper must finish the new graph before returning")
 
     def test_another_jobs_staged_secret_or_pricing_edit_is_not_the_cycles(self):
         # independent review 0738 I1/I2: a cycle that changed nothing read the whole index and pricing.json against HEAD
