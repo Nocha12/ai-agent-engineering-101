@@ -1,70 +1,60 @@
 {
-  "changed": false,
-  "hypothesis": "현재 전략을 유지하면서 캐시 저하의 원인과 진행 중인 탐색 실험을 측정하는 편이, 효과가 입증되지 않은 운영 변경보다 낫다.",
-  "change_summary": "운영 코드와 설정은 변경하지 않았다. 호출 유형별 캐시 토큰 집계를 meta/evidence/terra-1111-085119-cache.jsonl에 기록했고, 전체 회귀를 HEAD에서 실행해 meta/evidence/terra-1111-085119-tests.log에 저장했다. 테스트는 응답 시점에 아직 실행 중이다.",
-  "target_metric": "Players와 구매자 Saved",
-  "expected": "이번 주기의 정책 변경에 따른 추가 Players 상승은 0으로 둔다.",
+  "changed": true,
+  "hypothesis": "만료된 후보 조사에서 원래 정한 통과 기준을 충족하지 못했으므로 강제 조사 지침을 제거하면 재입고 판단이 검증된 상품과 실제 수요에 집중할 수 있다.",
+  "change_summary": "restock.GOAL에서 Gc2f7811b 강제 조사 문장만 제거했다. 조사 도구와 다른 재입고 지침은 유지했다. 전체 회귀를 실행해 meta/evidence/terra-1111-100443-tests.log에 저장 중이나 아직 종료되지 않았다.",
+  "target_metric": "재입고 판단과 Players 점수",
+  "expected": "실험 종료에 따른 직접적인 Players 증가량은 확인되지 않아 0으로 둔다.",
   "evidence": [
     {
-      "ref": "meta/evidence/terra-1111-085119.json:4",
-      "excerpt": "\"llm_cache: cached input share 0.078 over 70 calls in the last hour, 0.106 over 597 in the 6 h before (floor 0.1); look at what changed in the prompts, never cut calls\"",
-      "meaning": "캐시 저하 경보다."
+      "ref": "meta/evidence/terra-1111-011735-opportunity.jsonl:1",
+      "excerpt": "\"paid\": 4, \"buyers\": 3",
+      "meaning": "두 시간 표본은 결제 4건으로 후보별 10건 기준에 못 미쳤고, 같은 기록에서 관측 가격은 가상 보증 하한을 넘지 못했다."
     },
     {
-      "ref": "meta/evidence/terra-1111-085119-cache.jsonl:2",
-      "excerpt": "{\"period\": \"hour\", \"tag\": \"forum-agent\", \"calls\": 15, \"prompt_tokens\": 78218, \"cached_tokens\": 14708, \"ratio\": 0.188}",
-      "meaning": "최근 한 시간 포럼 호출의 캐시 비율이다. 이전 6시간은 0.265였다."
+      "ref": "logs/market-kit.log:172663",
+      "excerpt": "the 2-hour opportunity snapshot showed only 5 paid deals from 3 buyers and observed prices below both hypothetical warranty floors",
+      "meaning": "09:41 조사에서도 10건과 보증 하한 조건을 충족하지 못했다."
     },
     {
-      "ref": ".market/ledger_rows.jsonl:1507250",
-      "excerpt": "\"amount\": 35241",
-      "meaning": "직전 서지 경보의 첫 단위 정산액이다."
+      "ref": "meta/evidence/terra-1111-100443.json:22584",
+      "excerpt": "\"below_cost_offer\": 0,",
+      "meaning": "현재 팩의 로그 표본에서 원가 미만 제안은 없었다."
     },
     {
-      "ref": ".market/ledger_rows.jsonl:1507689",
-      "excerpt": "\"amount\": 34981",
-      "meaning": "두 번째 단위 정산액이다. 두 단위 합계는 매입원가보다 178원 높다."
-    },
-    {
-      "ref": "meta/evidence/terra-1111-085119.json:232",
-      "excerpt": "\"me\": 0.003,",
-      "meaning": "최근 6.3시간 Players 변화이며 바로 위 플레이어는 -0.020이다."
-    },
-    {
-      "ref": "meta/evidence/terra-1111-085119.json:29429",
-      "excerpt": "\"expires\": \"11-11 09:55\",",
-      "meaning": "진행 중인 탐색 실험의 원래 판정 시각이다."
+      "ref": "meta/evidence/terra-1111-100443.json:22586",
+      "excerpt": "\"warranty_declined\": 0,",
+      "meaning": "현재 로그 표본에서 보증 거절은 없었다."
     }
   ],
   "evidence_gap": {
-    "missing": "같은 호출 유형에서 캐시 접두부가 실제로 바뀌었는지와 전체 회귀의 종료 결과가 확인되지 않았다.",
-    "measurement": "이번 주기에 호출 유형별 prompt 및 cached 토큰을 집계하고 전체 회귀를 실행했다. 다음 주기에 같은 유형의 접두부를 비교하고 저장된 테스트 종료 결과를 확인한다.",
+    "missing": "전체 회귀의 종료 결과와 직전 캐시 판정선의 동일 호출 유형 접두부 비교가 확인되지 않았다.",
+    "measurement": "전체 회귀를 현재 HEAD에서 실행하여 meta/evidence/terra-1111-100443-tests.log에 기록했다. 다음 주기에 종료 결과와 포럼 호출의 접두부 및 캐시 토큰을 비교한다.",
     "judge_line": {
       "metric": "포럼 호출 캐시 토큰 비율",
       "direction": "above",
       "threshold": "0.188",
-      "min_sample": "포럼 호출 15건과 동일 유형 접두부 비교",
-      "expires": "2026-11-11 10:00 KST",
-      "undo": "이번 주기에 변경한 운영 정책이 없으므로 원복 대상은 없다. 접두부 변화가 확인되지 않으면 캐시 수리를 성공으로 판정하지 않는다."
+      "min_sample": "포럼 호출 15건 및 동일 유형 접두부 비교",
+      "expires": "2026-11-11 11:05 KST",
+      "undo": "캐시 정책 변경은 없으므로 원복 대상은 없다. 접두부 변화를 확인하지 못하면 캐시 수리를 성공으로 판정하지 않는다."
     }
   },
   "previous_verdict": "none",
-  "previous_reason": "직전 수락 주기는 운영 변경이 없었다. 그때 추적한 서지 단위 두 개는 모두 정산됐고 합계 순기여는 178원이다. 이전에 반려된 변경의 실패 검사를 포함한 전체 회귀를 현재 HEAD에서 다시 실행했으나 아직 종료되지 않아 통과 여부를 주장하지 않는다.",
-  "grade_summary": "Players는 1.647→1.648, 68명 중 7위다. Shop ALL 0.845, Buyer ALL 0.803이며 board_drift는 양쪽 0, 선두와의 Players 격차는 0.085다. 새 패치는 없다. 직전 구간 상점 정산 359건, 구매 결제 85건, 품절 20건, 구매 결제 거절 1건, 체크아웃 거절 10건, 정산 거절 1건이다. 현재 로그 표본에서 원가 미만 제안·보증 거절·포럼 게시 및 투표 거절은 각각 0건이고 누락 도구도 없다. Book은 353,105,346→357,762,024원, 24시간 초과 재고는 55개·54,782,151원이다. 보관 손실 누계 6,064,198원, 등급 하락 212건·0원, 폐기 1건·8,113원이다. 환불 추정 누계는 과거 연결 오류를 포함해 SKU 축소 근거로 쓰지 않았다. alert llm_cache: 최근 0.078 대 이전 6시간 0.106이다. 포럼 호출은 0.265→0.188, 재입고 호출은 0.0156→0이지만 접두부 변경은 확인되지 않아 수리하지 않았다. 다음 동일 유형 접두부 비교가 원인을 판정한다.",
+  "previous_reason": "직전 수락 주기에는 운영 변경이 없었다. 직전 캐시 판정선은 접두부 비교가 빠져 판정하지 못했다.",
+  "grade_summary": "Players는 1.648→1.649로 68명 중 7위이며 선두와 0.084 차이다. Shop ALL 0.845, Buyer ALL 0.804이고 양쪽 board_drift는 0이다. 새 패치와 경보는 없다. 직전 구간 상점 정산 295건, 구매 결제 76건, 품절 6건, 체크아웃 거절 8건이다. 현재 로그 표본의 원가 미만 제안·보증 거절·포럼 게시 및 투표 거절은 각 0건이며 누락 도구는 없다. Book은 357,762,024→357,921,665원이고 24시간 초과 재고는 53개·53,962,488원이다. 보관 손실 누계 6,173,923원, 등급 하락 216건·0원, 폐기 1건·8,113원이다. 환불 누계에는 과거 추정 오류가 있어 SKU 축소 근거로 쓰지 않았다. 구매 결제 거절의 직전 구간 건수는 확인하지 못했다.",
   "weakest": [
     "구매자 Saved",
     "상점 book"
   ],
   "strategy_check": {
-    "current": "인증·정직한 등급·72시간 상품 보증을 내세운 폭넓은 식품과 생활용품 및 검증된 고가 가구·침구 판매와 Saved 중심 구매",
+    "current": "인증과 정직한 등급, 72시간 상품 보증을 내세운 폭넓은 식품·생활용품 및 검증된 고가 가구·침구 판매와 Saved 중심 구매",
     "gap_cause": "unclear",
     "keep_or_shift": "keep",
-    "reason": "최근 6.3시간 Players 변화는 우리 +0.003, 바로 위 -0.020, 선두 -0.009이고 12.6시간은 각각 +0.016, -0.028, -0.006이다. 선두 yms979는 방문 48,843회·거래 31,833건·매출 9.233B원·book 1.143B원이며 우리 거래는 31,501건이다. 선두도 인증과 A/B 72시간 보증을 내세우며 경쟁자의 원가는 공개되지 않아 마진 차이를 단정할 수 없다. Saved는 다음 상대 0.3258까지 0.0010이 필요하고 통과 시 조건부 +0.00794점이다. Book은 다음 상대 386,302,525원까지 28,543,449원이 필요하다. 현재 정책 대비 추가 효과가 검증된 전략 전환은 없다."
+    "reason": "최근 6.4시간 Players 변화는 우리 +0.003, 바로 위 −0.022, 선두 +0.001이고 12.5시간은 각각 +0.014, −0.027, −0.015다. 선두 yms979는 방문 49,116회·거래 31,961건·매출 9.255B원·book 1.144B원이며 우리는 방문 49,994회·거래 31,796건·매출 5.488B원·book 0.358B원이다. 선두도 인증과 A/B 72시간 보증을 약속하지만 경쟁자 원가는 공개되지 않아 마진 차이는 불명이다. Saved는 다음 상대 0.3255까지 0.0004가 필요하고 통과 시 조건부 +0.00794점이다. Book은 다음 상대 389,212,064원까지 31,295,953원이 필요하다. 새로운 전략의 추가 효과는 확인되지 않았다."
   },
-  "action_kind": "none",
+  "action_kind": "prompt",
   "experiment": {
     "id": "concentration-probe-1110",
-    "step": "continue",
-    "result": "09:55 KST 판정 전이다. 최근 조사에서 Gc2f7811b의 최근 20건 표본은 한 구매자 비중 65%이며 2시간 표본은 결제 4건·구매자 3명이다. 후보별 결제 10건, 독립 구매자 3명 및 보증 하한 조건의 충족 여부를 만료 시 판정한다."
+    "step": "drop",
+    "result": "09:55 KST에 만료됐다. 09:41 조사에서 두 시간 결제 5건·구매자 3명으로 후보별 결제 10건에 미달했고 관측 가격도 두 가상 보증 하한 아래였다. 원래 undo 조건에 따라 추가 조사 문장만 제거했다."
   }
 }
