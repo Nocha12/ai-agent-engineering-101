@@ -1052,6 +1052,7 @@ def main():
               f"than held ({sum(m['held'] - m['counted'] for m in moved.values())} units waited past "
               f"{cfg['fresh_slots']['hours']:g} h): "
               + ", ".join(f"{k} {m['held']}->{m['counted']}" for k, m in sorted(moved.items())), file=sys.stderr, flush=True)
+    cfg["first_stock"] = None  # only the finite reader below may enable this trial
     arm_, label = window_fast_arm(args.state, cfg, inv)       # (None, None) when off
     window_arm = "default" if label == "default" else arm_     # measure's tag: the rule is told from a study's arm B
     fast_b = arm_ == "B"
@@ -1175,6 +1176,7 @@ def main():
     if cash:
         out["cash"] = cash
     print(json.dumps(out, ensure_ascii=False), flush=True)
+    restock_first_stock.record(args.state, cfg["first_stock"], out["buy"][:KIT_LINES], inv, waiting)
     measure.tick(args.state, inv, out["buy"][:KIT_LINES], pricing,     # after the line the kit reads; local files only, never raises
                  window_arm=window_arm)
     return 0
