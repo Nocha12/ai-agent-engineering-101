@@ -274,7 +274,8 @@ def priced(trades):
     goods-grade arm B's lowered limits and food-ladder arm B's 0.8 (C 0.7) openings (buyer_goods_ladder.priced,
     buyer_goods_grade.priced, buyer_food_ladder.priced)."""
     return buyer_moss_first.priced(
-        buyer_saved_floor.priced(buyer_food_ladder.priced(buyer_goods_grade.priced(buyer_goods_ladder.priced(trades)))))
+        buyer_saved_floor.priced(buyer_food_ladder.priced(buyer_goods_grade.priced(buyer_goods_ladder.priced(
+            [t for t in trades if not buyer_goods_take30.applied_b(t)])))))
 
 
 def my_history(memory, name):
@@ -1269,7 +1270,8 @@ def recent_asks(md, now=None, hours=HOPELESS_HOURS):
                 out[q["sku"]].append(q["ask"])
         if r.get("sku") and not (buyer_food_ladder.laddered(r) or buyer_goods_ladder.laddered(r)
                                   or buyer_goods_grade.lowered(r) or buyer_saved_floor.floored(r)
-                                  or buyer_warranty_said.said_b(r) or buyer_moss_first.applied_b(r)):
+                                  or buyer_warranty_said.said_b(r) or buyer_moss_first.applied_b(r)
+                                  or buyer_goods_take30.applied_b(r)):
             out[r["sku"]] += [a for a in r.get("asks") or () if num(a)] + ([r["price"]] if num(r.get("price")) else [])
     return out
 
@@ -2330,6 +2332,7 @@ def main():
                                          "quote_alignment_arm": (order.get("_quote_alignment") or {}).get("arm"),
                                          "our_ask": buyer_our_ask.measurement(order.get("_our_ask")),
                                          "moss_first": buyer_moss_first.measurement(order.get("_moss_first")),
+                                         "goods_take30": order.get("_goods_take30"),
                                          "final_m1": order.get("_final_m1"),
                                          "unpaid_skip": order.get("_unpaid_skip"),
                                          "stock_evidence": buyer_stock_evidence.measurement(order),
@@ -2727,7 +2730,8 @@ def main():
             "food_ladder": buyer_food_ladder.trade_arm(order),
             "saved_floor": buyer_saved_floor.trade_arm(order),
             "warranty_said": buyer_warranty_said.trade_mark(order),
-            "moss_first": buyer_moss_first.trade_mark(order)} if r3 else {}),
+            "moss_first": buyer_moss_first.trade_mark(order),
+            "goods_take30": order.get("_goods_take30")} if r3 else {}),
         "result": "no_warranty" if short else "over_limit" if over else "deal" if rec is not None else (out["state"] or "error").replace("TASK_STATE_", "").lower(),
         "price": rec.get("price") if rec else None,
         "asks": asks, "holds": out.get("holds", 0), "problems": problems, "warnings": warnings, "why": why,

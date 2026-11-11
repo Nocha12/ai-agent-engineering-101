@@ -76,7 +76,9 @@ def _journal(md, cfg, event, oid, note=None):
     """Locked atomic journal; fail closed on corruption, old namespace or any IO error."""
     path = os.path.join(md,JOURNAL)
     with open(path+'.lock','a') as lock:
-        fcntl.flock(lock,fcntl.LOCK_EX)
+        # Never spend the original quote deadline waiting behind another order.
+        # Contention is an IO failure: this invocation keeps the baseline.
+        fcntl.flock(lock,fcntl.LOCK_EX | fcntl.LOCK_NB)
         try:
             with open(path) as f: doc=json.load(f)
         except FileNotFoundError:
@@ -176,6 +178,12 @@ def _reason(order, offer, q, steps, shop, sku, budget, resume, take_at):
     return None
 
 
+def applied_b(row):
+    """Only actual B price attempts, not B assignments, leave shared price learning."""
+    note=row.get('goods_take30') if isinstance(row,dict) else None
+    return isinstance(note,dict) and note.get('arm')=='B' and note.get('applied') is True
+
+
 def negotiate(run, md, order, offer, q, steps, shop, sku, *args, **kwargs):
     """Only first unchanged machine ask can replace the baseline ladder, at its real final-wire boundary."""
     n=order.get(KEY)
@@ -183,7 +191,8 @@ def negotiate(run, md, order, offer, q, steps, shop, sku, *args, **kwargs):
         return run(*args,**kwargs)
     budget=args[2]
     why=reason(order,offer,q,steps,shop,sku,budget,kwargs.get('resume'),kwargs.get('take_at'))
-    n['fallback']=why or 'arm_A'
+    n['fallback']=why or ('arm_A' if n['arm']=='A' else
+                          'window_inactive' if not _active(md,order) else 'not_reached')
     if why or not _active(md,order) or n['arm'] != 'B':
         return run(*args,**kwargs)
     ladder=kwargs.get('ladder')
@@ -199,7 +208,8 @@ def negotiate(run, md, order, offer, q, steps, shop, sku, *args, **kwargs):
                 and baseline.get('price') == min(int(q['ask']*.9),budget,q['ask'])):
             pending.update(baseline=baseline)
             return dict(shop_price=meta,action='offer',price=meta)
-        n['fallback']='turn_changed_or_not_baseline'
+        if not n.get('applied'):
+            n['fallback']='turn_changed_or_not_baseline'
         return baseline
     def guard(d, history):
         # Preserve any pre-existing veto/price reduction; the new branch may not override it.

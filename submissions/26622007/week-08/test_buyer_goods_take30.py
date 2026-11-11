@@ -53,6 +53,146 @@ class GoodsTake30Test(unittest.TestCase):
                 resume=('fixture',q['task']), ladder=ladder, take_at=None,
                 stop_if=lambda text, turn: stopped, decision_guard=guard, **changes)
         return sent, out
+    def test_inactive_B_and_later_turn_preserve_treatment_reason(self):
+        self.assign()
+        with patch.object(gt.time, 'time', return_value=self.cfg['end']):
+            sent = []
+            gt.negotiate(lambda *a, **kw: sent.append('baseline') or {}, self.md,
+                self.order, self.offer, self.q, (.9,), self.shop, 'G12345678',
+                'fixture', 'goods', 6000, '', resume=('fixture', self.q['task']))
+        self.assertEqual(sent, ['baseline'])
+        self.assertEqual(self.order[gt.KEY]['fallback'], 'window_inactive')
+        for p in Path(self.md).glob(gt.JOURNAL+'*'): p.unlink()
+        self.order.pop(gt.KEY)
+        self.assign()
+        def two_turns(*a, **kw):
+            first = kw['ladder'](4000, self.text, [])
+            kw['decision_guard'](first, [])
+            kw['ladder'](4100, self.text, [('you offered', 4000)])
+            return {'history': [('you offered',4000)], 'state':'TASK_STATE_COMPLETED'}
+        with patch.object(gt.time,'time',return_value=self.now):
+            gt.negotiate(two_turns, self.md, self.order, self.offer, self.q, (.9,),
+                self.shop, 'G12345678', 'fixture', 'goods', 6000, '',
+                resume=('fixture',self.q['task']), ladder=lambda *a:
+                    dict(shop_price=4000,action='offer',price=3600))
+        self.assertTrue(self.order[gt.KEY]['applied'])
+        self.assertIsNone(self.order[gt.KEY]['fallback'])
+
+    def test_busy_journal_is_nonblocking_and_never_treats(self):
+        import fcntl
+        import concurrent.futures
+        import time
+        original = fcntl.flock
+        def nonblocking_only(fd, flags):
+            self.assertTrue(flags & fcntl.LOCK_NB, 'journal must not wait on another buyer')
+            return original(fd, flags)
+        with patch.object(gt.fcntl,'flock',nonblocking_only):
+            self.assertIsNotNone(self.assign())
+        for p in Path(self.md).glob(gt.JOURNAL+'*'): p.unlink()
+        with open(str(Path(self.md)/gt.JOURNAL)+'.lock','a') as held:
+            original(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            started=time.monotonic()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as workers:
+                orders=[dict(self.order, order='busy'+str(i)) for i in range(8)]
+                results=list(workers.map(lambda o: gt.assign(self.md,o,now=self.now,env={}),orders))
+            self.assertEqual(results,[None]*8)
+            self.assertLess(time.monotonic()-started, 1.0)
+            self.assertTrue(all(o[gt.KEY]['fallback']=='journal_failure' for o in orders))
+
+    def test_main_no_stock_retains_assignment_in_order_row(self):
+        import market_buyer as mb
+        import contextlib
+        import io
+        p=Path(self.md)
+        (p/'shops.json').write_text('[]')
+        (p/'catalog.json').write_text('{}')
+        (p/'order.json').write_text(json.dumps(self.order | {'acceptable':['G12345678']}))
+        argv=['market_buyer.py','--shops',str(p/'shops.json'),'--item','G12345678',
+              '--budget','6000','--order',str(p/'order.json')]
+        with patch('sys.argv',argv), patch.object(mb.time,'time',return_value=self.now), \
+             patch.object(mb,'warm_ledger'), patch.object(mb,'MEMORY',str(p/'memory.json')), \
+             patch.object(mb,'AGENT_DIR',self.md), patch.object(mb,'SAVED_SHARE',mb.SAVED_MIN_SHARE), \
+             patch.dict(os.environ,{'BUYER_GOODS_TAKE30':'1'}), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(mb.main(),0)
+        row=json.loads((p/'measure/orders.jsonl').read_text().splitlines()[-1])
+        self.assertEqual(row['state'],'NO_SHOP_IN_STOCK')
+        self.assertEqual(row['goods_take30']['arm'],'B')
+        self.assertFalse(row['goods_take30']['applied'])
+
+    def test_treated_prices_do_not_train_either_arm(self):
+        import market_buyer as mb
+        control={'sku':'G12345678','item':'G12345678','price':3600,'asks':[4000],
+                 'quotes':[{'sku':'G12345678','ask':4000}]}
+        treated=dict(control, goods_take30={'arm':'B','applied':True}, price=4000, asks=[4100])
+        untreated=dict(control, goods_take30={'arm':'B','applied':False})
+        self.assertEqual(mb.priced([control,treated,untreated]),[control,untreated])
+        with patch.object(mb,'recent_orders',return_value=[treated]):
+            self.assertEqual(mb.recent_asks(self.md,self.now)['G12345678'],[4000])
+
+    def test_real_quote_fulltask_real_main_ladder_and_final_wire_warranty(self):
+        import ast
+        import market_buyer as mb
+        from types import SimpleNamespace
+        tree=ast.parse(Path(mb.__file__).read_text())
+        ladder=next(n for n in ast.walk(tree) if isinstance(n,ast.FunctionDef) and n.name=='price_ladder')
+        call=next(n for n in ast.walk(tree) if isinstance(n,ast.Assign) and isinstance(n.value,ast.Call)
+                  and isinstance(n.value.func,ast.Name) and n.value.func.id=='negotiate')
+        for warranty, sw, expected_reason, expected_wire in (
+                ('Includes a 6-hour warranty.',None,None,['4000']),
+                ('Includes a 72-hour warranty.',None,None,['4000']),
+                ('Includes a 3-hour warranty.',{'S':.32,'hist':{}},None,['4000']),
+                ('Includes a 3-hour warranty.',None,'no_resume',[]),
+                ('No warranty.',{'S':.32,'hist':{}},'no_resume',[]),
+                ('',None,'sku_or_warranty',['3600'])):
+            with self.subTest(warranty=warranty,sw=sw):
+                for p in Path(self.md).glob(gt.JOURNAL+'*'): p.unlink()
+                order={k:v for k,v in self.order.items() if k != gt.KEY}
+                if sw is not None: order['_sw']=sw
+                text='fixture goods (G12345678). Asking 4000. '+warranty
+                # Long tail is present in q.task, while quote() keeps only 300 chars.
+                text=text+' '+('description '*30)
+                shop=dict(self.shop,url='fixture',_offer=self.offer)
+                got={}
+                with patch.object(mb,'serves_acp',return_value=True), \
+                     patch.object(mb.httpx,'get',return_value=SimpleNamespace(json=lambda:
+                        {'supportedInterfaces':[{'protocolBinding':'JSONRPC','protocolVersion':'1.0','url':'fixture'}]})), \
+                     patch.object(mb,'buyer_send',return_value=task(text,4000)), patch.object(mb,'log'):
+                    mb.quote(shop,'fixture goods','G12345678',order,got)
+                q=got[shop['name']]
+                self.assertEqual(q['text'],text[:300])
+                self.assertEqual(buyer.message_text(q['task']),text)
+                self.assertEqual(gt.reason(order,self.offer,q,(.9,),shop,'G12345678',6000,
+                    ('fixture',q['task']),None),expected_reason)
+                gt.assign(self.md,order,now=self.now,env={})
+                env=dict(mb.__dict__,md=self.md,order=order,offer=self.offer,q=q,steps=(.9,),
+                    shop=shop,key='G12345678',label='fixture goods',limit=6000,top=6000,note='',r3=True,
+                    resume=('fixture',q['task']),probe_arm=None,discount_arm=None,goods_first_arm=None,
+                    args=SimpleNamespace(budget=6000))
+                # This is the unchanged real nested main ladder, not a fake pricing function.
+                exec(compile(ast.fix_missing_locations(ast.Module([ladder],type_ignores=[])),
+                     '<real-main-ladder>','exec'),env)
+                with patch.object(gt.time,'time',return_value=self.now), patch.object(buyer,'send',
+                     return_value=task('',state='TASK_STATE_COMPLETED')) as send, \
+                     patch.object(buyer,'rpc',return_value=None), patch.object(buyer,'log'), \
+                     patch.object(buyer,'decide',side_effect=AssertionError('no model')):
+                    exec(compile(ast.fix_missing_locations(ast.Module([call],type_ignores=[])),
+                         '<real-main-negotiate>','exec'),env)
+                self.assertEqual([c.args[1] for c in send.call_args_list],expected_wire)
+                self.assertEqual(order[gt.KEY]['applied'],expected_reason is None)
+
+    def test_matching_runtime_text_reaches_warranty_guard_not_prefix_guard(self):
+        for text, sw, h in (
+                ('G12345678 no warranty',None,None),
+                ('G12345678 includes a 3-hour warranty',None,3.0),
+                ('G12345678 includes a 3-hour warranty',{'S':.32},2.0),
+                ('G12345678 includes a 0-hour warranty',{'S':.32},0.0)):
+            with self.subTest(text=text,sw=sw,h=h):
+                order=dict(self.order)
+                if sw is not None: order['_sw']=sw
+                q=dict(self.q,text=text,task=task(text,4000),warranty_h=h)
+                self.assertEqual(gt.reason(order,self.offer,q,(.9,),self.shop,'G12345678',
+                    6000,('fixture',q['task']),None),'sku_or_warranty')
+
     def test_B_exact_ask_reaches_real_send(self):
         sent, out = self.run_wire()
         self.assertEqual(sent, ['4000'])
