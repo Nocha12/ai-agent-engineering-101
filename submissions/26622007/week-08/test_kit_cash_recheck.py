@@ -88,10 +88,21 @@ class KitCashRecheckTest(unittest.TestCase):
         sleep.assert_called_once_with(7)
         self.assertFalse(any("window closed" in line for line in logs))
 
+    def test_a_window_that_opens_within_a_minute_is_waited_for(self):
+        # restock.py sends lines up to 50 s before a window opens (opening.WINDOW_LEAD): three tries, 30 s apart
+        early = [httpx.Response(429, json={"error": "supply is closed", "wait": w, "opens_at": 1, "closes_at": 181})
+                 for w in (45, 15)]
+        sleep = mock.Mock()
+        posts, logs = run(Market(10000000, script=early + ["ok"]),
+                          {"buy": [{"sku": "G0", "qty": 1}, {"sku": "G1", "qty": 1}]}, sleep=sleep)
+        self.assertEqual(posts, ["G0", "G0", "G0", "G1"])
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [30, 15])
+        self.assertFalse(any("window closed" in line for line in logs))
+
     def test_long_wait_without_open_time_stops_and_bad_429_bodies_retry(self):
         buy = [{"sku": "G0", "qty": 1}, {"sku": "G1", "qty": 1}]
         sleep = mock.Mock()
-        posts, logs = run(Market(10000000, script=[httpx.Response(429, json={"wait": 31})]),
+        posts, logs = run(Market(10000000, script=[httpx.Response(429, json={"wait": 61})]),
                           {"buy": buy}, sleep=sleep)
         self.assertEqual(posts, ["G0"])
         self.assertIn("[supply] window closed: 2 line(s) not sent", logs)

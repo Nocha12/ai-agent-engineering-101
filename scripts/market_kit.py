@@ -1033,7 +1033,9 @@ def restock(agent, d, market, md, inv, demand):
                     wait = 10
                 if not 0 <= wait < float("inf"):
                     wait = 10
-                if wait > 30:                           # closed until the next window (the 10 s pace asks for less)
+                # closed until the next window. Up to 60 s is still tried as before (three tries, 30 s apart):
+                # restock.py sends lines up to 50 s before a window opens (opening.WINDOW_LEAD)
+                if wait > 60:
                     log(f"[supply] window closed: {len(lines) - i} line(s) not sent")
                     return
                 time.sleep(min(wait, 30))
