@@ -332,6 +332,26 @@ class PriceTest(unittest.TestCase):
         self.assertNotIn("G8adbc159", r["priority_skus"] + r["high_price_proven_skus"])
         self.assertIn("G4a12722c", r["priority_skus"])
 
+    def test_food_stock_cap_leaves_room_for_listed_fast_food(self):
+        with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
+            cfg = json.load(f)["restock"]
+        skus = [f"FAST_FOOD_{i}" for i in range(8)]
+        cfg = {**cfg, "priority_skus": skus}
+        catalog = {sku: {"kind": "food", "list_price": 23000} for sku in skus}
+        buy = [{"sku": sku, "qty": 20} for sku in skus]
+        inv = {"balance": 200000000, "units": [
+            {"sku": "HELD_FOOD", "kind": "food", "cost": 2500000}
+        ]}
+        self.assertEqual(restock.guard(buy, inv, catalog, cfg), buy)
+
+        held = cfg["food_max_stock_cost"] - 100000
+        inv = {**inv, "units": [{"sku": "HELD_FOOD", "kind": "food", "cost": held}]}
+        kept = restock.guard(buy, inv, catalog, cfg)
+        self.assertNotEqual(kept, buy)
+        self.assertTrue(kept)  # the remaining room still admits whole units
+        self.assertLessEqual(sum(line["qty"] * 0.75 * 23000 for line in kept),
+                             100000)
+
     def test_idle_cash_goes_to_the_markets_top_unlisted_dear_skus(self):
         # main 11/06 23:25: proceeds back into stock; dear goods were short of quote requests, not units, so breadth
         with open(os.path.join(HERE, "pricing.json"), encoding="utf-8") as f:
@@ -342,7 +362,7 @@ class PriceTest(unittest.TestCase):
         self.assertEqual(r["priority_skus"][after:after + 10], new)      # before the last food line (independent review)
         for sku in new:
             self.assertGreaterEqual(r["sku_target_units"][sku], 2)
-        self.assertEqual((r["food_max_stock_cost"], r["food_max_qty"], r["sku_target_units"]["G75f11c19"]), (3000000, 20, 8))
+        self.assertEqual((r["food_max_stock_cost"], r["food_max_qty"], r["sku_target_units"]["G75f11c19"]), (8000000, 20, 8))
 
     def test_cash_over_the_buffer_goes_to_two_more_unlisted_dear_skus_last(self):
         # main 11/07 05:5x: ~40M over the cash buffer; 30만+ SKUs with a positive net at our 0.685 cost in 6 h and 24 h
@@ -477,7 +497,10 @@ class PriceTest(unittest.TestCase):
         r = p["restock"]
         self.assertEqual((r["max_stock_cost"], r["max_units_per_sku"], r["cover_hours"], r["keep_cash"],
                           r["food_max_stock_cost"], r["high_price_goods"], r["high_price_max_units"]),
-                         (1000000000, 20, 6, 4500000, 3000000, 100000, 20))   # scale 9 (11/07 00:3x): food cap 650k -> 3M (food sold out 76 times, 0 expired); scale 8 (11/06 21:0x): 1B, hard_limits.cash_buffer limits buys; scale 7: units caps 10 -> 20, fill_listed fills each listed SKU to its target; scale 6: our 30만+ units sold 98% in 24 h, supply held revenue; each dear SKU stays at its own sku_target_units   # keep_cash: 21.9M open warranties at 05:00
+                         (1000000000, 20, 6, 4500000, 8000000, 100000, 20))   # scale 9 (11/07 00:3x): food cap 650k -> 3M (food sold out 76 times, 0 expired); scale 8 (11/06 21:0x): 1B, hard_limits.cash_buffer limits buys; scale 7: units caps 10 -> 20, fill_listed fills each listed SKU to its target; scale 6: our 30만+ units sold 98% in 24 h, supply held revenue; each dear SKU stays at its own sku_target_units   # keep_cash: 21.9M open warranties at 05:00
+        # 11/11 food cap: food cap 3M -> 8M: with fast food listed at 20 units the 3M cap shrank the listed food refills behind them (replay: 17 -> 20, 1 -> 3, 0 -> 3);
+        # without such listing the first run changes by ~8 units and later runs of a window take unlisted food instead of unlisted goods;
+        # need ~6M (held peak 2.25M + 5 SKUs x 20 at worst cost 1.7M + one window ~2M); cash checks unchanged.
         # scale 2 (a person's 15M cap, 11/05 11:48): cover 6 h and 3 dear units so the model asks for the 60만+ lines
         # (our share 0.35-0.76/h); six runs without a sale fill ~15.0M, 10.5M of it 60만+ (scale2-result.md)
         # food 65만: food sells in 0.1 h with nothing spoiled, and its 45만 cap cut 416 of the last 2,000 guard lines
