@@ -41,6 +41,7 @@ import market_model
 import opening
 import profit_price
 import restock_breadth
+import restock_first_stock
 import restock_demand_catchup
 import restock_food_stockout
 import restock_fresh_slots
@@ -420,6 +421,7 @@ def guard(buy, inv, catalog, cfg, breaks=None, waiting=()):
     for b in buy:
         x = catalog.get(b["sku"]) or {}
         qty = min(b["qty"], MAX_LOT)
+        qty = restock_first_stock.quantity(cfg.get("first_stock"), b["sku"], qty, count[b["sku"]])
         f, proven_or_priority = factors.get(b["sku"], 1.0), b["sku"] in listed(cfg)
         if f >= SURGE_SKIP and not proven_or_priority:
             print(f"[restock] guard: {b['sku']} surge {f} >= {SURGE_SKIP}, left out until it falls", file=sys.stderr)
@@ -1064,6 +1066,7 @@ def main():
                      window_arm=f"{window_arm}-fast")
         return 0
     demand, model = load(os.path.join(args.state, "demand.json"), []), read_model(args.state, catalog, cfg)
+    cfg["first_stock"] = restock_first_stock.config(args.state, inv, model, catalog, listed(cfg))
     loss_watch.check(args.state, rows=rows_of(args.state))     # after read_model: the ledger rows are fresh
     breaks = read_breaks(args.state, catalog)
     blind = False
