@@ -18,6 +18,8 @@ class QuoteYieldDispatch(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.md = self.tmp.name
+        # Historical finite tests explicitly disable the separate normal policy.
+        (Path(self.md)/'buyer_goods_quote_yield.json').write_text('{"enabled": false}')
         self.cfg = dict(enabled=True, study='yield-test', salt='yield-test', start=NOW-1, end=NOW+1799)
         self.shops = [dict(name=n, url='https://'+n+'.example/rpc', reviews=[0]*r,
             usable=[dict(sku='G11111111', name='fixture', list_price=10000, qty=1)])

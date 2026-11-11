@@ -1,4 +1,4 @@
-"""Default-OFF finite goods quote-slot trial. No transport or price policy.
+"""Normal goods quote-slot selection and its historical finite trial.
 
 Assignment is ITT; applied means a new initial shop's thread actually started,
 not an answer, agreement or payment. Audit files contain hashes, never salt/text.
@@ -6,14 +6,72 @@ not an answer, agreement or payment. Audit files contain hashes, never salt/text
 import hashlib
 import json
 import os
+import tempfile
 import time
 from urllib.parse import urlsplit
 
 from buyer_goods_risk_sku30 import arm, ident, number
 
 SWITCH = 'buyer_goods_quote_yield30.json'
+DEFAULT_SWITCH = 'buyer_goods_quote_yield.json'
 KEY = '_goods_quote_yield30'
 PREFIX = '.goods-quote-yield30-'
+
+
+def default_enabled(md):
+    """Normal policy is on unless explicitly killed; malformed/unreadable is off."""
+    try:
+        with open(os.path.join(md, DEFAULT_SWITCH), encoding='utf-8') as src:
+            raw = src.read(1025)
+        value = json.loads(raw)
+        return len(raw) <= 1024 and isinstance(value, dict) and value.get('enabled') is True
+    except FileNotFoundError:
+        return True
+    except (OSError, ValueError, TypeError, RecursionError):
+        return False
+
+
+def switch_default(md, *, enabled):
+    """Explicit reversible operator helper; never changes the finite study file."""
+    if type(enabled) is not bool:
+        raise ValueError('enabled must be boolean')
+    fd, tmp = tempfile.mkstemp(prefix='.goods-quote-yield-default-', dir=md)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as dst:
+            json.dump(dict(enabled=enabled), dst); dst.flush(); os.fsync(dst.fileno())
+        os.replace(tmp, os.path.join(md, DEFAULT_SWITCH))
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def _default_on(md, now, started, oid):
+    if not default_enabled(md):
+        return False
+    # An active, pending or malformed finite controller owns this boundary.
+    # Only absence, explicit OFF or a valid expired window permits new normal orders.
+    try:
+        with open(os.path.join(md, SWITCH), encoding='utf-8') as src:
+            raw = src.read(16385)
+            mtime = os.fstat(src.fileno()).st_mtime
+        c = json.loads(raw)
+        if len(raw) > 16384 or not isinstance(c, dict):
+            return False
+        if ident(c.get('study')):
+            try:
+                os.stat(os.path.join(md, PREFIX + _hash((c['study'] + ':' + oid).encode()) + '.seen'))
+                return False  # a historical assignment must never be reassigned as normal
+            except FileNotFoundError:
+                pass
+        if c.get('enabled') is False:
+            return True
+        return (c.get('enabled') is True and all(ident(c.get(k)) for k in ('study','salt')) and
+                all(number(v) for v in (now,c.get('start'),c.get('end'))) and
+                0 < c['start'] < c['end'] == c['start'] + 1800 and mtime <= c['start'] and now >= started >= c['end'])
+    except FileNotFoundError:
+        return True
+    except (OSError, ValueError, TypeError, RecursionError):
+        return False
 
 
 def config(md, now=None):
@@ -71,6 +129,12 @@ def assign(md, order, now=None):
     now = time.time() if now is None else now
     cfg = config(md, now)
     started = order.get('_buyer_started_at')
+    if cfg is None:
+        if (ident(order.get('order')) and number(now) and number(started) and 0 < started <= now and
+                _default_on(md, now, started, order['order'])):
+            order[KEY] = dict(mode='default', md=md, oid=order['order'], started=started,
+                              note=dict(applied=False))
+        return
     if (cfg is None or not ident(order.get('order')) or not number(started) or
             not cfg['start'] <= started <= now < cfg['end']):
         return
@@ -90,6 +154,8 @@ def assign(md, order, now=None):
 
 def measurement(order):
     ctx = order.get(KEY)
+    if isinstance(ctx, dict) and ctx.get('mode') == 'default':
+        return None  # normal rows learn normally; no permanent trial note/journal
     return dict(ctx['note']) if isinstance(ctx, dict) and isinstance(ctx.get('note'), dict) else None
 
 
@@ -104,6 +170,10 @@ def applied_b(row):
 
 
 def _active(ctx, order):
+    if ctx.get('mode') == 'default':
+        return (not ctx.get('disabled') and order.get('kind') == 'goods' and
+                order.get('order') == ctx['oid'] and order.get('_buyer_started_at') == ctx['started'] and
+                _default_on(ctx['md'], time.time(), ctx['started'], ctx['oid']))
     if (ctx.get('disabled') or ctx['note']['arm'] != 'B' or order.get('kind') != 'goods' or
             order.get('order') != ctx['oid'] or order.get('_buyer_started_at') != ctx['started'] or
             config(ctx['md']) != ctx['cfg']):
@@ -199,9 +269,10 @@ def plan(order, pool, k, fits, rates, rival, budget, selected, chance, cap, rows
         names = lambda ss:[s['name'] for s in ss[:max(0,k-1)]]
         if set(names(proposed)) == set(names(pool)):
             return pool  # reorder alone is never a treatment
-        snapshot = dict(assignment=ctx['assignment'], pool=fingerprint, source=source,
+        snapshot = dict(assignment=ctx.get('assignment', 'default'), pool=fingerprint, source=source,
                         k=k, baseline=names(pool), proposed=names(proposed), reason='changed_initial_set')
-        ctx['snapshot'] = _write(ctx['path'] + '.plan.json', snapshot)
+        ctx['snapshot'] = (_hash(_bytes(snapshot)) if ctx.get('mode') == 'default' else
+                           _write(ctx['path'] + '.plan.json', snapshot))
         ctx.update(pool=list(pool), proposed=proposed, fingerprint=fingerprint, source=source,
                    k=k, budget=budget, selected=selected, conflict=conflict, baseline_now=baseline_now, sent=set())
         return proposed
@@ -251,8 +322,9 @@ def dispatch_shops(order, shops, budget):
                 _pool(baseline,budget,ctx['selected']) == ctx['fingerprint'] and
                 order.get('_stock_k') == ctx['k'] and
                 [s['name'] for s in order.get('_stock_baseline',())] == [s['name'] for s in baseline])
-            with open(ctx['path'] + '.plan.json','rb') as src:
-                valid = valid and _hash(src.read(16385)) == ctx['snapshot']
+            if ctx.get('mode') != 'default':
+                with open(ctx['path'] + '.plan.json','rb') as src:
+                    valid = valid and _hash(src.read(16385)) == ctx['snapshot']
         except (OSError, ValueError, TypeError, KeyError, OverflowError, RecursionError):
             _unknown(ctx); valid = False
         chosen = ctx['proposed'] if valid else baseline
