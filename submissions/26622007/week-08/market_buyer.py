@@ -1089,6 +1089,11 @@ def resumable(q):
 def cancel_quote(q, name):
     if q and q.get("task", {}).get("id") and not q.get("closed"):
         q["closed"] = True
+        status = q["task"].get("status")
+        if isinstance(status, dict) and status.get("state") in (
+                "TASK_STATE_COMPLETED", "TASK_STATE_CANCELED", "TASK_STATE_FAILED", "TASK_STATE_REJECTED"):
+            log(f"[quote] terminal {status['state']}: locally closed {name}, no CancelTask")
+            return
         log(f"[quote] closing the talk with {name}")
         buyer_rpc(q["url"], "CancelTask", {"id": q["task"]["id"]})
 
