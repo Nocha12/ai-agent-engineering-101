@@ -53,30 +53,59 @@ def log(msg):
 
 
 class RpcReplyError(RuntimeError):
-    """The request was sent, but its reply cannot establish the remote outcome."""
+    """A request may have reached the remote, but no trustworthy outcome is available."""
     def __init__(self, metadata):
-        super().__init__("unreadable RPC JSON reply; remote outcome unconfirmed")
+        super().__init__("RPC reply unavailable; remote outcome unconfirmed")
         self.metadata = metadata
 
 
 def rpc(url, method, params):
     body = {"jsonrpc": "2.0", "id": str(uuid.uuid4())[:8], "method": method, "params": params}
-    response = httpx.post(url, json=body, headers=HEADERS, timeout=200)
+    response = None
     try:
+        response = httpx.post(url, json=body, headers=HEADERS, timeout=200)
         r = response.json()
-    except json.JSONDecodeError as exc:
-        raw = response.content
+        if not isinstance(r, dict):
+            raise ValueError("RPC envelope is not an object")
+        if "error" in r:
+            error = r["error"]
+            if not isinstance(error, dict) or not isinstance(error.get("message", ""), str):
+                raise ValueError("invalid RPC error")
+            log(f"<- error {error.get('code')} {error.get('message', '')[:120]}")
+            return None
+        result = r.get("result")
+        if not isinstance(result, dict):
+            raise ValueError("invalid RPC result")
+        task = result.get("task", result)
+        if not isinstance(task, dict) or not isinstance(task.get("id"), str):
+            raise ValueError("invalid RPC task")
+        status = task.get("status")
+        if not isinstance(status, dict) or not isinstance(status.get("state"), str):
+            raise ValueError("invalid RPC status")
+        message = status.get("message", {})
+        if not isinstance(message, dict) or not isinstance(message.get("metadata", {}) or {}, dict):
+            raise ValueError("invalid RPC message")
+        parts = message.get("parts", [])
+        artifacts = task.get("artifacts", [])
+        if (not isinstance(parts, list) or not isinstance(artifacts, list)
+                or any(not isinstance(p, dict) or not isinstance(p.get("text", ""), str) for p in parts)
+                or any(not isinstance(a, dict) or not isinstance(a.get("parts", []), list)
+                       or any(not isinstance(p, dict) for p in a.get("parts", [])) for a in artifacts)):
+            raise ValueError("invalid RPC parts")
+        return task
+    except (ValueError, UnicodeError, httpx.ReadError, httpx.ReadTimeout,
+            httpx.WriteError, httpx.WriteTimeout, httpx.RemoteProtocolError, httpx.DecodingError) as exc:
+        # ConnectError/ConnectTimeout/PoolTimeout establish no connected request and are not remote-outcome unknown.
+        raw = response.content if response is not None else None
         metadata = {"method": method if method in ("SendMessage", "CancelTask") else "other",
-                    "status": response.status_code, "bytes": len(raw),
-                    "sha256": hashlib.sha256(raw).hexdigest(), "json_pos": exc.pos,
+                    "status": response.status_code if response is not None else None,
+                    "bytes": len(raw) if raw is not None else None,
+                    "sha256": hashlib.sha256(raw).hexdigest() if raw is not None else None,
+                    "json_pos": getattr(exc, "pos", None),
                     "stack": [{"file": Path(f.filename).name, "line": f.lineno, "function": f.name}
                               for f in traceback.extract_tb(exc.__traceback__)[-8:]]}
         log("[rpc-reply] " + json.dumps(metadata, sort_keys=True))
         raise RpcReplyError(metadata) from None
-    if "error" in r:
-        log(f"<- error {r['error'].get('code')} {r['error'].get('message', '')[:120]}")
-        return None
-    return r["result"].get("task", r["result"])
 
 
 def send(url, text, task_id=None):
@@ -185,7 +214,10 @@ def negotiate(card_url, item, budget, note="", request=None, resume=None, stop_i
     url = iface["url"]
     log(f"card {card.get('name')!r} -> {url}; item {item}, budget {budget}")
 
-    t = send(url, request or f"I want to buy a {item}")
+    try:
+        t = send(url, request or f"I want to buy a {item}")
+    except RpcReplyError as exc:
+        return unknown_outcome(out, exc)
     if t is None:
         out["state"] = "ERROR"
         return out
@@ -200,10 +232,14 @@ def talk(url, t, item, budget, note, out, stop_if=None, take_at=None, reply_to=N
         return _talk(url, t, item, budget, note, out, stop_if, take_at, reply_to, ladder, ceiling,
                      decision_guard)
     except RpcReplyError as exc:
-        out.update(state="UNKNOWN_RPC_OUTCOME", receipt=None, agreed=None,
-                   rpc_reply_error=dict(exc.metadata))
-        log("END UNKNOWN_RPC_OUTCOME; request was sent, no receipt or further RPC")
-        return out
+        return unknown_outcome(out, exc)
+
+
+def unknown_outcome(out, exc):
+    out.update(state="UNKNOWN_RPC_OUTCOME", receipt=None, agreed=None,
+               rpc_reply_error=dict(exc.metadata))
+    log("END UNKNOWN_RPC_OUTCOME; request may have reached remote, no receipt or further RPC")
+    return out
 
 
 def _talk(url, t, item, budget, note, out, stop_if=None, take_at=None, reply_to=None, ladder=None, ceiling=None,

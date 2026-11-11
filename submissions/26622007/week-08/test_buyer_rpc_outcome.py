@@ -3,6 +3,8 @@ import contextlib
 import io
 import json
 import threading
+import time
+import httpx
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
@@ -14,6 +16,7 @@ import oneshot
 class RpcOutcome(unittest.TestCase):
     def setUp(self):
         self.requests = []
+        self.mode = "reply"
         self.status = 502
         self.payload = b"<html>fixture-private-body-do-not-log</html>"
         case = self
@@ -22,6 +25,11 @@ class RpcOutcome(unittest.TestCase):
             def do_POST(self):
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 case.requests.append(body)
+                if case.mode == "drop":
+                    return
+                if case.mode == "slow":
+                    time.sleep(.15)
+                    return
                 self.send_response(case.status)
                 self.send_header("Content-Type", "text/html")
                 self.end_headers()
@@ -65,6 +73,71 @@ class RpcOutcome(unittest.TestCase):
         self.assertEqual(message["taskId"], "fixture-task-85324533")
         self.assertEqual(message["parts"], [{"text": "10216"}])
 
+    def test_invalid_reply_shapes_keep_offer_evidence_without_another_rpc(self):
+        for payload in (bytes([255]), b"{}", b"null", b"[]", b"1", b'"text"',
+                        b'{"detail":"fixture-private-body"}', b'{"result":null}',
+                        b'{"result":"ok"}', b'{"error":"fixture-private-body"}'):
+            with self.subTest(payload_type=type(payload).__name__):
+                self.payload = payload
+                before = len(self.requests)
+                out, log = self.run_trade()
+                self.assertEqual(out["state"], "UNKNOWN_RPC_OUTCOME")
+                self.assertEqual(out["history"], [("shop asked", 11352), ("you offered", 10216)])
+                self.assertEqual(out["task"], self.task["id"])
+                self.assertIsNone(out["receipt"])
+                self.assertIsNone(out["agreed"])
+                self.assertEqual(len(self.requests) - before, 1)
+                self.assertNotIn("fixture-private-body", log)
+
+    def test_response_connection_close_and_timeout_keep_sent_offer_without_retry(self):
+        real_post = httpx.post
+        def short_post(*args, **kwargs):
+            kwargs["timeout"] = .05
+            return real_post(*args, **kwargs)
+        for mode in ("drop", "slow"):
+            with self.subTest(mode=mode), mock.patch.object(buyer.httpx, "post", side_effect=short_post):
+                self.mode = mode
+                before = len(self.requests)
+                out, _ = self.run_trade()
+                self.assertEqual(out["state"], "UNKNOWN_RPC_OUTCOME")
+                self.assertEqual(out["history"][-1], ("you offered", 10216))
+                self.assertEqual(out["task"], self.task["id"])
+                self.assertIsNone(out["receipt"])
+                self.assertIsNone(out["rpc_reply_error"]["status"])
+                self.assertEqual(len(self.requests) - before, 1)
+
+    def test_connection_failures_are_not_mislabeled_as_remote_outcome_unknown(self):
+        for error in (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout):
+            with self.subTest(error=error.__name__), mock.patch.object(buyer.httpx, "post",
+                                                                        side_effect=error("fixture")):
+                with self.assertRaises(error):
+                    self.run_trade()
+        self.assertEqual(self.requests, [])
+
+    def test_initial_request_unreadable_reply_stops_without_offer_or_second_rpc(self):
+        card = {"supportedInterfaces": [{"protocolBinding": "JSONRPC", "protocolVersion": "1.0",
+                                         "url": self.url}]}
+        with (mock.patch.object(buyer.httpx, "get", return_value=httpx.Response(200, json=card)),
+              mock.patch.object(buyer, "decide", side_effect=AssertionError("model forbidden")),
+              contextlib.redirect_stderr(io.StringIO())):
+            out = buyer.negotiate(self.url, "fixture food", 14672)
+        self.assertEqual(out["state"], "UNKNOWN_RPC_OUTCOME")
+        self.assertIsNone(out["task"])
+        self.assertEqual(out["history"], [])
+        self.assertIsNone(out["receipt"])
+        self.assertEqual([r["method"] for r in self.requests], ["SendMessage"])
+
+    def test_two_unknown_visits_still_exclude_unreachable_shop_and_history_is_neutral(self):
+        import market_buyer
+        trades = [{"result": "unknown_rpc_outcome", "item": "fixture", "budget": 14672,
+                   "asks": [11352], "why": None}] * 2
+        self.assertTrue(market_buyer.unreachable(trades))
+        self.assertFalse(market_buyer.unreachable(trades[:1]))
+        self.assertFalse(market_buyer.unreachable(trades[:1] + [{"result": "deal"}]))
+        line = market_buyer.history_line(trades)
+        self.assertNotIn("on the shop's side", line)
+        self.assertIn("unconfirmed", line)
+
     def test_unknown_remote_result_gets_neutral_factual_review_not_no_price(self):
         import market_buyer
         out, _ = self.run_trade()
@@ -80,6 +153,14 @@ class RpcOutcome(unittest.TestCase):
         self.assertEqual(out["rpc_reply_error"]["status"], 200)
         self.assertEqual(out["rpc_reply_error"]["bytes"], 0)
         self.assertEqual(out["history"][-1], ("you offered", 10216))
+        self.assertEqual(len(self.requests), 1)
+
+    def test_valid_jsonrpc_error_keeps_existing_none_result(self):
+        self.status = 200
+        self.payload = b'{"jsonrpc":"2.0","error":{"code":-32000,"message":"fixture"}}'
+        with contextlib.redirect_stderr(io.StringIO()):
+            result = buyer.rpc(self.url, "SendMessage", {"message": {"parts": []}})
+        self.assertIsNone(result)
         self.assertEqual(len(self.requests), 1)
 
     def test_valid_completed_reply_keeps_normal_receipt_and_no_error_fields(self):

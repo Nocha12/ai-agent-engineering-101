@@ -324,7 +324,7 @@ def history_line(trades, item=None):
     held = [t for t in deals if t.get("holds")]
     if held:
         parts.append(f"{len(held)} deal(s) closed after you held at your budget")
-    fails = [t for t in trades if t["result"] not in ("deal", "no_value")]   # no_value: my saved_cap, not the shop
+    fails = [t for t in trades if t["result"] not in ("deal", "no_value", "unknown_rpc_outcome")]   # no_value: my saved_cap, not the shop
     hopeless = [t for t in fails if t.get("why") == "budget"]
     on_shop = [t for t in fails if t.get("why") != "budget"]
     if hopeless:
@@ -335,6 +335,9 @@ def history_line(trades, item=None):
         parts.append("no deal on the shop's side: " + ", ".join(
             f"{t['result']}" + (f" (lowest ask {min(t['asks'])}, budget {t['budget']})" if t.get("asks") else "")
             for t in on_shop[-3:]))
+    unknown = sum(t["result"] == "unknown_rpc_outcome" for t in trades)
+    if unknown:
+        parts.append(f"{unknown} remote outcome(s) unconfirmed; no receipt submitted")
     broke = [t for t in deals if t.get("broke")]
     if broke:
         covered = sum(1 for t in broke if t.get("covered"))
@@ -356,7 +359,7 @@ def avg_stars(shop):
 def unreachable(trades):
     """The shop did not answer my last two visits (dead tunnel, crashed seller)."""
     last = trades[-2:]
-    return len(last) == 2 and all(t["result"].startswith(("error", "no_card", "no_interface", "unpaid")) for t in last)
+    return len(last) == 2 and all(t["result"].startswith(("error", "no_card", "no_interface", "unpaid", "unknown_rpc_outcome")) for t in last)
 
 
 UNPAID_COOL = 1800   # s a shop whose last two deals with me were not paid is not quoted after the last of them
@@ -2079,7 +2082,8 @@ def rate(out, problems, item, budget, warnings=(), limit=None):
     if out["state"] == "NO_VALUE":
         return 3, f"No deal on {item}: not a price I can pay for it now."
     if out["state"] == "UNKNOWN_RPC_OUTCOME":
-        return 3, f"Remote reply unreadable for {item}; outcome unconfirmed. No receipt submitted."
+        return 3, (f"Remote {out.get('rpc_reply_error', {}).get('method', 'request')} reply unavailable "
+                   f"for {item}; outcome unconfirmed. No receipt submitted.")
     if out["state"] == "TASK_STATE_COMPLETED":
         price = out["receipt"].get("price")
         if problems:
