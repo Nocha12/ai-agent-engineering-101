@@ -7,6 +7,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 import buyer_goods_risk_sku30 as trial
 
@@ -255,9 +256,12 @@ class RiskSkuCandidateTest(unittest.TestCase):
         (p/'order.json').write_text(json.dumps(self.order|dict(acceptable=[self.high['sku'],self.low['sku']],round=3,category='fixture')))
         argv=['market_buyer.py','--shops',str(p/'shops.json'),'--item','fixture','--budget','12000','--order',str(p/'order.json')]
         with patch('sys.argv',argv),patch.object(mb.time,'time',return_value=2000000001), \
+             patch.object(mb.httpx,'get',return_value=SimpleNamespace(json=lambda:{'round':3})), \
              patch.object(mb,'warm_ledger'),patch.object(mb,'ledger_breaks',return_value={'sold':100,'rate':.1,
                     'by_sku':{'G11111111':{'sold':80,'broke':12},'G22222222':{'sold':20,'broke':1}}}), \
              patch.object(mb.market_model,'break_chance',side_effect=lambda stats,sku:self.risk(sku)), \
+             patch.object(trial,'reserve_default',side_effect=lambda order,shops,budget,baseline,chance,**kw:
+                 trial.reserve(self.md,order,shops,budget,baseline,chance,**kw)), \
              patch.object(mb,'hopeless',return_value=True),patch.object(mb,'ledger_rows',return_value=[]), \
              patch.object(mb,'MEMORY',str(p/'memory.json')),patch.object(mb,'AGENT_DIR',self.md), \
              patch.object(mb,'SAVED_SHARE',mb.SAVED_MIN_SHARE),patch.object(mb,'buyer_negotiate',side_effect=AssertionError('no talk')), \
@@ -385,3 +389,235 @@ class RiskSkuCandidateTest(unittest.TestCase):
             p=Path(md)/'measure';p.mkdir()
             (p/'orders.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
             self.assertEqual([r['order'] for r in mb.recent_orders(md,2000000002,3)],['1','2'])
+
+
+class DefaultRiskSkuTest(unittest.TestCase):
+    setUp = RiskSkuCandidateTest.setUp
+    # Existing finite regression methods remain owned by RiskSkuCandidateTest.
+    def test_default_without_trial_reader_selects_and_locks_without_order_bytes(self):
+        before=json.dumps(self.order,sort_keys=True)
+        with patch.object(trial,'config',side_effect=AssertionError('no finite reader')), \
+             patch.object(trial,'arm',side_effect=AssertionError('no assignment')):
+            trial.reserve_default(self.order,self.shops,12000,self.base,self.risk)
+            self.assertEqual(trial.offer(self.shops[0],12000,self.base),self.low)
+            self.assertEqual(trial.prepare_final(self.shops[0],12000,self.base),self.low)
+            self.assertEqual(trial.dispatch(self.shops[0],12000,self.base),self.low)
+        self.assertEqual(json.dumps(self.order,sort_keys=True),before)
+        self.assertIsNone(trial.measurement(self.order))
+        self.assertFalse(trial.applied_b(self.order))
+        self.assertEqual(list(Path(self.md).iterdir()),[])
+
+    def reserve(self, order=None, shops=None, chance=None, **kwargs):
+        return trial.reserve_default(self.order if order is None else order,
+            self.shops if shops is None else shops,12000,self.base,chance or self.risk,**kwargs)
+
+    def test_default_unknown_invalid_equal_and_ambiguous_inventory_keep_baseline(self):
+        for risk in (None,True,float('nan'),float('inf'),-1,1.1,.09):
+            with self.subTest(risk=risk):
+                shop=copy.deepcopy(self.shops[0])
+                self.reserve(shops=[shop],chance=lambda sku:risk if sku==self.high['sku'] else .09)
+                self.assertEqual(trial.dispatch(shop,12000,self.base),self.high)
+        for extra in (dict(self.low),dict(self.high,list_price=6000)):
+            shop=copy.deepcopy(self.shops[0]);shop['usable'].append(extra)
+            self.reserve(shops=[shop])
+            self.assertEqual(trial.dispatch(shop,12000,self.base),self.high)
+
+    def test_default_ties_keep_original_order_and_ignores_ineligible_candidates(self):
+        other=dict(self.low,sku='G33333333',name='other',list_price=7000)
+        unavailable=dict(self.low,sku='G44444444',qty=0)
+        over=dict(self.low,sku='G55555555',list_price=13000)
+        shop=dict(self.shops[0],usable=[self.high,other,self.low,unavailable,over])
+        base=lambda offers,budget:max((o for o in offers if o['list_price']<=budget),key=lambda o:o['list_price'])
+        risk=lambda sku:{self.high['sku']:.15,other['sku']:.09,self.low['sku']:.09,
+                         unavailable['sku']:.01,over['sku']:.01}[sku]
+        trial.reserve_default(self.order,[shop],12000,base,risk)
+        self.assertEqual(trial.dispatch(shop,12000,base),other)
+
+    def test_default_food_and_conflict_guards_do_not_evaluate_risks(self):
+        def forbidden(sku):raise AssertionError('guard must precede estimator')
+        orders=[dict(self.order,kind='food')]+[dict(self.order,**{k:{'arm':'B'}})
+            for k in ('_goods_take30','_stock_evidence','_goods_extra_quote_probe',
+                      '_quote_alignment','_our_ask','_moss_first')]
+        for order in orders:
+            self.reserve(order=order,chance=forbidden)
+            self.assertNotIn(trial.KEY,self.shops[0])
+        for conflict in (lambda:True,lambda:(_ for _ in ()).throw(ValueError('unknown'))):
+            self.reserve(chance=forbidden,conflict=conflict)
+            self.assertNotIn(trial.KEY,self.shops[0])
+
+    def test_default_preview_rechecks_shape_url_and_baseline_before_lock(self):
+        for change in ('url','shape','budget'):
+            shop=copy.deepcopy(self.shops[0]);self.reserve(shops=[shop])
+            if change=='url':shop['url']='changed'
+            if change=='shape':shop['usable'][1]['qty']=2
+            budget=7000 if change=='budget' else 12000
+            self.assertEqual(trial.offer(shop,budget,self.base),self.high)
+            self.assertNotIn('locked',shop[trial.KEY])
+
+    def test_default_prior_only_uses_existing_break_estimator(self):
+        import market_model
+        stats=dict(sold=100,broke=10,rate=.1,by_sku={self.high['sku']:dict(sold=80,broke=12)})
+        self.reserve(chance=lambda sku:market_model.break_chance(stats,sku))
+        self.assertEqual(trial.dispatch(self.shops[0],12000,self.base),self.low)
+
+    def test_default_planning_prefetch_and_dispatch_leave_historical_B_note_untouched(self):
+        import market_buyer as mb
+        old=dict(study='historical',arm='B',applied=False)
+        self.order[trial.KEY]=old
+        self.reserve()
+        self.assertEqual(mb.selected_offer(self.shops[0],12000),self.low)
+        self.assertNotIn('locked',self.shops[0][trial.KEY])
+        self.assertFalse(mb.hopeless(self.shops,12000,{},{}))
+        with patch.object(mb,'recent_fits',return_value=collections.Counter()), \
+             patch.object(mb.buyer_b3b1,'enabled',return_value=False), \
+             patch.object(mb.buyer_stock_evidence,'decide',return_value=None):
+            mb.prefetch_pool(self.shops,{'trades':[]},self.md,'fixture',2,kind='goods',
+                             order=self.order,budget=12000)
+        trial.prepare_final(self.shops[0],12000,self.base)
+        trial.dispatch(self.shops[0],12000,self.base)
+        self.assertEqual(old,dict(study='historical',arm='B',applied=False))
+        self.assertFalse(trial.applied_b({'goods_risk_sku30':old}))
+
+    def test_default_quote_final_lock_keeps_label_cap_and_copied_offer(self):
+        import market_buyer as mb
+        self.reserve()
+        sent=[]
+        with patch.object(mb,'quote',side_effect=lambda s,label,sku,*a:sent.append((label,sku))):
+            threads=mb.start_quotes(self.shops,self.order,12000,self.risk,{},mb.quote_ctl())
+            for th in threads.values():th.join(1)
+        self.assertEqual(sent,[('fixture low','G22222222')])
+        self.shops[0]['usable'][1]['name']='mutated listing'
+        final=trial.prepare_final(self.shops[0],12000,self.base)
+        self.assertEqual((final['name'],final['sku']),('fixture low','G22222222'))
+        self.assertEqual(mb.saved_cap(final,.09,share=.32),5186)
+        self.assertIsNotNone(mb.over_limit({'item':final['sku'],'price':5500},final,5186,{},12000))
+        self.assertIsNone(trial.measurement(self.order))
+
+    def test_default_new_order_serialization_has_zero_trial_bytes(self):
+        import market_buyer as mb
+        from types import SimpleNamespace
+        shop=self.shops[0];shop.update(_offer=self.low,_b=.09)
+        def record():
+            return mb.order_record(self.order,SimpleNamespace(budget=12000,item='goods'),
+                [shop],{},shop['name'],'choice',shop,'chosen',self.low,5186,.09,
+                dict(state='NO_VALUE',history=[]),None,dict(receipt=None),[],[],False,None,{}, {})
+        with patch.object(mb,'buyer_cfg',return_value={}),patch.object(mb.time,'time',return_value=2000000001):
+            before=json.dumps(record(),ensure_ascii=False,sort_keys=True).encode()
+            self.reserve();trial.dispatch(shop,12000,self.base)
+            after=json.dumps(record(),ensure_ascii=False,sort_keys=True).encode()
+        self.assertEqual(len(after)-len(before),0)
+        self.assertEqual(after,before)
+        self.assertNotIn(b'goods_risk_sku30',after)
+
+    def test_default_rows_enter_all_five_learning_consumers_and_old_finite_B_does_not(self):
+        import market_buyer as mb
+        import buyer_rank_pg as rp
+        import buyer_shop_profile as sp
+        import buyer_b3b1 as b1
+        from test_buyer_rank_pg import row, NOW
+        from test_buyer_shop_profile import holder, NOW as profile_now
+        self.reserve();trial.dispatch(self.shops[0],12000,self.base)
+        default=row('fixture','goods',10000,8000,order='default')
+        # The normal serializer adds no trial field. The historical field keeps its original meaning.
+        note=trial.measurement(self.order)
+        if note is not None:default['goods_risk_sku30']=note
+        old=dict(default,order='old',goods_risk_sku30=dict(arm='B',applied=True))
+        self.assertEqual(mb.priced([default,old]),[default])
+        expected=rp.stats_from_rows([default],{'default':'confirmed'},NOW)
+        actual=rp.stats_from_rows([default,old],{'default':'confirmed','old':'refused'},NOW)
+        self.assertEqual(actual['pool'],expected['pool'])
+        self.assertEqual(actual['pool']['goods']['n'],1)
+        rows=holder('H',[1.08]*sp.MIN_TALKS)
+        if note is not None:
+            rows=[dict(r,goods_risk_sku30=note) for r in rows]
+        oldrows=[dict(r,goods_risk_sku30=dict(arm='B',applied=True)) for r in holder('H',[1.3]*100)]
+        self.assertEqual(sp.profile_from_rows(rows+oldrows,{},profile_now),{'H':108})
+        p=Path(self.md);(p/'measure').mkdir()
+        (p/'measure/orders.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in [default,old]))
+        (p/'payments.jsonl').write_text(json.dumps(dict(order='default',paid=True))+'\n'+json.dumps(dict(order='old',paid=False))+'\n')
+        self.assertEqual(mb.recent_orders(self.md,NOW,3),[default])
+        self.assertEqual(b1.paid_rates(self.md,now=NOW)[1],1)
+
+    def test_default_actual_main_NO_VALUE_has_no_trial_order_or_memory_fields(self):
+        import contextlib,io
+        import market_buyer as mb
+        p=Path(self.md)
+        # Imported shop/order context is untrusted; actual main must sanitize it.
+        poison=dict(mode='default',locked=self.high['sku'],locked_offer=self.high)
+        (p/'shops.json').write_text(json.dumps([dict(name='fixture',url='fixture',offers=[self.high,self.low],
+             reviews=[],**{trial.KEY:poison})]))
+        (p/'catalog.json').write_text(json.dumps({o['sku']:dict(o,kind='goods') for o in [self.high,self.low]}))
+        (p/'order.json').write_text(json.dumps(self.order|dict(acceptable=[self.high['sku'],self.low['sku']],
+             round=3,category='fixture',**{trial.KEY:dict(arm='B',applied=True)})))
+        argv=['market_buyer.py','--shops',str(p/'shops.json'),'--item','fixture','--budget','12000','--order',str(p/'order.json')]
+        with patch('sys.argv',argv),patch.object(mb.time,'time',return_value=2000000001), \
+             patch.object(mb.httpx,'get',return_value=SimpleNamespace(json=lambda:{'round':3})), \
+             patch.object(trial,'config',side_effect=AssertionError('default cannot read finite config')), \
+             patch.object(trial,'arm',side_effect=AssertionError('default cannot assign AB')), \
+             patch.object(mb,'warm_ledger'),patch.object(mb,'ledger_breaks',return_value={'sold':100,'rate':.1,
+                    'by_sku':{'G11111111':{'sold':80,'broke':12},'G22222222':{'sold':20,'broke':1}}}), \
+             patch.object(mb.market_model,'break_chance',side_effect=lambda stats,sku:self.risk(sku)), \
+             patch.object(mb,'hopeless',return_value=True),patch.object(mb,'ledger_rows',return_value=[]), \
+             patch.object(mb,'MEMORY',str(p/'memory.json')),patch.object(mb,'AGENT_DIR',self.md), \
+             patch.object(mb,'SAVED_SHARE',mb.SAVED_MIN_SHARE), \
+             patch.object(mb,'buyer_negotiate',side_effect=AssertionError('NO_VALUE must not talk')), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(mb.main(),0)
+        row=json.loads((p/'measure/orders.jsonl').read_text().splitlines()[-1])
+        trade=json.loads((p/'memory.json').read_text())['trades'][-1]
+        self.assertEqual(row['state'],'NO_VALUE')
+        self.assertEqual(trade['item'],'G22222222')
+        for serialized in (row,trade):
+            self.assertNotIn('goods_risk_sku30',serialized)
+            self.assertNotIn(trial.KEY,serialized)
+            self.assertFalse(trial.applied_b(serialized))
+
+    def test_default_actual_final_caller_uses_locked_SKU_and_protocol_without_trial_mark(self):
+        import ast
+        import buyer
+        import market_buyer as mb
+        from types import SimpleNamespace
+        from test_buyer_reply import task
+        self.reserve()
+        tree=ast.parse(Path(mb.__file__).read_text())
+        main=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='main')
+        index=next(i for i,n in enumerate(main.body) if isinstance(n,ast.Assign) and
+                   any(isinstance(t,ast.Name) and t.id=='offer' for t in n.targets))
+        env=dict(mb.__dict__,shop=self.shops[0],args=SimpleNamespace(budget=12000),r3=True,gave_up=False)
+        exec(compile(ast.fix_missing_locations(ast.Module(main.body[index-1:index+4],type_ignores=[])),
+                     '<default-actual-final-offer>','exec'),env)
+        chosen=env['offer'];limit=mb.saved_cap(chosen,.09,share=.32)
+        self.assertEqual((env['key'],env['label'],limit),('G22222222','fixture low',5186))
+        self.assertIsNone(trial.measurement(self.order))
+        replies=iter([task('fixture low (G22222222). Asking 4000. Includes a 6-hour warranty.',4000),
+                      task('',state='TASK_STATE_COMPLETED')])
+        with patch.object(buyer.httpx,'get',return_value=SimpleNamespace(json=lambda:
+                {'supportedInterfaces':[{'protocolBinding':'JSONRPC','protocolVersion':'1.0','url':'fixture'}]})), \
+             patch.object(buyer,'send',side_effect=lambda *a,**k:next(replies)) as send, \
+             patch.object(buyer,'rpc',return_value=None),patch.object(buyer,'log'), \
+             patch.object(buyer,'decide',side_effect=AssertionError('code pricing only')):
+            mb.negotiate('fixture',env['label'],limit,'',mb.request_text(env['label'],env['key'],self.order),
+                goods_take_context=(self.md,self.order,chosen,{},(.9,),self.shops[0],env['key']),
+                ladder=lambda meta,text,history:dict(action='offer',price=3600,shop_price=4000),take_at=None)
+        self.assertIn('G22222222',send.call_args_list[0].args[1])
+        self.assertEqual(send.call_args_list[1].args[1],'3600')
+        self.assertIsNone(trial.measurement(self.order))
+        self.assertEqual(trial.offer(self.shops[0],12000,self.base),self.low)
+
+    def test_default_lowest_risk_wins_and_expired_trial_file_cannot_disable_it(self):
+        best=dict(self.low,sku='G33333333',list_price=7000,name='least risk')
+        self.shops[0]['usable'].append(best)
+        (Path(self.md)/trial.SWITCH).write_text(json.dumps(dict(enabled=True,study='expired',salt='expired',start=1,end=1801)))
+        with patch.object(trial,'config',side_effect=AssertionError('expired trial must be irrelevant')):
+            self.reserve(chance=lambda sku:{self.high['sku']:.15,self.low['sku']:.09,best['sku']:.05}[sku])
+            self.assertEqual(trial.dispatch(self.shops[0],12000,self.base),best)
+
+    def test_default_preview_detects_changed_baseline_and_reservation_is_atomic_for_ambiguous_shops(self):
+        other=dict(self.low,sku='G33333333',list_price=7000)
+        shop=copy.deepcopy(self.shops[0]);shop['usable'].append(other)
+        self.reserve(shops=[shop],chance=lambda sku:.09 if sku==self.low['sku'] else .15)
+        self.assertEqual(trial.offer(shop,12000,lambda offers,budget:offers[2]),other)
+        first=copy.deepcopy(self.shops[0]);duplicate=copy.deepcopy(first)
+        self.reserve(shops=[first,duplicate])
+        self.assertNotIn(trial.KEY,first)
+        self.assertNotIn(trial.KEY,duplicate)

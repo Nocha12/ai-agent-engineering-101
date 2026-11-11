@@ -1,4 +1,4 @@
-"""Finite goods-only per-shop risk-SKU selection. Missing switch is unchanged."""
+"""Goods-only default risk-SKU selection, with the historical finite trial API."""
 import math
 import hashlib
 import json
@@ -72,6 +72,41 @@ def candidate(offers, baseline, budget, chance):
 
 def _shape(shop):
     return [(o.get('sku'), o.get('list_price'), o.get('qty')) for o in shop.get('usable') or []]
+
+
+def reserve_default(order, shops, budget, baseline, chance, *, conflict=None):
+    """Freeze normal selection in shop-local memory; no trial assignment or order fields.
+
+    Ambiguous inventory stays at the baseline. The estimator (including its prior)
+    is supplied by the existing caller, just as for the historical finite trial.
+    """
+    if (not isinstance(order, dict) or order.get('kind') != 'goods' or
+            any(order.get(k) for k in ('_goods_take30', '_stock_evidence', '_goods_extra_quote_probe',
+                                      '_quote_alignment', '_our_ask', '_moss_first'))):
+        return
+    try:
+        if conflict is not None and conflict():
+            return
+    except Exception:  # unknown competing policy fails closed
+        return
+    pending, names = [], set()
+    try:
+        for shop in shops:
+            offers = shop.get('usable') or []
+            name = shop.get('name')
+            if not offers or not isinstance(name, str) or name in names or KEY in shop:
+                return
+            names.add(name)
+            skus = [o.get('sku') for o in offers]
+            b = baseline(offers, budget)
+            c = (candidate(offers, b, budget, chance)
+                 if all(ident(sku) for sku in skus) and len(set(skus)) == len(skus) else None)
+            pending.append((shop, dict(mode='default', entry=dict(url=shop.get('url'),
+                baseline=b['sku'], candidate=c['sku'] if c is not None else None, shape=_shape(shop)))))
+    except (ValueError, TypeError, KeyError, OverflowError, RecursionError):
+        return
+    for shop, ctx in pending:
+        shop[KEY] = ctx
 
 
 def reserve(md, order, shops, budget, baseline, chance, now=None, conflict=None, stats=None):
@@ -149,11 +184,13 @@ def offer(shop, budget, baseline):
         # Retain the exact offer, including duplicate-SKU listings, never reinterpret a sent task.
         return ctx['locked_offer']
     original = baseline(offers, budget)
-    cfg = config(ctx['md'])
     entry = ctx['entry']
-    if (ctx['arm'] != 'B' or cfg is None or cfg != ctx['config'] or
-            not cfg['start'] <= ctx['started'] <= time.time() < cfg['end'] or
-            entry['url'] != shop.get('url') or _shape(shop) != entry['shape'] or
+    if ctx.get('mode') != 'default':
+        cfg = config(ctx['md'])
+        if (ctx['arm'] != 'B' or cfg is None or cfg != ctx['config'] or
+                not cfg['start'] <= ctx['started'] <= time.time() < cfg['end']):
+            return original
+    if (entry['url'] != shop.get('url') or _shape(shop) != entry['shape'] or
             original.get('sku') != entry['baseline'] or entry['candidate'] is None):
         return original
     found = [o for o in offers if o.get('sku') == entry['candidate']]
@@ -170,7 +207,7 @@ def lock(shop, selected, *, dispatched):
             raise ValueError('locked SKU mismatch')
         ctx['locked'] = selected['sku']
         ctx['locked_offer'] = dict(selected)
-        if (dispatched and ctx['arm'] == 'B' and ctx['entry']['candidate'] is not None and
+        if (dispatched and ctx.get('mode') != 'default' and ctx['arm'] == 'B' and ctx['entry']['candidate'] is not None and
                 selected['sku'] == ctx['entry']['candidate'] and selected['sku'] != ctx['entry']['baseline']):
             ctx['note']['applied'] = True
     return selected

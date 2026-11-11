@@ -2396,10 +2396,9 @@ def main():
     if fsh is not None:
         order["_food_shelf"] = fsh
     if r3:
-        buyer_goods_risk_sku30.reserve(md, order, shops, args.budget, pick_offer,
+        buyer_goods_risk_sku30.reserve_default(order, shops, args.budget, pick_offer,
             lambda sku: market_model.break_chance(ledger_breaks(md, catalog), sku),
-            conflict=lambda: buyer_goods_grade.config(md) is not None or buyer_goods_ladder.config(md) is not None,
-            stats=lambda: ledger_breaks(md, catalog))
+            conflict=lambda: buyer_goods_grade.config(md) is not None or buyer_goods_ladder.config(md) is not None)
     left, brief = skip_short_warranty(shops, memory, catalog, order) if r3 else (list(shops), [])
     if brief:
         log(f"[choose] skip for goods {brief}: their recent receipts to me had too short a warranty to pay for")
