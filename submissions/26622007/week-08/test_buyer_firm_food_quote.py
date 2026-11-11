@@ -103,7 +103,10 @@ class FirmFoodQuote(unittest.TestCase):
                      header + TEXT.replace(SKU, 'G00000000'),
                      header + TEXT.replace('list 13100', 'list 13101'),
                      header + TEXT.replace('Reply with 7729', 'Reply with 6812'),
-                     header + TEXT + ' The price is 9000 from tomorrow.'):
+                     header + TEXT + ' The price is 9000 from tomorrow.',
+                     'Note. ' + header + TEXT,
+                     header.rstrip() + '\n' + TEXT,
+                     header.replace('7729', '７７２９') + TEXT):
             with self.subTest(text=text[:70]):
                 self.assertIsNone(self.quote(text)['ask'])
 
