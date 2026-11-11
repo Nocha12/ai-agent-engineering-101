@@ -53,6 +53,7 @@ import agent_loop
 import ask_read
 import hard_limits
 import harness
+import buyer_stats
 import market_model
 import measure as records    # measure.py; measure() below is the memory timing
 import oneshot
@@ -157,11 +158,11 @@ def ledger_rows(md):
 
 
 def ledger_breaks(md, catalog):
-    """market_model.break_stats on ledger_rows(md), once per run (one catalog per run)."""
+    """All-sales buyer statistics on ledger_rows(md), once per run (one catalog per run)."""
     rows = ledger_rows(md)
     with _LEDGER_LOCK:
         if (md, "breaks") not in _LEDGER:
-            _LEDGER[(md, "breaks")] = market_model.break_stats(rows, catalog)
+            _LEDGER[(md, "breaks")] = buyer_stats.break_stats(rows, catalog)
         return _LEDGER[(md, "breaks")]
 
 
