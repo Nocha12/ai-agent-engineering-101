@@ -52,7 +52,10 @@ def select(on, buy, inv, waiting, keep):
         now = time.time()
         window_open = (inv.get("restock") or {}).get("open")
         # The kit accepts plans within the reader/opening's 50 s lead and waits
-        # until_open before RPC. A known closed snapshot is not a closed plan.
+        # until_open before RPC only while opens_at is still ahead. A stale False
+        # after opens_at also permits planning; native wait is zero then, and
+        # its existing pacing/cash/429 checks govern sending. A known closed
+        # snapshot is not a closed plan.
         if (not on["opens_at"] - 50 <= now < on["closes_at"]
                 or type(window_open) is not bool or window_open and now < on["opens_at"]):
             on["guard"] = "outside_open_window"

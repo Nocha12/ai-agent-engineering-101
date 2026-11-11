@@ -3,9 +3,12 @@
 Synthetic system inputs isolate safety cases; actual cached full-main replay is
 separately preserved in the review evidence. No live calls are permitted.
 """
-import copy,json,tempfile,unittest
+import copy,json,sys,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
+
+# This module must find the native kit when run alone, before any sibling test.
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
 import restock
 import restock_first_stock as trial
 import restock_first_slot as slot
@@ -197,3 +200,17 @@ class FirstSlotMainTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             out,state=self.run_main(Path(td),preopen=True,reserved=True,sent_trial=True)
             self.assertEqual(out["buy"],[],"native waiting plan must remain closed before open")
+
+    def test_known_false_after_open_keeps_current_native_no_wait_contract(self):
+        import time
+        import market_kit as kit
+        for arm,expected in [("OFF",[]),("A",[]),("B",[{"sku":slot.SKU,"qty":1}])]:
+            with self.subTest(arm=arm),tempfile.TemporaryDirectory() as td:
+                out,state=self.run_main(Path(td),arm=arm,open_flag=False)
+                inv=json.loads((state/"inventory.json").read_text())
+                self.assertIs(inv["restock"]["open"],False)
+                self.assertEqual(out["buy"],expected)
+                # A stale False after opens_at is allowed; native kit waits zero.
+                # Its existing cash/pacing/429 checks still govern actual sending.
+                with patch.object(time,"time",return_value=120001):
+                    self.assertEqual(kit.until_open(inv),0)
