@@ -341,7 +341,9 @@ class StockBook:
             self._call(self.on_unpaid, info, "checkout cancelled or refused")
 
     def mark_sold(self, unit):
-        info = self.agreed.pop(unit, None) or self.late.pop(unit, None)
+        agreed = self.agreed.pop(unit, None)
+        late = self.late.pop(unit, None)  # a newer sale consumes the old late-payment candidate too
+        info = agreed or late
         self._drop(unit)
         self.sold.add(unit)
         if info is not None:
