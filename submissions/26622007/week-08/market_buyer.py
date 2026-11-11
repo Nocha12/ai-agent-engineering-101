@@ -976,6 +976,10 @@ def firm_food_ask_said(text, label, sku, list_price):
             or not isinstance(sku, str) or isinstance(list_price, bool) or not isinstance(list_price, (int, float)):
         return None
     text = text.strip()
+    # A bounded reputation preamble is not price, stock or certificate evidence.
+    header = re.match(r"Last 7 days: [0-9]{1,12}/[0-9]{1,12} claims true, [0-9]{1,12} false\. ", text)
+    if header:
+        text = text[header.end():]  # exactly once; the entire item/price body must still match
     prefix = f"{label} ({sku}) "
     if not text.startswith(prefix) or set(re.findall(r"\bG[0-9a-f]{8}\b", text)) - {sku}:
         return None
