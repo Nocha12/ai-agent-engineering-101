@@ -109,6 +109,24 @@ class FirmFoodTakeTest(unittest.TestCase):
         with mock.patch.object(mb, "opening_probe_turn", return_value=chosen):
             self.assertIs(self.ladder()(None, quote_text(), []), chosen)
 
+    def test_answering_a_question_does_not_make_a_short_shelf_quote_eligible(self):
+        hybrid = (f"{LABEL} ({SKU}). Others were asking more; we are asking 7021 now. "
+                  "How many hours must it remain usable? Reply e.g. 'use within 72h'")
+        order = {"kind": "food", "use_within_hours": 360.0}
+        sent = []
+        def send(url, value, task_id=None):
+            sent.append(value)
+            return (task(quote_text().replace("530.9h", "100.0h")) if len(sent) == 1
+                    else task("", state="TASK_STATE_COMPLETED"))
+        with mock.patch.object(buyer, "send", send), mock.patch.object(buyer, "log"), \
+                mock.patch.object(buyer, "rpc", return_value=None), \
+                mock.patch.object(buyer, "decide", return_value={
+                    "shop_price": 7021, "action": "walk_away", "price": None}):
+            buyer.negotiate("fixture", LABEL, 7972, resume=("fixture", task(hybrid)),
+                stop_if=lambda text, turn: mb.quote_refused(text, order, item=(LABEL, SKU)) if turn == 1 else None,
+                reply_to=lambda text: mb.shop_question_reply(text, order), ladder=self.ladder(order=order))
+        self.assertEqual(sent, ["use within 360h"])
+
     def test_existing_final_guard_can_veto_before_any_send(self):
         sent, out = self.wire(guard=lambda decision, history: {"action": "walk_away"})
         self.assertEqual(sent, [])

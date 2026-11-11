@@ -1006,6 +1006,10 @@ def firm_food_take_turn(baseline, meta, text, history, limit, order, offer, quot
     if price is None or type(quoted.get("ask")) is not int or quoted["ask"] != price \
             or price > min(limit, int(offer["list_price"] * FOOD_TAKE_SHARE)):
         return baseline
+    # A question/answer adds no price history: recheck this current response,
+    # even if talk() already checked a different message on transport turn one.
+    if quote_refused(text, order, item=(offer["name"], offer["sku"])):
+        return baseline
     return {"shop_price": price, "action": "offer", "price": price, "price_policy": "firm_food_take"}
 
 
