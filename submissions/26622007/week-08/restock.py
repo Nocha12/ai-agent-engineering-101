@@ -1027,10 +1027,11 @@ def main():
         print(f"[restock] turnover_targets {cfg['turnover_targets']['study']}: {len(raised)} listed SKUs with a larger target: "
               + ", ".join(f"{sku} {item['target']}->{item['boosted']}" for sku, item in sorted(raised.items())),
               file=sys.stderr, flush=True)
-    cfg["breadth"] = restock_breadth.config(args.state)
+    cfg["breadth"] = restock_breadth.configs(args.state) or None
     if cfg["breadth"]:
         cfg["priority_skus"], cfg["sku_target_units"], added = restock_breadth.listing(cfg)
-        print(f"[restock] breadth {cfg['breadth']['study']}: {len(added)} SKUs listed for the window: "
+        studies = "+".join(on["study"] for on in cfg["breadth"])
+        print(f"[restock] breadth {studies}: {len(added)} SKUs listed for the window: "
               + ", ".join(f"{sku} x{units}" for sku, units in added.items()), file=sys.stderr, flush=True)
     if cfg["fresh_slots"]:
         _, moved = restock_fresh_slots.counted([u for u in inv.get("units") or [] if isinstance(u, dict)
