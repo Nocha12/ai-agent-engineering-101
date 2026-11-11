@@ -63,6 +63,7 @@ import buyer_quote_alignment
 import buyer_moss_first
 import buyer_our_ask
 import buyer_stock_evidence
+import buyer_member
 import buyer_firm_trial
 import buyer_first95_trial
 import buyer_cap95_trial
@@ -1028,6 +1029,7 @@ def quote_row(name, o, q, lim, best):
     return {"shop": name, "sku": o.get("sku"), "list_price": o.get("list_price"), "ask": None if rank else ask_,
             "src": q.get("ask_src"), "raw": q.get("text_ask_raw") if q.get("ask_src") == "text_rejected" else None,
             "lost": lost, "limit": lim, "fit": fit,
+            **({"member_code_used": True} if q.get("member_code_used") else {}),
             **({"our_ask": dict(zip(("ask", "lost", "fit"), (ask_,) + lost_fit(ask_)))} if rank else {}),
             "text": (q.get("text") or "")[:120]}
 
@@ -1122,7 +1124,12 @@ def quote(shop, label, key, order, out, ctl=None):
         card = httpx.get(shop["url"].rstrip("/") + "/.well-known/agent-card.json", headers=BUYER_HEADERS, timeout=15).json()
         iface = next(i for i in card.get("supportedInterfaces", [])
                      if i.get("protocolBinding") == "JSONRPC" and str(i.get("protocolVersion")) == "1.0")
-        t = buyer_send(iface["url"], request_text(label, key, order))
+        original = request_text(label, key, order)
+        request = buyer_member.request(original, shop["name"], iface["url"], order.get("_member_offers"))
+        member_used = request != original
+        if member_used:
+            log(f"[member-price] using paid code for {shop['name']} at its issuing RPC")
+        t = buyer_send(iface["url"], request)
         if t is None:
             return
         text = buyer_message_text(t)
@@ -1138,7 +1145,8 @@ def quote(shop, label, key, order, out, ctl=None):
                 src = "text_rejected"       # a number read but outside 5%..100% of list: kept for the record only
         q = {"ask": ask, "ask_src": src if ask is not None or src == "text_rejected" else None,
              "text_ask_raw": raw, "text": text[:300], "url": iface["url"], "task": t,
-             "refused": quote_refused(text, order, item=(label, key))}
+             "refused": quote_refused(text, order, item=(label, key)),
+             **({"member_code_used": True} if member_used else {})}
         short_warranty_quote(q, text, order, shop["name"])
         lock = (ctl or {}).get("lock")
         # Journal IO must never own the decision/termination lock.
@@ -2237,7 +2245,7 @@ def main():
         MEMORY = "memory/test_memory.json" if test else "memory/market_memory.json"
     order = load_json(args.order, {}) if args.order else {}
     if isinstance(order, dict):
-        for k in ("_sw", "_sw_buy", "_sw_h_est", "_sw_zero", "_rank_pg", "_rank_selection", "_saved_floor", "_food_floor30", "_food_floor30_window", "_food_floor30_disabled"):  # internal state, never read in
+        for k in ("_sw", "_sw_buy", "_sw_h_est", "_sw_zero", "_rank_pg", "_rank_selection", "_saved_floor", "_food_floor30", "_food_floor30_window", "_food_floor30_disabled", "_member_offers"):  # internal state, never read in
             order.pop(k, None)
     md = os.path.dirname(args.shops) or "."
     rk = buyer_rank_pg.state(md, order) if args.order else None
@@ -2319,6 +2327,7 @@ def main():
     if r3:
         sync_payments(memory, os.path.join(md, "payments.jsonl"))
         sync_broken(memory, md, SETTLED)
+        order["_member_offers"] = buyer_member.available(memory["trades"])
     log(f"order: {args.item}, budget {args.budget}; {len(shops)} shops; {len(memory['trades'])} trades in memory")
 
     rnd = market_round()
@@ -2685,7 +2694,12 @@ def main():
     if over:
         stars, review = 3, f"No deal on {args.item}: the receipt at {rec['price']:g} was over what I pay for it now ({limit:g})."
 
+    member_offer = buyer_member.capture(shop["name"], out, order.get("order")) \
+        if r3 and rec is not None and not (problems or short or over) else None
+    if member_offer:
+        log("[member-price] issued offer retained pending this order\'s payment")
     memory["trades"].append({
+        **({"member_offer": member_offer} if member_offer else {}),
         "time": time.strftime("%Y-%m-%dT%H:%M:%S"), "shop": shop["name"], "item": key, "budget": args.budget,
         **({"order": order.get("order"), "category": args.item, "list_price": offer["list_price"],
             "goods_ladder": buyer_goods_ladder.trade_arm(order),

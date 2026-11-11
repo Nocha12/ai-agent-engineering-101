@@ -311,6 +311,7 @@ def talk(url, t, item, budget, note, out, stop_if=None, take_at=None, reply_to=N
     out["state"] = state(t)
     if out["state"] == "TASK_STATE_COMPLETED":
         out["receipt"] = receipt(t)
+        out["final_message"], out["rpc_url"] = message_text(t), url
         log(f"DEAL {json.dumps(out['receipt'])}")
     else:
         out["agreed"] = None
