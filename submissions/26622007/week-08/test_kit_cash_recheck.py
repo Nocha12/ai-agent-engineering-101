@@ -20,12 +20,17 @@ import market_kit as kit           # noqa: E402
 class Market:
     """A shop's balance, a script of answers to POST /api/supply (a status or "ok"), and what was asked."""
 
-    def __init__(self, balance, script=(), cost=100000, inventory_status=200):
+    def __init__(self, balance, script=(), cost=100000, inventory_status=200, took=0):
         self.balance, self.script, self.cost, self.inventory_status = balance, list(script), cost, inventory_status
         self.calls, self.token = [], {"shop": "t"}
+        self.took, self.clock, self.supplies = took, [0], []     # seconds a call takes on run()'s clock; (sent, answered)
 
     def call(self, method, path, role="buyer", **kw):
         self.calls.append((method, path, (kw.get("json") or {}).get("sku")))
+        sent = self.clock[0]
+        self.clock[0] += self.took
+        if path == "/api/supply":
+            self.supplies.append((sent, self.clock[0]))
         if path == "/api/inventory":
             return httpx.Response(self.inventory_status, json={"round": 3, "balance": self.balance, "units": []})
         step = self.script.pop(0) if self.script else "ok"
@@ -62,14 +67,20 @@ def run(market, out, logs=None, sleep=None, restock=None, last=None):
             mock.patch.object(kit, "log", side_effect=logs.append), mock.patch.object(kit.time, "sleep", side_effect=slept), \
             mock.patch.object(kit.time, "monotonic", side_effect=lambda: clock[0]), \
             mock.patch.object(kit.time, "time", side_effect=lambda: clock[0]):
-        kit.restock({"restock": {"cmd": "x"}}, md, market, md, inv, [])
-    kit._supply_last[0] = None
+        market.clock = clock
+        try:
+            kit.restock({"restock": {"cmd": "x"}}, md, market, md, inv, [])
+        finally:
+            kit._supply_last[0] = None
     posts = [c[2] for c in market.calls if c[1] == "/api/supply"]
     return posts, logs
 
 
 def waits(sleep):
     return [c.args[0] for c in sleep.call_args_list]
+
+
+PACE = [9.2, 1.0]       # between two supply calls: the wait up to the balance read, then what is left of the 10.2 s
 
 
 CASH = {"floor": 1000000, "unit": {"G1": 150000, "G2": 150000, "G3": 150000}}
@@ -89,7 +100,7 @@ class KitCashRecheckTest(unittest.TestCase):
         sleep = mock.Mock()
         posts, logs = run(m, {"buy": [{"sku": f"G{i}", "qty": 1} for i in range(18)]}, sleep=sleep)
         self.assertEqual(posts, ["G0", "G1", "G2"])
-        self.assertEqual(waits(sleep), [10.2, 10.2])        # the pace between calls; nothing after the closed answer
+        self.assertEqual(waits(sleep), PACE * 2)           # the pace between calls; nothing after the closed answer
         self.assertIn("[supply] window closed: 16 line(s) not sent", logs)
 
     def test_short_wait_still_retries_and_rechecks_cash(self):
@@ -107,7 +118,7 @@ class KitCashRecheckTest(unittest.TestCase):
         sleep = mock.Mock()
         posts, logs = run(m, {"buy": [{"sku": "G0", "qty": 1}, {"sku": "G1", "qty": 1}]}, sleep=sleep)
         self.assertEqual(posts, ["G0", "G0", "G1"])
-        self.assertEqual(waits(sleep), [7.2, 10.2])
+        self.assertEqual(waits(sleep), [7.2] + PACE)
         self.assertFalse(any("window closed" in line for line in logs))
         self.assertIn("[supply] 429 for G0 (try 1 of 3): wait 7.0 s", logs)
 
@@ -119,7 +130,7 @@ class KitCashRecheckTest(unittest.TestCase):
         posts, logs = run(Market(10000000, script=early + ["ok"]),
                           {"buy": [{"sku": "G0", "qty": 1}, {"sku": "G1", "qty": 1}]}, sleep=sleep)
         self.assertEqual(posts, ["G0", "G0", "G0", "G1"])
-        self.assertEqual(waits(sleep), [30.2, 15.2, 10.2])
+        self.assertEqual(waits(sleep), [30.2, 15.2] + PACE)
         self.assertFalse(any("window closed" in line for line in logs))
         self.assertEqual([line for line in logs if " 429 " in line],
                          ["[supply] 429 for G0 (try 1 of 3): wait 45.0 s", "[supply] 429 for G0 (try 2 of 3): wait 15.0 s"])
@@ -131,12 +142,12 @@ class KitCashRecheckTest(unittest.TestCase):
             sleep, m = mock.Mock(), Market(10000000)
             posts, logs = run(m, {"buy": buy}, sleep=sleep, restock={"open": False, "opens_at": NOW + ahead})
             self.assertEqual(posts, ["G0", "G1", "G2"], ahead)
-            self.assertEqual(waits(sleep), [ahead + 0.2, 10.2, 10.2], ahead)       # no call before it opens: no 429
+            self.assertEqual(waits(sleep), [ahead + 0.2] + PACE * 2, ahead)       # no call before it opens: no 429
             self.assertIn(f"[supply] window opens in {ahead} s: 3 line(s) wait for it", logs)
             self.assertFalse(any(" 429 " in line or "window closed" in line for line in logs))
         # the market's clock is behind ours: it still says closed for 3 s, then 45 s -> 15 s as in the review's case
-        for script, want in (([httpx.Response(429, json={"wait": 3})], [45.2, 3.2, 10.2, 10.2]),
-                             ([httpx.Response(429, json={"wait": w}) for w in (45, 15)], [45.2, 30.2, 15.2, 10.2, 10.2])):
+        for script, want in (([httpx.Response(429, json={"wait": 3})], [45.2, 3.2] + PACE * 2),
+                             ([httpx.Response(429, json={"wait": w}) for w in (45, 15)], [45.2, 30.2, 15.2] + PACE * 2)):
             sleep = mock.Mock()
             posts, logs = run(Market(10000000, script=script + ["ok"]), {"buy": buy}, sleep=sleep,
                               restock={"open": False, "opens_at": NOW + 45})
@@ -164,26 +175,48 @@ class KitCashRecheckTest(unittest.TestCase):
         sleep, m = mock.Mock(), Market(10000000)
         posts, logs = run(m, {"buy": buy, "cash": {"floor": 1000000, "unit": {b["sku"]: 100000 for b in buy}}}, sleep=sleep)
         self.assertEqual(posts, ["G0", "G1", "G2", "G3"])
-        self.assertEqual(waits(sleep), [10.2, 10.2, 10.2])  # one call per line, 10 s after the one before
+        self.assertEqual(waits(sleep), PACE * 3)            # one call per line, 10.2 s after the one before
         self.assertFalse(any(" 429 " in line for line in logs))
         paths = [c[1] for c in m.calls]                     # the balance is read after the wait, right before the POST
         self.assertEqual(paths[:5], ["/api/inventory", "/api/supply", "/api/inventory", "/api/inventory", "/api/supply"])
         sleep = mock.Mock()                                 # the run before this one ended 4 s ago: 6.2 s are left
         self.assertEqual(run(Market(10000000), {"buy": buy[:1]}, sleep=sleep, last=4)[0], ["G0"])
-        self.assertEqual(waits(sleep), [6.2])
+        self.assertEqual(waits(sleep), [5.2, 1.0])
         sleep = mock.Mock()
         self.assertEqual(run(Market(10000000), {"buy": buy[:1]}, sleep=sleep, last=11)[0], ["G0"])
         sleep.assert_not_called()
         sleep = mock.Mock()                                 # a refusal that is not a 429 counts as a call; a held line does not
         posts, _ = run(Market(10000000, script=[400]), {"buy": buy[:2]}, sleep=sleep)
-        self.assertEqual((posts, waits(sleep)), (["G0", "G1"], [10.2]))
+        self.assertEqual((posts, waits(sleep)), (["G0", "G1"], PACE))
         sleep = mock.Mock()
         cash = {"floor": 1000000, "unit": {"G0": 99999999, "G1": 100000}}
         posts, _ = run(Market(10000000), {"buy": buy[:2], "cash": cash}, sleep=sleep)
         self.assertEqual(posts, ["G1"])
         sleep.assert_not_called()
 
+    def test_the_balance_read_takes_part_of_the_wait_not_more_time(self):
+        # independent review a6452e3 I1: wait 10.2 s, then read, then POST made a line 10.2 s + two round trips
+        buy = [{"sku": f"G{i}", "qty": 1} for i in range(18)]
+        cash = {"floor": 1000000, "unit": {b["sku"]: 100000 for b in buy}}
+        for took in (0.3, 0.9):
+            m = Market(10000000, took=took)
+            posts, logs = run(m, {"buy": buy, "cash": cash})
+            self.assertEqual(len(posts), 18)
+            gaps = [round(b[0] - a[1], 3) for a, b in zip(m.supplies, m.supplies[1:])]
+            self.assertEqual(set(gaps), {10.2}, took)       # answered -> next sent: the market's 10 s and the margin, no more
+            reads = [i for i, c in enumerate(m.calls) if c[1] == "/api/inventory"]
+            self.assertEqual(len(reads), 18 + 18)           # before every POST, and the refresh after it
+        m = Market(10000000, took=1.5)                       # a read slower than the second kept for it adds only what it runs over
+        run(m, {"buy": buy[:3], "cash": cash})
+        self.assertEqual([round(b[0] - a[1], 3) for a, b in zip(m.supplies, m.supplies[1:])], [10.7, 10.7])
+        m = Market(10000000, took=0.3)                       # 0.3 s a call: a line every 10.5 s, 18 lines inside 180 s
+        run(m, {"buy": buy, "cash": cash}, restock={"open": False, "opens_at": NOW + 30})
+        self.assertLess(m.supplies[-1][1] - (NOW + 30), 180)
+
     def test_a_restock_run_starts_forty_seconds_before_a_window_opens(self):
+        import opening
+        self.assertLess(kit.SUPPLY_AHEAD, opening.WINDOW_LEAD)                  # restock.py sends lines on that run
+        self.assertLessEqual(opening.WINDOW_LEAD, 60)                           # and the kit waits for the window
         closed = {"restock": {"open": False, "opens_at": NOW + 35}}
         self.assertTrue(kit.restock_due({}, NOW - 61, NOW))                     # the usual minute
         self.assertFalse(kit.restock_due({}, NOW - 59, NOW))

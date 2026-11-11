@@ -866,6 +866,7 @@ CATALOG = {}
 MAX_SUPPLY_LINES = 20  # /rules: one call per 10 s in a 180 s window (~18 calls); was 10
 SUPPLY_EVERY = 10      # /rules: one supply call per 10 seconds
 SUPPLY_MARGIN = 0.2    # seconds added to a wait: a call that lands a moment early is refused
+SUPPLY_READ = 1        # the balance is read this long before a paced call goes (the read takes part of the wait)
 SUPPLY_AHEAD = 40      # a restock run starts this long before a window opens (the command takes 10-25 s)
 _supply_last = [None]  # time.monotonic() when the market last answered a supply call with anything but 429
 
@@ -1006,7 +1007,7 @@ def cash_ok(market, cash, b, balance):
     """(send it, the balance read, why not). cash: the restock command's {"floor": the balance a buy may not go under,
     "unit": {sku: the most one unit can cost}}. balance: what the last supply call answered, or None to read
     /api/inventory now. A floor, a unit cost or a balance that cannot be read sends nothing: the command's own check is
-    up to ~100 s old by the last of its ten lines, and a refund or a retry's wait moves the balance meanwhile."""
+    up to ~200 s old by the last of its twenty lines, and a refund or a retry's wait moves the balance meanwhile."""
     floor, units = cash.get("floor"), cash.get("unit")
     unit = units.get(b.get("sku")) if isinstance(units, dict) else None
     qty = b.get("qty")
@@ -1053,14 +1054,17 @@ def restock(agent, d, market, md, inv, demand):
         for n in range(3):
             pause = supply_pause()                      # the market takes one call per 10 s: wait it out here, a call
             if pause:                                   # sent early is refused (429) and costs a round trip
-                time.sleep(pause)
-                balance = None                          # long enough for a refund: read it again
+                time.sleep(max(0, pause - SUPPLY_READ))
+                balance = None                          # long enough for a refund: read it again, inside the wait
             if cash is not None:
                 ok, balance, why = cash_ok(market, cash, b, balance)
                 if not ok:
                     log(f"[supply] {b} held: {why}")
                     r = None
                     break
+            pause = supply_pause()                      # what the balance read left of the wait
+            if pause:
+                time.sleep(pause)
             r = market.call("POST", "/api/supply", "shop", json={"sku": b.get("sku"), "qty": b.get("qty")})
             if r.status_code == 429:
                 try:
