@@ -1160,11 +1160,14 @@ def main():
     # the last word, whatever came before. It keeps its own 0.75 x list (test_hard_limits pins it); the surge cost is
     # reserved by guard() and the waiting lines, and with the balance far above STOP_BUYING_BELOW the line does not bind
     slot = cfg["first_slot"]
+    late_agent_skus = agent_skus  # retain baseline provenance unless this slot introduces a new SKU
     # Never override an opening, selected next_window plan, fast path or old trial.
     if slot and first is None and not trial and restock_first_slot.SKU not in hold and not fast_b and not cfg["first_stock"] and not blind and not out.get("bankrupt"):
         previous = out.get("buy") or []
         chosen = restock_first_slot.select(slot, previous, inv, waiting, keep)[:min(cfg["max_lines"], KIT_LINES)]
         if slot.get("guard") == "passed":
+            if not any(b["sku"] == restock_first_slot.SKU and b["qty"] > 0 for b in previous):
+                late_agent_skus = agent_skus - {restock_first_slot.SKU}
             # Only displaced agent quantities return to their own queue; never the new target.
             remaining = collections.Counter()
             for b in chosen:
@@ -1178,7 +1181,7 @@ def main():
             requeue(args.state, back)
             out["buy"] = chosen
     if first is None:
-        out["buy"] = late_lines(args.state, inv, out.get("buy"), agent_skus)
+        out["buy"] = late_lines(args.state, inv, out.get("buy"), late_agent_skus)
     owed = sum(w["worst"] * w.get("cash_qty", w["qty"]) for w in waiting)      # lines already sent are bought out of the same cash
     out["buy"] = hard_limits.final_buy(out.get("buy"), inv.get("balance"), catalog, buffer=cfg["cash_buffer"] + owed)
     if out["buy"]:

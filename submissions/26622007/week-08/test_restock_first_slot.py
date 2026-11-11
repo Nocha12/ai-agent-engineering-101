@@ -36,6 +36,7 @@ class FirstSlotMainTest(unittest.TestCase):
                                       "stop": 120000 if expired else 123550, "b_parity": 0 if arm == "B" else 1}))
         if old_active:
             (state/trial.SWITCH).write_text(switch.read_text())
+        if arm == "OFF":switch.unlink()
         model = {"active": True, "skus": {sku: {"mine_rate": 0, "deals": 20}}}
         waiting = [{"sku": sku, "qty": held, "worst": 75}] if held else []
         original_guard = restock.guard
@@ -122,3 +123,34 @@ class FirstSlotMainTest(unittest.TestCase):
             with self.subTest(limit=limit),tempfile.TemporaryDirectory() as td:
                 out,state=self.run_main(Path(td),reserved=True,overrides={"max_lines":limit})
                 self.assertEqual(out["buy"],expected)
+
+    def test_new_slot_target_is_not_an_agent_backlog_at_the_late_boundary(self):
+        for arm in ("A", "B"):
+            with self.subTest(arm=arm), tempfile.TemporaryDirectory() as td:
+                lines=[{"sku":"other1","qty":1},{"sku":slot.SKU,"qty":3}]
+                out,state=self.run_main(Path(td),arm=arm,late=True,agent_lines=lines,
+                                        overrides={"food_max_stock_cost":75})
+                queue=json.loads((state/"restock_queue.json").read_text())["lines"]
+                self.assertEqual(out["buy"],[])
+                self.assertEqual(sum(x["qty"] for x in queue if x["sku"]==slot.SKU),0)
+                self.assertEqual(sum(x["qty"] for x in queue if x["sku"]=="other1"),1)
+
+    def test_native_target_late_queue_is_preserved_in_all_arms(self):
+        for arm,expired,want in [("OFF",False,3),("A",False,3),("B",False,1),("B",True,3)]:
+            with self.subTest(arm=arm,expired=expired),tempfile.TemporaryDirectory() as td:
+                out,state=self.run_main(Path(td),arm=arm,expired=expired,late=True,
+                                        agent_lines=[{"sku":slot.SKU,"qty":3}])
+                queue=json.loads((state/"restock_queue.json").read_text())["lines"]
+                self.assertEqual(out["buy"],[])
+                self.assertEqual(sum(x["qty"] for x in queue if x["sku"]==slot.SKU),want)
+
+    def test_duplicate_displaced_agent_quantities_remain_exact(self):
+        for arm in ("A","B"):
+            with self.subTest(arm=arm),tempfile.TemporaryDirectory() as td:
+                lines=[{"sku":"other1","qty":1},{"sku":"other1","qty":1},
+                       {"sku":slot.SKU,"qty":3}]
+                out,state=self.run_main(Path(td),arm=arm,late=True,agent_lines=lines,
+                                        overrides={"food_max_stock_cost":150})
+                queue=json.loads((state/"restock_queue.json").read_text())["lines"]
+                self.assertEqual(sum(x["qty"] for x in queue if x["sku"]==slot.SKU),0)
+                self.assertEqual(sum(x["qty"] for x in queue if x["sku"]=="other1"),2)
