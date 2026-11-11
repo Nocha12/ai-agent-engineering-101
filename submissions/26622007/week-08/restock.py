@@ -1118,12 +1118,14 @@ def main():
     trial_cfg = pricing.get("next_window") or {}
     hold = set(trial_cfg.get("targets") or {}) if trial is not None or trial_cfg.get("hold_after_done") is True else set()
     agent_skus = set()
+    slot_plan_closed = False
     if fast_b and hold and first is None and not out.get("bankrupt"):
         with contextlib.redirect_stderr(io.StringIO()):     # the guard's lines were printed by the plan above
             out = plan(inv, catalog, demand, without_held(cfg, hold), model, breaks, waiting)
     if first is not None:                 # the opening decides this run (already guarded); the agent waits
         out = {"buy": first}
     elif (opening.window_closed(inv) or trial == [] and opening.window_closed(inv, lead=0)) and not out.get("bankrupt"):
+        slot_plan_closed = True
         out = {"buy": []}                  # nothing can be bought now; the agent's queue keeps its lines for the window.
         # A trial waiting for its window keeps the lead time empty, as before: a line sent before it opens is refused (429)
         # but would count as pending and make next_window find its target already bought
@@ -1162,7 +1164,7 @@ def main():
     slot = cfg["first_slot"]
     late_agent_skus = agent_skus  # retain baseline provenance unless this slot introduces a new SKU
     # Never override an opening, selected next_window plan, fast path or old trial.
-    if slot and first is None and not trial and restock_first_slot.SKU not in hold and not fast_b and not cfg["first_stock"] and not blind and not out.get("bankrupt"):
+    if slot and not slot_plan_closed and first is None and not trial and restock_first_slot.SKU not in hold and not fast_b and not cfg["first_stock"] and not blind and not out.get("bankrupt"):
         previous = out.get("buy") or []
         chosen = restock_first_slot.select(slot, previous, inv, waiting, keep)[:min(cfg["max_lines"], KIT_LINES)]
         if slot.get("guard") == "passed":

@@ -11,7 +11,7 @@ import restock_first_stock as trial
 import restock_first_slot as slot
 
 class FirstSlotMainTest(unittest.TestCase):
-    def run_main(self, root, arm="B", held=0, fail_write=False, injected=False, fast=False, balance=10**9, bad_pending=False, late=False, expired=False, overrides=None, onhand=False, agent_lines=None, stock=0, old_active=False, reserved=False, preopen=False, open_flag=True):
+    def run_main(self, root, arm="B", held=0, fail_write=False, injected=False, fast=False, balance=10**9, bad_pending=False, late=False, expired=False, overrides=None, onhand=False, agent_lines=None, stock=0, old_active=False, reserved=False, preopen=False, open_flag=True, sent_trial=False):
         import contextlib, io, os, sys, time
         state = root / "market"
         state.mkdir(exist_ok=True)
@@ -29,6 +29,9 @@ class FirstSlotMainTest(unittest.TestCase):
         (state / "demand.json").write_text("[]")
         pricing = {"restock": {"first_stock": {"arm": "B"}, "first_slot": {"arm": "B"}}} if injected else {}
         if reserved:pricing["next_window"]={"id":"reserved-fixture","targets":{"reserved":1},"expires_hours":2}
+        if sent_trial:
+            (state/"next_window_state.json").write_text(json.dumps({"id":"reserved-fixture", "created":119900,
+                "sent":[{"at":119900,"lines":[{"sku":"reserved","qty":1}]}],"done":False,"notes":[],"tries":{}}))
         pricing.setdefault("restock",{}).update(overrides or {})
         (root / "pricing.json").write_text(json.dumps(pricing))
         switch = state / slot.SWITCH
@@ -189,3 +192,8 @@ class FirstSlotMainTest(unittest.TestCase):
             with self.subTest(flag=flag),tempfile.TemporaryDirectory() as td:
                 out,state=self.run_main(Path(td),open_flag=flag)
                 self.assertEqual(out["buy"],[])
+
+    def test_preopen_slot_never_reopens_a_plan_closed_by_next_window(self):
+        with tempfile.TemporaryDirectory() as td:
+            out,state=self.run_main(Path(td),preopen=True,reserved=True,sent_trial=True)
+            self.assertEqual(out["buy"],[],"native waiting plan must remain closed before open")
