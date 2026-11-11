@@ -42,6 +42,7 @@ import opening
 import profit_price
 import restock_breadth
 import restock_first_stock
+import restock_first_slot
 import restock_demand_catchup
 import restock_food_stockout
 import restock_fresh_slots
@@ -1052,6 +1053,7 @@ def main():
               f"than held ({sum(m['held'] - m['counted'] for m in moved.values())} units waited past "
               f"{cfg['fresh_slots']['hours']:g} h): "
               + ", ".join(f"{k} {m['held']}->{m['counted']}" for k, m in sorted(moved.items())), file=sys.stderr, flush=True)
+    cfg["first_slot"] = None
     cfg["first_stock"] = None  # only the finite reader below may enable this trial
     arm_, label = window_fast_arm(args.state, cfg, inv)       # (None, None) when off
     window_arm = "default" if label == "default" else arm_     # measure's tag: the rule is told from a study's arm B
@@ -1068,6 +1070,7 @@ def main():
         return 0
     demand, model = load(os.path.join(args.state, "demand.json"), []), read_model(args.state, catalog, cfg)
     cfg["first_stock"] = restock_first_stock.config(args.state, inv, model, catalog, listed(cfg))
+    cfg["first_slot"] = restock_first_slot.config(args.state, inv, model, catalog, listed(cfg))
     loss_watch.check(args.state, rows=rows_of(args.state))     # after read_model: the ledger rows are fresh
     breaks = read_breaks(args.state, catalog)
     blind = False
@@ -1156,6 +1159,33 @@ def main():
     shop_forum.maybe_run(args.state)    # the shop's own posts, written by code from its ledger rows and stock
     # the last word, whatever came before. It keeps its own 0.75 x list (test_hard_limits pins it); the surge cost is
     # reserved by guard() and the waiting lines, and with the balance far above STOP_BUYING_BELOW the line does not bind
+    slot = cfg["first_slot"]
+    # Preserve opening/fast/old trial and every already selected next_window quantity.
+    if slot and first is None and restock_first_slot.SKU not in hold and not fast_b and not cfg["first_stock"] and not blind and not out.get("bankrupt"):
+        previous = out.get("buy") or []
+        chosen = restock_first_slot.select(slot, previous, inv, waiting, keep)[:min(cfg["max_lines"], KIT_LINES)]
+        if slot.get("guard") == "passed" and trial:
+            preserved = collections.Counter()
+            for b in chosen:
+                preserved[b["sku"]] += b["qty"]
+            required = collections.Counter()
+            for b in trial:
+                required[b["sku"]] += b["qty"]
+            if any(preserved[sku] < qty for sku, qty in required.items()):
+                slot["guard"] = "reserved_plan_blocked"
+        if slot.get("guard") == "passed":
+            # Only displaced agent quantities return to their own queue; never the new target.
+            remaining = collections.Counter()
+            for b in chosen:
+                remaining[b["sku"]] += b["qty"]
+            back = []
+            for b in previous:
+                used = min(b["qty"], remaining[b["sku"]])
+                remaining[b["sku"]] -= used
+                if b["sku"] in agent_skus and b["sku"] != restock_first_slot.SKU and b["qty"] > used:
+                    back.append({"sku": b["sku"], "qty": b["qty"] - used})
+            requeue(args.state, back)
+            out["buy"] = chosen
     if first is None:
         out["buy"] = late_lines(args.state, inv, out.get("buy"), agent_skus)
     owed = sum(w["worst"] * w.get("cash_qty", w["qty"]) for w in waiting)      # lines already sent are bought out of the same cash
@@ -1176,6 +1206,7 @@ def main():
     if cash:
         out["cash"] = cash
     print(json.dumps(out, ensure_ascii=False), flush=True)
+    restock_first_slot.record(args.state, slot, out["buy"][:KIT_LINES])
     restock_first_stock.record(args.state, cfg["first_stock"], out["buy"][:KIT_LINES], inv, waiting)
     measure.tick(args.state, inv, out["buy"][:KIT_LINES], pricing,     # after the line the kit reads; local files only, never raises
                  window_arm=window_arm)
