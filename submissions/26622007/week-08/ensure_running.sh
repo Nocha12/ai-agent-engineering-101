@@ -21,6 +21,8 @@ running() {   # running <pid file> <script name>
 
 cd "$ROOT"
 for s in run_market.sh run_meta.sh keep_logs.sh; do
+  # .market/<name>.disabled keeps a script off on purpose (e.g. the owner turned the meta-harness off).
+  [ -e "$HERE/.market/${s%.sh}.disabled" ] && continue
   if ! running "$HERE/.market/${s%.sh}.pid" "$s"; then
     nohup /bin/bash "$HERE/$s" > /dev/null 2>&1 < /dev/null &
     echo "$(date '+%m-%d %H:%M:%S') [ensure_running] $s was not running; started it as pid $!" >> "$HERE/logs/ensure_running.log"
