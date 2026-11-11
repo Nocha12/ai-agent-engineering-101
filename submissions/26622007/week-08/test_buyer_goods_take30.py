@@ -136,9 +136,7 @@ class GoodsTake30Test(unittest.TestCase):
         from types import SimpleNamespace
         tree=ast.parse(Path(mb.__file__).read_text())
         assignment=next(n for n in ast.walk(tree) if isinstance(n,ast.Assign) and
-            isinstance(n.value,ast.Call) and isinstance(n.value.func,ast.Attribute) and
-            isinstance(n.value.func.value,ast.Name) and n.value.func.value.id=='buyer_goods_take30'
-            and n.value.func.attr=='negotiate')
+            isinstance(n.value,ast.Call) and isinstance(n.value.func,ast.Name) and n.value.func.id=='negotiate')
         self.assign()
         env=dict(mb.__dict__,md=self.md,order=self.order,offer=self.offer,q=self.q,steps=(.9,),
             shop=dict(name='fixture-shop',url='fixture'),key='G12345678',label='fixture goods',limit=6000,

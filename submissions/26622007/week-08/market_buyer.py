@@ -89,7 +89,7 @@ import rival_deny
 # were often never asked; in 26 orders cancelled with no quote within my limit (11/06 23:00-00:25) a mean 3.3 rival candidates
 # went unasked, and their quotes fitted as often as the others' (19 of 214, 37 of 453). Saved is half of buyer ALL.
 RIVAL_DENY = False
-from buyer import log, negotiate
+from buyer import log, negotiate as buyer_negotiate
 from buyer import HEADERS as BUYER_HEADERS, message_text as buyer_message_text, metadata_ask as buyer_metadata_ask
 from buyer import text_ask as buyer_text_ask
 from buyer import rpc as buyer_rpc, send as buyer_send
@@ -2242,6 +2242,13 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
     }
 
 
+def negotiate(*args, goods_take_context=None, **kwargs):
+    """Buyer-only policy adapter; the transport and food take_at stay in buyer.negotiate."""
+    if goods_take_context is None:
+        return buyer_negotiate(*args, **kwargs)
+    return buyer_goods_take30.negotiate(buyer_negotiate, *goods_take_context, *args, **kwargs)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--shops", required=True)
@@ -2638,8 +2645,8 @@ def main():
         if steps:
             log(f"[offer] oneshot: {', '.join(f'{s:.2f}' for s in steps)} of the first ask, then the counter, priced by code")
         talk_mode = f"oneshot {list(steps)}" if steps else "harness"
-        out = buyer_goods_take30.negotiate(negotiate, md, order, offer, q, steps, shop, key,
-                        shop["url"], label, limit, note, request_text(label, key, order) if r3 else None, resume=resume,
+        out = negotiate(shop["url"], label, limit, note, request_text(label, key, order) if r3 else None, resume=resume,
+                        goods_take_context=(md, order, offer, q, steps, shop, key),
                         stop_if=(lambda text, turn: (quote_refused(text, order, item=(label, key)) if turn == 1 else None)
                                  or goods_text_refused(text, order)) if r3 else None,
                         reply_to=(lambda text: shop_question_reply(text, order)) if r3 else None,
