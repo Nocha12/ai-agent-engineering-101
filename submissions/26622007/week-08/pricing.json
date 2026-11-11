@@ -157,7 +157,15 @@
       "G5b96e0fd",
       "G40e27aec",
       "Gfe4f052a",
-      "Ge7edc329"
+      "Ge7edc329",
+      "G53b150b5",
+      "Ge4f8ef71",
+      "G5c543233",
+      "G0c4045d3",
+      "G28bd9142",
+      "G196023bf",
+      "G326ebe9a",
+      "G5e3784e6"
     ],
     "sku_target_units": {
       "G1515d951": 12,
@@ -209,8 +217,17 @@
       "G5b96e0fd": 2,
       "G40e27aec": 2,
       "Gfe4f052a": 2,
-      "Ge7edc329": 2
+      "Ge7edc329": 2,
+      "G53b150b5": 2,
+      "Ge4f8ef71": 2,
+      "G5c543233": 2,
+      "G0c4045d3": 2,
+      "G28bd9142": 2,
+      "G196023bf": 2,
+      "G326ebe9a": 2,
+      "G5e3784e6": 2
     },
+    "breadth_t2_default_source": "breadth-t2-1111 verdict keep (review/W-20261111-1415-AXPro주기/verdict-breadth-t2.md): the second study's arm-B SKUs are listed at the end of priority_skus with a target of 2; its switch file is trashed in the same deploy.",
     "breadth_default_source": "breadth-1111 verdict keep (review/W-20261111-1415-AXPro주기/verdict-breadth.md): the study's arm-B unlisted goods SKUs (listed inside the window, per-SKU table in the verdict; arm A was never listed and stays out) are listed at the end of priority_skus with a target of 2; the switch file is trashed in the same deploy.",
     "high_price_listed_only": true,
     "food_max_stock_cost": 8000000,

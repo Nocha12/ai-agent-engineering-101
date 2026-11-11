@@ -222,11 +222,33 @@ class DefaultTest(unittest.TestCase):
         with open(os.path.join(here, "pricing.json"), encoding="utf-8") as f:
             cfg = json.load(f)["restock"]
         self.assertIn("breadth_default_source", cfg)
-        self.assertEqual(cfg["priority_skus"][-10:], self.B)
+        self.assertEqual(cfg["priority_skus"][-18:-8], self.B)        # breadth-t2-1111's 8 come after (T2Test)
         self.assertEqual({s: cfg["sku_target_units"][s] for s in self.B}, {s: 2 for s in self.B})
         self.assertFalse(set(self.A) & (set(cfg["priority_skus"]) | set(cfg["sku_target_units"])))
         on = {**ON, "skus": self.B + self.A, "salt": "breadth-1111-b4", "treat": 0.5}
         self.assertEqual([s for s in on["skus"] if breadth.arm(on, s) == "B"], self.B)     # the ops switch's own arms
+        p, t, added = breadth.listing({**cfg, "breadth": on}, NOW)
+        self.assertEqual(added, {})
+        self.assertIs(p, cfg["priority_skus"])
+
+
+class T2DefaultTest(unittest.TestCase):
+    """breadth-t2-1111 keep: its 8 arm-B SKUs at 2 at the end of priority_skus; arm A stays out; its switch adds none."""
+    SKUS = ["G53b150b5", "Ge4f8ef71", "G037721ac", "G5c543233", "G6a308a3b", "Gcfe62c2c", "Gf3e749a1", "G0c4045d3",
+            "G9257554b", "G77834f4a", "G28bd9142", "G196023bf", "G326ebe9a", "G5e3784e6", "Ga0aa1835"]
+    B = ["G53b150b5", "Ge4f8ef71", "G5c543233", "G0c4045d3", "G28bd9142", "G196023bf", "G326ebe9a", "G5e3784e6"]
+
+    def test_pricing_lists_t2_arm_b_last_and_the_switch_adds_none(self):
+        here = os.path.dirname(os.path.abspath(restock.__file__))
+        with open(os.path.join(here, "pricing.json"), encoding="utf-8") as f:
+            cfg = json.load(f)["restock"]
+        self.assertIn("breadth_t2_default_source", cfg)
+        on = {**ON, "skus": self.SKUS, "salt": "breadth-t2-1111", "treat": 0.5}
+        self.assertEqual([s for s in self.SKUS if breadth.arm(on, s) == "B"], self.B)     # the ops switch's own arms
+        self.assertEqual(cfg["priority_skus"][-8:], self.B)
+        self.assertEqual({s: cfg["sku_target_units"][s] for s in self.B}, {s: 2 for s in self.B})
+        a = set(self.SKUS) - set(self.B)
+        self.assertFalse(a & (set(cfg["priority_skus"]) | set(cfg["sku_target_units"])))
         p, t, added = breadth.listing({**cfg, "breadth": on}, NOW)
         self.assertEqual(added, {})
         self.assertIs(p, cfg["priority_skus"])
