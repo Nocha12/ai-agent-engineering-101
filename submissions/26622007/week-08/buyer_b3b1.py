@@ -15,6 +15,7 @@ environment is off too. Read at every order (a buyer run is one order), so no re
 import json
 import os
 import time
+import buyer_goods_risk_sku30
 
 SWITCH = "buyer_b3b1.json"
 ACCEPT_SHARE = .92
@@ -79,6 +80,8 @@ def paid_rates(md, now=None, hours=RATE_HOURS):
         tries = {}
         for r in _tail(os.path.join(md, "measure", "orders.jsonl")):
             ts = r.get("ts")
+            if buyer_goods_risk_sku30.applied_b(r):
+                continue
             if r.get("passed_to_kit") is True and isinstance(r.get("shop"), str) and isinstance(r.get("order"), str) and \
                     r["order"] in paid and type(ts) in (int, float) and now - hours * 3600 <= ts <= now:
                 tries.setdefault(r["shop"], []).append(paid[r["order"]])

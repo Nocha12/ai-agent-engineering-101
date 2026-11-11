@@ -78,6 +78,7 @@ import buyer_food_floor30
 import buyer_goods_grade
 import buyer_goods_ladder
 import buyer_goods_take30
+import buyer_goods_risk_sku30
 import buyer_food_shelf
 import buyer_rank_pg
 import buyer_shop_profile
@@ -275,7 +276,7 @@ def priced(trades):
     buyer_goods_grade.priced, buyer_food_ladder.priced)."""
     return buyer_moss_first.priced(
         buyer_saved_floor.priced(buyer_food_ladder.priced(buyer_goods_grade.priced(buyer_goods_ladder.priced(
-            [t for t in trades if not buyer_goods_take30.applied_b(t)])))))
+            [t for t in trades if not buyer_goods_take30.applied_b(t) and not buyer_goods_risk_sku30.applied_b(t)])))))
 
 
 def my_history(memory, name):
@@ -683,6 +684,8 @@ def selected_offer(shop, budget):
     rule_choose intentionally keeps its pre-treatment baseline prospective hint:
     treatment must not also change the shop ranking. It is not a paid-SKU claim.
     """
+    if buyer_goods_risk_sku30.KEY in shop:
+        return buyer_goods_risk_sku30.offer(shop, budget, pick_offer)
     return buyer_food_sku.offer(shop, budget, pick_offer)
 
 
@@ -1251,7 +1254,8 @@ def recent_orders(md, now, hours):
             r = json.loads(x)
         except ValueError:
             continue
-        if isinstance(r, dict) and isinstance(r.get("ts"), (int, float)) and now - hours * 3600 <= r["ts"] <= now:
+        if (isinstance(r, dict) and isinstance(r.get("ts"), (int, float)) and now - hours * 3600 <= r["ts"] <= now
+                and not buyer_goods_risk_sku30.applied_b(r)):
             out.append(r)
     return out
 
@@ -1483,7 +1487,7 @@ def start_quotes(shops, order, budget, chance_of, got, ctl):
         order["_stock_dispatched"] = True
     threads = {}
     for s in shops:
-        o = selected_offer(s, budget)
+        o = buyer_goods_risk_sku30.dispatch(s, budget, pick_offer) if buyer_goods_risk_sku30.KEY in s else selected_offer(s, budget)
         s["_offer"], s["_b"] = o, chance_of(o["sku"]) or 0
         s["_quote_attempted"] = True  # published before the thread: failed or still pending calls must be counted
         th = threading.Thread(target=quote, args=(s, o["name"], o["sku"], order, got, ctl), daemon=True)
@@ -2214,6 +2218,8 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "goods_grade": order.get("_goods_grade"),
         "goods_ladder": order.get("_goods_ladder"),
         "goods_take30": order.get("_goods_take30"),
+        **({"goods_risk_sku30": buyer_goods_risk_sku30.measurement(order)}
+           if order.get(buyer_goods_risk_sku30.KEY) is not None else {}),
         **({"goods_take30_witness": buyer_goods_take30.compact_witness(order["_goods_take30_witness"])}
            if order.get("kind") == "goods" and order.get("_goods_take30_witness") is not None else {}),
         "turns": dict(out.get("turns") or {}),
@@ -2267,7 +2273,7 @@ def main():
         MEMORY = "memory/test_memory.json" if test else "memory/market_memory.json"
     order = load_json(args.order, {}) if args.order else {}
     if isinstance(order, dict):
-        for k in ("_sw", "_sw_buy", "_sw_h_est", "_sw_zero", "_rank_pg", "_rank_selection", "_saved_floor", "_food_floor30", "_food_floor30_window", "_food_floor30_disabled", "_member_offers", "_goods_take30", "_goods_take30_witness"):  # internal state, never read in
+        for k in ("_sw", "_sw_buy", "_sw_h_est", "_sw_zero", "_rank_pg", "_rank_selection", "_saved_floor", "_food_floor30", "_food_floor30_window", "_food_floor30_disabled", "_member_offers", "_goods_take30", "_goods_take30_witness", "_goods_risk_sku30"):  # internal state, never read in
             order.pop(k, None)
     md = os.path.dirname(args.shops) or "."
     rk = buyer_rank_pg.state(md, order) if args.order else None
@@ -2298,6 +2304,8 @@ def main():
         buyer_goods_take30.assign(md, order)  # ITT before selection/early exits; default OFF
     with open(args.shops, encoding="utf-8") as f:
         shops = [s for s in json.load(f) if s.get("url") and s.get("name")]
+    for s in shops:
+        s.pop(buyer_goods_risk_sku30.KEY, None)  # never trust internal selection state from a listing
     if r3:
         order["_stock_evidence_md"] = md
         order["_stock_shops_path"] = args.shops
@@ -2384,6 +2392,9 @@ def main():
         fsh = None
     if fsh is not None:
         order["_food_shelf"] = fsh
+    if r3:
+        buyer_goods_risk_sku30.reserve(md, order, shops, args.budget, pick_offer,
+            lambda sku: market_model.break_chance(ledger_breaks(md, catalog), sku))
     left, brief = skip_short_warranty(shops, memory, catalog, order) if r3 else (list(shops), [])
     if brief:
         log(f"[choose] skip for goods {brief}: their recent receipts to me had too short a warranty to pay for")
@@ -2733,7 +2744,9 @@ def main():
             "saved_floor": buyer_saved_floor.trade_arm(order),
             "warranty_said": buyer_warranty_said.trade_mark(order),
             "moss_first": buyer_moss_first.trade_mark(order),
-            "goods_take30": order.get("_goods_take30")} if r3 else {}),
+            "goods_take30": order.get("_goods_take30"),
+            **({"goods_risk_sku30": buyer_goods_risk_sku30.measurement(order)}
+               if order.get(buyer_goods_risk_sku30.KEY) is not None else {})} if r3 else {}),
         "result": "no_warranty" if short else "over_limit" if over else "deal" if rec is not None else (out["state"] or "error").replace("TASK_STATE_", "").lower(),
         "price": rec.get("price") if rec else None,
         "asks": asks, "holds": out.get("holds", 0), "problems": problems, "warnings": warnings, "why": why,
