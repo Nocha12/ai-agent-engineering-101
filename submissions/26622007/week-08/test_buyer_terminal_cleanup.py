@@ -66,6 +66,11 @@ class Handler(DefaultRequestHandler):
     def __init__(self, executor, card):
         super().__init__(agent_executor=executor, task_store=InMemoryTaskStore(), agent_card=card)
         self.cancel_requests = []
+        self.get_requests = []
+
+    async def on_get_task(self, params, context):
+        self.get_requests.append(params.id)
+        return await super().on_get_task(params, context)
 
     async def on_cancel_task(self, params, context):
         self.cancel_requests.append(params.id)
@@ -166,7 +171,9 @@ class CleanupWire(unittest.TestCase):
         for status in ({"state": "TASK_STATE_INPUT_REQUIRED"}, {"state": "TASK_STATE_WORKING"},
                        {"state": "TASK_STATE_AUTH_REQUIRED"}, {"state": "TASK_STATE_SUBMITTED"},
                        {"state": "TASK_STATE_UNSPECIFIED"}, {}, None, {"state": "unknown"},
-                       {"state": []}, {"state": {}}):
+                       {"state": []}, {"state": {}}, "badstatus", [],
+                       {"state": "completed"}, {"state": 3},
+                       {"state": "TASK_STATE_COMPLETED "}):
             with self.subTest(status=status):
                 q = self.quote("other")
                 q["task"]["status"] = status
@@ -255,6 +262,9 @@ class CleanupWire(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertTrue(all(q["closed"] for q in qs))
         self.assertCountEqual(self.handlers["active"].cancel_requests, [q["task"]["id"] for q in qs])
+        self.assertEqual(sum(str(call.args[0]).startswith("<- error -32002")
+                             for call in buyer.log.call_args_list), 8)
+        self.assertEqual(self.handlers["active"].get_requests, [])
 
     def test_already_closed_and_missing_task_id_keep_the_original_noop(self):
         cases = (None, {}, {"task": {}}, {"task": {"id": ""}},
