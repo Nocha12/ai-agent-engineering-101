@@ -2078,6 +2078,8 @@ def rate(out, problems, item, budget, warnings=(), limit=None):
     asks = [p for who, p in out["history"] if who == "shop asked"]
     if out["state"] == "NO_VALUE":
         return 3, f"No deal on {item}: not a price I can pay for it now."
+    if out["state"] == "UNKNOWN_RPC_OUTCOME":
+        return 3, f"Remote reply unreadable for {item}; outcome unconfirmed. No receipt submitted."
     if out["state"] == "TASK_STATE_COMPLETED":
         price = out["receipt"].get("price")
         if problems:
@@ -2222,6 +2224,8 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         # counters is how many asks the shop made (its counter-offers), not mine; mine are our_offers
         "our_offers": [p for who, p in out.get("history") or [] if who == "you offered"],
         "state": out.get("state"), "asks": asks, "counters": len(asks), "holds": out.get("holds", 0), "agreed": out.get("agreed"),
+        **({"task": out.get("task"), "rpc_reply_error": out["rpc_reply_error"]}
+           if out.get("rpc_reply_error") else {}),
         "took": bool(out.get("took")),
         "price": (rec or {}).get("price"), "unit": (rec or {}).get("unit"), "claim": (rec or {}).get("claim"),
         "warranty_hours": (rec or {}).get("warranty_hours"), "passed_to_kit": result.get("receipt") is not None,
@@ -2686,7 +2690,7 @@ def main():
     for w in warnings:
         log(f"[receipt] WARNING {shop['name']}: {w}")
     asks = [p for who, p in out["history"] if who == "shop asked"]
-    why = None if rec is not None or out["state"] == "NO_VALUE" else no_deal_reason(asks, limit)
+    why = None if rec is not None or out["state"] in ("NO_VALUE", "UNKNOWN_RPC_OUTCOME") else no_deal_reason(asks, limit)
     if why:
         log(f"[memory] no deal, on the {why} side" + (f" (lowest ask {min(asks)}, limit {limit})" if asks else ""))
     stars, review = rate(out, problems, args.item, args.budget, warnings, limit if r3 else None) if rec is not None or not problems \

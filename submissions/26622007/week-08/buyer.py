@@ -9,11 +9,14 @@ The code guards the budget: it never offers more than the budget, and never more
 than the seller's current ask.
 """
 import argparse
+import hashlib
 import json
 import re
 import sys
 import time
+import traceback
 import uuid
+from pathlib import Path
 
 import httpx
 
@@ -49,9 +52,27 @@ def log(msg):
     print(f"[{time.strftime('%H:%M:%S')}] buyer {msg}", file=sys.stderr, flush=True)
 
 
+class RpcReplyError(RuntimeError):
+    """The request was sent, but its reply cannot establish the remote outcome."""
+    def __init__(self, metadata):
+        super().__init__("unreadable RPC JSON reply; remote outcome unconfirmed")
+        self.metadata = metadata
+
+
 def rpc(url, method, params):
     body = {"jsonrpc": "2.0", "id": str(uuid.uuid4())[:8], "method": method, "params": params}
-    r = httpx.post(url, json=body, headers=HEADERS, timeout=200).json()
+    response = httpx.post(url, json=body, headers=HEADERS, timeout=200)
+    try:
+        r = response.json()
+    except json.JSONDecodeError as exc:
+        raw = response.content
+        metadata = {"method": method if method in ("SendMessage", "CancelTask") else "other",
+                    "status": response.status_code, "bytes": len(raw),
+                    "sha256": hashlib.sha256(raw).hexdigest(), "json_pos": exc.pos,
+                    "stack": [{"file": Path(f.filename).name, "line": f.lineno, "function": f.name}
+                              for f in traceback.extract_tb(exc.__traceback__)[-8:]]}
+        log("[rpc-reply] " + json.dumps(metadata, sort_keys=True))
+        raise RpcReplyError(metadata) from None
     if "error" in r:
         log(f"<- error {r['error'].get('code')} {r['error'].get('message', '')[:120]}")
         return None
@@ -174,6 +195,19 @@ def negotiate(card_url, item, budget, note="", request=None, resume=None, stop_i
 
 def talk(url, t, item, budget, note, out, stop_if=None, take_at=None, reply_to=None, ladder=None, ceiling=None,
          decision_guard=None):
+    """Keep task/offer evidence after an unreadable reply; never retry or cancel it."""
+    try:
+        return _talk(url, t, item, budget, note, out, stop_if, take_at, reply_to, ladder, ceiling,
+                     decision_guard)
+    except RpcReplyError as exc:
+        out.update(state="UNKNOWN_RPC_OUTCOME", receipt=None, agreed=None,
+                   rpc_reply_error=dict(exc.metadata))
+        log("END UNKNOWN_RPC_OUTCOME; request was sent, no receipt or further RPC")
+        return out
+
+
+def _talk(url, t, item, budget, note, out, stop_if=None, take_at=None, reply_to=None, ladder=None, ceiling=None,
+          decision_guard=None):
     """reply_to(shop text) -> an answer to a question with no price in it ("use within 360h"), or None."""
     task_id, history = t["id"], out["history"]
     out["task"] = task_id
