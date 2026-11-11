@@ -1,0 +1,6 @@
+{
+  "name": "review_accounts",
+  "purpose": "Join verified reviews to our paid orders and show low mean reviewer names with paid/review seqs. Partial cache and buyer-name proxy only, never official account-weighted stars_rank. No price, refusal or messaging decision.",
+  "args": {"type": "object", "properties": {"limit": {"type": "integer"}}},
+  "selftest": {"args": {"limit": 3}}
+}

@@ -1,0 +1,1425 @@
+{
+  "changed": true,
+  "hypothesis": "결제에 연결된 리뷰와 정가 이하 유효수요를 분리하면 별점과 상품 확대의 잘못된 근거를 줄일 수 있다.",
+  "change_summary": "리뷰 분석 도구를 추가하고 수요 집계 오류를 수정했다. 미사용 중복 도구를 삭제하고 전략·직렬 실험 큐·Terra 지침·보고서를 갱신했다.",
+  "target_metric": "Everyone Players 순위와 의사결정 근거 정확도",
+  "expected": "즉시 추가 Players는 0을 기준으로 둔다. 별점 다음 문턱 +0.01077은 조건부 기회이며 두 6시간 실험으로 근거의 유효성을 판단한다.",
+  "evidence": [
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:1",
+      "excerpt": "결제 129→129, 숙성순기여 1158382→950402원, 구매결제 55→58, 시장결제 0→838",
+      "meaning": "13a88a0d 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:2",
+      "excerpt": "결제 128→133, 숙성순기여 943308→893694원, 구매결제 59→44, 시장결제 181→1375",
+      "meaning": "9bf55945 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:3",
+      "excerpt": "결제 128→133, 숙성순기여 943308→893694원, 구매결제 59→44, 시장결제 184→1373",
+      "meaning": "1e6b72aa 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:4",
+      "excerpt": "결제 128→133, 숙성순기여 943308→893694원, 구매결제 59→44, 시장결제 184→1376",
+      "meaning": "d94ec6d4 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:5",
+      "excerpt": "결제 132→139, 숙성순기여 1352085→2201735원, 구매결제 42→47, 시장결제 1403→1416",
+      "meaning": "bd8ac1b9 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:6",
+      "excerpt": "결제 137→110, 숙성순기여 2233121→-462180원, 구매결제 48→45, 시장결제 1404→1442",
+      "meaning": "913c24ba 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:7",
+      "excerpt": "결제 137→110, 숙성순기여 2233121→-462180원, 구매결제 48→45, 시장결제 1404→1442",
+      "meaning": "7836b9af 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:8",
+      "excerpt": "결제 143→94, 숙성순기여 217837→725187원, 구매결제 48→50, 시장결제 1489→1370",
+      "meaning": "9174ef10 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:9",
+      "excerpt": "결제 128→124, 숙성순기여 2195184→1520226원, 구매결제 46→43, 시장결제 1428→1441",
+      "meaning": "0ba9e9a6 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:10",
+      "excerpt": "결제 128→124, 숙성순기여 2195184→1520226원, 구매결제 46→43, 시장결제 1427→1443",
+      "meaning": "0a8222fa 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:11",
+      "excerpt": "결제 128→124, 숙성순기여 2195184→1520226원, 구매결제 46→44, 시장결제 1427→1446",
+      "meaning": "89ac2ee9 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:12",
+      "excerpt": "결제 130→129, 숙성순기여 2230949→1470794원, 구매결제 42→46, 시장결제 1436→1499",
+      "meaning": "cd495d31 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:13",
+      "excerpt": "결제 131→128, 숙성순기여 2685458→1016285원, 구매결제 42→46, 시장결제 1436→1498",
+      "meaning": "9e7ea98b 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:14",
+      "excerpt": "결제 131→128, 숙성순기여 2685458→1016285원, 구매결제 42→46, 시장결제 1436→1498",
+      "meaning": "e5115c66 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:15",
+      "excerpt": "결제 131→128, 숙성순기여 2685458→1016285원, 구매결제 42→46, 시장결제 1436→1500",
+      "meaning": "a57b396b 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:16",
+      "excerpt": "결제 135→111, 숙성순기여 2883107→1869836원, 구매결제 40→48, 시장결제 1472→1497",
+      "meaning": "5d3b7329 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:17",
+      "excerpt": "결제 100→114, 숙성순기여 2901700→1856359원, 구매결제 44→39, 시장결제 1428→1478",
+      "meaning": "2f9ba9b9 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:18",
+      "excerpt": "결제 90→123, 숙성순기여 2353148→1580870원, 구매결제 45→38, 시장결제 1454→1443",
+      "meaning": "2a6e5bf3 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:19",
+      "excerpt": "결제 91→122, 숙성순기여 2353197→1580821원, 구매결제 45→38, 시장결제 1456→1442",
+      "meaning": "1bf48d11 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:20",
+      "excerpt": "결제 115→135, 숙성순기여 1859652→None원, 구매결제 41→32, 시장결제 1460→1358",
+      "meaning": "b4f58834 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:21",
+      "excerpt": "결제 115→135, 숙성순기여 1859652→None원, 구매결제 41→32, 시장결제 1460→1358",
+      "meaning": "fed999c9 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:22",
+      "excerpt": "결제 122→130, 숙성순기여 1521372→None원, 구매결제 40→32, 시장결제 1441→1355",
+      "meaning": "6f1ecb4f 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:23",
+      "excerpt": "결제 121→135, 숙성순기여 1496627→None원, 구매결제 38→34, 시장결제 1440→1367",
+      "meaning": "9d5c7b18 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:24",
+      "excerpt": "결제 135→127, 숙성순기여 1174400→None원, 구매결제 42→29, 시장결제 1462→1292",
+      "meaning": "8b8d0045 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:25",
+      "excerpt": "결제 138→124, 숙성순기여 1183764→None원, 구매결제 41→29, 시장결제 1467→1289",
+      "meaning": "50066a97 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:26",
+      "excerpt": "결제 141→118, 숙성순기여 1057688→None원, 구매결제 41→31, 시장결제 1466→1273",
+      "meaning": "9d1f57d6 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:27",
+      "excerpt": "결제 142→115, 숙성순기여 437018→None원, 구매결제 39→34, 시장결제 1435→1294",
+      "meaning": "8c468581 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:28",
+      "excerpt": "결제 130→125, 숙성순기여 1264684→None원, 구매결제 37→37, 시장결제 1385→1342",
+      "meaning": "da6fa344 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:29",
+      "excerpt": "결제 118→159, 숙성순기여 None→1932592원, 구매결제 31→38, 시장결제 1271→1435",
+      "meaning": "aa84fe4c 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:30",
+      "excerpt": "결제 114→156, 숙성순기여 None→2049934원, 구매결제 36→31, 시장결제 1311→1394",
+      "meaning": "af19aecb 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:31",
+      "excerpt": "결제 114→156, 숙성순기여 None→2049934원, 구매결제 36→31, 시장결제 1311→1394",
+      "meaning": "b9fd4080 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:32",
+      "excerpt": "결제 159→130, 숙성순기여 2187866→1129900원, 구매결제 33→28, 시장결제 1416→1326",
+      "meaning": "598bb7a3 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:33",
+      "excerpt": "결제 151→142, 숙성순기여 1797921→1504810원, 구매결제 33→30, 시장결제 1406→1332",
+      "meaning": "239b3519 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:34",
+      "excerpt": "결제 128→127, 숙성순기여 811085→852354원, 구매결제 29→34, 시장결제 1316→1373",
+      "meaning": "7a52dcef 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:35",
+      "excerpt": "결제 153→111, 숙성순기여 1210010→515847원, 구매결제 31→27, 시장결제 1376→1316",
+      "meaning": "443526ac 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:36",
+      "excerpt": "결제 142→116, 숙성순기여 1752340→-100113원, 구매결제 29→30, 시장결제 1353→1332",
+      "meaning": "b2f87d77 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:37",
+      "excerpt": "결제 142→116, 숙성순기여 1752340→-100113원, 구매결제 29→30, 시장결제 1353→1332",
+      "meaning": "43bdf5df 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:38",
+      "excerpt": "결제 119→124, 숙성순기여 856210→None원, 구매결제 29→32, 시장결제 1333→1366",
+      "meaning": "b742392e 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:39",
+      "excerpt": "결제 117→110, 숙성순기여 -98966→None원, 구매결제 30→32, 시장결제 1337→1391",
+      "meaning": "56d47a86 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:40",
+      "excerpt": "결제 118→80, 숙성순기여 None→None원, 구매결제 34→25, 시장결제 1410→1413",
+      "meaning": "e2e9c8a9 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:41",
+      "excerpt": "결제 127→74, 숙성순기여 None→None원, 구매결제 31→25, 시장결제 1464→1417",
+      "meaning": "2a018451 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:42",
+      "excerpt": "결제 127→73, 숙성순기여 None→None원, 구매결제 30→24, 시장결제 1458→1423",
+      "meaning": "de9c713f 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:43",
+      "excerpt": "결제 123→49, 숙성순기여 None→None원, 구매결제 32→19, 시장결제 1442→1438",
+      "meaning": "b35d3f26 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:44",
+      "excerpt": "결제 123→49, 숙성순기여 None→None원, 구매결제 32→19, 시장결제 1442→1439",
+      "meaning": "bd941e0a 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:45",
+      "excerpt": "결제 123→49, 숙성순기여 None→None원, 구매결제 32→19, 시장결제 1443→1439",
+      "meaning": "a26c78f2 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:46",
+      "excerpt": "결제 79→92, 숙성순기여 None→None원, 구매결제 26→26, 시장결제 1413→1508",
+      "meaning": "18bcd97c 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:47",
+      "excerpt": "결제 106→105, 숙성순기여 None→None원, 구매결제 27→30, 시장결제 1476→1454",
+      "meaning": "d1a521b9 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:48",
+      "excerpt": "결제 118→95, 숙성순기여 None→None원, 구매결제 26→23, 시장결제 1444→1466",
+      "meaning": "7818110b 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:49",
+      "excerpt": "결제 99→94, 숙성순기여 None→None원, 구매결제 30→25, 시장결제 1430→1518",
+      "meaning": "c653927e 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:50",
+      "excerpt": "결제 95→91, 숙성순기여 None→None원, 구매결제 23→27, 시장결제 1469→1469",
+      "meaning": "f4d81ef9 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:51",
+      "excerpt": "결제 76→112, 숙성순기여 None→None원, 구매결제 26→23, 시장결제 1455→1435",
+      "meaning": "c7d1fa31 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:52",
+      "excerpt": "결제 87→120, 숙성순기여 None→None원, 구매결제 24→22, 시장결제 1447→1445",
+      "meaning": "c0c43bb3 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:53",
+      "excerpt": "결제 87→120, 숙성순기여 None→None원, 구매결제 24→22, 시장결제 1447→1445",
+      "meaning": "b8f3706d 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:54",
+      "excerpt": "결제 120→67, 숙성순기여 None→None원, 구매결제 18→14, 시장결제 1446→1355",
+      "meaning": "a6452e32 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:55",
+      "excerpt": "결제 93→89, 숙성순기여 None→None원, 구매결제 18→13, 시장결제 1333→1436",
+      "meaning": "637d7cb0 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:56",
+      "excerpt": "결제 82→107, 숙성순기여 None→None원, 구매결제 13→18, 시장결제 1359→1364",
+      "meaning": "491667ab 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:57",
+      "excerpt": "결제 82→107, 숙성순기여 None→None원, 구매결제 13→18, 시장결제 1357→1364",
+      "meaning": "60801f71 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:58",
+      "excerpt": "결제 81→116, 숙성순기여 None→None원, 구매결제 15→16, 시장결제 1384→1330",
+      "meaning": "f915938d 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:59",
+      "excerpt": "결제 81→120, 숙성순기여 None→None원, 구매결제 15→16, 시장결제 1398→1326",
+      "meaning": "c32d717d 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:60",
+      "excerpt": "결제 128→80, 숙성순기여 None→None원, 구매결제 20→20, 시장결제 1345→1351",
+      "meaning": "4f6561a4 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:61",
+      "excerpt": "결제 87→70, 숙성순기여 None→None원, 구매결제 19→26, 시장결제 1336→1317",
+      "meaning": "46b95480 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:62",
+      "excerpt": "결제 88→66, 숙성순기여 None→None원, 구매결제 17→28, 시장결제 1342→1321",
+      "meaning": "36661339 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:63",
+      "excerpt": "결제 66→35, 숙성순기여 None→None원, 구매결제 25→10, 시장결제 1321→621",
+      "meaning": "c7bfd470 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:64",
+      "excerpt": "결제 47→35, 숙성순기여 None→None원, 구매결제 28→7, 시장결제 1293→511",
+      "meaning": "87c99c4d 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:65",
+      "excerpt": "결제 62→20, 숙성순기여 None→None원, 구매결제 29→4, 시장결제 1307→347",
+      "meaning": "716f504b 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-comparisons.jsonl:66",
+      "excerpt": "결제 73→9, 숙성순기여 None→None원, 구매결제 27→4, 시장결제 1310→239",
+      "meaning": "ae5b302a 전후30분 원장결제·판매원가·연결환불 집계. 원장 원문 참조는 before/after.sample_refs에 보존."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-cycles.jsonl:1",
+      "excerpt": "astra-1111-025700",
+      "meaning": "원문전략/수치/실험판정/하네스반려기록"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-cycles.jsonl:2",
+      "excerpt": "terra-1111-034311",
+      "meaning": "원문전략/수치/실험판정/하네스반려기록"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-cycles.jsonl:3",
+      "excerpt": "terra-1111-050347",
+      "meaning": "원문전략/수치/실험판정/하네스반려기록"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-cycles.jsonl:4",
+      "excerpt": "terra-1111-062351",
+      "meaning": "원문전략/수치/실험판정/하네스반려기록"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-cycles.jsonl:5",
+      "excerpt": "terra-1111-073601",
+      "meaning": "원문전략/수치/실험판정/하네스반려기록"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-cycles.jsonl:6",
+      "excerpt": "terra-1111-085119",
+      "meaning": "원문전략/수치/실험판정/하네스반려기록"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-cycles.jsonl:7",
+      "excerpt": "terra-1111-100443",
+      "meaning": "원문전략/수치/실험판정/하네스반려기록"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-cycles.jsonl:8",
+      "excerpt": "terra-1111-111706",
+      "meaning": "원문전략/수치/실험판정/하네스반려기록"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-cycles.jsonl:9",
+      "excerpt": "terra-1111-123136",
+      "meaning": "원문전략/수치/실험판정/하네스반려기록"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-cycles.jsonl:10",
+      "excerpt": "terra-1111-134407",
+      "meaning": "원문전략/수치/실험판정/하네스반려기록"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-cycles.jsonl:11",
+      "excerpt": "terra-1111-145658",
+      "meaning": "원문전략/수치/실험판정/하네스반려기록"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-tools.jsonl:1",
+      "excerpt": "\"calls\": 0, \"failures\": 0",
+      "meaning": "auto_auto_market_brief 구간사용/실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-tools.jsonl:2",
+      "excerpt": "\"calls\": 42, \"failures\": 0",
+      "meaning": "auto_forum_ledger_digest 구간사용/실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-tools.jsonl:3",
+      "excerpt": "\"calls\": 0, \"failures\": 0",
+      "meaning": "auto_market_research 구간사용/실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-tools.jsonl:4",
+      "excerpt": "\"calls\": 16, \"failures\": 0",
+      "meaning": "auto_market_research_pack 구간사용/실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-tools.jsonl:5",
+      "excerpt": "\"calls\": 0, \"failures\": 0",
+      "meaning": "auto_market_scan 구간사용/실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-tools.jsonl:6",
+      "excerpt": "\"calls\": 3, \"failures\": 0",
+      "meaning": "break_rates 구간사용/실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-tools.jsonl:7",
+      "excerpt": "\"calls\": 0, \"failures\": 0",
+      "meaning": "catalog_search 구간사용/실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-tools.jsonl:8",
+      "excerpt": "\"calls\": 4, \"failures\": 0",
+      "meaning": "cohort_profit 구간사용/실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-tools.jsonl:9",
+      "excerpt": "\"calls\": 30, \"failures\": 0",
+      "meaning": "forum_read 구간사용/실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-tools.jsonl:10",
+      "excerpt": "\"calls\": 42, \"failures\": 0",
+      "meaning": "ledger_search 구간사용/실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-tools.jsonl:11",
+      "excerpt": "\"calls\": 3, \"failures\": 0",
+      "meaning": "market_demand 구간사용/실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-tools.jsonl:12",
+      "excerpt": "\"calls\": 16, \"failures\": 0",
+      "meaning": "market_opportunity 구간사용/실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-tools.jsonl:13",
+      "excerpt": "\"calls\": 0, \"failures\": 0",
+      "meaning": "my_customers 구간사용/실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-tools.jsonl:14",
+      "excerpt": "\"calls\": 4, \"failures\": 0",
+      "meaning": "my_decisions 구간사용/실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-tools.jsonl:15",
+      "excerpt": "\"calls\": 2, \"failures\": 0",
+      "meaning": "my_memory 구간사용/실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-tools.jsonl:16",
+      "excerpt": "\"calls\": 0, \"failures\": 0",
+      "meaning": "my_purchases 구간사용/실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-tools.jsonl:17",
+      "excerpt": "\"calls\": 20, \"failures\": 0",
+      "meaning": "my_state 구간사용/실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-tools.jsonl:18",
+      "excerpt": "\"calls\": 1, \"failures\": 0",
+      "meaning": "supply_audit 구간사용/실패"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-reviews.jsonl:1",
+      "excerpt": "{\"available\": true, \"reviewer_names\": 47, \"linked_verified_reviews\": 7790, \"name_mean_proxy\": 4.526284616937583, \"reviewers\": [{\"buyer\": \"sergiobuilds\", \"reviews\": 142, \"examples\": [{\"review_seq\": 4620942, \"paid_seq\": 4620938, \"sku\": \"G66ded25b\", \"stars\": 2}, {\"review_seq\": 4621452, \"paid_seq\": 4621441, \"sku\": \"G66ded25b\", \"stars\": 2}], \"mean\": 2.0}, {\"buyer\": \"dyishappy\", \"reviews\": 57, \"examples\": [{\"review_seq\": 4627810, \"paid_seq\": 4627804, \"sku\": \"G200e39a3\", \"stars\": 3}, {\"review_seq\": 4630633, \"paid_seq\": 4630630, \"sku\": \"G200e39a3\", \"stars\": 3}], \"mean\": 2.982456140350877}, {\"buyer\": \"buyer-01\", \"reviews\": 13, \"examples\": [{\"review_seq\": 4734647, \"paid_seq\": 4734620, \"sku\": \"Gef4d3036\", \"stars\": 5}, {\"review_seq\": 4750790, \"paid_seq\": 4750781, \"sku\": \"Gef4d3036\", \"stars\": 5}], \"mean\": 3.769230769230769}, {\"buyer\": \"11im\", \"reviews\": 51, \"examples\": [{\"review_seq\": 4664721, \"paid_seq\": 4664716, \"sku\": \"G85a1a856\", \"stars\": 4}, {\"review_seq\": 4667523, \"paid_seq\": 4667518, \"sku\": \"G2607d1f6\", \"stars\": 4}], \"mean\": 3.9411764705882355}, {\"buyer\": \"yeonsong2\", \"reviews\": 19, \"examples\": [{\"review_seq\": 4714922, \"paid_seq\": 4714882, \"sku\": \"G9718023b\", \"stars\": 3}, {\"review_seq\": 5046902, \"paid_seq\": 5046871, \"sku\": \"Gb2392fa9\", \"stars\": 4}], \"mean\": 3.9473684210526314}, {\"buyer\": \"yms979\", \"reviews\": 67, \"examples\": [{\"review_seq\": 4626540, \"paid_seq\": 4626524, \"sku\": \"G8ec51935\", \"stars\": 4}, {\"review_seq\": 4627930, \"paid_seq\": 4627926, \"sku\": \"G200e39a3\", \"stars\": 5}], \"mean\": 3.970149253731343}, {\"buyer\": \"25512088\", \"reviews\": 43, \"examples\": [{\"review_seq\": 4622262, \"paid_seq\": 4622241, \"sku\": \"Gd42d81ba\", \"stars\": 4}, {\"review_seq\": 4626745, \"paid_seq\": 4626720, \"sku\": \"G200e39a3\", \"stars\": 4}], \"mean\": 4.0}, {\"buyer\": \"helenjeon101\", \"reviews\": 22, \"examples\": [{\"review_seq\": 4728807, \"paid_seq\": 4728791, \"sku\": \"G021aae64\", \"stars\": 4}, {\"review_seq\": 4728894, \"paid_seq\": 4728891, \"sku\": \"G00327e80\", \"stars\": 4}], \"mean\": 4.0}, {\"buyer\": \"Afford Shop\", \"reviews\": 1, \"examples\": [{\"review_seq\": 4710403, \"paid_seq\": 4710400, \"sku\": \"G200e39a3\", \"stars\": 4}], \"mean\": 4.0}, {\"buyer\": \"sohyunkim11\", \"reviews\": 1, \"examples\": [{\"review_seq\": 4815231, \"paid_seq\": 4815205, \"sku\": \"G66ded25b\", \"stars\": 4}], \"mean\": 4.0}], \"skipped\": {\"unverified\": 96458, \"unlinked\": 84591, \"invalid\": 0}, \"basis\": \"partial local review cache; grouped by buyer name, NOT GitHub account; not stars_rank or a causal price signal; join verified reviews to own paid orders; do not change owner refusal settings or reward reviews\"}",
+      "meaning": "이번고정팩시각의원장·공급·규칙측정. 경쟁자수치는URL연결범위하한."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-screen.jsonl:2",
+      "excerpt": "{\"sku\": \"G0be9ed07\", \"paid\": 130, \"buyers\": 30, \"unknown_buyer_rows\": 0, \"price_min\": 17854, \"price_median\": 26647.5, \"price_max\": 57603, \"list_price\": 39900, \"surge\": 1.0, \"worst_unit_cost\": 29925, \"floor15\": 35296, \"floor25\": 40002, \"clears_floor15\": 12, \"clears_floor25\": 7, \"within_list_clears_floor15\": 5, \"within_list_floor15_buyers\": 2, \"within_list_clears_floor25\": 0, \"stock_units\": 0}",
+      "meaning": "이번고정팩시각의원장·공급·규칙측정. 경쟁자수치는URL연결범위하한."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-period.jsonl:1",
+      "excerpt": "{\"start\": 1794333420.0, \"end\": 1794377585.0, \"shop_paid\": 2766, \"shop_revenue\": 442284912, \"mature_paid\": 1579, \"missing_cost_or_warranty\": 1, \"mature_known_net\": 17782885, \"mature_net\": null, \"linked_mature_refunds\": 12347803, \"buyer_paid\": 808, \"observed_hours\": 12.2681, \"sample_refs\": [\".market/ledger_rows.jsonl:1464441\", \".market/ledger_rows.jsonl:1464482\"]}",
+      "meaning": "이번고정팩시각의원장·공급·규칙측정. 경쟁자수치는URL연결범위하한."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-guards-v2.jsonl:1",
+      "excerpt": "{\"window\": [1794375619, 1794375799], \"scope\": \"open-120s through close; repeated simulations count as lines, not independent supply failures\", \"counts\": {\"all_guard_lines\": 1445, \"units per SKU\": 35}, \"examples\": [{\"ref\": \"logs/market-kit.log:172373\", \"excerpt\": \"14:38:30 [buyer] [restock] guard: G0667d440 15 -> 1 (units per SKU)\"}, {\"ref\": \"logs/market-kit.log:172374\", \"excerpt\": \"14:38:30 [buyer] [restock] guard: G9f7c7d1b 5 -> 0 (units per SKU)\"}, {\"ref\": \"logs/market-kit.log:172375\", \"excerpt\": \"14:38:30 [buyer] [restock] guard: G6b9db161 5 -> 0 (units per SKU)\"}, {\"ref\": \"logs/market-kit.log:172376\", \"excerpt\": \"14:38:30 [buyer] [restock] guard: G6b0fd5bc 3 -> 1 (units per SKU)\"}, {\"ref\": \"logs/market-kit.log:172377\", \"excerpt\": \"14:38:30 [buyer] [restock] guard: G19a70f63 3 -> 0 (units per SKU)\"}, {\"ref\": \"logs/market-kit.log:172378\", \"excerpt\": \"14:38:30 [buyer] [restock] guard: G7978c65e 1 -> 0 (units per SKU)\"}], \"stock_at_open\": {\"G75f11c19\": null, \"G0667d440\": null, \"G2c023a8c\": null}}",
+      "meaning": "이번고정팩시각의원장·공급·규칙측정. 경쟁자수치는URL연결범위하한."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-guards-v2.jsonl:2",
+      "excerpt": "{\"window\": [1794377089, 1794377269], \"scope\": \"open-120s through close; repeated simulations count as lines, not independent supply failures\", \"counts\": {\"all_guard_lines\": 1396, \"units per SKU\": 33}, \"examples\": [{\"ref\": \"logs/market-kit.log:188316\", \"excerpt\": \"15:03:19 [buyer] [restock] guard: G0667d440 14 -> 0 (units per SKU)\"}, {\"ref\": \"logs/market-kit.log:188317\", \"excerpt\": \"15:03:19 [buyer] [restock] guard: G6b9db161 5 -> 0 (units per SKU)\"}, {\"ref\": \"logs/market-kit.log:188318\", \"excerpt\": \"15:03:19 [buyer] [restock] guard: G9c9f8f94 8 -> 0 (units per SKU)\"}, {\"ref\": \"logs/market-kit.log:188319\", \"excerpt\": \"15:03:19 [buyer] [restock] guard: G021aae64 11 -> 2 (units per SKU)\"}, {\"ref\": \"logs/market-kit.log:188320\", \"excerpt\": \"15:03:19 [buyer] [restock] guard: G19a70f63 3 -> 0 (units per SKU)\"}, {\"ref\": \"logs/market-kit.log:188321\", \"excerpt\": \"15:03:19 [buyer] [restock] guard: G2607d1f6 4 -> 0 (units per SKU)\"}], \"stock_at_open\": {\"G75f11c19\": null, \"G0667d440\": null, \"G2c023a8c\": null}}",
+      "meaning": "이번고정팩시각의원장·공급·규칙측정. 경쟁자수치는URL연결범위하한."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-rules.jsonl:2",
+      "excerpt": "{\"mismatch\": []}",
+      "meaning": "이번고정팩시각의원장·공급·규칙측정. 경쟁자수치는URL연결범위하한."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-rivals-v3.jsonl:3",
+      "excerpt": "{\"shop\": \"25620027\", \"paid\": 957, \"revenue\": 494235511, \"dear_revenue\": 361141398, \"buyers\": 39, \"margin\": null, \"coverage\": \"name or historical public URL; incomplete aliases remain a lower bound\", \"top\": [{\"sku\": \"G021aae64\", \"paid\": 215, \"buyers\": 8, \"revenue\": 87678520, \"prices\": [230655, 505891]}, {\"sku\": \"G03d0199f\", \"paid\": 63, \"buyers\": 6, \"revenue\": 71514116, \"prices\": [800000, 1296505]}, {\"sku\": \"G00327e80\", \"paid\": 44, \"buyers\": 4, \"revenue\": 67585341, \"prices\": [1134000, 1816393]}, {\"sku\": \"G3e0d6c67\", \"paid\": 27, \"buyers\": 10, \"revenue\": 38303588, \"prices\": [1012354, 1599883]}, {\"sku\": \"Gbec2b68f\", \"paid\": 9, \"buyers\": 6, \"revenue\": 23734939, \"prices\": [2000000, 3125776]}, {\"sku\": \"Gf6b70da8\", \"paid\": 15, \"buyers\": 6, \"revenue\": 23584355, \"prices\": [1030744, 1823941]}]}",
+      "meaning": "이번고정팩시각의원장·공급·규칙측정. 경쟁자수치는URL연결범위하한."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-rivals-v3.jsonl:4",
+      "excerpt": "{\"shop\": \"moss-and-oak\", \"paid\": 1732, \"revenue\": 364960560, \"dear_revenue\": 284868897, \"buyers\": 47, \"margin\": null, \"coverage\": \"name or historical public URL; incomplete aliases remain a lower bound\", \"top\": [{\"sku\": \"Gf6b70da8\", \"paid\": 50, \"buyers\": 11, \"revenue\": 77314461, \"prices\": [1069827, 1741146]}, {\"sku\": \"Gb5d0dde7\", \"paid\": 49, \"buyers\": 10, \"revenue\": 35883968, \"prices\": [570000, 869141]}, {\"sku\": \"G00327e80\", \"paid\": 20, \"buyers\": 5, \"revenue\": 30361985, \"prices\": [1270272, 1770981]}, {\"sku\": \"G03d0199f\", \"paid\": 17, \"buyers\": 5, \"revenue\": 18605910, \"prices\": [695000, 1281430]}, {\"sku\": \"Gbec2b68f\", \"paid\": 6, \"buyers\": 1, \"revenue\": 17337655, \"prices\": [2468445, 3091198]}, {\"sku\": \"G8095ddd6\", \"paid\": 17, \"buyers\": 7, \"revenue\": 10246239, \"prices\": [476784, 660058]}]}",
+      "meaning": "이번고정팩시각의원장·공급·규칙측정. 경쟁자수치는URL연결범위하한."
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-screen-before.txt:13",
+      "excerpt": "FAILED (failures=1)",
+      "meaning": "변경전실패/관련검사/HEAD전체검사원본"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-focused-tests.txt:3",
+      "excerpt": "Ran 6 tests in 0.181s",
+      "meaning": "변경전실패/관련검사/HEAD전체검사원본"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-baseline-tests.txt:13200",
+      "excerpt": "Ran 2173 tests in 205.569s",
+      "meaning": "변경전실패/관련검사/HEAD전체검사원본"
+    },
+    {
+      "ref": "meta/evidence/astra-1111-151301-final-tests.txt:13193",
+      "excerpt": "Ran 2176 tests in 212.166s",
+      "meaning": "하네스복사환경에서변경후전체검사완료·통과(exit0)."
+    }
+  ],
+  "evidence_gap": {
+    "missing": "변경별 배포·처리군 효과, 숙성판매 원가 1건, 리뷰 이름과 공식 계정의 대응이 부족하다.",
+    "measurement": "66커밋 전후 결제·숙성순익·시장결제, 두 공급창 단위ID, 인증리뷰7790건, 후보의 유효가격 교집합을 이번에 계산했다.",
+    "judge_line": {
+      "metric": "현행 대비 추가 Players",
+      "direction": "above",
+      "threshold": "0",
+      "min_sample": "군별 6시간 숙성 결제 20건과 배포버전·원가·환불 연결",
+      "expires": "2026-11-12 03:13 KST",
+      "undo": "미달이면 효과 미확정으로 두고 확대하지 않는다. 직렬 조사 문장은 각 6시간 표본·정확도 기준에 미달하면 제거하며 사람 실험의 원래 undo와 자동만료를 우선한다."
+    }
+  },
+  "summary": "Players 1.653·7위. 77개 개별 평가와91개 유지·폐기 결정을 저장했다. 전체2176검사 및107개 인용검증 통과. 커밋·push·PR 없음.",
+  "strategy": {
+    "options": [
+      {
+        "direction": "현행 규모 유지와 리뷰 원인 진단",
+        "expected_profit": "추가ΔPlayers 기준0. 별점4.44→4.45 문턱 통과 시 조건부+.01077. 현행12h 선두격차는 경쟁자3h/12h속도에서.08515/.06339.",
+        "risk": "부분캐시·구매자 이름을 공식계정별 별점으로 오인할 위험.",
+        "test": "6h 조사3회, 서로다른20리뷰/3구매자의 결제연결100%·점수오인0."
+      },
+      {
+        "direction": "검증된60만+ 상품 확대",
+        "expected_profit": "추가 book31.980M/매출1408.471M 문턱 통과 시+.00769/+.00462. 경쟁자 이동을 포함한 추가효과는 미식별.",
+        "risk": "서지·환불·잔류. 총상한 절단0/0, G03 입고1/판매0으로 확대조건 미달.",
+        "test": "두창 실제목표 구속·과반판매·동일추가분잔류0·숙성순익양수와6h book비하락 확인."
+      },
+      {
+        "direction": "구매Saved와 근거 기반 포럼",
+        "expected_profit": "Saved .0002 개선의 현재 문턱+.00781, forum .001 개선+.0003. 달성확률과 움직이는 문턱은 미확정.",
+        "risk": "사람의 .33 최소Saved/식품 실험과 교란, 지급률 감소 가능.",
+        "test": "군별 지급·실제가치·Saved 분모를 연결하고 기존 중단조건으로 판단."
+      }
+    ],
+    "chosen": "현행보다 나은 추가효과가 입증되지 않아 규모전략을 유지하고 리뷰 근거 조사를 우선한다.",
+    "experiment": "review-evidence-1111 6h 뒤 within-list-demand-1111 6h를 직렬 실행한다. 둘 다 아직 시작하지 않았다. 기준미달이면 추가한 GOAL 문장만 제거한다."
+  },
+  "grades": [
+    {
+      "change": "13a88a0d W-20261109-2225 retry food opening pilot across verified food scopes",
+      "reason": "결제 129→129, 숙성순기여 1158382→950402원, 구매결제 55→58, 시장결제 0→838; 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:1",
+      "grade": "unclear"
+    },
+    {
+      "change": "9bf55945 wip(week-08): [astra-1111-025700] 실패 - 후보 집계와 회귀검사를 보강하고, 미사용 중복 도구를 삭제했다. 전략·실험 큐·Terra 지",
+      "reason": "결제 128→133, 숙성순기여 943308→893694원, 구매결제 59→44, 시장결제 181→1375; 검사 실패로 반려/복원되어 지속 운영효과0. Astra/ Terra의 로컬 통과나 의도만으로 성공을 인정하지 않는다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:2",
+      "grade": "no_effect"
+    },
+    {
+      "change": "1e6b72aa revert(week-08): 9bf55945 되돌림 - astra-1111-025700 검증 실패: tests failed: FAIL: test_cancel_d",
+      "reason": "결제 128→133, 숙성순기여 943308→893694원, 구매결제 59→44, 시장결제 184→1373; 검사 실패로 반려/복원되어 지속 운영효과0. Astra/ Terra의 로컬 통과나 의도만으로 성공을 인정하지 않는다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:3",
+      "grade": "no_effect"
+    },
+    {
+      "change": "d94ec6d4 chore(week-08): 메타 하네스 기록 astra-1111-025700 - rejected",
+      "reason": "결제 128→133, 숙성순기여 943308→893694원, 구매결제 59→44, 시장결제 184→1376; 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:4",
+      "grade": "no_effect"
+    },
+    {
+      "change": "bd8ac1b9 chore(week-08): 메타 하네스 기록 terra-1111-034311 - no_change",
+      "reason": "결제 132→139, 숙성순기여 1352085→2201735원, 구매결제 42→47, 시장결제 1403→1416; 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:5",
+      "grade": "no_effect"
+    },
+    {
+      "change": "913c24ba feat: isolate finite single-price counter wording trial",
+      "reason": "결제 137→110, 숙성순기여 2233121→-462180원, 구매결제 48→45, 시장결제 1404→1442; 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:6",
+      "grade": "unclear"
+    },
+    {
+      "change": "7836b9af fix: linearize single-price render after IO and separate intent observations",
+      "reason": "결제 137→110, 숙성순기여 2233121→-462180원, 구매결제 48→45, 시장결제 1404→1442; 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:7",
+      "grade": "unclear"
+    },
+    {
+      "change": "9174ef10 fix: observe inactive seller census without refreshing stock",
+      "reason": "결제 143→94, 숙성순기여 217837→725187원, 구매결제 48→50, 시장결제 1489→1370; 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:8",
+      "grade": "unclear"
+    },
+    {
+      "change": "0ba9e9a6 wip(week-08): [terra-1111-050347] 실패 - forum.py의 포럼 지침에 잘린 조사 결과의 대체 검색 절차를 추가했다. 중복되거나 검증",
+      "reason": "결제 128→124, 숙성순기여 2195184→1520226원, 구매결제 46→43, 시장결제 1428→1441; 검사 실패로 반려/복원되어 지속 운영효과0. Astra/ Terra의 로컬 통과나 의도만으로 성공을 인정하지 않는다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:9",
+      "grade": "no_effect"
+    },
+    {
+      "change": "0a8222fa revert(week-08): 0ba9e9a6 되돌림 - terra-1111-050347 검증 실패: tests failed: FAIL: test_a_prefet",
+      "reason": "결제 128→124, 숙성순기여 2195184→1520226원, 구매결제 46→43, 시장결제 1427→1443; 검사 실패로 반려/복원되어 지속 운영효과0. Astra/ Terra의 로컬 통과나 의도만으로 성공을 인정하지 않는다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:10",
+      "grade": "no_effect"
+    },
+    {
+      "change": "89ac2ee9 chore(week-08): 메타 하네스 기록 terra-1111-050347 - rejected",
+      "reason": "결제 128→124, 숙성순기여 2195184→1520226원, 구매결제 46→44, 시장결제 1427→1446; 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:11",
+      "grade": "no_effect"
+    },
+    {
+      "change": "cd495d31 W-20261109-2225 add finite food counter Saved floor trial",
+      "reason": "결제 130→129, 숙성순기여 2230949→1470794원, 구매결제 42→46, 시장결제 1436→1499; 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:12",
+      "grade": "unclear"
+    },
+    {
+      "change": "9e7ea98b W-20261109-2225 enforce food floor at final send and isolate policy refusals",
+      "reason": "결제 131→128, 숙성순기여 2685458→1016285원, 구매결제 42→46, 시장결제 1436→1498; 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:13",
+      "grade": "unclear"
+    },
+    {
+      "change": "e5115c66 W-20261109-2225 preserve food take-at expression contract",
+      "reason": "결제 131→128, 숙성순기여 2685458→1016285원, 구매결제 42→46, 시장결제 1436→1498; 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:14",
+      "grade": "unclear"
+    },
+    {
+      "change": "a57b396b W-20261109-2225 test actual food take policy independent of call punctuation",
+      "reason": "결제 131→128, 숙성순기여 2685458→1016285원, 구매결제 42→46, 시장결제 1436→1500; 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:15",
+      "grade": "no_effect"
+    },
+    {
+      "change": "5d3b7329 feat: isolate finite price-first sentence order trial",
+      "reason": "결제 135→111, 숙성순기여 2883107→1869836원, 구매결제 40→48, 시장결제 1472→1497; 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:16",
+      "grade": "unclear"
+    },
+    {
+      "change": "2f9ba9b9 chore(week-08): 메타 하네스 기록 terra-1111-062351 - no_change",
+      "reason": "결제 100→114, 숙성순기여 2901700→1856359원, 구매결제 44→39, 시장결제 1428→1478; 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:17",
+      "grade": "no_effect"
+    },
+    {
+      "change": "2a6e5bf3 Prepare explicit finite first88 food scope with legacy policy preserved",
+      "reason": "결제 90→123, 숙성순기여 2353148→1580870원, 구매결제 45→38, 시장결제 1454→1443; 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:18",
+      "grade": "unclear"
+    },
+    {
+      "change": "1bf48d11 fix: dispatch first88 policy at real first-send seam",
+      "reason": "결제 91→122, 숙성순기여 2353197→1580821원, 구매결제 45→38, 시장결제 1456→1442; 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:19",
+      "grade": "unclear"
+    },
+    {
+      "change": "b4f58834 feat(week-08): price.grade_profit_share {grade: share of list} - a goods unit of a named g",
+      "reason": "결제 115→135, 숙성순기여 1859652→None원, 구매결제 41→32, 시장결제 1460→1358; 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:20",
+      "grade": "unclear"
+    },
+    {
+      "change": "fed999c9 feat(week-08): restock.window_fast true makes the fast second run the rule for every suppl",
+      "reason": "결제 115→135, 숙성순기여 1859652→None원, 구매결제 41→32, 시장결제 1460→1358; 원문32창 공급12.2→13.8행,상품13.5→17.1개는 공급효과이며 숙성순익/Players는 미확인. 이후 사람결정으로window_fast OFF. 영구정책 성공으로 세지 않으며32창 경제성과 원래undo를11/12 03:13까지 확인, 자동재활성 금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:21",
+      "grade": "unclear"
+    },
+    {
+      "change": "6f1ecb4f feat(week-08): price.grade_profit_share A/B/C 0.08 - goods-margin-1110 kept: net of mature",
+      "reason": "결제 122→130, 숙성순기여 1521372→None원, 구매결제 40→32, 시장결제 1441→1355; 커밋가설은 A/B 숙성정규화순익 .0093→.0718(+.0625)이나 C구간[−.136,+.248], B는 A사전값으로 이후제한. 전등급 영구확대의 근거는 부족했고 현재 A만19:30까지다. 군별20숙성/11월12일03:13 추가Players>0 판정, 사람의 종료조건 우선. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:22",
+      "grade": "unclear"
+    },
+    {
+      "change": "9d5c7b18 test(week-08): the shipped grade_profit_share 0.08 in the three tests that pinned break-ev",
+      "reason": "결제 121→135, 숙성순기여 1496627→None원, 구매결제 38→34, 시장결제 1440→1367; 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:23",
+      "grade": "no_effect"
+    },
+    {
+      "change": "8b8d0045 fix(week-08): the seller's price sample leaves out our own buyer's deals - market_model.es",
+      "reason": "결제 135→127, 숙성순기여 1174400→None원, 구매결제 42→29, 시장결제 1462→1292; 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:24",
+      "grade": "unclear"
+    },
+    {
+      "change": "50066a97 feat(week-08): the kit reads the balance again before every supply POST and before every r",
+      "reason": "결제 138→124, 숙성순기여 1183764→None원, 구매결제 41→29, 시장결제 1467→1289; 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:25",
+      "grade": "unclear"
+    },
+    {
+      "change": "9d1f57d6 fix(week-08): grade_profit_share for grades A and B only (C back to break-even: its interv",
+      "reason": "결제 141→118, 숙성순기여 1057688→None원, 구매결제 41→31, 시장결제 1466→1273; 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:26",
+      "grade": "unclear"
+    },
+    {
+      "change": "8c468581 test(week-08): main()'s usual run prints the cash floor and unit costs for the kit (pinned",
+      "reason": "결제 142→115, 숙성순기여 437018→None원, 구매결제 39→34, 시장결제 1435→1294; 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:27",
+      "grade": "no_effect"
+    },
+    {
+      "change": "da6fa344 fix(week-08): the grade profit share is on for grade A only and only to price.grade_profit",
+      "reason": "결제 130→125, 숙성순기여 1264684→None원, 구매결제 37→37, 시장결제 1385→1342; 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:28",
+      "grade": "unclear"
+    },
+    {
+      "change": "aa84fe4c chore(week-08): 메타 하네스 기록 terra-1111-073601 - no_change",
+      "reason": "결제 118→159, 숙성순기여 None→1932592원, 구매결제 31→38, 시장결제 1271→1435; 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:29",
+      "grade": "no_effect"
+    },
+    {
+      "change": "af19aecb Raise buyer expected Saved minimum to .33, preserving explicit legacy shares",
+      "reason": "결제 114→156, 숙성순기여 None→2049934원, 구매결제 36→31, 시장결제 1311→1394; 구매 Saved 최소 .33으로상향. 결측:낮아진지급률과실제가치/분모의순효과.이번구매결제전후와팩Saved.3266을측정;11/12 03:13 군별20숙성주문에서추가Saved와Players>0/원래undo판정. 단순명목할인을성공으로세지않음. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:30",
+      "grade": "unclear"
+    },
+    {
+      "change": "b9fd4080 Keep price-dependent buyer regression fixtures inside the new .33 cap",
+      "reason": "결제 114→156, 숙성순기여 None→2049934원, 구매결제 36→31, 시장결제 1311→1394; 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:31",
+      "grade": "no_effect"
+    },
+    {
+      "change": "598bb7a3 fix(week-08): the meta-harness may not change, add or remove restock.window_fast, price.gr",
+      "reason": "결제 159→130, 숙성순기여 2187866→1129900원, 구매결제 33→28, 시장결제 1416→1326; 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:32",
+      "grade": "unclear"
+    },
+    {
+      "change": "239b3519 test(week-08): price-first's trace check walks the JSON rows instead of the raw text - an ",
+      "reason": "결제 151→142, 숙성순기여 1797921→1504810원, 구매결제 33→30, 시장결제 1406→1332; 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:33",
+      "grade": "no_effect"
+    },
+    {
+      "change": "7a52dcef feat(week-08): restock turnover targets (default off) - for the listed goods SKUs a finite",
+      "reason": "결제 128→127, 숙성순기여 811085→852354원, 구매결제 29→34, 시장결제 1316→1373; 기본OFF 유한창/상품회전·폭·식품품절 실험. 코드도입과 처리군노출은 다르다. 결측:SKU/창별배정·실공급·6h숙성순익. 이번두창총상한절단0/0·SKU35/33, G03입고1판매0.11/12 03:13 군별20숙성·추가Players>0/원래undo로판정; 자동기본ON 금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:34",
+      "grade": "unclear"
+    },
+    {
+      "change": "443526ac chore(week-08): 메타 하네스 기록 terra-1111-085119 - no_change",
+      "reason": "결제 153→111, 숙성순기여 1210010→515847원, 구매결제 31→27, 시장결제 1376→1316; 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:35",
+      "grade": "no_effect"
+    },
+    {
+      "change": "b2f87d77 Read exact firm food quotes for requested catalogue item without repricing talks",
+      "reason": "결제 142→116, 숙성순기여 1752340→-100113원, 구매결제 29→30, 시장결제 1353→1332; 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:36",
+      "grade": "unclear"
+    },
+    {
+      "change": "43bdf5df Clarify firm quote prompt effects and pin whole-message and price-floor guards",
+      "reason": "결제 142→116, 숙성순기여 1752340→-100113원, 구매결제 29→30, 시장결제 1353→1332; 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:37",
+      "grade": "no_effect"
+    },
+    {
+      "change": "b742392e Read bounded claims preamble before exact firm food quote without trusting reputation",
+      "reason": "결제 119→124, 숙성순기여 856210→None원, 구매결제 29→32, 시장결제 1333→1366; 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:38",
+      "grade": "unclear"
+    },
+    {
+      "change": "56d47a86 Pin claims-header location ASCII digits and exact spacing guards",
+      "reason": "결제 117→110, 숙성순기여 -98966→None원, 구매결제 30→32, 시장결제 1337→1391; 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:39",
+      "grade": "no_effect"
+    },
+    {
+      "change": "e2e9c8a9 feat(week-08): [terra-1111-100443] restock.GOAL에서 Gc2f7811b 강제 조사 문장만 제거했다. 조사 도구와 다른 재입고 ",
+      "reason": "결제 118→80, 숙성순기여 None→None원, 구매결제 34→25, 시장결제 1410→1413; Gc2 조사 종료선을 실행했다:09:41 표본5결제/3명<10결제이고 가정하한 미달. 강제문장1→0, 다른 도구 유지. 제거로 얻은Players 효과는 미식별. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:40",
+      "grade": "worked"
+    },
+    {
+      "change": "2a018451 chore(week-08): 메타 하네스 기록 terra-1111-100443 - running",
+      "reason": "결제 127→74, 숙성순기여 None→None원, 구매결제 31→25, 시장결제 1464→1417; 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:41",
+      "grade": "no_effect"
+    },
+    {
+      "change": "de9c713f feat(week-08): restock breadth (default off) - a finite switch lists arm B of the unlisted",
+      "reason": "결제 127→73, 숙성순기여 None→None원, 구매결제 30→24, 시장결제 1458→1423; 기본OFF 유한창/상품회전·폭·식품품절 실험. 코드도입과 처리군노출은 다르다. 결측:SKU/창별배정·실공급·6h숙성순익. 이번두창총상한절단0/0·SKU35/33, G03입고1판매0.11/12 03:13 군별20숙성·추가Players>0/원래undo로판정; 자동기본ON 금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:42",
+      "grade": "unclear"
+    },
+    {
+      "change": "b35d3f26 Accept revalidated cheap firm food asks within existing TAKE cap",
+      "reason": "결제 123→49, 숙성순기여 None→None원, 구매결제 32→19, 시장결제 1442→1438; 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:43",
+      "grade": "unclear"
+    },
+    {
+      "change": "bd941e0a Bind firm food TAKE to the observed production shop identifier",
+      "reason": "결제 123→49, 숙성순기여 None→None원, 구매결제 32→19, 시장결제 1442→1439; 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:44",
+      "grade": "unclear"
+    },
+    {
+      "change": "a26c78f2 Clarify shared firm quote reader and deliberate TAKE opening effect",
+      "reason": "결제 123→49, 숙성순기여 None→None원, 구매결제 32→19, 시장결제 1443→1439; 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:45",
+      "grade": "no_effect"
+    },
+    {
+      "change": "18bcd97c Revalidate current food shelf terms after an unpriced question reply",
+      "reason": "결제 79→92, 숙성순기여 None→None원, 구매결제 26→26, 시장결제 1413→1508; 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:46",
+      "grade": "unclear"
+    },
+    {
+      "change": "d1a521b9 chore(week-08): 메타 하네스 기록 terra-1111-111706 - no_change",
+      "reason": "결제 106→105, 숙성순기여 None→None원, 구매결제 27→30, 시장결제 1476→1454; 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:47",
+      "grade": "no_effect"
+    },
+    {
+      "change": "7818110b feat(week-08): restock breadth second switch (default off) - restock_breadth reads a secon",
+      "reason": "결제 118→95, 숙성순기여 None→None원, 구매결제 26→23, 시장결제 1444→1466; 기본OFF 유한창/상품회전·폭·식품품절 실험. 코드도입과 처리군노출은 다르다. 결측:SKU/창별배정·실공급·6h숙성순익. 이번두창총상한절단0/0·SKU35/33, G03입고1판매0.11/12 03:13 군별20숙성·추가Players>0/원래undo로판정; 자동기본ON 금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:48",
+      "grade": "unclear"
+    },
+    {
+      "change": "c653927e Skip cancel RPC only for quotes already reported terminal",
+      "reason": "결제 99→94, 숙성순기여 None→None원, 구매결제 30→25, 시장결제 1430→1518; 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:49",
+      "grade": "unclear"
+    },
+    {
+      "change": "f4d81ef9 test: assert cleanup race errors and unknown status boundaries",
+      "reason": "결제 95→91, 숙성순기여 None→None원, 구매결제 23→27, 시장결제 1469→1469; 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:50",
+      "grade": "no_effect"
+    },
+    {
+      "change": "c7d1fa31 chore(week-08): 메타 하네스 기록 terra-1111-123136 - no_change",
+      "reason": "결제 76→112, 숙성순기여 None→None원, 구매결제 26→23, 시장결제 1455→1435; 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:51",
+      "grade": "no_effect"
+    },
+    {
+      "change": "c0c43bb3 feat(week-08): open the supply line limits (a person, 11/11 12:05) - the kit sends up to 2",
+      "reason": "결제 87→120, 숙성순기여 None→None원, 구매결제 24→22, 시장결제 1447→1445; 사람의 공급행10→18·bound20·호출간격/식품원가3M→8M 변경이다. 현금완충은 유지. 결측:실제창별추가공급/미판매비용과숙성순익. 이번두창총상한절단0/0을측정;11/12 03:13 군별20숙성/두완료창 추가Players>0와 원래undo 판단. 규모를현금이유로임의축소하지않음. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:52",
+      "grade": "unclear"
+    },
+    {
+      "change": "b8f3706d fix(week-08): review 5e70b9e - the kit still waits for a window that opens within 60 s (C1",
+      "reason": "결제 87→120, 숙성순기여 None→None원, 구매결제 24→22, 시장결제 1447→1445; 사람의 공급행10→18·bound20·호출간격/식품원가3M→8M 변경이다. 현금완충은 유지. 결측:실제창별추가공급/미판매비용과숙성순익. 이번두창총상한절단0/0을측정;11/12 03:13 군별20숙성/두완료창 추가Players>0와 원래undo 판단. 규모를현금이유로임의축소하지않음. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:53",
+      "grade": "unclear"
+    },
+    {
+      "change": "a6452e32 feat(week-08): the kit paces its supply calls itself (10 s after the last one, no 429 roun",
+      "reason": "결제 120→67, 숙성순기여 None→None원, 구매결제 18→14, 시장결제 1446→1355; 사람의 공급행10→18·bound20·호출간격/식품원가3M→8M 변경이다. 현금완충은 유지. 결측:실제창별추가공급/미판매비용과숙성순익. 이번두창총상한절단0/0을측정;11/12 03:13 군별20숙성/두완료창 추가Players>0와 원래undo 판단. 규모를현금이유로임의축소하지않음. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:54",
+      "grade": "unclear"
+    },
+    {
+      "change": "637d7cb0 fix(week-08): review a6452e3 I1 - the balance is read in the last second of the kit's wait",
+      "reason": "결제 93→89, 숙성순기여 None→None원, 구매결제 18→13, 시장결제 1333→1436; 사람의 공급행10→18·bound20·호출간격/식품원가3M→8M 변경이다. 현금완충은 유지. 결측:실제창별추가공급/미판매비용과숙성순익. 이번두창총상한절단0/0을측정;11/12 03:13 군별20숙성/두완료창 추가Players>0와 원래undo 판단. 규모를현금이유로임의축소하지않음. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:55",
+      "grade": "unclear"
+    },
+    {
+      "change": "491667ab Use earned member pricing only after payment at its issuing RPC",
+      "reason": "결제 82→107, 숙성순기여 None→None원, 구매결제 13→18, 시장결제 1359→1364; 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:56",
+      "grade": "unclear"
+    },
+    {
+      "change": "60801f71 test: cover member unpaid main path and valid-shaped injected input",
+      "reason": "결제 82→107, 숙성순기여 None→None원, 구매결제 13→18, 시장결제 1357→1364; 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:57",
+      "grade": "no_effect"
+    },
+    {
+      "change": "f915938d chore(week-08): 메타 하네스 기록 terra-1111-134407 - no_change",
+      "reason": "결제 81→116, 숙성순기여 None→None원, 구매결제 15→16, 시장결제 1384→1330; 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:58",
+      "grade": "no_effect"
+    },
+    {
+      "change": "c32d717d Merge remote-tracking branch 'macmini-market/week-08' into ax/W-20261109-2225-moss-first",
+      "reason": "결제 81→120, 숙성순기여 None→None원, 구매결제 15→16, 시장결제 1398→1326; 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:59",
+      "grade": "no_effect"
+    },
+    {
+      "change": "4f6561a4 feat(week-08): finite food stock-out listing study (restock_food_stockout), default off",
+      "reason": "결제 128→80, 숙성순기여 None→None원, 구매결제 20→20, 시장결제 1345→1351; 기본OFF 유한창/상품회전·폭·식품품절 실험. 코드도입과 처리군노출은 다르다. 결측:SKU/창별배정·실공급·6h숙성순익. 이번두창총상한절단0/0·SKU35/33, G03입고1판매0.11/12 03:13 군별20숙성·추가Players>0/원래undo로판정; 자동기본ON 금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:60",
+      "grade": "unclear"
+    },
+    {
+      "change": "46b95480 Preserve uncertain RPC outcomes without replaying offers",
+      "reason": "결제 87→70, 숙성순기여 None→None원, 구매결제 19→26, 시장결제 1336→1317; 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:61",
+      "grade": "unclear"
+    },
+    {
+      "change": "36661339 fix(week-08): food stock-out default target 20, docstring sources",
+      "reason": "결제 88→66, 숙성순기여 None→None원, 구매결제 17→28, 시장결제 1342→1321; 기본OFF 유한창/상품회전·폭·식품품절 실험. 코드도입과 처리군노출은 다르다. 결측:SKU/창별배정·실공급·6h숙성순익. 이번두창총상한절단0/0·SKU35/33, G03입고1판매0.11/12 03:13 군별20숙성·추가Players>0/원래undo로판정; 자동기본ON 금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:62",
+      "grade": "unclear"
+    },
+    {
+      "change": "c7bfd470 chore(week-08): 메타 하네스 기록 terra-1111-145658 - no_change",
+      "reason": "결제 66→35, 숙성순기여 None→None원, 구매결제 25→10, 시장결제 1321→621; 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:63",
+      "grade": "no_effect"
+    },
+    {
+      "change": "87c99c4d feat(week-08): 식품 재고 원가 한도 3M -> 8M",
+      "reason": "결제 47→35, 숙성순기여 None→None원, 구매결제 28→7, 시장결제 1293→511; 사람의 공급행10→18·bound20·호출간격/식품원가3M→8M 변경이다. 현금완충은 유지. 결측:실제창별추가공급/미판매비용과숙성순익. 이번두창총상한절단0/0을측정;11/12 03:13 군별20숙성/두완료창 추가Players>0와 원래undo 판단. 규모를현금이유로임의축소하지않음. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:64",
+      "grade": "unclear"
+    },
+    {
+      "change": "716f504b Preserve uncertain malformed and transport RPC outcomes and exclusion policy",
+      "reason": "결제 62→20, 숙성순기여 None→None원, 구매결제 29→4, 시장결제 1307→347; 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:65",
+      "grade": "unclear"
+    },
+    {
+      "change": "ae5b302a Merge remote-tracking branch 'origin/week-08' into ax/W-20261109-2225-moss-first",
+      "reason": "결제 73→9, 숙성순기여 None→None원, 구매결제 27→4, 시장결제 1310→239; 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 근거 meta/evidence/astra-1111-151301-comparisons.jsonl:66",
+      "grade": "no_effect"
+    },
+    {
+      "change": "astra-1111-025700 전략·규칙·검증",
+      "reason": "직전Astra는전체검사반려로변경복원. 후보수리/문서/도구삭제의운영효과0. 로컬2013통과와하네스실패를구분한다. 근거 meta/evidence/astra-1111-151301-cycles.jsonl:1",
+      "grade": "no_effect"
+    },
+    {
+      "change": "terra-1111-034311 전략·규칙·검증",
+      "reason": "새패치0·산식일치·호출상한복원없음. 총상한구속0/0이므로미확대는적절하고SKU세조건이충족됐다는증거도없다. 전략유지는12h경쟁자추세와양립하지만추가효과는미확인. 이번원장/두창측정으로보완했다.11/12 03:13 군별숙성20결제·추가Players>0,미달확대금지. 전략검사 watch; Players는 1.645→1.646, 68명 중 7위다. Shop ALL 0.845, Buyer ALL 0.801이며 양쪽 board_drift는 0, 선두와의 Players 격차는 0.086이다. 새 패치는 없다. 직전 구간 상점 정산 319건, 구매 결제 129건, 품절 28건, 구매 결제 거절 3건, 체크아웃 거절 근거 meta/evidence/astra-1111-151301-cycles.jsonl:2",
+      "grade": "unclear"
+    },
+    {
+      "change": "terra-1111-050347 전략·규칙·검증",
+      "reason": "새패치0·산식일치·호출상한복원없음. 총상한구속0/0이므로미확대는적절하고SKU세조건이충족됐다는증거도없다. 포럼대체검색지침은반려돼문장변화0. 새전략전환없음. 전략검사 keep; Players 1.646→1.649, 68명 중 7위다. Shop ALL 0.848, Buyer ALL 0.801이며 양쪽 board_drift는 0, 선두와의 Players 격차는 0.081이다. 새 패치와 경보는 없다. 직전 구간 상점 정산 326건, 구매 결제 128건, 품절 24건, 구매 결제 거절 2건, 체크아웃 근거 meta/evidence/astra-1111-151301-cycles.jsonl:3",
+      "grade": "no_effect"
+    },
+    {
+      "change": "terra-1111-062351 전략·규칙·검증",
+      "reason": "새패치0·산식일치·호출상한복원없음. 총상한구속0/0이므로미확대는적절하고SKU세조건이충족됐다는증거도없다. 전략유지는12h경쟁자추세와양립하지만추가효과는미확인. 이번원장/두창측정으로보완했다.11/12 03:13 군별숙성20결제·추가Players>0,미달확대금지. 전략검사 keep; Players는 직전 수락 팩 대비 1.646→1.647, 68명 중 7위다. Shop ALL 0.846, Buyer ALL 0.801이며 보드 산식 차이는 양쪽 0이고 새 패치는 없다. 비교 구간은 직전 팩 누락으로 약 2시간 40분이며 상점 정산 634건, 구매 결제 246건, 품절 39건, 구매 결제 거절 4건, 체 근거 meta/evidence/astra-1111-151301-cycles.jsonl:4",
+      "grade": "unclear"
+    },
+    {
+      "change": "terra-1111-073601 전략·규칙·검증",
+      "reason": "새패치0·산식일치·호출상한복원없음. 총상한구속0/0이므로미확대는적절하고SKU세조건이충족됐다는증거도없다. 전략유지는12h경쟁자추세와양립하지만추가효과는미확인. 이번원장/두창측정으로보완했다.11/12 03:13 군별숙성20결제·추가Players>0,미달확대금지. 전략검사 keep; Players는 1.647→1.647로 68명 중 7위이며 Shop ALL 0.846, Buyer ALL 0.801이다. 양쪽 board_drift는 0이고 선두와의 Players 격차는 0.091이다. 새 패치는 없다. 직전 구간 상점 정산 300건, 구매 결제 89건, 품절 13건, 구매 결제 거절 2건, 체크아웃 거 근거 meta/evidence/astra-1111-151301-cycles.jsonl:5",
+      "grade": "unclear"
+    },
+    {
+      "change": "terra-1111-085119 전략·규칙·검증",
+      "reason": "새패치0·산식일치·호출상한복원없음. 총상한구속0/0이므로미확대는적절하고SKU세조건이충족됐다는증거도없다. 전략유지는12h경쟁자추세와양립하지만추가효과는미확인. 이번원장/두창측정으로보완했다.11/12 03:13 군별숙성20결제·추가Players>0,미달확대금지. 전략검사 keep; Players는 1.647→1.648, 68명 중 7위다. Shop ALL 0.845, Buyer ALL 0.803이며 board_drift는 양쪽 0, 선두와의 Players 격차는 0.085다. 새 패치는 없다. 직전 구간 상점 정산 359건, 구매 결제 85건, 품절 20건, 구매 결제 거절 1건, 체크아웃 거절 1 근거 meta/evidence/astra-1111-151301-cycles.jsonl:6",
+      "grade": "unclear"
+    },
+    {
+      "change": "terra-1111-100443 전략·규칙·검증",
+      "reason": "새패치0·산식일치·호출상한복원없음. 총상한구속0/0이므로미확대는적절하고SKU세조건이충족됐다는증거도없다. Gc2 조사5결제<10의원래철회조건으로문장제거완료. 전략유지와분리하여평가한다. 전략검사 keep; Players는 1.648→1.649로 68명 중 7위이며 선두와 0.084 차이다. Shop ALL 0.845, Buyer ALL 0.804이고 양쪽 board_drift는 0이다. 새 패치와 경보는 없다. 직전 구간 상점 정산 295건, 구매 결제 76건, 품절 6건, 체크아웃 거절 8건이다. 현재 로그 표본의 원가  근거 meta/evidence/astra-1111-151301-cycles.jsonl:7",
+      "grade": "worked"
+    },
+    {
+      "change": "terra-1111-111706 전략·규칙·검증",
+      "reason": "새패치0·산식일치·호출상한복원없음. 총상한구속0/0이므로미확대는적절하고SKU세조건이충족됐다는증거도없다. 계산가능한공급창/처리군결측과미완료회귀를반복했다. 특히14:58은새결측을말하면서이미지난14:44서지판정선을재사용해다음행동을못정했다. 운영손실을뜻하는등급이아니라평가절차감점이다. 전략검사 keep; Players는 1.649→1.653으로 69명 중 7위이고 선두와 0.077 차이다. Shop ALL 0.846, Buyer ALL 0.807이며 보드 산식 오차는 둘 다 0이고 새 패치나 경보는 없다. 직전 구간 상점 정산 227건, 구매 결제 62건, 품절 2건, 체크아웃 거절 1건이다. 현재 로그 표본의 구매 결제 근거 meta/evidence/astra-1111-151301-cycles.jsonl:8",
+      "grade": "harmful"
+    },
+    {
+      "change": "terra-1111-123136 전략·규칙·검증",
+      "reason": "새패치0·산식일치·호출상한복원없음. 총상한구속0/0이므로미확대는적절하고SKU세조건이충족됐다는증거도없다. 계산가능한공급창/처리군결측과미완료회귀를반복했다. 특히14:58은새결측을말하면서이미지난14:44서지판정선을재사용해다음행동을못정했다. 운영손실을뜻하는등급이아니라평가절차감점이다. 전략검사 keep; Players는 1.653→1.661로 69명 중 6위이고 선두와 0.070 차이다. Shop ALL 0.846, Buyer ALL 0.815이며 양쪽 board_drift는 0이다. 새 패치는 없다. 직전 구간 상점 정산 231건, 구매 결제 66건, 품절 9건, 구매 결제 거절 2건, 체크아웃 거절 11건이다. 현재  근거 meta/evidence/astra-1111-151301-cycles.jsonl:9",
+      "grade": "harmful"
+    },
+    {
+      "change": "terra-1111-134407 전략·규칙·검증",
+      "reason": "새패치0·산식일치·호출상한복원없음. 총상한구속0/0이므로미확대는적절하고SKU세조건이충족됐다는증거도없다. 계산가능한공급창/처리군결측과미완료회귀를반복했다. 특히14:58은새결측을말하면서이미지난14:44서지판정선을재사용해다음행동을못정했다. 운영손실을뜻하는등급이아니라평가절차감점이다. 전략검사 keep; Players는 1.661→1.651, 69명 중 7위이며 선두와 0.080 차이다. Shop ALL 0.846, Buyer ALL 0.805이고 양쪽 board_drift는 0이다. 새 패치는 없다. 직전 구간 상점 정산 243건, 구매 결제 42건, 품절 13건, 체크아웃 거절 16건이다. 팩의 로그 표본에서 구매 결 근거 meta/evidence/astra-1111-151301-cycles.jsonl:10",
+      "grade": "harmful"
+    },
+    {
+      "change": "terra-1111-145658 전략·규칙·검증",
+      "reason": "새패치0·산식일치·호출상한복원없음. 총상한구속0/0이므로미확대는적절하고SKU세조건이충족됐다는증거도없다. 계산가능한공급창/처리군결측과미완료회귀를반복했다. 특히14:58은새결측을말하면서이미지난14:44서지판정선을재사용해다음행동을못정했다. 운영손실을뜻하는등급이아니라평가절차감점이다. 전략검사 keep; Players는 1.651로 전 주기와 같고 69명 중 7위, 선두와 0.080 차이다. Shop ALL 0.846, Buyer ALL 0.805이며 board_drift는 각각 0, board_players_gap은 0.080이다. 새 패치와 활성 경보는 없다. 직전 구간 상점 정산 234건, 구매 결제 50건, 품절  근거 meta/evidence/astra-1111-151301-cycles.jsonl:11",
+      "grade": "harmful"
+    }
+  ],
+  "keep_or_drop": [
+    {
+      "item": "13a88a0d",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:1 및 -settings.jsonl:1"
+    },
+    {
+      "item": "9bf55945",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 검사 실패로 반려/복원되어 지속 운영효과0. Astra/ Terra의 로컬 통과나 의도만으로 성공을 인정하지 않는다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:2 및 -settings.jsonl:2"
+    },
+    {
+      "item": "1e6b72aa",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 검사 실패로 반려/복원되어 지속 운영효과0. Astra/ Terra의 로컬 통과나 의도만으로 성공을 인정하지 않는다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:3 및 -settings.jsonl:3"
+    },
+    {
+      "item": "d94ec6d4",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:4 및 -settings.jsonl:4"
+    },
+    {
+      "item": "bd8ac1b9",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:5 및 -settings.jsonl:5"
+    },
+    {
+      "item": "913c24ba",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:6 및 -settings.jsonl:6"
+    },
+    {
+      "item": "7836b9af",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:7 및 -settings.jsonl:7"
+    },
+    {
+      "item": "9174ef10",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:8 및 -settings.jsonl:8"
+    },
+    {
+      "item": "0ba9e9a6",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 검사 실패로 반려/복원되어 지속 운영효과0. Astra/ Terra의 로컬 통과나 의도만으로 성공을 인정하지 않는다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:9 및 -settings.jsonl:9"
+    },
+    {
+      "item": "0a8222fa",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 검사 실패로 반려/복원되어 지속 운영효과0. Astra/ Terra의 로컬 통과나 의도만으로 성공을 인정하지 않는다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:10 및 -settings.jsonl:10"
+    },
+    {
+      "item": "89ac2ee9",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:11 및 -settings.jsonl:11"
+    },
+    {
+      "item": "cd495d31",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:12 및 -settings.jsonl:12"
+    },
+    {
+      "item": "9e7ea98b",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:13 및 -settings.jsonl:13"
+    },
+    {
+      "item": "e5115c66",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:14 및 -settings.jsonl:14"
+    },
+    {
+      "item": "a57b396b",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:15 및 -settings.jsonl:15"
+    },
+    {
+      "item": "5d3b7329",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:16 및 -settings.jsonl:16"
+    },
+    {
+      "item": "2f9ba9b9",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:17 및 -settings.jsonl:17"
+    },
+    {
+      "item": "2a6e5bf3",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:18 및 -settings.jsonl:18"
+    },
+    {
+      "item": "1bf48d11",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:19 및 -settings.jsonl:19"
+    },
+    {
+      "item": "b4f58834",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:20 및 -settings.jsonl:20"
+    },
+    {
+      "item": "fed999c9",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 원문32창 공급12.2→13.8행,상품13.5→17.1개는 공급효과이며 숙성순익/Players는 미확인. 이후 사람결정으로window_fast OFF. 영구정책 성공으로 세지 않으며32창 경제성과 원래undo를11/12 03:13까지 확인, 자동재활성 금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:21 및 -settings.jsonl:21"
+    },
+    {
+      "item": "6f1ecb4f",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 커밋가설은 A/B 숙성정규화순익 .0093→.0718(+.0625)이나 C구간[−.136,+.248], B는 A사전값으로 이후제한. 전등급 영구확대의 근거는 부족했고 현재 A만19:30까지다. 군별20숙성/11월12일03:13 추가Players>0 판정, 사람의 종료조건 우선. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:22 및 -settings.jsonl:22"
+    },
+    {
+      "item": "9d5c7b18",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:23 및 -settings.jsonl:23"
+    },
+    {
+      "item": "8b8d0045",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:24 및 -settings.jsonl:24"
+    },
+    {
+      "item": "50066a97",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:25 및 -settings.jsonl:25"
+    },
+    {
+      "item": "9d1f57d6",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:26 및 -settings.jsonl:26"
+    },
+    {
+      "item": "8c468581",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:27 및 -settings.jsonl:27"
+    },
+    {
+      "item": "da6fa344",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:28 및 -settings.jsonl:28"
+    },
+    {
+      "item": "aa84fe4c",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:29 및 -settings.jsonl:29"
+    },
+    {
+      "item": "af19aecb",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 구매 Saved 최소 .33으로상향. 결측:낮아진지급률과실제가치/분모의순효과.이번구매결제전후와팩Saved.3266을측정;11/12 03:13 군별20숙성주문에서추가Saved와Players>0/원래undo판정. 단순명목할인을성공으로세지않음. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:30 및 -settings.jsonl:30"
+    },
+    {
+      "item": "b9fd4080",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:31 및 -settings.jsonl:31"
+    },
+    {
+      "item": "598bb7a3",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:32 및 -settings.jsonl:32"
+    },
+    {
+      "item": "239b3519",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:33 및 -settings.jsonl:33"
+    },
+    {
+      "item": "7a52dcef",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기본OFF 유한창/상품회전·폭·식품품절 실험. 코드도입과 처리군노출은 다르다. 결측:SKU/창별배정·실공급·6h숙성순익. 이번두창총상한절단0/0·SKU35/33, G03입고1판매0.11/12 03:13 군별20숙성·추가Players>0/원래undo로판정; 자동기본ON 금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:34 및 -settings.jsonl:34"
+    },
+    {
+      "item": "443526ac",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:35 및 -settings.jsonl:35"
+    },
+    {
+      "item": "b2f87d77",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:36 및 -settings.jsonl:36"
+    },
+    {
+      "item": "43bdf5df",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:37 및 -settings.jsonl:37"
+    },
+    {
+      "item": "b742392e",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:38 및 -settings.jsonl:38"
+    },
+    {
+      "item": "56d47a86",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:39 및 -settings.jsonl:39"
+    },
+    {
+      "item": "e2e9c8a9",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. Gc2 조사 종료선을 실행했다:09:41 표본5결제/3명<10결제이고 가정하한 미달. 강제문장1→0, 다른 도구 유지. 제거로 얻은Players 효과는 미식별. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:40 및 -settings.jsonl:40"
+    },
+    {
+      "item": "2a018451",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:41 및 -settings.jsonl:41"
+    },
+    {
+      "item": "de9c713f",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기본OFF 유한창/상품회전·폭·식품품절 실험. 코드도입과 처리군노출은 다르다. 결측:SKU/창별배정·실공급·6h숙성순익. 이번두창총상한절단0/0·SKU35/33, G03입고1판매0.11/12 03:13 군별20숙성·추가Players>0/원래undo로판정; 자동기본ON 금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:42 및 -settings.jsonl:42"
+    },
+    {
+      "item": "b35d3f26",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:43 및 -settings.jsonl:43"
+    },
+    {
+      "item": "bd941e0a",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:44 및 -settings.jsonl:44"
+    },
+    {
+      "item": "a26c78f2",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:45 및 -settings.jsonl:45"
+    },
+    {
+      "item": "18bcd97c",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:46 및 -settings.jsonl:46"
+    },
+    {
+      "item": "d1a521b9",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:47 및 -settings.jsonl:47"
+    },
+    {
+      "item": "7818110b",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기본OFF 유한창/상품회전·폭·식품품절 실험. 코드도입과 처리군노출은 다르다. 결측:SKU/창별배정·실공급·6h숙성순익. 이번두창총상한절단0/0·SKU35/33, G03입고1판매0.11/12 03:13 군별20숙성·추가Players>0/원래undo로판정; 자동기본ON 금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:48 및 -settings.jsonl:48"
+    },
+    {
+      "item": "c653927e",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:49 및 -settings.jsonl:49"
+    },
+    {
+      "item": "f4d81ef9",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:50 및 -settings.jsonl:50"
+    },
+    {
+      "item": "c7d1fa31",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:51 및 -settings.jsonl:51"
+    },
+    {
+      "item": "c0c43bb3",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 사람의 공급행10→18·bound20·호출간격/식품원가3M→8M 변경이다. 현금완충은 유지. 결측:실제창별추가공급/미판매비용과숙성순익. 이번두창총상한절단0/0을측정;11/12 03:13 군별20숙성/두완료창 추가Players>0와 원래undo 판단. 규모를현금이유로임의축소하지않음. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:52 및 -settings.jsonl:52"
+    },
+    {
+      "item": "b8f3706d",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 사람의 공급행10→18·bound20·호출간격/식품원가3M→8M 변경이다. 현금완충은 유지. 결측:실제창별추가공급/미판매비용과숙성순익. 이번두창총상한절단0/0을측정;11/12 03:13 군별20숙성/두완료창 추가Players>0와 원래undo 판단. 규모를현금이유로임의축소하지않음. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:53 및 -settings.jsonl:53"
+    },
+    {
+      "item": "a6452e32",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 사람의 공급행10→18·bound20·호출간격/식품원가3M→8M 변경이다. 현금완충은 유지. 결측:실제창별추가공급/미판매비용과숙성순익. 이번두창총상한절단0/0을측정;11/12 03:13 군별20숙성/두완료창 추가Players>0와 원래undo 판단. 규모를현금이유로임의축소하지않음. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:54 및 -settings.jsonl:54"
+    },
+    {
+      "item": "637d7cb0",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 사람의 공급행10→18·bound20·호출간격/식품원가3M→8M 변경이다. 현금완충은 유지. 결측:실제창별추가공급/미판매비용과숙성순익. 이번두창총상한절단0/0을측정;11/12 03:13 군별20숙성/두완료창 추가Players>0와 원래undo 판단. 규모를현금이유로임의축소하지않음. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:55 및 -settings.jsonl:55"
+    },
+    {
+      "item": "491667ab",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:56 및 -settings.jsonl:56"
+    },
+    {
+      "item": "60801f71",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:57 및 -settings.jsonl:57"
+    },
+    {
+      "item": "f915938d",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:58 및 -settings.jsonl:58"
+    },
+    {
+      "item": "c32d717d",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:59 및 -settings.jsonl:59"
+    },
+    {
+      "item": "4f6561a4",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기본OFF 유한창/상품회전·폭·식품품절 실험. 코드도입과 처리군노출은 다르다. 결측:SKU/창별배정·실공급·6h숙성순익. 이번두창총상한절단0/0·SKU35/33, G03입고1판매0.11/12 03:13 군별20숙성·추가Players>0/원래undo로판정; 자동기본ON 금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:60 및 -settings.jsonl:60"
+    },
+    {
+      "item": "46b95480",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:61 및 -settings.jsonl:61"
+    },
+    {
+      "item": "36661339",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기본OFF 유한창/상품회전·폭·식품품절 실험. 코드도입과 처리군노출은 다르다. 결측:SKU/창별배정·실공급·6h숙성순익. 이번두창총상한절단0/0·SKU35/33, G03입고1판매0.11/12 03:13 군별20숙성·추가Players>0/원래undo로판정; 자동기본ON 금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:62 및 -settings.jsonl:62"
+    },
+    {
+      "item": "c7bfd470",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:63 및 -settings.jsonl:63"
+    },
+    {
+      "item": "87c99c4d",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 사람의 공급행10→18·bound20·호출간격/식품원가3M→8M 변경이다. 현금완충은 유지. 결측:실제창별추가공급/미판매비용과숙성순익. 이번두창총상한절단0/0을측정;11/12 03:13 군별20숙성/두완료창 추가Players>0와 원래undo 판단. 규모를현금이유로임의축소하지않음. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:64 및 -settings.jsonl:64"
+    },
+    {
+      "item": "716f504b",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 결측: 배포버전별 처리군과 숙성원가/실제가치. 측정: 전후30분 원장과 시장결제. 판정:11/12 03:13 KST 군별숙성20결제에서 현행대비 추가Players>0와 원래undo 미충족; 미달이면 미확정·확대금지. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:65 및 -settings.jsonl:65"
+    },
+    {
+      "item": "ae5b302a",
+      "decision": "keep",
+      "reason": "현재 반영 상태와 실패이력을 유지. 기록·시험·주석·병합 자체의 별도 매출효과는 기대하지 않는다. 운영효과는 해당 구현과 함께 판단하며 실패시도도 보존한다. 파일/설정 원문: meta/evidence/astra-1111-151301-commits.jsonl:66 및 -settings.jsonl:66"
+    },
+    {
+      "item": "tools/auto_auto_market_brief",
+      "decision": "drop",
+      "reason": "이번 0호출/0실패. auto_market_scan과코드byte동일·0호출이므로도구와전용검사실제삭제,원본-dropped-tool.json보존."
+    },
+    {
+      "item": "tools/auto_forum_ledger_digest",
+      "decision": "keep",
+      "reason": "이번 42호출/0실패. 독립기능/기존의미검사를유지. 실행성공을Players성과로보지않음."
+    },
+    {
+      "item": "tools/auto_market_research",
+      "decision": "keep",
+      "reason": "이번 0호출/0실패. 독립기능/기존의미검사를유지. 실행성공을Players성과로보지않음."
+    },
+    {
+      "item": "tools/auto_market_research_pack",
+      "decision": "keep",
+      "reason": "이번 16호출/0실패. 독립기능/기존의미검사를유지. 실행성공을Players성과로보지않음."
+    },
+    {
+      "item": "tools/auto_market_scan",
+      "decision": "keep",
+      "reason": "이번 0호출/0실패. 독립기능/기존의미검사를유지. 실행성공을Players성과로보지않음."
+    },
+    {
+      "item": "tools/break_rates",
+      "decision": "keep",
+      "reason": "이번 3호출/0실패. 독립기능/기존의미검사를유지. 실행성공을Players성과로보지않음."
+    },
+    {
+      "item": "tools/catalog_search",
+      "decision": "keep",
+      "reason": "이번 0호출/0실패. 독립기능/기존의미검사를유지. 실행성공을Players성과로보지않음."
+    },
+    {
+      "item": "tools/cohort_profit",
+      "decision": "keep",
+      "reason": "이번 4호출/0실패. 독립기능/기존의미검사를유지. 실행성공을Players성과로보지않음."
+    },
+    {
+      "item": "tools/forum_read",
+      "decision": "keep",
+      "reason": "이번 30호출/0실패. 독립기능/기존의미검사를유지. 실행성공을Players성과로보지않음."
+    },
+    {
+      "item": "tools/ledger_search",
+      "decision": "keep",
+      "reason": "이번 42호출/0실패. 독립기능/기존의미검사를유지. 실행성공을Players성과로보지않음."
+    },
+    {
+      "item": "tools/market_demand",
+      "decision": "keep",
+      "reason": "이번 3호출/0실패. 독립기능/기존의미검사를유지. 실행성공을Players성과로보지않음."
+    },
+    {
+      "item": "tools/market_opportunity",
+      "decision": "keep",
+      "reason": "이번 16호출/0실패. 독립기능/기존의미검사를유지. 실행성공을Players성과로보지않음."
+    },
+    {
+      "item": "tools/my_customers",
+      "decision": "keep",
+      "reason": "이번 0호출/0실패. 독립기능/기존의미검사를유지. 실행성공을Players성과로보지않음."
+    },
+    {
+      "item": "tools/my_decisions",
+      "decision": "keep",
+      "reason": "이번 4호출/0실패. 독립기능/기존의미검사를유지. 실행성공을Players성과로보지않음."
+    },
+    {
+      "item": "tools/my_memory",
+      "decision": "keep",
+      "reason": "이번 2호출/0실패. 독립기능/기존의미검사를유지. 실행성공을Players성과로보지않음."
+    },
+    {
+      "item": "tools/my_purchases",
+      "decision": "keep",
+      "reason": "이번 0호출/0실패. 독립기능/기존의미검사를유지. 실행성공을Players성과로보지않음."
+    },
+    {
+      "item": "tools/my_state",
+      "decision": "keep",
+      "reason": "이번 20호출/0실패. 독립기능/기존의미검사를유지. 실행성공을Players성과로보지않음."
+    },
+    {
+      "item": "tools/supply_audit",
+      "decision": "keep",
+      "reason": "이번 1호출/0실패. 독립기능/기존의미검사를유지. 실행성공을Players성과로보지않음."
+    },
+    {
+      "item": "meta/experiments.json:g2-loss-target-1110",
+      "decision": "drop",
+      "reason": "이미drop종료된항목을이번활성큐에서실제로제거. 원본-queue-before.json/종료로그는보존하고재실행안함."
+    },
+    {
+      "item": "meta/experiments.json:concentration-probe-1110",
+      "decision": "drop",
+      "reason": "이미drop종료된항목을이번활성큐에서실제로제거. 원본-queue-before.json/종료로그는보존하고재실행안함."
+    },
+    {
+      "item": "tools/review_accounts",
+      "decision": "keep",
+      "reason": "이번결제연결/유효가격집단진단과판정선. 직접추가Players는미식별이며테스트와직렬실험으로검증."
+    },
+    {
+      "item": "strategy_screen.py",
+      "decision": "keep",
+      "reason": "이번결제연결/유효가격집단진단과판정선. 직접추가Players는미식별이며테스트와직렬실험으로검증."
+    },
+    {
+      "item": "meta/strategy.md",
+      "decision": "keep",
+      "reason": "이번결제연결/유효가격집단진단과판정선. 직접추가Players는미식별이며테스트와직렬실험으로검증."
+    },
+    {
+      "item": "meta/terra.md",
+      "decision": "keep",
+      "reason": "이번결제연결/유효가격집단진단과판정선. 직접추가Players는미식별이며테스트와직렬실험으로검증."
+    },
+    {
+      "item": "meta/REPORT-notes.md",
+      "decision": "keep",
+      "reason": "이번결제연결/유효가격집단진단과판정선. 직접추가Players는미식별이며테스트와직렬실험으로검증."
+    }
+  ]
+}

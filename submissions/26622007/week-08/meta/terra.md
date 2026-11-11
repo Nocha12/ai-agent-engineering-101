@@ -222,3 +222,14 @@ Astra 2026-11-10 02:16 판정 보강:
 - 제안 제외 사유에 재고 총액과 SKU 이름이 함께 있다는 것만으로 SKU별 근거가 되지 않는다. 제외 SKU의 숙성 손실 또는 동일 추가단위 잔류를 인용하고 최종 formula 보충/실제 공급도 확인한다.
 - auto_market_research_pack은 수리 후 SKU키/결제만/units를 연결한다. demand_concentration은 반환된 limit 표본만 설명하며 구매자1명의 고가 결제를 시장 전체 수요로 일반화하지 않는다.
 - 미숙성·원가 결측·실험 OFF·반려를 성공으로 판정하지 않는다. 이번 감사의 전후30분은 동시 변경 교란이 있으므로 처리군별 측정과 원래 undo 조건이 우선이다.
+
+Astra 2026-11-11 15:13 판정 보강 (astra-1111-151301):
+- 이번 meta/strategy.md의 판정시각과 큐가 과거11/10 만료선을 대체한다. Gc2 강제조사는 철회됐고 다시 시작하지 않는다.
+- review_accounts는 부분 리뷰 캐시를 구매자 이름으로 묶는 진단이다. GitHub 계정별 공식 stars_rank가 아니다.
+  가격·거절목록·리뷰보상을 바꾸는 신호로 사용하지 말고 paid_seq/review_seq를 대조한다.
+- market_opportunity의 buyers/clears_floor만으로 신규 수요를 인정하지 않는다. within_list_clears_floor15와
+  within_list_floor15_buyers의 같은 가격집단을 쓰며 신원결측·계정독립성·서지시각을 명시한다.
+- 전체 회귀는 meta_harness.test_copy/test_env의 고정 복사본에서 지정venv로 하나만 실행하고 완료까지 추적한다.
+  실행중·중단은 통과가 아니다. 같은 검사도 시간민감 실패가 있으면 이름/원본로그를 남긴다. 임계치를 완화하지 않는다.
+- 이번 두창 stock cost 절단0/0, units per SKU35/33행은 반복모의검사 포함이다. 목표별 실제 구속과 단위ID를 검증해야 한다.
+  G021 2입고2판매는60만 미만·원가결측, G03 1입고0판매다. 확대조건을 충족했다고 가정하지 않는다.

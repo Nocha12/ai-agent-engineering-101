@@ -27,3 +27,15 @@ class ScreenTest(unittest.TestCase):
             out = agent_tools.execute('market_opportunity', {'sku': 'G'}, str(md))
             self.assertNotIn('error', out)
             self.assertEqual(out['candidates'], [])
+
+    def test_eligible_demand_excludes_over_list_and_unknown_buyers(self):
+        rows = [dict(k='settle', seq=i, ts=100, sku='G', buyer=b, amount=p)
+                for i, b, p in [(1, 'a', 95000), (2, 'a', 96000), (3, None, 97000),
+                                (4, 'b', 140000), (5, 'c', float('inf'))]]
+        out = screen(rows + [rows[0]], {'G': dict(kind='goods', list_price=100000)}, {}, {}, 100)['candidates'][0]
+        self.assertEqual(out['paid'], 4)
+        self.assertEqual(out['buyers'], 2)
+        self.assertEqual(out['unknown_buyer_rows'], 1)
+        self.assertEqual(out['within_list_clears_floor15'], 3)
+        self.assertEqual(out['within_list_floor15_buyers'], 1)
+        self.assertEqual(out['within_list_clears_floor25'], 0)

@@ -1,0 +1,2 @@
+{"path": ".market/payments.jsonl", "records": 0, "by": {}, "first_line": null, "last_line": null}
+{"path": ".market/decisions.jsonl", "records": 90, "by": {"forum": 64, "restock": 26}, "first_line": 7580, "last_line": 7669}

@@ -1,0 +1,13 @@
+F
+======================================================================
+FAIL: test_eligible_demand_excludes_over_list_and_unknown_buyers (test_strategy_screen.ScreenTest.test_eligible_demand_excludes_over_list_and_unknown_buyers)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/market/ai-agent-engineering-101/submissions/26622007/week-08/test_strategy_screen.py", line 36, in test_eligible_demand_excludes_over_list_and_unknown_buyers
+    self.assertEqual(out['paid'], 4)
+AssertionError: 5 != 4
+
+----------------------------------------------------------------------
+Ran 1 test in 0.000s
+
+FAILED (failures=1)

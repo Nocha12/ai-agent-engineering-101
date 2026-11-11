@@ -1,0 +1,34 @@
+{"path": "logs/archive-round2-20261103-210501/logs/kit-parts/market-kit-1101-164334-2dfa9be183cc54bd.log.gz", "decoded_lines": 145797, "hits": {"settled": 12}}
+{"path": "logs/kit-parts/market-kit-1107-214821-fa091ecb4fd25fa4.log.gz", "decoded_lines": 196588, "hits": {"settled": 2068, "units per SKU": 2322, "stock cost": 85799, "Traceback": 158, "not paying": 6}}
+{"path": "logs/kit-parts/market-kit-1105-135445-97e51df8a328ac48.log.gz", "decoded_lines": 164233, "hits": {"settled": 3386, "units per SKU": 1539, "stock cost": 42018, "not paying": 12, "Traceback": 95, "no stock": 2}}
+{"path": "logs/kit-parts/market-kit-1110-125324-1eaea8752da21c23.log.gz", "decoded_lines": 199666, "hits": {"stock cost": 94900, "settled": 2201, "units per SKU": 714, "not paying": 6}}
+{"path": "logs/kit-parts/market-kit-1104-185125-022b6570aff2bdfa.log.gz", "decoded_lines": 167004, "hits": {"settled": 3401, "units per SKU": 838, "stock cost": 48441, "not paying": 36, "Traceback": 45, "no stock": 1}}
+{"path": "logs/kit-parts/market-kit-1110-170232-d8d04f29ac605660.log.gz", "decoded_lines": 200505, "hits": {"stock cost": 100495, "settled": 2340, "units per SKU": 742, "not paying": 6}}
+{"path": "logs/kit-parts/market-kit-1110-213753-4afe6b2ada30346e.log.gz", "decoded_lines": 202454, "hits": {"stock cost": 106125, "units per SKU": 1523, "settled": 2103, "not paying": 14}}
+{"path": "logs/kit-parts/market-kit-1110-042350-dabb5b86d44a8c17.log.gz", "decoded_lines": 200730, "hits": {"settled": 2063, "units per SKU": 1368, "stock cost": 95510, "not paying": 22}}
+{"path": "logs/kit-parts/market-kit-1108-022059-eb3465f21e43a715.log.gz", "decoded_lines": 196604, "hits": {"settled": 2018, "Traceback": 20, "units per SKU": 2735, "stock cost": 89662, "not paying": 20}}
+{"path": "logs/kit-parts/market-kit-1107-042653-1443a50400b1ce7e.log.gz", "decoded_lines": 204287, "hits": {"units per SKU": 785, "stock cost": 17563, "settled": 1340, "Traceback": 88, "not paying": 14}}
+{"path": "logs/kit-parts/market-kit-1106-232859-72768d8d8b66050c.log.gz", "decoded_lines": 210009, "hits": {"stock cost": 65010, "settled": 1234, "units per SKU": 935, "not paying": 14, "no stock": 1}}
+{"path": "logs/kit-parts/market-kit-1111-102255-cee8633b7bafadcc.log.gz", "decoded_lines": 204024, "hits": {"settled": 1775, "units per SKU": 2256, "stock cost": 102945, "not paying": 6}}
+{"path": "logs/kit-parts/market-kit-1108-105149-70942f8efcdb857a.log.gz", "decoded_lines": 195866, "hits": {"settled": 1904, "units per SKU": 2100, "stock cost": 90419, "not paying": 28, "Traceback": 48}}
+{"path": "logs/kit-parts/market-kit-1111-015442-15670395a08e8bb0.log.gz", "decoded_lines": 200303, "hits": {"settled": 2081, "units per SKU": 1727, "stock cost": 98261, "not paying": 16}}
+{"path": "logs/kit-parts/market-kit-1104-092719-cb2d6c7a228b7be9.log.gz", "decoded_lines": 171593, "hits": {"settled": 3111, "not paying": 178, "Traceback": 61, "stock cost": 65878, "units per SKU": 4817}}
+{"path": "logs/kit-parts/market-kit-1108-151841-57ff13b22331f2c6.log.gz", "decoded_lines": 199540, "hits": {"settled": 1944, "units per SKU": 1528, "stock cost": 96197, "Traceback": 200, "not paying": 6}}
+{"path": "logs/kit-parts/market-kit-1109-235359-f452f377d064220d.log.gz", "decoded_lines": 200774, "hits": {"settled": 1921, "units per SKU": 1864, "stock cost": 98298, "not paying": 8, "no stock": 2}}
+{"path": "logs/kit-parts/market-kit-1108-064305-f06acfeed375207a.log.gz", "decoded_lines": 195810, "hits": {"settled": 1940, "units per SKU": 2227, "stock cost": 90692, "not paying": 10}}
+{"path": "logs/kit-parts/market-kit-1105-215837-fa68fed7b7324560.log.gz", "decoded_lines": 218342, "hits": {"stock cost": 125577, "settled": 1778, "units per SKU": 2228, "not paying": 2, "Traceback": 56}}
+{"path": "logs/kit-parts/market-kit-1107-083309-5773ec0f7d5e15f8.log.gz", "decoded_lines": 199578, "hits": {"settled": 1829, "units per SKU": 1760, "Traceback": 40, "stock cost": 1732, "not paying": 6}}
+{"path": "logs/kit-parts/market-kit-1106-171830-5c0fca4985e4c820.log.gz", "decoded_lines": 214867, "hits": {"stock cost": 120522, "units per SKU": 2593, "settled": 1317, "Traceback": 56, "not paying": 4}}
+{"path": "logs/kit-parts/market-kit-1108-195125-860bd8bf832fc8f6.log.gz", "decoded_lines": 199464, "hits": {"stock cost": 100089, "settled": 2125, "units per SKU": 1544, "not paying": 10, "Traceback": 8, "no stock": 1}}
+{"path": "logs/kit-parts/market-kit-1109-002338-51f47e0726f81d52.log.gz", "decoded_lines": 203260, "hits": {"settled": 2126, "units per SKU": 1555, "stock cost": 102910, "not paying": 32, "Traceback": 20}}
+{"path": "logs/kit-parts/market-kit-1106-110237-d1893d72925ba706.log.gz", "decoded_lines": 214505, "hits": {"settled": 1706, "units per SKU": 2251, "stock cost": 122175, "Traceback": 56, "not paying": 4}}
+{"path": "logs/kit-parts/market-kit-1109-190621-456b3fe0375e71cf.log.gz", "decoded_lines": 201109, "hits": {"settled": 1947, "units per SKU": 1717, "stock cost": 99127, "not paying": 12}}
+{"path": "logs/kit-parts/market-kit-1107-125402-ead9b3ee53e95c55.log.gz", "decoded_lines": 205543, "hits": {"settled": 2017, "units per SKU": 2923, "Traceback": 60, "stock cost": 2245, "not paying": 4}}
+{"path": "logs/kit-parts/market-kit-1107-171233-effc20f9f1086c02.log.gz", "decoded_lines": 205447, "hits": {"settled": 1995, "units per SKU": 2337, "stock cost": 33848, "Traceback": 116, "not paying": 4}}
+{"path": "logs/kit-parts/market-kit-1109-094005-e77128a30d29cebe.log.gz", "decoded_lines": 202902, "hits": {"settled": 1947, "units per SKU": 2147, "stock cost": 102783, "not paying": 28}}
+{"path": "logs/kit-parts/market-kit-1109-142538-22c5de3d4cd2b0c9.log.gz", "decoded_lines": 200225, "hits": {"settled": 2096, "units per SKU": 2051, "stock cost": 98743, "not paying": 18}}
+{"path": "logs/kit-parts/market-kit-1109-045729-b183375446d67818.log.gz", "decoded_lines": 202395, "hits": {"stock cost": 99702, "settled": 2056, "not paying": 16, "units per SKU": 1535}}
+{"path": "logs/kit-parts/market-kit-1110-084454-ce6ecc8cce95c298.log.gz", "decoded_lines": 200261, "hits": {"settled": 1987, "units per SKU": 1633, "stock cost": 96751, "not paying": 12}}
+{"path": "logs/kit-parts/market-kit-1106-045016-0c4fec34c3cd41f8.log.gz", "decoded_lines": 220389, "hits": {"stock cost": 128323, "settled": 1661, "units per SKU": 2125, "Traceback": 156, "not paying": 2, "no stock": 1}}
+{"path": "logs/kit-parts/market-kit-1111-060628-5e72df0f45b303ad.log.gz", "decoded_lines": 200527, "hits": {"settled": 1967, "units per SKU": 1961, "stock cost": 98096, "not paying": 16}}
+{"path": "logs/kit-parts/market-kit-1105-040732-e237cdc7f263900e.log.gz", "decoded_lines": 159507, "hits": {"settled": 3185, "units per SKU": 1187, "stock cost": 34170, "not paying": 13}}
