@@ -178,6 +178,54 @@ def _reason(order, offer, q, steps, shop, sku, budget, resume, take_at):
     return None
 
 
+def witness(order, offer, q, steps, shop, sku, budget, resume, take_at, *, now=None):
+    """Observation only: same selected runtime inputs, no IO, raw text or policy activation.
+
+    The note's time range is NOT a live switch check. Input eligibility is not a
+    send/ACK/payment claim. Unreached negotiations have no witness, not zero opportunities.
+    """
+    if not isinstance(order,dict) or order.get('kind') != 'goods':
+        return None
+    try:
+        now=time.time() if now is None else now
+        t=q.get('task') if isinstance(q,dict) else None
+        t=t if isinstance(t,dict) else {}
+        text=buyer.message_text(t)
+        tid=t.get('id')
+        raw=(t.get('status',{}).get('message',{}).get('metadata') or {}).get('ask')
+        typename=type(raw).__name__
+        raw_type=typename if typename in ('NoneType','bool','int','float','str','list','dict') else 'other'
+        normal=buyer_warranty_said.stated_ok(text)
+        parsed=ask_read.short_warranty_hours(text)
+        h=q.get('warranty_h')
+        matched=epoch(h) and parsed == h
+        short=isinstance(order.get('_sw'),dict) and matched and h > 0
+        why=reason(order,offer,q,steps,shop,sku,budget,resume,take_at)
+        n=order.get(KEY)
+        window='unassigned'
+        if isinstance(n,dict) and n.get('arm') in ('A','B'):
+            s,e=n.get('start'),n.get('end')
+            window=('invalid' if not all(epoch(v) for v in (s,e,now)) or not 0 < s < e == s+1800
+                    else 'before' if now < s else 'expired' if now >= e else 'within_recorded_window')
+        return dict(v=1,scope='selected_pre_negotiate',
+            shop=shop.get('name') if ident(shop.get('name')) else None,
+            sku=sku if isinstance(sku,str) and re.fullmatch(r'G[0-9a-f]{8}',sku) else None,
+            task_sha256=hashlib.sha256(tid.encode()).hexdigest() if isinstance(tid,str) else None,
+            fulltext_sha256=hashlib.sha256(text.encode()).hexdigest(),fulltext_len=len(text),
+            raw_ask_type=raw_type,ask=q.get('ask') if money(q.get('ask')) else None,
+            list_price=offer.get('list_price') if money(offer.get('list_price')) else None,
+            limit=budget if type(budget) is int and 0 <= budget < 10**12 else None,
+            warranty_normal=normal,warranty_short=bool(short),
+            warranty_h=h if epoch(h) else None,short_parser_match=bool(matched),
+            overlap_reason=why if why in ('b3_already_applied','overlapping_trial') else
+                           'none' if why is None else 'not_evaluated',
+            quote_closed=bool(q.get('closed')),observed_at=now if epoch(now) else None,
+            window_status=window,switch_checked=False,treatment_eligible=None,
+            input_eligible=why is None,reason=why)
+    except Exception:  # observation failure must not alter a trade or disclose external data
+        return dict(v=1,scope='selected_pre_negotiate',input_eligible=None,reason='witness_error')
+
+
 def applied_b(row):
     """Only actual B price attempts, not B assignments, leave shared price learning."""
     note=row.get('goods_take30') if isinstance(row,dict) else None
@@ -186,6 +234,9 @@ def applied_b(row):
 
 def negotiate(run, md, order, offer, q, steps, shop, sku, *args, **kwargs):
     """Only first unchanged machine ask can replace the baseline ladder, at its real final-wire boundary."""
+    if isinstance(order,dict) and order.get('kind') == 'goods':
+        order['_goods_take30_witness']=witness(order,offer,q,steps,shop,sku,args[2],
+            kwargs.get('resume'),kwargs.get('take_at'))
     n=order.get(KEY)
     if not isinstance(n,dict) or n.get('arm') not in ('A','B'):
         return run(*args,**kwargs)

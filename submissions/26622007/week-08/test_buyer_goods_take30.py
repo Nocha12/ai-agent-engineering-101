@@ -106,7 +106,8 @@ class GoodsTake30Test(unittest.TestCase):
         p=Path(self.md)
         (p/'shops.json').write_text('[]')
         (p/'catalog.json').write_text('{}')
-        (p/'order.json').write_text(json.dumps(self.order | {'acceptable':['G12345678']}))
+        (p/'order.json').write_text(json.dumps(self.order | {'acceptable':['G12345678'],
+            '_goods_take30_witness':{'input_eligible':True,'raw':'UNTRUSTED fixture'}}))
         argv=['market_buyer.py','--shops',str(p/'shops.json'),'--item','G12345678',
               '--budget','6000','--order',str(p/'order.json')]
         with patch('sys.argv',argv), patch.object(mb.time,'time',return_value=self.now), \
@@ -118,6 +119,7 @@ class GoodsTake30Test(unittest.TestCase):
         self.assertEqual(row['state'],'NO_SHOP_IN_STOCK')
         self.assertEqual(row['goods_take30']['arm'],'B')
         self.assertFalse(row['goods_take30']['applied'])
+        self.assertNotIn('goods_take30_witness',row)
 
     def test_treated_prices_do_not_train_either_arm(self):
         import market_buyer as mb
@@ -192,6 +194,125 @@ class GoodsTake30Test(unittest.TestCase):
                 q=dict(self.q,text=text,task=task(text,4000),warranty_h=h)
                 self.assertEqual(gt.reason(order,self.offer,q,(.9,),self.shop,'G12345678',
                     6000,('fixture',q['task']),None),'sku_or_warranty')
+
+    def test_OFF_witness_is_exact_runtime_hash_only_and_never_drives_policy(self):
+        import copy
+        import hashlib
+        self.flag(enabled=False)
+        order=copy.deepcopy(self.order)
+        q=copy.deepcopy(self.q)
+        before=copy.deepcopy(q)
+        baseline={'state':'TASK_STATE_COMPLETED','history':[('you offered',3600)]}
+        with patch.object(gt,'config',side_effect=AssertionError('no measurement IO')), \
+             patch.object(gt,'_journal',side_effect=AssertionError('no measurement journal')):
+            out=gt.negotiate(lambda *a,**kw: baseline,self.md,order,self.offer,q,(.9,),
+                self.shop,'G12345678','fixture','goods',6000,'',resume=('fixture',q['task']))
+        self.assertIs(out,baseline)
+        w=order['_goods_take30_witness']
+        self.assertEqual(w['scope'],'selected_pre_negotiate')
+        self.assertEqual(w['task_sha256'],hashlib.sha256(q['task']['id'].encode()).hexdigest())
+        self.assertEqual(w['fulltext_sha256'],hashlib.sha256(self.text.encode()).hexdigest())
+        self.assertEqual(w['fulltext_len'],len(self.text))
+        self.assertEqual((w['ask'],w['raw_ask_type'],w['list_price'],w['limit']),(4000,'int',10000,6000))
+        self.assertTrue(w['input_eligible'])
+        self.assertIsNone(w['reason'])
+        self.assertEqual(w['window_status'],'unassigned')
+        self.assertIsNone(w['treatment_eligible'])
+        self.assertFalse(w['switch_checked'])
+        self.assertNotIn(gt.KEY,order)
+        self.assertEqual(q,before)
+        self.assertNotIn(self.text,json.dumps(w))
+        self.assertNotIn('"task"',json.dumps(w))
+        import market_buyer as mb
+        row=mb.quote_row('fixture-shop',self.offer,q,6000,'fixture-shop',goods_take30_witness=w)
+        self.assertEqual(row['goods_take30_witness'],w)
+        self.assertEqual({k:v for k,v in row.items() if k!='goods_take30_witness'},
+                         mb.quote_row('fixture-shop',self.offer,q,6000,'fixture-shop'))
+
+    def test_witness_uses_identical_guard_and_recorded_window_not_live_switch(self):
+        import copy
+        self.assign()
+        for text, sw, h, expected in (
+                (self.text,None,None,None),
+                ('G12345678 3-hour warranty',{'S':.32},3.0,None),
+                ('G12345678 3-hour warranty',{'S':.32},2.0,'sku_or_warranty'),
+                ('G12345678 no warranty',{'S':.32},0.0,'sku_or_warranty')):
+            order=copy.deepcopy(self.order)
+            if sw is not None: order['_sw']=sw
+            q=dict(self.q,text=text,warranty_h=h,task=task(text,4000))
+            for now,status in ((self.cfg['start']-1,'before'),(self.now,'within_recorded_window'),
+                               (self.cfg['end'],'expired')):
+                w=gt.witness(order,self.offer,q,(.9,),self.shop,'G12345678',6000,
+                             ('fixture',q['task']),None,now=now)
+                self.assertEqual((w['reason'],w['input_eligible']),(expected,expected is None))
+                self.assertEqual(w['window_status'],status)
+                self.assertFalse(w['switch_checked'])
+                self.assertIsNone(w['treatment_eligible'])
+        overlap=dict(self.order,_our_ask={'arm':'B'})
+        w=gt.witness(overlap,self.offer,self.q,(.9,),self.shop,'G12345678',6000,
+                     ('fixture',self.q['task']),None)
+        self.assertEqual(w['overlap_reason'],'overlapping_trial')
+        for raw in (True,4000.0,'4000',None):
+            q=copy.deepcopy(self.q)
+            if raw is None: q['task']['status']['message'].pop('metadata')
+            else: q['task']['status']['message']['metadata']['ask']=raw
+            w=gt.witness(self.order,self.offer,q,(.9,),self.shop,'G12345678',6000,
+                         ('fixture',q['task']),None)
+            self.assertFalse(w['input_eligible'])
+            self.assertEqual(w['raw_ask_type'],type(raw).__name__)
+
+    def test_witness_failure_is_private_and_food_never_computes_it(self):
+        baseline={'state':'UNKNOWN_RPC_OUTCOME','history':[('you offered',3600)]}
+        with patch.object(gt.buyer,'message_text',side_effect=ValueError('PRIVATE fixture')):
+            out=gt.negotiate(lambda *a,**kw:baseline,self.md,self.order,self.offer,self.q,(.9,),
+                self.shop,'G12345678','fixture','goods',6000,'',resume=('fixture',self.q['task']))
+        self.assertIs(out,baseline)
+        self.assertEqual(self.order['_goods_take30_witness']['reason'],'witness_error')
+        self.assertIsNone(self.order['_goods_take30_witness']['input_eligible'])
+        self.assertNotIn('PRIVATE',json.dumps(self.order['_goods_take30_witness']))
+        food=dict(kind='food')
+        with patch.object(gt,'witness',side_effect=AssertionError('food not measured')):
+            self.assertIs(gt.negotiate(lambda *a,**kw:baseline,self.md,food,self.offer,self.q,
+                (.9,),self.shop,'G12345678','fixture','goods',6000,''),baseline)
+        self.assertNotIn('_goods_take30_witness',food)
+
+    def test_order_record_reuses_selected_witness_without_reparse_or_learning_change(self):
+        import market_buyer as mb
+        from types import SimpleNamespace
+        gt.negotiate(lambda *a,**kw:{},self.md,self.order,self.offer,self.q,(.9,),self.shop,
+                     'G12345678','fixture','goods',6000,'',resume=('fixture',self.q['task']))
+        shop=dict(self.shop,_offer=self.offer,usable=[self.offer],_b=0)
+        other=dict(name='other',_offer=self.offer,usable=[self.offer],_b=0)
+        def record(order):
+            return mb.order_record(order,SimpleNamespace(budget=6000,item='goods'),
+                [shop,other],{shop['name']:self.q,'other':self.q},shop['name'],'choice',
+                shop,'chosen',self.offer,6000,0,{'state':'TASK_STATE_COMPLETED','history':[]},
+                None,{'receipt':None},[],[],False,None,{}, {})
+        with patch.object(mb,'buyer_cfg',return_value={}), patch.object(gt,'witness',
+                side_effect=AssertionError('snapshot once only')):
+            measured=record(self.order)
+            baseline=record({k:v for k,v in self.order.items() if k!='_goods_take30_witness'})
+        w=self.order['_goods_take30_witness']
+        self.assertIs(measured['goods_take30_witness'],w)
+        chosen=next(q for q in measured['quotes'] if q['shop']==shop['name'])
+        self.assertIs(chosen['goods_take30_witness'],w)
+        self.assertNotIn('goods_take30_witness',next(q for q in measured['quotes'] if q['shop']=='other'))
+        stripped=dict(measured)
+        stripped.pop('goods_take30_witness')
+        stripped['quotes']=[{k:v for k,v in q.items() if k!='goods_take30_witness'} for q in measured['quotes']]
+        self.assertEqual(stripped,baseline)
+        # Witness-only rows are baseline prices, not treatments.
+        with patch.object(mb,'recent_orders',return_value=[measured]):
+            asks=mb.recent_asks(self.md,self.now)
+        with patch.object(mb,'recent_orders',return_value=[baseline]):
+            self.assertEqual(mb.recent_asks(self.md,self.now),asks)
+        self.assertEqual(mb.priced([measured]),[measured])
+        with patch.object(mb.records.os,'write',wraps=mb.records.os.write) as write:
+            mb.records.write(self.md,'orders',measured)
+            self.assertEqual(write.call_count,1)
+            self.assertEqual(json.loads(write.call_args.args[1])['goods_take30_witness'],w)
+        # Bound the new fixed-schema overhead, not execution time or market frequency.
+        self.assertLess(len(json.dumps(w).encode()),1200)
 
     def test_B_exact_ask_reaches_real_send(self):
         sent, out = self.run_wire()
@@ -290,6 +411,15 @@ class GoodsTake30Test(unittest.TestCase):
             exec(compile(ast.fix_missing_locations(ast.Module([assignment],type_ignores=[])),
                  '<real-main-negotiate>', 'exec'),env)
             self.assertEqual(send.call_args.args[1], '4000')
+        # Same actual main expression with no policy assignment: baseline wire + measurement only.
+        env['order']={k:v for k,v in self.order.items() if k not in (gt.KEY,'_goods_take30_witness')}
+        with patch.object(buyer,'send',return_value=task('',state='TASK_STATE_COMPLETED')) as send, \
+             patch.object(buyer,'log'), patch.object(gt,'config',side_effect=AssertionError('OFF reader unused')):
+            exec(compile(ast.fix_missing_locations(ast.Module([assignment],type_ignores=[])),
+                 '<real-main-OFF-negotiate>', 'exec'),env)
+            self.assertEqual(send.call_args.args[1],'3600')
+        self.assertTrue(env['order']['_goods_take30_witness']['input_eligible'])
+        self.assertNotIn(gt.KEY,env['order'])
         env['order']={'kind':'food'}
         def unchanged(*args,**kw):
             self.assertEqual(kw['take_at'],6000)
