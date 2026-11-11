@@ -35,6 +35,8 @@ switch_on() preserves default_off and refuses to replace unreadable switches. A 
 To restore the default after default_off, as the seller's user (market), replace the switch with {"enabled": false}
 or delete it once no study is needed; no restart. Remove the margin key to restore today's price.
 Verdict: review/W-20261111-1938-AXPro주기/verdict-food-margin10.md.
+Optional a_share (0.02-0.10) raises arm A too; both arms record a_share/b_share and their applied share.
+With valid a_share, B must be higher and may reach 0.15; without it, A stays unchanged and B is capped at 0.10.
 """
 import hashlib
 import json
@@ -48,6 +50,7 @@ import profit_price
 
 SWITCH = "seller_food_margin.json"
 SHARE, SHARE_LOW, SHARE_HIGH = 0.05, 0.02, 0.10
+STUDY_SHARE_HIGH = 0.15
 MAX_WINDOW_HOURS = 20
 _warned_invalid_default = False
 _warned_unreadable_switch = False
@@ -63,6 +66,13 @@ def _window(start, stop):
 
 def _share_ok(v):
     return _num(v) and SHARE_LOW <= v <= SHARE_HIGH
+
+
+def _study_share_ok(d):
+    share = d.get("share", SHARE)
+    if "a_share" not in d:
+        return _share_ok(share)
+    return _share_ok(d["a_share"]) and _num(share) and d["a_share"] < share <= STUDY_SHARE_HIGH
 
 
 def _read_switch(md):
@@ -92,19 +102,22 @@ def _config_of(d, now):
     if not isinstance(d, dict) or d.get("enabled") is not True:
         return None
     study, salt, share = d.get("study"), d.get("salt"), d.get("share", SHARE)
-    if not (isinstance(study, str) and study and isinstance(salt, str) and salt) or not _share_ok(share):
+    if not (isinstance(study, str) and study and isinstance(salt, str) and salt) or not _study_share_ok(d):
         return None
     start, stop = d.get("start_at"), d.get("stop_at")
     if not _window(start, stop) or not start <= now < stop:
         return None
-    return {"study": study, "salt": salt, "share": float(share), "start_at": start, "stop_at": stop}
+    return {"study": study, "salt": salt, "share": float(share), "start_at": start, "stop_at": stop,
+            **({"a_share": float(d["a_share"])} if "a_share" in d else {})}
 
 
-def switch_on(md, *, study, salt, start_at, hours, share=SHARE):
+def switch_on(md, *, study, salt, start_at, hours, share=SHARE, a_share=None):
     """Write the switch for [start_at, start_at + hours) atomically (0600); ValueError leaves the old file as it was."""
     stop_at = start_at + hours * 3600 if _num(hours) and _num(start_at) else None
     d = {"enabled": True, "study": study, "salt": salt, "share": share, "start_at": start_at, "stop_at": stop_at}
-    if (not (isinstance(study, str) and study and isinstance(salt, str) and salt) or not _share_ok(share)
+    if a_share is not None:
+        d["a_share"] = a_share
+    if (not (isinstance(study, str) and study and isinstance(salt, str) and salt) or not _study_share_ok(d)
             or not _window(start_at, stop_at)):
         raise ValueError("seller_food_margin: bad switch")
     previous, status, error = _read_switch(md)
@@ -179,13 +192,15 @@ def decide(u, q, *, reserve, ask, keep, margin_assignment, pricing=None, md=None
             return reserve, ask, None
         lp = u["list_price"]
         new_reserve, new_ask = reserve, ask
-        if a in ("B", "D"):
-            new_reserve = int(max(reserve, min(math.ceil(round(u["cost"] * (1 + cfg["share"]), 6)), lp)))
+        share = cfg["a_share"] if a == "A" and "a_share" in cfg else cfg["share"]
+        if a in ("B", "D") or "a_share" in cfg:
+            new_reserve = int(max(reserve, min(math.ceil(round(u["cost"] * (1 + share), 6)), lp)))
             new_ask = int(max(ask, new_reserve))
-        return new_reserve, new_ask, {"study": cfg["study"], "arm": a, "share": cfg["share"], "usual_reserve": reserve,
+        return new_reserve, new_ask, {"study": cfg["study"], "arm": a, "share": share, "usual_reserve": reserve,
                                       "usual_ask": ask, "reserve": new_reserve, "ask": new_ask, "list": lp,
                                       "cost": u["cost"], "sku": u.get("sku"), "grade": u.get("grade"),
-                                      "unit": u.get("unit"), "stop_at": cfg["stop_at"]}
+                                      "unit": u.get("unit"), "stop_at": cfg["stop_at"],
+                                      **({"a_share": cfg["a_share"], "b_share": cfg["share"]} if "a_share" in cfg else {})}
     except Exception as e:  # noqa: BLE001 - a broken setting never stops a sale
         print(f"SELLER_FOOD_MARGIN skipped: {type(e).__name__}", file=sys.stderr)
         return reserve, ask, None

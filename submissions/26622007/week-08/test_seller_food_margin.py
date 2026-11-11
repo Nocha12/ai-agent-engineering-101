@@ -51,6 +51,73 @@ class SellerFoodMarginTest(unittest.TestCase):
         self.assertEqual(q["floor"], 30000)                 # ceil(29924 x 1.0025 + 1): 0.25% over cost
         self.assertEqual(q["open"], 30000)                  # the SKU median is under it: the first ask is the floor
 
+    def test_dose_study_raises_both_arms_and_records_both_shares(self):
+        u = unit(cost=6000, list_price=10000)
+        q = {"floor": 6016, "open": 6016}
+        for arm, share, expected in (("A", 0.10, 6600), ("B", 0.15, 6900)):
+            with self.subTest(arm=arm):
+                self.on(salt=self.salt_for(arm, u), share=0.15, a_share=0.10)
+                reserve, ask, rec = self.run_(u, q)
+                self.assertEqual((reserve, ask), (expected, expected))
+                self.assertEqual((rec["arm"], rec["share"], rec["a_share"], rec["b_share"]),
+                                 (arm, share, 0.10, 0.15))
+
+    def test_dose_study_caps_at_list_and_keeps_higher_today(self):
+        for arm in ("A", "B"):
+            for cost, floor, opening, expected in ((9500, 9600, 9700, (10000, 10000)),
+                                                   (10000, 11000, 12000, (11000, 12000))):
+                with self.subTest(arm=arm, cost=cost):
+                    u = unit(cost=cost, list_price=10000)
+                    self.on(salt=self.salt_for(arm, u), share=0.15, a_share=0.10)
+                    self.assertEqual(self.run_(u, {"floor": floor, "open": opening})[:2], expected)
+
+    def test_invalid_dose_switch_falls_back_to_default_or_default_off(self):
+        u = unit()
+        q = self.q(u)
+        pricing = {"price": {"food_reserve_margin": 0.10}}
+        invalid = [{"a_share": bad, "share": 0.15} for bad in (0.5, "x", True, float("nan"), None)]
+        invalid += [{"share": 0.15}, {"share": 0.10, "a_share": 0.10},
+                    {"share": 0.05, "a_share": 0.10}, {"share": 0.151, "a_share": 0.10}]
+        for settings in invalid:
+            with self.subTest(settings=settings):
+                self.on(**settings)
+                self.assertIsNone(fd.config(self.md.name, env={}, now=ON))
+                self.assertEqual(self.run_(u, q, pricing=pricing)[2]["arm"], "D")
+                self.on(default_off=True, **settings)
+                self.assertEqual(self.run_(u, q, pricing=pricing), (30000, 30000, None))
+
+    def test_dose_producer_validates_before_writing_and_preserves_stop(self):
+        path = Path(self.md.name, fd.SWITCH)
+        invalid = [{"a_share": bad, "share": 0.15} for bad in (0.5, "x", True, float("nan"))]
+        invalid += [{"share": 0.15}, {"share": 0.10, "a_share": 0.10},
+                    {"share": 0.05, "a_share": 0.10}, {"share": 0.151, "a_share": 0.10}]
+        for settings in invalid:
+            with self.subTest(settings=settings):
+                with self.assertRaises(ValueError):
+                    fd.switch_on(self.md.name, study="dose", salt="s", start_at=ON, hours=1, **settings)
+                self.assertEqual(list(Path(self.md.name).iterdir()), [])
+        fd.default_off(self.md.name)
+        before = path.read_bytes()
+        with self.assertRaises(ValueError):
+            fd.switch_on(self.md.name, study="dose", salt="s", start_at=ON, hours=1, share=0.15)
+        self.assertEqual(path.read_bytes(), before)
+        d = fd.switch_on(self.md.name, study="dose", salt="s", start_at=ON, hours=1, share=0.15, a_share=0.10)
+        self.assertEqual((d["a_share"], d["share"], d["default_off"]), (0.10, 0.15, True))
+        self.assertEqual(json.loads(path.read_text()), d)
+        self.assertEqual(fd.config(self.md.name, env={}, now=ON)["a_share"], 0.10)
+
+    def test_dose_window_ends_at_default_and_default_cap_stays_ten_percent(self):
+        u = unit(cost=6000, list_price=10000)
+        q = {"floor": 6016, "open": 6016}
+        pricing = {"price": {"food_reserve_margin": 0.10}}
+        self.on(salt=self.salt_for("B", u), share=0.15, a_share=0.10)
+        self.assertEqual(self.run_(u, q, pricing=pricing, now=ON + 3599)[2]["arm"], "B")
+        reserve, ask, rec = self.run_(u, q, pricing=pricing, now=ON + 3600)
+        self.assertEqual((reserve, ask, rec["arm"], rec["share"]), (6600, 6600, "D", 0.10))
+        self.assertEqual(self.run_(u, q, pricing=pricing, env={"SELLER_FOOD_MARGIN": "0"}), (6016, 6016, None))
+        self.assertEqual(self.run_(u, q, pricing={"price": {"food_reserve_margin": 0.15}}, now=ON + 3600),
+                         (6016, 6016, None))
+
     def test_default_food_margin_raises_reserve_and_records_default(self):
         u = unit()
         q = self.q(u)
