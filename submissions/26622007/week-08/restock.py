@@ -45,6 +45,7 @@ import restock_food_stockout
 import restock_fresh_slots
 import restock_turnover_targets
 import restock_window_fast
+import restock_shortage_slot
 import rival_vote
 import shop_forum
 import shop_memory
@@ -1153,6 +1154,8 @@ def main():
         out["buy"] = late_lines(args.state, inv, out.get("buy"), agent_skus)
     owed = sum(w["worst"] * w.get("cash_qty", w["qty"]) for w in waiting)      # lines already sent are bought out of the same cash
     out["buy"] = hard_limits.final_buy(out.get("buy"), inv.get("balance"), catalog, buffer=cfg["cash_buffer"] + owed)
+    out["buy"] = restock_shortage_slot.apply(args.state, out["buy"], inv, model, catalog, waiting,
+        lambda lines: hard_limits.final_buy(keep(lines), inv.get("balance"), catalog, buffer=cfg["cash_buffer"] + owed))
     if out["buy"]:
         try:
             note_sent(args.state, out["buy"][:KIT_LINES], catalog, factors=surge(inv))    # the kit sends no more
