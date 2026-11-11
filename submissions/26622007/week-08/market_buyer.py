@@ -999,7 +999,7 @@ def firm_food_take_turn(baseline, meta, text, history, limit, order, offer, quot
     final buyer guard do not. A repeated/counter message stays the old path.
     """
     if baseline is not None or meta is not None or history or not resume or not FOOD_TAKE_ASK \
-            or order.get("kind") != "food" or shop != "NoHg" or quoted.get("refused") \
+            or order.get("kind") != "food" or shop != "nohaggle-hero" or quoted.get("refused") \
             or quoted.get("ask_src") != "text" or type(limit) is not int or limit <= 0:
         return baseline
     price = firm_food_ask_said(text, offer.get("name"), offer.get("sku"), offer.get("list_price"))
@@ -2600,7 +2600,7 @@ def main():
                     log(f"[band] {shop['name']}: counter {note['taken']} is over my limit {limit} but within {note['ceiling']}: taken")
             taken_firm = firm_food_take_turn(result, meta, text, history, limit,
                                             order, offer, q, resume, shop["name"]) if (r3 and result is None and
-                                            order.get("kind") == "food" and shop["name"] == "NoHg") else result
+                                            order.get("kind") == "food" and shop["name"] == "nohaggle-hero") else result
             if taken_firm is not result:
                 log(f"[firm-food-take] {shop['name']}: {key} exact ask {taken_firm['price']}, limit {limit}")
             return taken_firm

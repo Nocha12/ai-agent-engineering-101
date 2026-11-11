@@ -30,7 +30,7 @@ class FirmFoodTakeTest(unittest.TestCase):
                    args=SimpleNamespace(budget=15900), limit=7972, steps=(.9,),
                    q={"ask": 7021, "ask_src": "text", "refused": None},
                    offer={"name": LABEL, "sku": SKU, "list_price": 11900},
-                   resume=True, shop={"name": "NoHg", "url": "fixture"}, key=SKU, label=LABEL,
+                   resume=True, shop={"name": "nohaggle-hero", "url": "fixture"}, key=SKU, label=LABEL,
                    md="unused-isolated-state", probe_arm=None, discount_arm=None, goods_first_arm=None,
                    log=lambda *a: None)
         env.update(changes)
@@ -75,6 +75,7 @@ class FirmFoodTakeTest(unittest.TestCase):
     def test_only_selected_resumed_food_and_matching_quote_get_the_take(self):
         cases = (
             {"order": {"kind": "goods"}}, {"shop": {"name": "other-shop"}},
+            {"shop": {"name": "NoHg"}},  # report shorthand is not the production shop identifier
             {"resume": False}, {"r3": False}, {"limit": 7000}, {"limit": True},
             {"q": {"ask": 7022, "ask_src": "text"}},
             {"q": {"ask": True, "ask_src": "text"}},
