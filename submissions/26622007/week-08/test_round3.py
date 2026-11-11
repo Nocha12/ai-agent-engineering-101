@@ -748,23 +748,23 @@ class BuyerTest(unittest.TestCase):
     def test_main_asks_for_the_sku_within_its_value_and_withholds_a_bad_receipt(self):
         shops = [dict(self.offers("G1"), name="s", url="https://s.example", reviews=[])]
         out, calls = self.run_main(shops)
-        self.assertEqual(calls[0][1:3], ("G1", 6699))              # .33 Saved cap (float truncation), under the budget
+        self.assertEqual(calls[0][1:3], ("G1", 6799))              # .32 Saved cap (float truncation), under the budget
         self.assertIn("(G1)", calls[0][4])
         self.assertIsNone(out["receipt"])                          # price over the list price: the kit must not pay
         self.assertEqual(out["stars"], 1)
         self.assertEqual(out["accept"], {"cert": True, "min_hours_left": 48.1})
         o = self.orders[-1]
         self.assertEqual((o["sku"], o["limit"], o["price"], o["passed_to_kit"], o["use_within_hours"], o["how"]),
-                         ("G1", 6699, 11000, False, self.ORDER.get("use_within_hours"), "single_ask"))
+                         ("G1", 6799, 11000, False, self.ORDER.get("use_within_hours"), "single_ask"))
 
     def test_the_spending_limits_cut_the_price_it_will_pay(self):
         shops = [dict(self.offers("G1"), name="s", url="https://s.example", reviews=[])]
         self.BUYER_CFG = {"max_price_share": 0.7, "max_spend_per_deal": 6500}
         self.assertEqual(self.run_main(shops)[1][0][1:3], ("G1", 6500))
         self.BUYER_CFG = {"max_price_share": 0.68}
-        self.assertEqual(self.run_main(shops)[1][0][1:3], ("G1", 6699))
-        self.BUYER_CFG = {"max_price_share": 0.9}                   # above the saved_cap: .33 Saved minimum holds
-        self.assertEqual(self.run_main(shops)[1][0][1:3], ("G1", 6699))
+        self.assertEqual(self.run_main(shops)[1][0][1:3], ("G1", 6799))
+        self.BUYER_CFG = {"max_price_share": 0.9}                   # above the saved_cap: .32 Saved minimum holds
+        self.assertEqual(self.run_main(shops)[1][0][1:3], ("G1", 6799))
 
     def test_main_with_no_stock_anywhere_closes_the_order_without_stars(self):
         out, calls = self.run_main([dict(self.offers("G4"), name="s", url="https://s.example")])

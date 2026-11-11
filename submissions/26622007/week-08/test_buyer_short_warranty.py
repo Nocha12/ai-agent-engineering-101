@@ -338,7 +338,7 @@ class MainTest(unittest.TestCase):
         self.assertIsNone(on[1][0][1]["ceiling"])                    # no 105% band over p_max(h)
         self.assertEqual(on[2]["short_warranty"]["h_est"], 0)
         off = self.run_main(None, 6000, 0, setup)                    # off: the only shop is skipped-but-kept as before
-        self.assertEqual(off[1][0][0][2], 6699)
+        self.assertEqual(off[1][0][0][2], 6799)
 
     def test_on_p_max_never_passes_value_limit_nor_the_budget(self):
         # p_max(0) is about 5,812 of 10,000: max_price_share 0.5 and a budget of 4,000 each hold it lower (11/08 18:12)

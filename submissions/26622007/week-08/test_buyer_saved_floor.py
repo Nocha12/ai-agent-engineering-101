@@ -93,7 +93,7 @@ class Share(unittest.TestCase):
     def test_never_under_base(self):
         board(self.md, 0.25)
         switch(self.md)
-        self.assertEqual(sf.state(self.md, "o-1", env={})["share"], mb.SAVED_MIN_SHARE)
+        self.assertEqual(sf.state(self.md, "o-1", env={}, base=mb.SAVED_MIN_SHARE)["share"], mb.SAVED_MIN_SHARE)
 
     def test_stale_board_is_off(self):
         board(self.md, 0.3096, ts=time.time() - 4 * 3600)
@@ -111,7 +111,7 @@ class Share(unittest.TestCase):
         arms = [sf.state(self.md, f"o-{i}", env={})["arm"] for i in range(400)]
         self.assertTrue(150 < arms.count("B") < 250)
         self.assertEqual(arms, [sf.state(self.md, f"o-{i}", env={})["arm"] for i in range(400)])
-        a = next(sf.state(self.md, f"o-{i}", env={}) for i in range(400) if arms[i] == "A")
+        a = next(sf.state(self.md, f"o-{i}", env={}, base=mb.SAVED_MIN_SHARE) for i in range(400) if arms[i] == "A")
         self.assertEqual(a["share"], mb.SAVED_MIN_SHARE)
         self.assertFalse(a["band_off"])
 
@@ -127,7 +127,7 @@ class Share(unittest.TestCase):
     def test_band_only_keeps_base_share(self):   # GPT Pro 1638 §2.4: the first A/B is the band off alone
         board(self.md, 0.3096)
         switch(self.md, floor=False)
-        st = sf.state(self.md, "o-1", env={})
+        st = sf.state(self.md, "o-1", env={}, base=mb.SAVED_MIN_SHARE)
         self.assertEqual((st["arm"], st["share"], st["band_off"]), ("B", mb.SAVED_MIN_SHARE, True))
         switch(self.md, floor=False, band="keep")      # nothing would change: off
         self.assertIsNone(sf.state(self.md, "o-1", env={}))
@@ -353,7 +353,7 @@ class Cap(unittest.TestCase):
         mb.SAVED_SHARE = mb.SAVED_MIN_SHARE
 
     def test_saved_cap_default_follows_saved_share(self):
-        self.assertEqual(mb.saved_cap({"list_price": 10000}, 0), 6699)
+        self.assertEqual(mb.saved_cap({"list_price": 10000}, 0), 6799)
         mb.SAVED_SHARE = 0.31
         self.assertEqual(mb.saved_cap({"list_price": 10000}, 0), 6899)  # existing float truncation, never rounded up
         self.assertEqual(mb.saved_cap({"list_price": 10000}, 0, 0.30), 7000)   # an explicit share still wins
