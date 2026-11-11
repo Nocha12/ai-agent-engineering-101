@@ -91,6 +91,7 @@ import deep_lowball_trial
 import at_floor_exact_trial
 import quote_hold
 import seller_terminal_observation
+import seller_send_observation
 
 READER_TRIAL = seller_reader_trial.Trial()
 CONCESSION_TRIAL = seller_concession_trial.Trial()
@@ -1051,9 +1052,12 @@ class Seller(AgentExecutor):
             if deal.get("unit"):      # a deal on a unit counts once it is paid (StockBook.settle -> self.paid)
                 self.stock.agree(deal["unit"], {"task": task.id, "deal": deal, "price": int(offer),
                                                 "expires_at": deal.get("expires_at")})
-            await up.add_artifact(parts=[new_data_part(receipt)], name="receipt")
+            send_observation = seller_send_observation.SendObservation(task.id, deal.get("unit"), deal["id"])
+            with send_observation.phase('artifact'):
+                await up.add_artifact(parts=[new_data_part(receipt)], name="receipt")
             # no ask for a 5-star review: choo-chu gave 3 stars to all 4 deals "the shop pushed for a 5-star review" (GPT Pro 11/06 07:30 A1)
-            await up.complete(say(f"Deal: {deal['name']} at {offer}. Thank you!"))
+            with send_observation.phase('complete'):
+                await up.complete(say(f"Deal: {deal['name']} at {offer}. Thank you!"))
             self.remember(task.id, deal, "agreed" if deal.get("unit") else "deal", int(offer))
             log(f"task {task.id[:8]} -> COMPLETED {deal['id']} at {offer}")
             del self.open[task.id]
