@@ -51,6 +51,7 @@ SWITCH = "seller_food_margin.json"
 SHARE, SHARE_LOW, SHARE_HIGH = 0.05, 0.02, 0.10
 MAX_WINDOW_HOURS = 20
 _warned_invalid_default = False
+_warned_unreadable_switch = False
 
 
 def _num(v):
@@ -65,6 +66,15 @@ def _share_ok(v):
     return _num(v) and SHARE_LOW <= v <= SHARE_HIGH
 
 
+def _read_switch(md):
+    try:
+        return json.loads((Path(md) / SWITCH).read_text(encoding="utf-8")), "readable"
+    except FileNotFoundError:
+        return None, "missing"
+    except (OSError, ValueError):
+        return None, "unreadable"
+
+
 def config(md=None, env=None, now=None):
     """{"study", "salt", "share", "start_at", "stop_at"} with the switch on at now, else None."""
     env = os.environ if env is None else env
@@ -72,10 +82,11 @@ def config(md=None, env=None, now=None):
     if str(env.get("SELLER_FOOD_MARGIN") or "").strip().lower() in ("0", "false", "no", "off"):
         return None
     md = Path(md) if md is not None else Path(env.get("MARKET_DIR") or Path(__file__).parent / ".market")
-    try:
-        d = json.loads((md / SWITCH).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
+    d, _ = _read_switch(md)
+    return _config_of(d, now)
+
+
+def _config_of(d, now):
     if not isinstance(d, dict) or d.get("enabled") is not True:
         return None
     study, salt, share = d.get("study"), d.get("salt"), d.get("share", SHARE)
@@ -94,6 +105,9 @@ def switch_on(md, *, study, salt, start_at, hours, share=SHARE):
     if (not (isinstance(study, str) and study and isinstance(salt, str) and salt) or not _share_ok(share)
             or not _window(start_at, stop_at)):
         raise ValueError("seller_food_margin: bad switch")
+    previous, _ = _read_switch(md)
+    if isinstance(previous, dict) and previous.get("default_off") is True:
+        d["default_off"] = True
     return _write_switch(md, d)
 
 
@@ -129,18 +143,18 @@ def arm(cfg, unit):
 def decide(u, q, *, reserve, ask, keep, margin_assignment, pricing=None, md=None, env=None, now=None):
     """(reserve, ask, record|None). u: the unit; q: profit_price.quote()'s result; reserve and ask: the talk's so far.
     Today's reserve and ask unless arm B raises them."""
-    global _warned_invalid_default
+    global _warned_invalid_default, _warned_unreadable_switch
     try:
         env = os.environ if env is None else env
         if str(env.get("SELLER_FOOD_MARGIN") or "").strip().lower() in ("0", "false", "no", "off"):
             return reserve, ask, None
-        cfg = config(md, env, now)
+        switch_dir = Path(md) if md is not None else Path(env.get("MARKET_DIR") or Path(__file__).parent / ".market")
+        switch, status = _read_switch(switch_dir)
+        cfg = _config_of(switch, time.time() if now is None else now)
         if cfg is None:
-            switch_dir = Path(md) if md is not None else Path(env.get("MARKET_DIR") or Path(__file__).parent / ".market")
-            try:
-                switch = json.loads((switch_dir / SWITCH).read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                switch = None
+            if status == "unreadable" and not _warned_unreadable_switch:
+                print("SELLER_FOOD_MARGIN switch unreadable; default applies", file=sys.stderr)
+                _warned_unreadable_switch = True
             if isinstance(switch, dict) and switch.get("default_off") is True:
                 return reserve, ask, None
             price_cfg = profit_price.cfg_of(pricing)

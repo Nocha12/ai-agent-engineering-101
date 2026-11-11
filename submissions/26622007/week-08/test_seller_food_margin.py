@@ -130,6 +130,58 @@ class SellerFoodMarginTest(unittest.TestCase):
                                  (30000, 30000, None))
             self.assertEqual(stderr.getvalue().count("SELLER_FOOD_MARGIN invalid price.food_reserve_margin"), 1)
 
+    def test_unreadable_switch_warns_once_and_keeps_default(self):
+        u = unit()
+        q = self.q(u)
+        pricing = {"price": {"food_reserve_margin": 0.10}}
+        warning = "SELLER_FOOD_MARGIN switch unreadable; default applies\n"
+        for error in (PermissionError("fixture"), OSError("fixture"), ValueError("bad JSON")):
+            with self.subTest(error=type(error).__name__), mock.patch.object(
+                    fd, "_warned_unreadable_switch", False, create=True), mock.patch(
+                    "sys.stderr", new_callable=io.StringIO) as stderr:
+                with mock.patch.object(Path, "read_text", side_effect=error):
+                    for _ in range(2):
+                        self.assertEqual(self.run_(u, q, pricing=pricing)[2]["arm"], "D")
+                self.assertEqual(stderr.getvalue(), warning)
+
+    def test_missing_switch_keeps_default_silently(self):
+        with mock.patch.object(fd, "_warned_unreadable_switch", False, create=True), mock.patch(
+                "sys.stderr", new_callable=io.StringIO) as stderr:
+            rec = self.run_(unit(), self.q(unit()), pricing={"price": {"food_reserve_margin": 0.10}})[2]
+            self.assertEqual(rec["arm"], "D")
+            self.assertEqual(stderr.getvalue(), "")
+
+    def test_switch_on_preserves_default_stop_after_study_ends(self):
+        fd.default_off(self.md.name)
+        d = fd.switch_on(self.md.name, study="finite-study", salt=self.salt_for("B"),
+                         start_at=ON, hours=1)
+        self.assertIs(d.get("default_off"), True)
+        self.assertIsNotNone(fd.config(self.md.name, env={}, now=ON))
+        u = unit()
+        q = self.q(u)
+        pricing = {"price": {"food_reserve_margin": 0.10}}
+        rec = self.run_(u, q, pricing=pricing)[2]
+        self.assertEqual((rec["study"], rec["arm"]), ("finite-study", "B"))
+        self.assertEqual(self.run_(u, q, pricing=pricing, now=ON + 3600), (30000, 30000, None))
+
+    def test_decide_reads_one_switch_snapshot_per_quote(self):
+        u = unit()
+        q = self.q(u)
+        pricing = {"price": {"food_reserve_margin": 0.10}}
+        read_text = Path.read_text
+        for contents in (None, '{"enabled": false}', '{"default_off": true}', 'bad JSON'):
+            with self.subTest(contents=contents):
+                path = Path(self.md.name, fd.SWITCH)
+                if contents is not None:
+                    path.write_text(contents)
+                with mock.patch.object(Path, "read_text", autospec=True, side_effect=read_text) as reader:
+                    self.run_(u, q, pricing=pricing)
+                    self.assertEqual(reader.call_count, 1)
+        self.on(salt=self.salt_for("B"))
+        with mock.patch.object(Path, "read_text", autospec=True, side_effect=read_text) as reader:
+            self.assertEqual(self.run_(u, q, pricing=pricing)[2]["arm"], "B")
+            self.assertEqual(reader.call_count, 1)
+
     def test_default_ineligible_talks_and_env_off_unchanged(self):
         u = unit()
         q = self.q(u)
