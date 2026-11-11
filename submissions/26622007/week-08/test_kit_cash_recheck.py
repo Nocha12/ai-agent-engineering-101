@@ -124,10 +124,7 @@ class KitCashRecheckTest(unittest.TestCase):
         self.assertEqual(posts, ["G1"])
         m = Market(1299999, cost=150000)
         self.assertEqual(run(m, {"buy": BUY[:1], "cash": CASH})[0], [])
-        def drain(market):
-            market.balance = 1100000
         m = Market(5000000, script=[500])                   # a refusal that is not a 429: the next line reads the balance
-        m.script[0] = 500
         posts, logs = run(m, {"buy": BUY[:2], "cash": CASH})
         self.assertEqual(posts, ["G1", "G2"])
         self.assertEqual([c[1] for c in m.calls[:4]], ["/api/inventory", "/api/supply", "/api/inventory", "/api/supply"])

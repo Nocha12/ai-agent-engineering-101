@@ -40,6 +40,7 @@ import measure
 import market_model
 import opening
 import profit_price
+import restock_breadth
 import restock_fresh_slots
 import restock_turnover_targets
 import restock_window_fast
@@ -923,8 +924,8 @@ def carry_lines(inv, catalog, demand, cfg, model, breaks, waiting, sent, hold):
 
 def window_fast_arm(state, cfg, inv, now=None):
     """(arm, label) for the supply window inventory.json names: ("B", "default") when pricing.json restock.window_fast
-    is true (the rule for every window since window-fast-1110-v2's verdict: 13.8 SKU lines a window against 12.2 over
-    32 windows), else the study's arm and name while its switch is on, else (None, None)."""
+    is true (false as shipped: 13.8 SKU lines a window against 12.2 over 32 windows was measured, but the economic
+    verdict is open), else the study's arm and name while its switch is on, else (None, None)."""
     if str(os.environ.get("RESTOCK_WINDOW_FAST") or "").strip().lower() in ("0", "false", "no", "off"):
         return None, None       # the stop in the environment holds for the rule as for the study (review 9d5c7b1 M4)
     if cfg.get("window_fast") is True:
@@ -1026,6 +1027,11 @@ def main():
         print(f"[restock] turnover_targets {cfg['turnover_targets']['study']}: {len(raised)} listed SKUs with a larger target: "
               + ", ".join(f"{sku} {item['target']}->{item['boosted']}" for sku, item in sorted(raised.items())),
               file=sys.stderr, flush=True)
+    cfg["breadth"] = restock_breadth.config(args.state)
+    if cfg["breadth"]:
+        cfg["priority_skus"], cfg["sku_target_units"], added = restock_breadth.listing(cfg)
+        print(f"[restock] breadth {cfg['breadth']['study']}: {len(added)} SKUs listed for the window: "
+              + ", ".join(f"{sku} x{units}" for sku, units in added.items()), file=sys.stderr, flush=True)
     if cfg["fresh_slots"]:
         _, moved = restock_fresh_slots.counted([u for u in inv.get("units") or [] if isinstance(u, dict)
                                                 and not gone(u, time.time())], cfg, catalog, surge(inv))
