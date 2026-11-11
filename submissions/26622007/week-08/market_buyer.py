@@ -2481,8 +2481,9 @@ def main():
             shop = best
             log(f"[choose] {shop['url']}: {shop['name']} - {reason}")
         stages["quotes"] = time.time()
-    offer = (buyer_goods_risk_sku30.prepare_final(shop, args.budget, pick_offer)
-             if buyer_goods_risk_sku30.KEY in shop and not gave_up else selected_offer(shop, args.budget)) if r3 else None
+    if r3 and not gave_up and buyer_goods_risk_sku30.KEY in shop:
+        buyer_goods_risk_sku30.prepare_final(shop, args.budget, pick_offer)  # bind only; dispatch is recorded by negotiate()
+    offer = selected_offer(shop, args.budget) if r3 else None
     key = offer["sku"] if r3 else args.item     # prices are comparable within a SKU, not within a category
     label = offer["name"] if r3 else args.item
     chance = None

@@ -277,12 +277,13 @@ class RiskSkuCandidateTest(unittest.TestCase):
         self.flag()
         tree=ast.parse(Path(mb.__file__).read_text())
         main=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='main')
-        assignment=next(n for n in ast.walk(main) if isinstance(n,ast.Assign) and
-                        any(isinstance(t,ast.Name) and t.id=='offer' for t in n.targets))
+        index=next(i for i,n in enumerate(main.body) if isinstance(n,ast.Assign) and
+                   any(isinstance(t,ast.Name) and t.id=='offer' for t in n.targets))
+        final_selection=main.body[index-1:index+1]  # actual preparation statement and original final-offer seam
         with patch.object(trial.time,'time',return_value=2000000001):
             self.reserve()
             env=dict(mb.__dict__,shop=self.shops[0],args=SimpleNamespace(budget=12000),r3=True,gave_up=False)
-            exec(compile(ast.fix_missing_locations(ast.Module([assignment],type_ignores=[])),'<actual-final-offer>','exec'),env)
+            exec(compile(ast.fix_missing_locations(ast.Module(final_selection,type_ignores=[])),'<actual-final-offer>','exec'),env)
             chosen=env['offer']
             self.assertEqual(chosen['sku'],'G22222222')
             self.assertEqual(self.shops[0][trial.KEY]['locked'],'G22222222')
