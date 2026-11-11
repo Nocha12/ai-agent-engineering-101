@@ -41,6 +41,7 @@ import market_model
 import opening
 import profit_price
 import restock_breadth
+import restock_demand_catchup
 import restock_food_stockout
 import restock_fresh_slots
 import restock_turnover_targets
@@ -233,6 +234,7 @@ def plan(inv, catalog, demand, cfg, model=None, breaks=None, waiting=()):
     picks = []
     if active:      # the caps first, over the whole ranked list, then the line limit: a line the food cap empties is
         ranked = wanted(model, catalog, have_sku, balance, cfg, hours_left, surge(inv))   # refilled by the next one that fits
+        ranked = restock_demand_catchup.adjust(ranked, model, catalog, have_sku, balance, cfg, hours_left, surge(inv), worst)
         ranked = fill_listed(ranked, model, catalog, have_sku, cfg, surge(inv), hours_left, breaks)
         # proven / priority SKUs first, so the guard gives them the stock-cost room and the line limit cannot cut them:
         # ranked per won a mattress came below the cut (04:59 run left out G1515d951 that the guard allowed 3 of, and
@@ -745,7 +747,7 @@ def agent_turn(state, inv, catalog, demand, cfg, model, decide=agent_loop.decide
     path = os.path.join(state, "restock_queue.json")
     q = load(path, {"at": 0, "lines": []})
     if time.time() - q["at"] >= (cfg["agent_every_minutes"] if due_minutes is None else due_minutes) * 60:
-        proposal = plan(inv, catalog, demand, {**cfg, "max_lines": cfg["agent_max_lines"]}, model)
+        proposal = plan(inv, catalog, demand, {**cfg, "max_lines": cfg["agent_max_lines"], "demand_catchup": None}, model)
         results = decision_memory.outcomes(state, inv)
         agent_memory.learn_from_outcomes(state, results, catalog)
         try:
@@ -1021,6 +1023,7 @@ def main():
     pricing = load("pricing.json", {})
     cfg = hard_limits.clamp_cfg("restock", {**DEFAULTS, **pricing.get("restock", {})})
     catalog = load(os.path.join(args.state, "catalog.json"), {})
+    cfg["demand_catchup"] = restock_demand_catchup.config(args.state, inv)
     cfg["fresh_slots"] = restock_fresh_slots.config(args.state)      # its own switch file, None when off: today's count
     cfg["fresh_now"] = time.time()                                   # the run's one clock for that count
     cfg["turnover_targets"] = restock_turnover_targets.config(args.state)
@@ -1164,6 +1167,7 @@ def main():
                 and not (load(os.path.join(args.state, "restock_queue.json"), {}).get("lines") or []):
             carry = carry_lines(inv, catalog, demand, cfg, model, breaks, waiting, out["buy"][:KIT_LINES], hold)
         restock_window_fast.save_carry(args.state, inv, carry)
+    restock_demand_catchup.record(args.state, cfg["demand_catchup"], out["buy"][:KIT_LINES])
     cash = cash_note(out["buy"][:KIT_LINES], inv, catalog, cfg["cash_buffer"])     # the kit checks each line against it again
     if cash:
         out["cash"] = cash
