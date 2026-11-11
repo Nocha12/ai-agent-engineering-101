@@ -29,12 +29,13 @@ study.
 Switch: .market/seller_food_margin.json {"enabled": true, "study": "<id>", "salt": "<salt>", "share": 0.05,
 "start_at": <epoch>, "stop_at": <epoch>}; on only in [start_at, stop_at), a window of at most MAX_WINDOW_HOURS.
 Quote order: SELLER_FOOD_MARGIN=0 keeps today's price; an active study uses A/B; otherwise default_off: true keeps
-today's price; otherwise valid price.food_reserve_margin (0.02-0.10) applies B pricing as arm D; else today's price.
+today's price; otherwise valid price.food_reserve_margin (0.02-0.15) applies B pricing as arm D; else today's price.
 A missing switch allows D; an unreadable switch also allows D and warns once per process. Quotes never raise.
 switch_on() preserves default_off and refuses to replace unreadable switches. A new salt/share needs a new study id.
 To restore the default after default_off, as the seller's user (market), replace the switch with {"enabled": false}
 or delete it once no study is needed; no restart. Remove the margin key to restore today's price.
 Verdict: review/W-20261111-1938-AXPro주기/verdict-food-margin10.md.
+Default .15 since 11/11 (food-margin15-1111, verdict-food-margin15.md)
 Optional a_share (0.02-0.10) raises arm A too; both arms record a_share/b_share and their applied share.
 With valid a_share, B must be higher and may reach 0.15; without it, A stays unchanged and B is capped at 0.10.
 """
@@ -51,6 +52,7 @@ import profit_price
 SWITCH = "seller_food_margin.json"
 SHARE, SHARE_LOW, SHARE_HIGH = 0.05, 0.02, 0.10
 STUDY_SHARE_HIGH = 0.15
+DEFAULT_SHARE_HIGH = STUDY_SHARE_HIGH
 MAX_WINDOW_HOURS = 20
 _warned_invalid_default = False
 _warned_unreadable_switch = False
@@ -176,7 +178,7 @@ def decide(u, q, *, reserve, ask, keep, margin_assignment, pricing=None, md=None
                 return reserve, ask, None
             price_cfg = profit_price.cfg_of(pricing)
             share = price_cfg.get("food_reserve_margin")
-            if _share_ok(share):
+            if _num(share) and SHARE_LOW <= share <= DEFAULT_SHARE_HIGH:
                 cfg = {"study": "default", "share": float(share), "stop_at": None}
             elif "food_reserve_margin" in price_cfg and not _warned_invalid_default:
                 print("SELLER_FOOD_MARGIN invalid price.food_reserve_margin; keeping today's price", file=sys.stderr)

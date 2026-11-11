@@ -106,7 +106,7 @@ class SellerFoodMarginTest(unittest.TestCase):
         self.assertEqual(json.loads(path.read_text()), d)
         self.assertEqual(fd.config(self.md.name, env={}, now=ON)["a_share"], 0.10)
 
-    def test_dose_window_ends_at_default_and_default_cap_stays_ten_percent(self):
+    def test_dose_window_ends_at_configured_default(self):
         u = unit(cost=6000, list_price=10000)
         q = {"floor": 6016, "open": 6016}
         pricing = {"price": {"food_reserve_margin": 0.10}}
@@ -115,8 +115,8 @@ class SellerFoodMarginTest(unittest.TestCase):
         reserve, ask, rec = self.run_(u, q, pricing=pricing, now=ON + 3600)
         self.assertEqual((reserve, ask, rec["arm"], rec["share"]), (6600, 6600, "D", 0.10))
         self.assertEqual(self.run_(u, q, pricing=pricing, env={"SELLER_FOOD_MARGIN": "0"}), (6016, 6016, None))
-        self.assertEqual(self.run_(u, q, pricing={"price": {"food_reserve_margin": 0.15}}, now=ON + 3600),
-                         (6016, 6016, None))
+        reserve, ask, rec = self.run_(u, q, pricing={"price": {"food_reserve_margin": 0.15}}, now=ON + 3600)
+        self.assertEqual((reserve, ask, rec["arm"], rec["share"]), (6900, 6900, "D", 0.15))
 
     def test_default_food_margin_raises_reserve_and_records_default(self):
         u = unit()
@@ -135,7 +135,18 @@ class SellerFoodMarginTest(unittest.TestCase):
         u = unit()
         rec = self.run_(u, self.q(u), pricing=pricing)[2]
         self.assertIsNotNone(rec)
-        self.assertEqual((rec["arm"], rec["share"]), ("D", 0.10))
+        self.assertEqual((rec["arm"], rec["share"]), ("D", 0.15))
+
+    def test_default_fifteen_percent_caps_at_list_and_never_lowers_today(self):
+        pricing = {"price": {"food_reserve_margin": 0.15}}
+        for cost, floor, opening, expected in ((6000, 6016, 7080, (6900, 7080)),
+                                               (9500, 9600, 9700, (10000, 10000)),
+                                               (10000, 11000, 12000, (11000, 12000))):
+            with self.subTest(cost=cost):
+                result = self.run_(unit(cost=cost, list_price=10000),
+                                   {"floor": floor, "open": opening}, pricing=pricing)
+                self.assertEqual(result[:2], expected)
+                self.assertEqual((result[2]["arm"], result[2]["share"]), ("D", 0.15))
 
     def test_default_caps_at_list_and_never_lowers_today(self):
         pricing = {"price": {"food_reserve_margin": 0.10}}
@@ -192,7 +203,7 @@ class SellerFoodMarginTest(unittest.TestCase):
         with mock.patch.object(fd, "_warned_invalid_default", False, create=True), mock.patch("sys.stderr", stderr):
             self.run_(u, q, pricing={"price": {}})
             self.assertEqual(stderr.getvalue(), "")
-            for bad in (True, 0.11, "0.10", float("nan")):
+            for bad in (True, 0.1500001, 0.16, "0.10", float("nan")):
                 self.assertEqual(self.run_(u, q, pricing={"price": {"food_reserve_margin": bad}}),
                                  (30000, 30000, None))
             self.assertEqual(stderr.getvalue().count("SELLER_FOOD_MARGIN invalid price.food_reserve_margin"), 1)
@@ -306,7 +317,7 @@ class SellerFoodMarginTest(unittest.TestCase):
         u = unit()
         q = self.q(u)
         for pricing in (None, {}, {"price": {}}, *({"price": {"food_reserve_margin": bad}}
-                        for bad in (0.01, 0.11, True, float("nan"), "0.10", None))):
+                        for bad in (0.01, 0.1500001, 0.16, True, float("nan"), "0.10", None))):
             with self.subTest(pricing=pricing):
                 self.assertEqual(self.run_(u, q, pricing=pricing), (q["floor"], q["open"], None))
 
