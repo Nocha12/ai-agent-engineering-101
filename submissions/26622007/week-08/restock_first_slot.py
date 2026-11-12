@@ -5,6 +5,7 @@ The finite reader keeps its original S/E; the normal control is fail-closed and
 has its own kill and observation file. A and absent/expired finite switches keep
 the baseline unless the independent normal control is enabled. Proposals never
 prove kit/server acceptance.
+Switch: .market/restock_first_slot_default.json
 """
 import json
 import os
