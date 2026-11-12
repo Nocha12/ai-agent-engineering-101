@@ -1,7 +1,10 @@
-"""Finite, default-off first-stock transmission-slot strategy.
+"""Finite first-slot study and separately controlled adopted normal policy.
 
-One separately guarded food unit leads B. A and absent/expired switches do not
-change selection. This is a proposal, never proof of kit/server acceptance.
+One separately guarded food unit leads finite B or the enabled normal policy.
+The finite reader keeps its original S/E; the normal control is fail-closed and
+has its own kill and observation file. A and absent/expired finite switches keep
+the baseline unless the independent normal control is enabled. Proposals never
+prove kit/server acceptance.
 """
 import json
 import os

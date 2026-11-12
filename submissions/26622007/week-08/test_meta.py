@@ -896,6 +896,27 @@ class HarnessCycleTest(unittest.TestCase):
         self.assertIn("seller_warranty_trial.json", self.git("status", "--porcelain"))
         self.assertEqual(open(os.path.join(self.root, ".market", "buyer_food_shelf.json")).read(), '{"enabled": true}\n')
 
+    def test_normal_first_slot_control_flip_rejects_model_code_and_preserves_owner_setting(self):
+        # A normal policy's own kill is a switch too; .market runtime staging
+        # protection alone cannot detect a policy change while the model runs.
+        relative = ".market/restock_first_slot_default.json"
+        path = os.path.join(self.root, relative)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        off = json.dumps({"enabled": False, "policy": "first-slot-default-v1", "sku": "G022ce883"})
+        with open(path, "w") as f:
+            f.write(off)
+        for enabled in (True, False):
+            changed = json.dumps({"enabled": enabled, "policy": "first-slot-default-v1", "sku": "G022ce883"})
+            with mock.patch.dict(os.environ, {"FAKE_SIDE": json.dumps({relative: changed})}):
+                rec = self.go("good")
+            self.assertEqual(rec["status"], "rejected", rec.get("problems"))
+            self.assertEqual(rec["switches_changed"], [relative])
+            self.assertIn("not the model's to set", rec["problems"][0])
+            self.assertFalse(self.exists())
+            with open(path) as f:
+                self.assertEqual(f.read(), changed, "the owner's ON/OFF must not be undone")
+            self.assertEqual(self.git("ls-files", "--", "changed.py"), "")
+
     def test_every_study_switch_is_watched(self):
         # independent re-review 0738-meta: 8 .market/ switches were missing from SWITCHES, so a model edit of them passed
         here, found = os.path.dirname(os.path.abspath(mh.__file__)), set()

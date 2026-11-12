@@ -70,6 +70,7 @@ SWITCHES = ("seller_warranty_trial.json", ".market/sol_seller_margin_v2/controll
                                         "saved_floor", "shop_profile", "short_warranty", "warranty_said"))
 SWITCHES += (".market/single_price/config.json", ".market/price_first/config.json")
 SWITCHES += (".market/restock_first_slot.json",)  # separate finite transmission-slot study
+SWITCHES += (".market/restock_first_slot_default.json",)  # adopted policy belongs to its owner
 SWITCHES += (".market/restock_first_stock.json",)  # finite supply allocation trial
 SWITCHES += (".market/restock_demand_catchup.json",)  # finite quantity allocation belongs to its owner
 SWITCHES += (".market/market_ref_read.json",)   # market_ref_read.py (지시23 11/10)
