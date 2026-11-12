@@ -17,6 +17,7 @@ import os
 import time
 import buyer_goods_risk_sku30
 import buyer_goods_quote_yield30
+import buyer_goods_quote_inquiry30
 
 SWITCH = "buyer_b3b1.json"
 ACCEPT_SHARE = .92
@@ -81,7 +82,7 @@ def paid_rates(md, now=None, hours=RATE_HOURS):
         tries = {}
         for r in _tail(os.path.join(md, "measure", "orders.jsonl")):
             ts = r.get("ts")
-            if buyer_goods_risk_sku30.applied_b(r) or buyer_goods_quote_yield30.applied_b(r):
+            if buyer_goods_risk_sku30.applied_b(r) or buyer_goods_quote_yield30.applied_b(r) or buyer_goods_quote_inquiry30.applied_b(r):
                 continue
             if r.get("passed_to_kit") is True and isinstance(r.get("shop"), str) and isinstance(r.get("order"), str) and \
                     r["order"] in paid and type(ts) in (int, float) and now - hours * 3600 <= ts <= now:

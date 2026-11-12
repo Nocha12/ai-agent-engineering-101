@@ -80,6 +80,7 @@ import buyer_goods_ladder
 import buyer_goods_take30
 import buyer_goods_risk_sku30
 import buyer_goods_quote_yield30
+import buyer_goods_quote_inquiry30
 import buyer_food_shelf
 import buyer_rank_pg
 import buyer_shop_profile
@@ -278,7 +279,7 @@ def priced(trades):
     return buyer_moss_first.priced(
         buyer_saved_floor.priced(buyer_food_ladder.priced(buyer_goods_grade.priced(buyer_goods_ladder.priced(
             [t for t in trades if not buyer_goods_take30.applied_b(t) and not buyer_goods_risk_sku30.applied_b(t)
-             and not buyer_goods_quote_yield30.applied_b(t)])))))
+             and not buyer_goods_quote_yield30.applied_b(t) and not buyer_goods_quote_inquiry30.applied_b(t)])))))
 
 
 def my_history(memory, name):
@@ -1140,7 +1141,7 @@ def quote(shop, label, key, order, out, ctl=None):
         member_used = request != original
         if member_used:
             log(f"[member-price] using paid code for {shop['name']} at its issuing RPC")
-        t = buyer_send(iface["url"], request)
+        t = buyer_goods_quote_inquiry30.send(order, shop, request, iface["url"], buyer_send, ctl)
         if t is None:
             return
         text = buyer_message_text(t)
@@ -1257,7 +1258,7 @@ def recent_orders(md, now, hours):
         except ValueError:
             continue
         if (isinstance(r, dict) and isinstance(r.get("ts"), (int, float)) and now - hours * 3600 <= r["ts"] <= now
-                and not buyer_goods_risk_sku30.applied_b(r) and not buyer_goods_quote_yield30.applied_b(r)):
+                and not buyer_goods_risk_sku30.applied_b(r) and not buyer_goods_quote_yield30.applied_b(r) and not buyer_goods_quote_inquiry30.applied_b(r)):
             out.append(r)
     return out
 
@@ -1469,6 +1470,55 @@ def close_prefetch(pre):
         cancel_quietly(dict(q, closed=False), n)
 
 
+def quote_inquiry_warranty_reason(order, name):
+    """Qualify only the new inquiry; never change normal warranty policy."""
+    sw = order.get("_sw")
+    if sw is None:
+        return None
+    number = buyer_goods_quote_inquiry30.number
+    if (not isinstance(sw, dict) or not number(sw.get("S")) or not 0 < sw["S"] < 1 or
+            not number(sw.get("buffer")) or sw["buffer"] <= 0 or not isinstance(sw.get("hist"), dict) or
+            (name in sw["hist"] and not number(sw["hist"][name])) or
+            ("zero_hist" in sw and (not isinstance(sw["zero_hist"], (list, tuple, set, frozenset)) or
+                                   not all(isinstance(n, str) for n in sw["zero_hist"])))):
+        return "warranty_state_unknown"
+    if sw.get("block_zero", True) is not True:
+        return "zero_guard_disabled"
+    if sw.get("said") is not None:
+        return "warranty_trial"
+    if buyer_short_warranty.zero_expected(sw, name, {}):
+        return "zero_warranty"
+    return None
+
+
+def quote_inquiry_cap(shop, offer, order, budget):
+    """The existing guards, not a new price policy or a promise to pay."""
+    reason = quote_inquiry_warranty_reason(order, shop["name"])
+    if reason is not None:
+        ctx = order.get(buyer_goods_quote_inquiry30.KEY)
+        if isinstance(ctx, dict):
+            with ctx["lock"]:
+                ctx["note"]["skip"] = reason  # one bounded enum, never a per-quote list
+        return None
+    b = shop.get("_b")
+    limits = [value_limit(offer, budget, b, buyer_cfg()), saved_cap(offer, b)]
+    sc = short_cap(offer, b, order, shop["name"], {}, shop)
+    if sc is not None:
+        limits.append(sc)
+    return min(limits) if all(type(v) is int and v >= 0 for v in limits) else None
+
+
+def quote_inquiry_conflict(order):
+    ctx = order.get(buyer_goods_quote_inquiry30.KEY)
+    if not isinstance(ctx, dict):
+        return True
+    md = ctx["md"]
+    return (any(order.get(k) for k in ("_goods_take30", "_stock_evidence", "_goods_extra_quote_probe",
+        "_quote_alignment", "_our_ask", "_moss_first", "_final_m1_window", "_goods_grade", "_goods_ladder", "_saved_floor")) or
+        any(m.config(md) is not None for m in (buyer_goods_grade, buyer_goods_ladder, buyer_goods_risk_sku30,
+            buyer_goods_take30, buyer_saved_floor, buyer_goods_quote_yield30)))
+
+
 def start_quotes(shops, order, budget, chance_of, got, ctl):
     """Starts one quote thread per shop now, into got; returns {name: thread} for best_quote(pre=...).
     The market hands a buyer one open order at a time and the next one 20 s after the last at the earliest (ledger
@@ -1490,7 +1540,12 @@ def start_quotes(shops, order, budget, chance_of, got, ctl):
     threads = {}
     for s in buyer_goods_quote_yield30.dispatch_shops(order, shops, budget):
         o = buyer_goods_risk_sku30.dispatch(s, budget, pick_offer) if buyer_goods_risk_sku30.KEY in s else selected_offer(s, budget)
-        s["_offer"], s["_b"] = o, chance_of(o["sku"]) or 0
+        raw_b = chance_of(o["sku"])
+        s["_offer"], s["_b"] = o, raw_b or 0
+        if order.get(buyer_goods_quote_inquiry30.KEY) and buyer_goods_quote_inquiry30.number(raw_b) and 0 <= raw_b <= 1:
+            buyer_goods_quote_inquiry30.prepare(order, s, o, budget,
+                lambda s=s, o=o: quote_inquiry_cap(s, o, order, budget),
+                lambda: quote_inquiry_conflict(order))
         s["_quote_attempted"] = True  # published before the thread: failed or still pending calls must be counted
         th = threading.Thread(target=quote, args=(s, o["name"], o["sku"], order, got, ctl), daemon=True)
         th.start()
@@ -1582,6 +1637,8 @@ def prefetch_pool(left, memory, md, category, k, rival=frozenset(), kind=None, o
             rival_deny.others_first, conflict, lambda: current_baseline(time.time()))
         order['_stock_quotable'][:] = others
         others = order['_stock_quotable']
+    if kind == "goods" and order is not None:
+        buyer_goods_quote_inquiry30.plan(order, others, k, budget, selected_offer)
     early = others[:max(0, k - 1)]
     if order is not None:
         buyer_goods_quote_yield30.bind(order, early, others)
@@ -2255,6 +2312,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "goods_take30": order.get("_goods_take30"),
         **({"goods_risk_sku30": buyer_goods_risk_sku30.measurement(order)}
            if order.get(buyer_goods_risk_sku30.KEY) is not None else {}),
+        **buyer_goods_quote_inquiry30.fields(order),
         **buyer_goods_quote_yield30.fields(order),
         **({"goods_take30_witness": buyer_goods_take30.compact_witness(order["_goods_take30_witness"])}
            if order.get("kind") == "goods" and order.get("_goods_take30_witness") is not None else {}),
@@ -2312,7 +2370,7 @@ def main():
         MEMORY = "memory/test_memory.json" if test else "memory/market_memory.json"
     order = load_json(args.order, {}) if args.order else {}
     if isinstance(order, dict):
-        for k in ("_sw", "_sw_buy", "_sw_h_est", "_sw_zero", "_rank_pg", "_rank_selection", "_saved_floor", "_food_floor30", "_food_floor30_window", "_food_floor30_disabled", "_member_offers", "_goods_take30", "_goods_take30_witness", "_goods_risk_sku30", "_goods_quote_yield30"):  # internal state, never read in
+        for k in ("_sw", "_sw_buy", "_sw_h_est", "_sw_zero", "_rank_pg", "_rank_selection", "_saved_floor", "_food_floor30", "_food_floor30_window", "_food_floor30_disabled", "_member_offers", "_goods_take30", "_goods_take30_witness", "_goods_risk_sku30", "_goods_quote_yield30", "_goods_quote_inquiry30"):  # internal state, never read in
             order.pop(k, None)
     md = os.path.dirname(args.shops) or "."
     rk = buyer_rank_pg.state(md, order) if args.order else None
@@ -2342,6 +2400,7 @@ def main():
         order['_food_floor30_window'] = buyer_food_floor30.config(md) if order.get('kind') == 'food' else None
         buyer_goods_take30.assign(md, order)  # ITT before selection/early exits; default OFF
         buyer_goods_quote_yield30.assign(md, order)
+        buyer_goods_quote_inquiry30.assign(md, order)
     with open(args.shops, encoding="utf-8") as f:
         shops = [s for s in json.load(f) if s.get("url") and s.get("name")]
     for s in shops:
@@ -2385,6 +2444,7 @@ def main():
                                          "moss_first": buyer_moss_first.measurement(order.get("_moss_first")),
                                          "goods_take30": order.get("_goods_take30"),
                                          **buyer_goods_quote_yield30.fields(order),
+                                         **buyer_goods_quote_inquiry30.fields(order),
                                          "final_m1": order.get("_final_m1"),
                                          "unpaid_skip": order.get("_unpaid_skip"),
                                          "stock_evidence": buyer_stock_evidence.measurement(order),
@@ -2792,7 +2852,8 @@ def main():
             "goods_take30": order.get("_goods_take30"),
             **({"goods_risk_sku30": buyer_goods_risk_sku30.measurement(order)}
                if order.get(buyer_goods_risk_sku30.KEY) is not None else {}),
-            **buyer_goods_quote_yield30.fields(order)} if r3 else {}),
+            **buyer_goods_quote_yield30.fields(order),
+            **buyer_goods_quote_inquiry30.fields(order)} if r3 else {}),
         "result": "no_warranty" if short else "over_limit" if over else "deal" if rec is not None else (out["state"] or "error").replace("TASK_STATE_", "").lower(),
         "price": rec.get("price") if rec else None,
         "asks": asks, "holds": out.get("holds", 0), "problems": problems, "warnings": warnings, "why": why,
