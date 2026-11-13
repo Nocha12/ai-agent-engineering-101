@@ -23,6 +23,7 @@ import buyer_food_ladder
 import buyer_goods_grade
 import buyer_goods_ladder
 import buyer_goods_take30
+import buyer_margin_cap
 import buyer_goods_risk_sku30
 import buyer_goods_quote_yield30
 import buyer_goods_quote_inquiry30
@@ -73,6 +74,8 @@ def profile_from_rows(rows, paid, now):
         if r.get('state') in (None, 'NO_VALUE'):
             continue
         if buyer_goods_grade.lowered(r):   # arm B's lowered limit says nothing of plan A's (review d85a9e9 I1)
+            continue
+        if buyer_margin_cap.lowered(r):    # the margin cap's lower limit had no accept band: nothing of the band's
             continue
         if buyer_goods_ladder.laddered(r):   # arm B's 0.8 openings say nothing of plan A's (review 459089c I2)
             continue

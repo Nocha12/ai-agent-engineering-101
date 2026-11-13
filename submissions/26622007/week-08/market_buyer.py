@@ -76,6 +76,7 @@ import buyer_food_ladder
 import buyer_food_open30
 import buyer_food_floor30
 import buyer_goods_grade
+import buyer_margin_cap
 import buyer_goods_ladder
 import buyer_goods_take30
 import buyer_goods_risk_sku30
@@ -1277,6 +1278,7 @@ def recent_asks(md, now=None, hours=HOPELESS_HOURS):
                 out[q["sku"]].append(q["ask"])
         if r.get("sku") and not (buyer_food_ladder.laddered(r) or buyer_goods_ladder.laddered(r)
                                   or buyer_goods_grade.lowered(r) or buyer_saved_floor.floored(r)
+                                  or buyer_margin_cap.lowered(r)
                                   or buyer_warranty_said.said_b(r) or buyer_moss_first.applied_b(r)
                                   or buyer_goods_take30.applied_b(r)):
             out[r["sku"]] += [a for a in r.get("asks") or () if num(a)] + ([r["price"]] if num(r.get("price")) else [])
@@ -1795,6 +1797,9 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
                                                  b if b is not None else buyer_short_warranty.FALLBACK_BREAK)
         # goods I buy carry a 6 h warranty, so a break refunds the ask: (1 - b)(list - ask), not list(1 - b) - ask.
         # Patch 3.4 scores the share of list kept, not the money, so the shops are ranked by (1 - b)(list - ask) / list
+        kept = margin_kept(o, order.get("kind"), q, chance_of(o["sku"]))
+        if kept is not None:    # Patch 3.6 scores the share of the shop's margin kept: by the quote's grade
+            return kept(q["ask"] / o["list_price"])
         return (1 - (chance_of(o["sku"]) or 0)) * (o["list_price"] - q["ask"]) / o["list_price"]
 
     def fits(s):
@@ -1802,7 +1807,20 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
         o = s["_offer"]
         b = chance_of(o["sku"]) or 0
         sc = short_cap(o, chance_of(o["sku"]), order, s["name"], got[s["name"]], s)
-        return got[s["name"]]["ask"] <= min(value_limit(o, budget, b, cfg), saved_cap(o, b), *([sc] if sc is not None else []))
+        mc = margin_limit(o, order.get("kind"), got[s["name"]], chance_of(o["sku"]))
+        return got[s["name"]]["ask"] <= min(value_limit(o, budget, b, cfg), saved_cap(o, b), *([sc] if sc is not None else []),
+                                            *([mc["cap"]] if mc else []))
+
+    def reach(s):
+        """buyer_margin_cap on: the ask is within the talk band of what I would pay that shop, the cap included, so a
+        quote whose grade no price can buy (cap 0) never takes the pick from one a talk can close. Off: every quote."""
+        if not MARGIN_CAP:
+            return True
+        o = s["_offer"]
+        b = chance_of(o["sku"]) or 0
+        mc = margin_limit(o, order.get("kind"), got[s["name"]], chance_of(o["sku"]))
+        lim = min(value_limit(o, budget, b, cfg), saved_cap(o, b), *([mc["cap"]] if mc else []))
+        return lim > 0 and got[s["name"]]["ask"] <= lim * (1 + TALK_OVER_SHARE)
     extra = order.get("kind") == "goods" and order.get("_goods_extra_quote_probe") == "B" and rounds == 1 and not late
     for r in range(rounds + int(extra)):
         extra_deadline = time.time() + buyer_goods_quote_probe.EXTRA_WAIT if extra and r else None
@@ -1852,7 +1870,7 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
             # Snapshot only: later negotiation/stock response is not a counterfactual settled outcome.
             first_scores = [(surplus(s), i, s) for i, s in enumerate(pool) if surplus(s) is not None]
             if first_scores:
-                picked = max(first_scores, key=lambda x: (fits(x[2]), x[0] - rival_deny.penalty(x[2]["name"], rival),
+                picked = max(first_scores, key=lambda x: (fits(x[2]), reach(x[2]), x[0] - rival_deny.penalty(x[2]["name"], rival),
                              (got.get(x[2]["name"]) or {}).get("ask_src") not in ("text", "text_rank"), -x[1]))[2]
                 o, q = picked["_offer"], got[picked["name"]]
                 cap = min(value_limit(o, budget, picked.get("_b") or 0, cfg), saved_cap(o, picked.get("_b") or 0))
@@ -1876,8 +1894,8 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
     # other 24, 13; review/W-20261108-1915-AX전부적용/rank-cause.md). Off: every shop is normal, the order as before.
     normal = lambda s: buyer_short_warranty.hours_for(order.get("_sw"), s["name"], got.get(s["name"])) is None
     # a revenue rival of my shop ranks as if it kept rival_deny.MARGIN less of the list price (within my limit either way)
-    best = max(scored, key=lambda x: (normal(x[2]), fits(x[2]), x[0] - rival_deny.penalty(x[2]["name"], rival), meta(x[2]),
-                                      -x[1]))[2] if scored else None
+    best = max(scored, key=lambda x: (normal(x[2]), fits(x[2]), reach(x[2]),
+                                      x[0] - rival_deny.penalty(x[2]["name"], rival), meta(x[2]), -x[1]))[2] if scored else None
     rk = order.get("_rank_pg")
     tier = [s for _, _, s in scored if normal(s)] or [s for _, _, s in scored]    # the shops best can come from
     selection = {"version": 2, "tier": "normal" if any(normal(s) for s in tier) else "short" if tier else "unknown",
@@ -1897,7 +1915,9 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
                 def cap(s):
                     o, b = s["_offer"], chance_of(s["_offer"]["sku"])
                     sc = short_cap(o, b, order, s["name"], got[s["name"]], s)
-                    return min(value_limit(o, budget, b or 0, cfg), saved_cap(o, b or 0), *([sc] if sc is not None else []))
+                    mc = margin_limit(o, order.get("kind"), got[s["name"]], b)
+                    return min(value_limit(o, budget, b or 0, cfg), saved_cap(o, b or 0), *([sc] if sc is not None else []),
+                               *([mc["cap"]] if mc else []))
 
                 def keep_at(s, c):
                     o, b = s["_offer"], chance_of(s["_offer"]["sku"])
@@ -1905,7 +1925,8 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
                     p = c / o["list_price"]
                     if h is not None:
                         return buyer_short_warranty.expected(p, h, b if b is not None else buyer_short_warranty.FALLBACK_BREAK)
-                    return (1 - (b or 0)) * (1 - p)
+                    kept = margin_kept(o, order.get("kind"), got.get(s["name"]), b)
+                    return kept(p) if kept is not None else (1 - (b or 0)) * (1 - p)
                 band = []
                 for s in tier:
                     c = cap(s)
@@ -1931,7 +1952,7 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
             h = buyer_short_warranty.hours_for(order.get("_sw"), s["name"], got.get(s["name"]))
             if h is not None:
                 return lambda p: buyer_short_warranty.expected(p, h, b if b is not None else buyer_short_warranty.FALLBACK_BREAK)
-            return lambda p: (1 - (b or 0)) * (1 - p)
+            return margin_kept(o, order.get("kind"), got.get(s["name"]), b) or (lambda p: (1 - (b or 0)) * (1 - p))
         elapsed = time.time() - STARTED
         rk["plain"] = best["name"]
         try:
@@ -1940,7 +1961,7 @@ def best_quote(chosen, others, order, catalog, budget, chance_of, cfg, wait=QUOT
                                                  rival_deny.penalty(s["name"], rival)) for _, _, s in scored}
             if all(v is not None for v in pg.values()):
                 # ties (e.g. P 0 for all): the ask's share as before
-                best = max(scored, key=lambda x: (normal(x[2]), fits(x[2]), pg[x[2]["name"]],
+                best = max(scored, key=lambda x: (normal(x[2]), fits(x[2]), reach(x[2]), pg[x[2]["name"]],
                                                   x[0] - rival_deny.penalty(x[2]["name"], rival), meta(x[2]), -x[1]))[2]
                 rk["scores"] = {k: round(v, 6) for k, v in pg.items()}
         except Exception as e:  # noqa: BLE001 - a bad cache never stops an order: the current order
@@ -2073,6 +2094,38 @@ def value_limit(offer, budget, chance, cfg=None):
     in the signature for the callers that log it."""
     cfg = {**BUYER, **(cfg or {})}
     return int(min(budget, offer["list_price"] * cfg["max_price_share"], cfg["max_spend_per_deal"]))
+
+
+MARGIN_CAP = None           # {"cfg", "stats"} with buyer_margin_cap on for this order (set in main), else None
+
+
+def margin_limit(o, kind, q, sku_chance):
+    """buyer_margin_cap on and the quote names one grade: {"grade", "chance", "cap", "target"}, the most this unit may
+    cost and still keep the target share of the shop's margin (Patch 3.6 Saved). None otherwise: the limit as before."""
+    m = MARGIN_CAP
+    try:
+        g = buyer_margin_cap.grade((q or {}).get("text")) if m else None
+        if g is None:
+            return None
+        b = buyer_margin_cap.chance(kind, m.get("stats"), o["sku"], g, sku_chance)
+        c = buyer_margin_cap.cap(m["cfg"], o["list_price"], g, b)
+        return None if c is None else {"grade": g, "chance": round(b, 4), "cap": c, "target": m["cfg"]["target"]}
+    except Exception:  # noqa: BLE001 - an odd quote never stops an order: the limit as before
+        return None
+
+
+def margin_kept(o, kind, q, sku_chance):
+    """buyer_margin_cap on: p -> the Saved score a price p of list is expected to keep from this quote's unit (its
+    grade, B when it names none). None when off."""
+    m = MARGIN_CAP
+    if not m:
+        return None
+    try:
+        g = buyer_margin_cap.grade((q or {}).get("text"))
+        b = buyer_margin_cap.chance(kind, m.get("stats"), o["sku"], g, sku_chance)
+    except Exception:  # noqa: BLE001 - an odd quote never stops an order: the share of list as before
+        return None
+    return lambda p: buyer_margin_cap.expected(p, g, b)
 
 
 class NoValue(Exception):
@@ -2276,6 +2329,8 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         lim = min(value_limit(o, args.budget, 0, buyer_cfg()), saved_cap(o, s.get("_b", 0))) if o.get("list_price") else None
         sc = short_cap(o, s.get("_b"), order, s["name"], q, s) if lim is not None else None
         lim = lim if sc is None else min(lim, sc)     # the quote is recorded against the cap the choice used
+        mc = margin_limit(o, order.get("kind"), q, s.get("_b")) if lim is not None else None
+        lim = lim if mc is None else min(lim, mc["cap"])
         qs.append(quote_row(s["name"], o, q, lim, best))
     # the kept shop and the asks within my limit first: with quote_shops 10 a run can hold 30 quotes, and recent_fits and
     # recent_asks (hopeless) read these, so all of them are kept
@@ -2308,6 +2363,7 @@ def order_record(order, args, shops, quotes, first_choice, first_reason, shop, r
         "food_shelf": buyer_food_shelf.measurement(order.get("_food_shelf"), best),
         "food_ladder": order.get("_food_ladder"),
         "goods_grade": order.get("_goods_grade"),
+        "margin_cap": order.get("_margin_cap"),
         "goods_ladder": order.get("_goods_ladder"),
         "goods_take30": order.get("_goods_take30"),
         **({"goods_risk_sku30": buyer_goods_risk_sku30.measurement(order)}
@@ -2380,9 +2436,17 @@ def main():
             order["_rank_pg"] = rk
         else:
             buyer_rank_pg.unselected(rk, "non_round3_order")
-    global SAVED_SHARE
+    global SAVED_SHARE, MARGIN_CAP
     SAVED_SHARE = SAVED_MIN_SHARE
+    MARGIN_CAP = None
     if r3:
+        # buyer_margin_cap: the limit and the pick read the quote's grade (Patch 3.6 Saved; off: as before)
+        try:
+            mcfg = buyer_margin_cap.config(md)
+        except Exception:  # noqa: BLE001 - a switch it cannot read is off
+            mcfg = None
+        if mcfg:
+            MARGIN_CAP = {"cfg": mcfg, "stats": None}
         # buyer_saved_floor: the limit keeps my board Saved (off: SAVED_MIN_SHARE, the accept band as before)
         order["_saved_floor"] = buyer_saved_floor.state(md, order.get("order"), base=SAVED_MIN_SHARE,
                                                          kind=order.get("kind"))
@@ -2520,6 +2584,8 @@ def main():
         k = int(buyer_cfg().get("quote_shops", 1))
         stats = ledger_breaks(md, catalog) if order.get("kind") == "goods" else None
         chance_of = (lambda sku: market_model.break_chance(stats, sku)) if stats else (lambda sku: None)
+        if MARGIN_CAP:
+            MARGIN_CAP["stats"] = stats
         early, quotable = prefetch_pool(left, memory, md, order.get("category"), k, rival, kind=order.get("kind"), order_id=order.get("order"),
                                          yield_arm=order["_food_quote_yield"], order=order, budget=args.budget, chance_of=chance_of)
         try:
@@ -2608,9 +2674,20 @@ def main():
     if order["_goods_grade"]:     # arm A's limit too, for the judgement and to keep arm B out of the shop profiles
         order["_goods_grade"]["limit_a"] = min(value_limit(offer, args.budget, sku_chance, buyer_cfg()),
                                                saved_cap(offer, sku_chance))
+    # buyer_margin_cap: the chosen quote's grade holds the limit to the target share of the shop's margin
+    order["_margin_cap"] = margin_limit(offer, order.get("kind"), quotes.get(shop["name"]), chance) \
+        if r3 and not zero else None
+    margin_bound = bool(order["_margin_cap"]) and order["_margin_cap"]["cap"] < limit
+    if order["_margin_cap"]:
+        order["_margin_cap"]["limit_before"] = limit
+        limit = min(limit, order["_margin_cap"]["cap"])
+        log(f"[margin-cap] {shop['name']}: grade {order['_margin_cap']['grade']}, cap {order['_margin_cap']['cap']}"
+            f" (limit before {order['_margin_cap']['limit_before']})")
     # plan A: a counter up to 105% of the limit is taken; more with a shop that holds its ask (buyer_shop_profile)
     band_base, band_pct = accept_percent(md, shop["name"], offer, chance, limit, args.budget) if r3 and not zero \
         else (None, None)
+    if margin_bound:    # a counter over the cap would keep less than the target
+        band_base, band_pct = None, None
     if r3 and (order.get("_saved_floor") or {}).get("band_off"):   # a deal over the floor would lower Saved
         band_base, band_pct = None, None
     if sw_h is not None:    # a short warranty expected: p_max(h) is the ceiling, no accept band (owner 7955)
@@ -2620,6 +2697,8 @@ def main():
         log(f"[short-warranty] {shop['name']} expected {sw_h:g} h: limit {limit} (the receipt check's list and grade chance)")
     top = buyer_accept_band.ceiling(limit, args.budget, band_pct, value_limit(offer, args.budget, chance, buyer_cfg())) \
         if r3 and not zero else limit
+    if order["_margin_cap"]:    # an accept band never goes over the cap
+        top = min(top, max(limit, order["_margin_cap"]["cap"]))
     mine = my_history(memory, shop["name"])
     pattern = shop_pattern(ledger_rows(md), shop["url"], catalog) if r3 else None
     deals, low = item_stats(mine, key)

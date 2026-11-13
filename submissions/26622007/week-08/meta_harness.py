@@ -74,6 +74,7 @@ SWITCHES += (".market/restock_first_slot_default.json",)  # adopted policy belon
 SWITCHES += (".market/restock_first_stock.json",)  # finite supply allocation trial
 SWITCHES += (".market/restock_demand_catchup.json",)  # finite quantity allocation belongs to its owner
 SWITCHES += (".market/market_ref_read.json",)   # market_ref_read.py (지시23 11/10)
+SWITCHES += (".market/buyer_margin_cap.json",)  # buyer_margin_cap.py: the owner's limit policy (Patch 3.6 Saved)
 
 
 # A study's root/"adopted" forces arm B and root/"disabled" stops it (late_concession, opening_cue, at_floor_exact, ...):

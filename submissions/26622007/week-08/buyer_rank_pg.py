@@ -42,6 +42,7 @@ import buyer_food_ladder
 import buyer_goods_grade
 import buyer_goods_ladder
 import buyer_goods_take30
+import buyer_margin_cap
 import buyer_goods_risk_sku30
 import buyer_goods_quote_yield30
 import buyer_goods_quote_inquiry30
@@ -163,6 +164,9 @@ def stats_from_rows(rows, paid, now):
             counts['excluded_rows'] += 1
             continue
         if buyer_goods_grade.lowered(r):    # arm B's lowered limit: not learned for both arms (review 8ca80f5 I1)
+            counts['excluded_rows'] += 1
+            continue
+        if buyer_margin_cap.lowered(r):     # a limit the margin cap lowered (0: no talk held) says nothing of the shop
             counts['excluded_rows'] += 1
             continue
         if buyer_goods_ladder.laddered(r):  # arm B's 0.8 openings: not learned for both arms (review 459089c I2)
