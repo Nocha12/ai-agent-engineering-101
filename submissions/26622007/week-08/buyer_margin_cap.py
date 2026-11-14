@@ -11,8 +11,9 @@ grade, supply batches for the cost): 61 buyers' Saved to a mean error of .032, o
 .86, food C .74, goods B .70 (11% refunded), goods C .49 (26% refunded), against our Saved .726; a deal moves Saved by
 (score - Saved) / (deals + 101), so the last two lower it at any price we were paying.
 
-expected(p, grade, b) is the score a price p of list is expected to keep, (1 - b) min(1, (1 - p) / (1 - MID[grade])),
-with the cost at its grade's middle; cap() is the price that keeps cfg["target"] of it, list (1 - target (1 - MID) /
+expected(p, grade, b) is the score a price p of list is expected to keep, (1 - b) E[min(1, (1 - p) / (1 - c))] with
+the cost c even over its grade's range (RANGE), plus TIE (1 - p) so a cheaper ask of the same grade always ranks first
+(the middle cost alone made every ask under it 1.0: re-review W-20261114-1038 I1); cap() is the price that keeps cfg["target"] of it, list (1 - target (1 - MID) /
 (1 - b)), and 0 when the grade cannot reach the target even at cost (goods grade C: 70% survive). The grade is the
 one the quote names (buyer_goods_grade.grade: the named grade was the settled one in 2,194 of 2,195 of our deals to
 11/14); a quote that names none keeps today's limit and is ranked as grade B. Goods take the grade's chance of
@@ -35,6 +36,8 @@ import market_model
 
 SWITCH = "buyer_margin_cap.json"
 MID = {"A": 0.65, "B": 0.50, "C": 0.35}       # the middle of each grade's cost range, as a share of list (/rules)
+RANGE = {g: (m - 0.10, m + 0.10) for g, m in MID.items()}   # A 55-75%, B 40-60%, C 25-45% of list
+TIE = 1e-6                                    # the same score: the cheaper ask first, never a score change that matters
 BREAK = {"A": 0.03, "B": 0.115, "C": 0.30}    # goods: the market's rate by grade, until the ledger has its own
 TARGET = 0.75
 TARGET_MIN, TARGET_MAX = 0.50, 0.95
@@ -81,8 +84,15 @@ def chance(kind, stats, sku, g, sku_chance):
 
 def expected(p, g, b):
     """The Saved score a price p (share of list) is expected to keep for a unit of grade g that breaks b of the time."""
-    margin = 1 - MID.get(g, MID[UNNAMED])
-    return (1 - min(max(b or 0, 0.0), 1.0)) * min(1.0, max(0.0, 1 - p) / margin)
+    lo, hi = RANGE.get(g, RANGE[UNNAMED])
+    p = min(max(p, 0.0), 1.0)
+    if p <= lo:                         # at or under every cost: all of it
+        kept = 1.0
+    elif p >= hi:                       # over every cost: (1 - p) / (1 - c), c even over [lo, hi]
+        kept = (1 - p) * math.log((1 - lo) / (1 - hi)) / (hi - lo)
+    else:                               # under the costs above p, (1 - p) / (1 - c) over the ones below
+        kept = ((hi - p) + (1 - p) * math.log((1 - lo) / (1 - p))) / (hi - lo)
+    return (1 - min(max(b or 0, 0.0), 1.0)) * kept + TIE * (1 - p)
 
 
 def cap(cfg, list_price, g, b):

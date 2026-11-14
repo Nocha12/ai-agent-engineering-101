@@ -1,5 +1,6 @@
 """buyer_margin_cap: Patch 3.6 Saved is the share of the shop's margin kept, so the limit and the pick read the grade."""
 import json
+import math
 import os
 import sys
 import tempfile
@@ -37,17 +38,34 @@ class Config(unittest.TestCase):
 
 
 class Score(unittest.TestCase):
-    """Worked from the rule: (list - price) / (list - cost), cost at its grade's middle (A 65%, B 50%, C 35% of list)."""
+    """Worked from the rule: (list - price) / (list - cost), 1 at or under cost, the cost even over its grade's range
+    (A 55-75%, B 40-60%, C 25-45% of list)."""
 
     def test_expected_share_of_margin(self):
-        self.assertAlmostEqual(mc.expected(0.60, "B", 0), 0.80)        # 40 of a 50 margin
-        self.assertAlmostEqual(mc.expected(0.60, "C", 0), 0.40 / 0.65)
-        self.assertAlmostEqual(mc.expected(0.60, "A", 0), 1.0)         # under the middle cost: all of it, never more
-        self.assertAlmostEqual(mc.expected(0.50, "B", 0.1), 0.9)       # a refunded break scores 0
+        ln = math.log
+        self.assertAlmostEqual(mc.expected(0.60, "B", 0), 0.40 * ln(0.60 / 0.40) / 0.20, places=5)   # at the top cost
+        self.assertAlmostEqual(mc.expected(0.60, "C", 0), 0.40 * ln(0.75 / 0.55) / 0.20, places=5)   # over every cost
+        self.assertAlmostEqual(mc.expected(0.60, "A", 0), (0.15 + 0.40 * ln(0.45 / 0.40)) / 0.20, places=5)
+        self.assertAlmostEqual(mc.expected(0.50, "B", 0.1),                                         # a refunded break: 0
+                               0.9 * (0.10 + 0.50 * ln(0.60 / 0.50)) / 0.20, places=5)
+        self.assertAlmostEqual(mc.expected(0.50, "A", 0), 1.0, places=5)   # under every cost: all of it, never more
         self.assertAlmostEqual(mc.expected(1.0, "B", 0), 0.0)
 
+    def test_a_cheaper_ask_of_the_same_grade_always_ranks_first(self):
+        # re-review W-20261114-1038 I1: the middle cost made every ask under it 1.0, so 0.58 and 0.64 of a grade A
+        # list tied and the pick fell to the rival penalty and the quote order
+        for g in ("A", "B", "C", None):
+            for b in (0, 0.1):
+                ps = [i / 100 for i in range(0, 101)]
+                vals = [mc.expected(p, g, b) for p in ps]
+                self.assertTrue(all(x > y for x, y in zip(vals, vals[1:])), (g, b))
+        self.assertGreater(mc.expected(0.58, "A", 0), mc.expected(0.64, "A", 0))
+        self.assertGreater(mc.expected(0.30, "A", 0), mc.expected(0.40, "A", 0))   # both under every A cost
+        self.assertGreater(mc.expected(0.45, "B", 0), mc.expected(0.50, "B", 0))
+        self.assertLessEqual(mc.expected(0.0, "A", 0), 1.0 + 1e-5)
+
     def test_an_unnamed_grade_is_scored_as_b(self):
-        self.assertAlmostEqual(mc.expected(0.60, None, 0), 0.80)
+        self.assertAlmostEqual(mc.expected(0.60, None, 0), mc.expected(0.60, "B", 0))
 
     def test_cap_is_the_price_that_keeps_the_target(self):
         cfg = {"target": 0.80}
