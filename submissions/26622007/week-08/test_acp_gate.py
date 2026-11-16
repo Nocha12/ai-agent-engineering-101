@@ -199,6 +199,28 @@ class KitAcpShopTest(Base):
         self.assertEqual(self.shop.sessions[sid]["status"], "canceled")
         self.assertEqual(len(self.refused_lines()), 1)
 
+    def test_round_4_a_refused_buyer_who_already_paid_on_chain_settles(self):
+        sid = self.open_session("t-bad")
+        body = pay_body("o-bad")
+        body["payment_data"]["payment_mandate"]["mandate"]["tx_hash"] = "0x" + "ab" * 32
+        r = self.run_path(f"acp/checkout_sessions/{sid}/complete", body)
+        self.assertEqual(r.status_code, 200)            # refusing now would keep the buyer's tOKRW
+        self.assertEqual([s["order"] for s in self.market.settles], ["o-bad"])
+
+    def test_a_settle_that_times_out_asks_the_buyer_to_retry(self):
+        call = self.market.call
+
+        def slow(method, path, *a, **k):
+            if path == "/api/settle":
+                raise httpx.ReadTimeout("slow chain")
+            return call(method, path, *a, **k)
+        self.market.call = slow
+        sid = self.open_session("t-good")
+        r = self.run_path(f"acp/checkout_sessions/{sid}/complete", pay_body("o-good"))
+        self.assertEqual(r.status_code, 503)
+        self.assertIn("chain did not answer", r.body.decode())   # the kit's buyer retries this text
+        self.assertEqual(self.shop.sessions[sid]["status"], "ready_for_payment")
+
     def test_other_buyer_settles(self):
         sid = self.open_session("t-good")
         r = self.run_path(f"acp/checkout_sessions/{sid}/complete", pay_body("o-good"))
@@ -252,6 +274,14 @@ class AcpCheckoutTest(Base):
         self.assertEqual(self.client.post(f"/acp/checkout_sessions/{good}/complete",
                                           json=pay_body("o-good")).status_code, 200)
         self.assertEqual([s["order"] for s in self.settles], ["o-good"])
+
+    def test_round_4_a_refused_buyer_who_already_paid_on_chain_settles(self):
+        bad = self.session("t-bad")
+        body = pay_body("o-bad")
+        body["payment_data"]["payment_mandate"]["mandate"]["tx_hash"] = "0x" + "ab" * 32
+        r = self.client.post(f"/acp/checkout_sessions/{bad}/complete", json=body)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual([s["order"] for s in self.settles], ["o-bad"])
 
 
 def result_row(seq, order, buyer, shop, stars, verified=True, seller="Nocha Furniture", rnd=3):

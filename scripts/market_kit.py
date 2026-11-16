@@ -377,7 +377,11 @@ class AcpShop:
     async def complete(self, s, b):
         """Pay a ready session: the gate, then /api/settle (handle() marks it paying meanwhile)."""
         pay = b.get("payment_data") or {}
-        if self.gate:
+        pm = (pay.get("payment_mandate") or {}).get("mandate") if isinstance(pay.get("payment_mandate"), dict) else None
+        if isinstance(pm, dict) and (pm.get("tx_hash") or pm.get("fee_tx_hash")):
+            if self.gate:                           # Round 4: the buyer's tOKRW has moved; refusing now keeps it
+                log("[acp] gate skipped: the buyer already paid on chain")
+        elif self.gate:
             try:
                 no = await asyncio.to_thread(self.gate, pay.get("order"), s)
             except Exception as e:                  # a broken gate never blocks a sale
@@ -386,10 +390,15 @@ class AcpShop:
             if no:
                 s["status"] = "canceled"            # nothing goes to /api/settle; the unit is free again
                 return JSONResponse({"error": no}, status_code=409)
-        r = await asyncio.to_thread(self.market.call, "POST", "/api/settle", "shop",
-                                    json={"order": pay.get("order"), "checkout_jwt": s["checkout_jwt"],
-                                          "checkout_mandate": pay.get("checkout_mandate"),
-                                          "payment_mandate": pay.get("payment_mandate")})
+        try:
+            r = await asyncio.to_thread(self.market.call, "POST", "/api/settle", "shop",
+                                        json={"order": pay.get("order"), "checkout_jwt": s["checkout_jwt"],
+                                              "checkout_mandate": pay.get("checkout_mandate"),
+                                              "payment_mandate": pay.get("payment_mandate")})
+        except httpx.HTTPError as e:                # Round 4 settle reads the chain and can outlast our timeout
+            log(f"[acp] settle did not answer: {type(e).__name__}")
+            return JSONResponse({"error": "payment refused by the market: the chain did not answer in time, retry"},
+                                status_code=503)
         res = r.json() if r.headers.get("content-type", "").startswith("application/json") else {"error": r.text[:200]}
         if r.status_code != 200:
             log(f"[acp] settle refused: {[k for k, v in (res.get('checks') or {}).items() if not v] or res}")
@@ -562,10 +571,25 @@ def failed_payment_checks(response):
     return ",".join(failed) or "unavailable"
 
 
-def acp_pay(o, shop_url, shop_pub, receipt, buyer_key, accept=None, why=None):
+def chain_sent(path, order):
+    """The transactions this buyer already sent for an order (chain_log lines), [] when none or no log."""
+    if path is None or not Path(path).exists():
+        return []
+    out = []
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        with contextlib.suppress(ValueError, TypeError, AttributeError):
+            j = json.loads(line)
+            if j.get("order") == order and j.get("tx"):
+                out.append(j["tx"])
+    return out
+
+
+def acp_pay(o, shop_url, shop_pub, receipt, buyer_key, accept=None, why=None, chain_log=None):
     """Round 3, buyer side: open an ACP checkout on the shop, check it against the agreed receipt, the open
     mandates and the buyer's accept policy, sign the closed AP2 mandates, and complete.
-    Returns the market's mandate receipt or None; when it does not pay, the reason is appended to `why`."""
+    Returns the market's mandate receipt or None; when it does not pay, the reason is appended to `why`.
+    Round 4 (the order names a chain): every transfer is appended to chain_log before complete, and an order that
+    already has one there is never paid again (a restart between the transfer and complete would pay twice)."""
     def log(msg):
         globals()["log"](msg)
         if why is not None and msg.startswith("[acp]") and " paid " not in msg and " ships unit " not in msg:
@@ -574,6 +598,13 @@ def acp_pay(o, shop_url, shop_pub, receipt, buyer_key, accept=None, why=None):
     def note(reason):                                   # tests call acp_pay without `why`
         if why is not None:
             why.append(reason)
+
+    def sent(to, wei, tx_hash, h):
+        if chain_log is not None:
+            with open(chain_log, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"order": o["order"], "checkout_hash": h, "to": to, "wei": wei, "tx": tx_hash,
+                                    "ts": int(time.time())}) + "\n")
+    txs = []
     c = httpx.Client(timeout=60)
     try:
         r = c.get(f"{shop_url}/.well-known/acp.json")
@@ -619,6 +650,13 @@ def acp_pay(o, shop_url, shop_pub, receipt, buyer_key, accept=None, why=None):
         pm = {"vct": "mandate.payment.1", "order": o["order"], "open_mandate": opens["payment"], "payee": shop_url,
               "amount": co["price"], "currency": "credits", "checkout_hash": h}
         if o.get("chain"):
+            before = chain_sent(chain_log, o["order"])
+            if before:
+                log(f"[acp] not paying: tOKRW already sent for order {o['order']} ({', '.join(before)}); "
+                    "see .market/chain_sent.jsonl")
+                with contextlib.suppress(httpx.HTTPError):
+                    c.post(f"{base}/checkout_sessions/{s['id']}/cancel", json={})
+                return None
             chain, digest = o["chain"], hashlib.sha256(s["checkout_jwt"].encode()).digest()
             fee = maroo.fees(co["price"], chain["market_fee_bps"], chain["network_fee_credits"])
             if co["price"] < fee["shop"]:
@@ -638,11 +676,15 @@ def acp_pay(o, shop_url, shop_pub, receipt, buyer_key, accept=None, why=None):
                 with contextlib.suppress(httpx.HTTPError):
                     c.post(f"{base}/checkout_sessions/{s['id']}/cancel", json={})
                 return None
-            pm["tx_hash"] = maroo.pay(buyer_key, shop_pub, wei, digest)
-            log(f"[maroo] paid the shop {wei / 10 ** 18:g} tOKRW: {maroo.tx_url(pm['tx_hash'])}")
-            if fee_wei:
+            if fee_wei:                                 # the small fee first: a failure after it loses only the fee
                 pm["fee_tx_hash"] = maroo.pay(buyer_key, chain["market_address"], fee_wei, digest)
+                txs.append(pm["fee_tx_hash"])
+                sent(chain["market_address"], fee_wei, pm["fee_tx_hash"], h)
                 log(f"[maroo] paid the market fee {fee_wei / 10 ** 18:g} tOKRW: {maroo.tx_url(pm['fee_tx_hash'])}")
+            pm["tx_hash"] = maroo.pay(buyer_key, shop_pub, wei, digest)
+            txs.append(pm["tx_hash"])
+            sent(shop_pub, wei, pm["tx_hash"], h)
+            log(f"[maroo] paid the shop {wei / 10 ** 18:g} tOKRW: {maroo.tx_url(pm['tx_hash'])}")
         sign = lambda m: {"mandate": m, "sig": base64.b64encode(buyer_key.sign(canon(m))).decode()}
         payment = {"payment_data": {"order": o["order"], "checkout_mandate": sign(cm), "payment_mandate": sign(pm)}}
         r = c.post(f"{base}/checkout_sessions/{s['id']}/complete", json=payment)
@@ -652,7 +694,8 @@ def acp_pay(o, shop_url, shop_pub, receipt, buyer_key, accept=None, why=None):
             time.sleep(10)
             r = c.post(f"{base}/checkout_sessions/{s['id']}/complete", json=payment)
         if r.status_code != 200:
-            log(f"[acp] payment not completed: {r.status_code} failed_checks={failed_payment_checks(r)}")
+            log(f"[acp] payment not completed: {r.status_code} failed_checks={failed_payment_checks(r)}"
+                + (f", tOKRW already sent: {', '.join(txs)}" if txs else ""))
             return None
         mr = r.json()["order"]["mandate_receipt"]
         got = ""
@@ -665,7 +708,8 @@ def acp_pay(o, shop_url, shop_pub, receipt, buyer_key, accept=None, why=None):
         log(f"[acp] paid {co['price']} through {base}, settled at ledger #{mr['ledger']}{got}")
         return mr
     except (httpx.HTTPError, ValueError, KeyError, TypeError, RuntimeError, TimeoutError) as e:
-        log(f"[acp] payment failed: {type(e).__name__}: {e}")      # log() above already notes it in `why`
+        log(f"[acp] payment failed: {type(e).__name__}: {e}"       # log() above already notes it in `why`
+            + (f", tOKRW already sent: {', '.join(txs)}" if txs else ""))
         return None
     finally:
         c.close()
@@ -871,7 +915,8 @@ def handle_order(o, agent, d, market, proxy, own_shop, keys):
             log("[sign] sig_seller ok, sig_buyer added")
             if rnd >= 3 and o.get("mandates"):
                 why = []
-                mr = acp_pay(o, shop_url, pubkeys[shop_url], receipt, keys["buyer"], accept, why)
+                mr = acp_pay(o, shop_url, pubkeys[shop_url], receipt, keys["buyer"], accept, why,
+                             chain_log=d / ".market" / "chain_sent.jsonl")
                 body["mandate_receipt"] = mr
                 with open(d / ".market" / "payments.jsonl", "a", encoding="utf-8") as f:   # the buyer reads what happened
                     f.write(json.dumps({"order": o["order"], "shop": shop_url, "item": receipt.get("item"),

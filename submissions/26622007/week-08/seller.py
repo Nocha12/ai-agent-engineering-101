@@ -203,18 +203,23 @@ def load_shop_wallet(path="shop_wallet.key"):
     if scripts not in sys.path:
         sys.path.insert(0, scripts)
     import maroo
-    if not key:
-        with open(path, encoding="utf-8") as f:
-            key = f.read()
-    return maroo.Wallet.from_hex(key)
+    try:
+        if not key:
+            with open(path, encoding="utf-8") as f:
+                key = f.read()
+        return maroo.Wallet.from_hex(key)
+    except (OSError, ValueError, TypeError) as e:   # never the old key instead: it would sign as another identity
+        log(f"shop wallet unreadable ({type(e).__name__}): receipt goes out unsigned")
+        return False
 
 
 def load_shop_key(path="shop_key.pem"):
-    """The key the market knows this shop by: the kit v5 wallet once it exists, else the Ed25519 key (kit v4).
-    SHOP_KEY_PEM (deployed) wins over the file."""
+    """The key the market knows this shop by: the kit v5 wallet (SHOP_WALLET_KEY, then shop_wallet.key) once it
+    exists, else the Ed25519 key (kit v4: SHOP_KEY_PEM, then shop_key.pem). Only the v5 kit creates shop_wallet.key,
+    so going back to kit v4 means moving that file aside too (never deleting it: it is the shop's Round 4 identity)."""
     wallet = load_shop_wallet()
     if wallet is not None:
-        return wallet
+        return wallet or None                      # False: a wallet is there but unreadable
     pem = os.environ.get("SHOP_KEY_PEM")
     if pem:
         data = pem.replace("\\n", "\n").encode()
