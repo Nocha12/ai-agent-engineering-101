@@ -80,6 +80,7 @@ from starlette.routing import Route
 KIT_VERSION = "5"
 BUYER_TIMEOUT = 300
 ECON_ROUND = 3
+CHAIN_ROUND = 4                                     # market/server.py: deals are paid on Maroo testnet from here
 FOOD_GRADE_CUTS = (0.8, 0.45)                        # share of shelf life left for food grade A, B (the market's)
 SYNC_EVERY = 10                                     # seconds between refreshes of .market/
 RESTOCK_EVERY = 60
@@ -378,8 +379,9 @@ class AcpShop:
         """Pay a ready session: the gate, then /api/settle (handle() marks it paying meanwhile)."""
         pay = b.get("payment_data") or {}
         pm = (pay.get("payment_mandate") or {}).get("mandate") if isinstance(pay.get("payment_mandate"), dict) else None
-        if isinstance(pm, dict) and (pm.get("tx_hash") or pm.get("fee_tx_hash")):
-            if self.gate:                           # Round 4: the buyer's tOKRW has moved; refusing now keeps it
+        if (isinstance(pm, dict) and (pm.get("tx_hash") or pm.get("fee_tx_hash"))
+                and getattr(self, "round", 0) >= CHAIN_ROUND):   # a tx_hash before Round 4 dodges nothing
+            if self.gate:                           # the buyer's tOKRW has moved; refusing now would keep it
                 log("[acp] gate skipped: the buyer already paid on chain")
         elif self.gate:
             try:
@@ -395,10 +397,13 @@ class AcpShop:
                                         json={"order": pay.get("order"), "checkout_jwt": s["checkout_jwt"],
                                               "checkout_mandate": pay.get("checkout_mandate"),
                                               "payment_mandate": pay.get("payment_mandate")})
-        except httpx.HTTPError as e:                # Round 4 settle reads the chain and can outlast our timeout
+        except httpx.TimeoutException as e:         # Round 4 settle reads the chain and can outlast our timeout
             log(f"[acp] settle did not answer: {type(e).__name__}")
             return JSONResponse({"error": "payment refused by the market: the chain did not answer in time, retry"},
                                 status_code=503)
+        except httpx.HTTPError as e:
+            log(f"[acp] settle failed: {type(e).__name__}")
+            return JSONResponse({"error": "the market did not answer"}, status_code=502)
         res = r.json() if r.headers.get("content-type", "").startswith("application/json") else {"error": r.text[:200]}
         if r.status_code != 200:
             log(f"[acp] settle refused: {[k for k, v in (res.get('checks') or {}).items() if not v] or res}")
@@ -420,6 +425,7 @@ class AcpShop:
         if r.status_code != 200:
             return None, f"inventory: {r.status_code}"
         inv = r.json()
+        self.round = inv.get("round", 0)                 # complete() reads it: the gate stays on before CHAIN_ROUND
         if inv.get("round", 0) < ECON_ROUND:
             return False, None                          # no stock before Round 3
         now = time.time()
@@ -579,8 +585,8 @@ def chain_sent(path, order):
     for line in Path(path).read_text(encoding="utf-8").splitlines():
         with contextlib.suppress(ValueError, TypeError, AttributeError):
             j = json.loads(line)
-            if j.get("order") == order and j.get("tx"):
-                out.append(j["tx"])
+            if j.get("order") == order:            # a "sending" line counts: the transfer may land after a restart
+                out.append(j.get("tx") or "a transfer with no receipt yet")
     return out
 
 
@@ -601,11 +607,21 @@ def acp_pay(o, shop_url, shop_pub, receipt, buyer_key, accept=None, why=None, ch
 
     def sent(to, wei, tx_hash, h):
         if chain_log is not None:
-            with open(chain_log, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"order": o["order"], "checkout_hash": h, "to": to, "wei": wei, "tx": tx_hash,
-                                    "ts": int(time.time())}) + "\n")
+            try:
+                with open(chain_log, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"order": o["order"], "checkout_hash": h, "to": to, "wei": wei, "tx": tx_hash,
+                                        "ts": int(time.time())}) + "\n")
+            except OSError as e:
+                globals()["log"](f"[maroo] could not write {chain_log}: {type(e).__name__}")
+
+    def transfer(to, wei, digest, h):
+        sent(to, wei, None, h)                          # "sending": written before the transaction can exist
+        tx_hash = maroo.pay(buyer_key, to, wei, digest)
+        txs.append(tx_hash)
+        sent(to, wei, tx_hash, h)
+        return tx_hash
     txs = []
-    c = httpx.Client(timeout=60)
+    c = httpx.Client(timeout=120)                       # longer than a shop's settle wait (Round 4 reads the chain)
     try:
         r = c.get(f"{shop_url}/.well-known/acp.json")
         if r.status_code != 200:
@@ -677,13 +693,9 @@ def acp_pay(o, shop_url, shop_pub, receipt, buyer_key, accept=None, why=None, ch
                     c.post(f"{base}/checkout_sessions/{s['id']}/cancel", json={})
                 return None
             if fee_wei:                                 # the small fee first: a failure after it loses only the fee
-                pm["fee_tx_hash"] = maroo.pay(buyer_key, chain["market_address"], fee_wei, digest)
-                txs.append(pm["fee_tx_hash"])
-                sent(chain["market_address"], fee_wei, pm["fee_tx_hash"], h)
+                pm["fee_tx_hash"] = transfer(chain["market_address"], fee_wei, digest, h)
                 log(f"[maroo] paid the market fee {fee_wei / 10 ** 18:g} tOKRW: {maroo.tx_url(pm['fee_tx_hash'])}")
-            pm["tx_hash"] = maroo.pay(buyer_key, shop_pub, wei, digest)
-            txs.append(pm["tx_hash"])
-            sent(shop_pub, wei, pm["tx_hash"], h)
+            pm["tx_hash"] = transfer(shop_pub, wei, digest, h)
             log(f"[maroo] paid the shop {wei / 10 ** 18:g} tOKRW: {maroo.tx_url(pm['tx_hash'])}")
         sign = lambda m: {"mandate": m, "sig": base64.b64encode(buyer_key.sign(canon(m))).decode()}
         payment = {"payment_data": {"order": o["order"], "checkout_mandate": sign(cm), "payment_mandate": sign(pm)}}

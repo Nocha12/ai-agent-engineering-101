@@ -178,7 +178,8 @@ class AcpCheckout:
         if not isinstance(pay, dict):
             return JSONResponse({"error": "payment_data is missing"}, status_code=400)
         pm = (pay.get("payment_mandate") or {}).get("mandate") if isinstance(pay.get("payment_mandate"), dict) else None
-        on_chain = isinstance(pm, dict) and bool(pm.get("tx_hash") or pm.get("fee_tx_hash"))
+        on_chain = (isinstance(pm, dict) and bool(pm.get("tx_hash") or pm.get("fee_tx_hash"))
+                    and self.stock is not None and (self.stock.load() or {}).get("round", 0) >= 4)   # Round 4 only
         try:                                  # Round 4: once the buyer's tOKRW moved, refusing would keep it
             no = await asyncio.to_thread(self.gate.refusal, pay.get("order"), s) if self.gate and not on_chain else None
         except Exception as e:                # a broken gate never blocks a sale
@@ -203,10 +204,13 @@ class AcpCheckout:
             async with httpx.AsyncClient(timeout=60, transport=self.transport) as c:
                 r = await c.post(f"{self.market}/api/settle", json=body)
             res = r.json()
-        except (httpx.HTTPError, ValueError) as e:
-            self.log(f"[acp] settle failed for {s['id']}: {type(e).__name__}: {e}")
+        except httpx.TimeoutException as e:
+            self.log(f"[acp] settle timed out for {s['id']}: {type(e).__name__}")
             return JSONResponse({"error": "the market did not answer (the chain did not answer in time), retry"},
                                 status_code=503)  # the unit stays held: the kit's buyer retries this text
+        except (httpx.HTTPError, ValueError) as e:
+            self.log(f"[acp] settle failed for {s['id']}: {type(e).__name__}: {e}")
+            return JSONResponse({"error": "the market did not answer"}, status_code=502)
         if r.status_code != 200 or not res.get("mandate_receipt"):
             failed = [k for k, v in (res.get("checks") or {}).items() if not v]
             self.log(f"[acp] settle refused for {s['id']} ({s['line_items'][0]['id']} at {total}): {failed or res}")

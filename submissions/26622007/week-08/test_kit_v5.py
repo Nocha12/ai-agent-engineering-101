@@ -46,11 +46,27 @@ class WalletDeal(test_round3.EndToEnd):
         log = os.path.join(self.tmp.name, "chain_sent.jsonl")
         rec, mr, why = self.buy(CHAIN, log)
         self.assertEqual(mr["ledger"], 7)
-        self.assertEqual(kit.chain_sent(log, "o-1"), ["0x" + f"{1:064x}", "0x" + f"{2:064x}"])
+        sent = kit.chain_sent(log, "o-1")             # a "sending" line before each transfer, then its hash
+        self.assertEqual([x for x in sent if x.startswith("0x")], ["0x" + f"{1:064x}", "0x" + f"{2:064x}"])
+        self.assertEqual(len(sent), 4)
+        self.assertEqual(kit.chain_sent(log, "o-other"), [])
         self.units.append(test_round3.unit("u-food2", "G1"))     # a restart brings the same order back
         rec, mr, why = self.buy(CHAIN, log)
         self.assertIsNone(mr)
         self.assertEqual(len(self.paid), 2)
+        self.assertTrue(any("already sent" in w for w in why), why)
+
+    def test_a_transfer_with_no_receipt_yet_still_blocks_the_order(self):
+        self.balance = 10 ** 24
+        log = os.path.join(self.tmp.name, "chain_sent.jsonl")
+        def lost(wallet, to, wei, data=b""):
+            raise TimeoutError("transfer 0xabc has no receipt after 90 s")
+        with mock.patch.object(maroo, "pay", lost):
+            self.assertIsNone(self.buy(CHAIN, log)[1])
+        self.units.append(test_round3.unit("u-food2", "G1"))
+        rec, mr, why = self.buy(CHAIN, log)
+        self.assertIsNone(mr)
+        self.assertEqual(self.paid, [])                  # never sent again: the first may still land
         self.assertTrue(any("already sent" in w for w in why), why)
 
     def test_a_shop_transfer_that_fails_after_the_fee_names_the_fee_transaction(self):

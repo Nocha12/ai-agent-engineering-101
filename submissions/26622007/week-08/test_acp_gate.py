@@ -201,11 +201,20 @@ class KitAcpShopTest(Base):
 
     def test_round_4_a_refused_buyer_who_already_paid_on_chain_settles(self):
         sid = self.open_session("t-bad")
+        self.shop.round = 4                             # what pick_unit read from a Round 4 inventory
         body = pay_body("o-bad")
         body["payment_data"]["payment_mandate"]["mandate"]["tx_hash"] = "0x" + "ab" * 32
         r = self.run_path(f"acp/checkout_sessions/{sid}/complete", body)
         self.assertEqual(r.status_code, 200)            # refusing now would keep the buyer's tOKRW
         self.assertEqual([s["order"] for s in self.market.settles], ["o-bad"])
+
+    def test_before_round_4_a_tx_hash_does_not_dodge_the_gate(self):
+        sid = self.open_session("t-bad")
+        body = pay_body("o-bad")
+        body["payment_data"]["payment_mandate"]["mandate"]["tx_hash"] = "0x" + "ab" * 32
+        r = self.run_path(f"acp/checkout_sessions/{sid}/complete", body)
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(self.market.settles, [])
 
     def test_a_settle_that_times_out_asks_the_buyer_to_retry(self):
         call = self.market.call
@@ -275,13 +284,13 @@ class AcpCheckoutTest(Base):
                                           json=pay_body("o-good")).status_code, 200)
         self.assertEqual([s["order"] for s in self.settles], ["o-good"])
 
-    def test_round_4_a_refused_buyer_who_already_paid_on_chain_settles(self):
+    def test_without_a_round_4_stock_a_tx_hash_does_not_dodge_the_gate(self):
         bad = self.session("t-bad")
         body = pay_body("o-bad")
         body["payment_data"]["payment_mandate"]["mandate"]["tx_hash"] = "0x" + "ab" * 32
         r = self.client.post(f"/acp/checkout_sessions/{bad}/complete", json=body)
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual([s["order"] for s in self.settles], ["o-bad"])
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(self.settles, [])
 
 
 def result_row(seq, order, buyer, shop, stars, verified=True, seller="Nocha Furniture", rnd=3):
