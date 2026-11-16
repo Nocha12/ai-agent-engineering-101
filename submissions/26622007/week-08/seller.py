@@ -20,6 +20,7 @@ the reserve is that unit's cost, marked down as it nears its date or the end of 
 the opening price is a share of the list price, marked down with it. Each unit is promised to one
 talk at a time. The receipt names the SKU and carries the unit, the honest grade and any warranty (pricing.json).
 """
+import pathlib
 import sys
 import sol_source_load
 sol_source_load.install(sys._getframe().f_code, __name__)
@@ -192,8 +193,28 @@ def canon(d):
     return json.dumps(d, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
 
 
+def load_shop_wallet(path="shop_wallet.key"):
+    """The kit v5 (Round 4) Maroo wallet the market knows this shop by, or None before the kit made one.
+    SHOP_WALLET_KEY (deployed) wins over the file. Its sign(bytes) is EIP-191, so sign_receipt needs no change."""
+    key = os.environ.get("SHOP_WALLET_KEY")
+    if not key and not os.path.exists(path):
+        return None
+    scripts = str(pathlib.Path(__file__).resolve().parents[3] / "scripts")      # scripts/maroo.py, next to the kit
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    import maroo
+    if not key:
+        with open(path, encoding="utf-8") as f:
+            key = f.read()
+    return maroo.Wallet.from_hex(key)
+
+
 def load_shop_key(path="shop_key.pem"):
-    """The Ed25519 key the market knows this shop by. SHOP_KEY_PEM (deployed) wins over the file."""
+    """The key the market knows this shop by: the kit v5 wallet once it exists, else the Ed25519 key (kit v4).
+    SHOP_KEY_PEM (deployed) wins over the file."""
+    wallet = load_shop_wallet()
+    if wallet is not None:
+        return wallet
     pem = os.environ.get("SHOP_KEY_PEM")
     if pem:
         data = pem.replace("\\n", "\n").encode()
@@ -205,7 +226,7 @@ def load_shop_key(path="shop_key.pem"):
 
 
 def sign_receipt(receipt, key):
-    """Adds sig_seller: base64 Ed25519 over canon({shop, item, price, task}), price a whole number."""
+    """Adds sig_seller: base64 Ed25519 (kit v4) or EIP-191 (kit v5 wallet) over canon({shop, item, price, task}), price a whole number."""
     body = {k: receipt[k] for k in ("shop", "item", "price", "task")}
     receipt["sig_seller"] = base64.b64encode(key.sign(canon(body))).decode()
     return receipt
@@ -1095,7 +1116,7 @@ class Seller(AgentExecutor):
             if key is not None:
                 sign_receipt(receipt, key)
             else:
-                log("no shop_key.pem or SHOP_KEY_PEM: receipt goes out unsigned")
+                log("no shop_wallet.key, shop_key.pem, SHOP_WALLET_KEY or SHOP_KEY_PEM: receipt goes out unsigned")
             if deal.get("unit") and self.acp is not None:
                 self.acp.note_terms(receipt)
             if deal.get("unit"):      # a deal on a unit counts once it is paid (StockBook.settle -> self.paid)

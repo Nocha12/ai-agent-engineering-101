@@ -45,14 +45,18 @@ def b64url(b):
 
 
 def jwt_sign(key, payload):
-    head = b64url(canon({"alg": "EdDSA", "typ": "JWT"})) + "." + b64url(canon(payload))
+    alg = "EIP191" if hasattr(key, "address") else "EdDSA"      # a kit v5 maroo.Wallet has an address
+    head = b64url(canon({"alg": alg, "typ": "JWT"})) + "." + b64url(canon(payload))
     return head + "." + b64url(key.sign(head.encode()))
 
 
 def signed_by(key, receipt):
-    """True when sig_seller is this key's Ed25519 signature over canon({shop, item, price, task})."""
+    """True when sig_seller is this key's Ed25519 (or kit v5 EIP-191) signature over canon({shop, item, price, task})."""
     try:
         body = {k: receipt.get(k) for k in RECEIPT_KEYS}
+        if hasattr(key, "address"):                               # kit v5 wallet: EIP-191 by its address
+            import maroo
+            return maroo.verify(key.address, receipt["sig_seller"], canon(body))
         key.public_key().verify(base64.b64decode(receipt["sig_seller"]), canon(body))
         return True
     except (InvalidSignature, KeyError, ValueError, TypeError):

@@ -7,7 +7,7 @@ No working week-06 shop or buyer yet? Copy the starter (an unsigned week-06 shop
     python scripts/market_kit.py starter --dir submissions/<student-id>/week-07
 
 --dir is your submission directory (where agent.json is; default: the current directory). The kit:
-  - creates shop_key.pem and buyer_key.pem (Ed25519) and adds *.pem to .gitignore,
+  - creates shop_wallet.key and buyer_wallet.key (Maroo testnet wallets) and adds *.key to .gitignore,
   - starts your seller with the "seller" command and registers its card URL,
   - asks the market for orders and runs your buyer for each one,
   - sends the result (receipt, stars, review) to the market and signs it for you,
@@ -42,7 +42,7 @@ Options:
   --buyer-only / --shop-only
   --owner CODE         claim code from the market's join page (or MARKET_OWNER); shows your GitHub on the board
 
-Needs: pip install "a2a-sdk[http-server]" uvicorn httpx cryptography
+Needs: pip install "a2a-sdk[http-server]" uvicorn httpx eth-account coincurve
 Logs: logs/market-kit.log in your submission directory.
 """
 import argparse
@@ -69,15 +69,15 @@ from urllib.parse import urlparse
 
 import httpx
 import uvicorn
-from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import maroo  # noqa: E402
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-KIT_VERSION = "4"
+KIT_VERSION = "5"
 BUYER_TIMEOUT = 300
 ECON_ROUND = 3
 FOOD_GRADE_CUTS = (0.8, 0.45)                        # share of shelf life left for food grade A, B (the market's)
@@ -139,16 +139,17 @@ def unb64url(s):
 
 
 def jwt_sign(key, payload):
-    head = b64url(canon({"alg": "EdDSA", "typ": "JWT"})) + "." + b64url(canon(payload))
+    head = b64url(canon({"alg": "EIP191", "typ": "JWT"})) + "." + b64url(canon(payload))
     return head + "." + b64url(key.sign(head.encode()))
 
 
-def jwt_payload(token, pubkey_b64):
+def jwt_payload(token, address):
     try:
         head, body, sig = token.split(".")
-        Ed25519PublicKey.from_public_bytes(base64.b64decode(pubkey_b64)).verify(unb64url(sig), f"{head}.{body}".encode())
+        if not maroo.verify_bytes(address, unb64url(sig), f"{head}.{body}".encode()):
+            return None
         return json.loads(unb64url(body))
-    except (InvalidSignature, ValueError, TypeError, AttributeError):
+    except (ValueError, TypeError, AttributeError):
         return None
 
 
@@ -156,36 +157,23 @@ def jwt_payload(token, pubkey_b64):
 
 def load_key(path: Path):
     if not path.exists():
-        key = Ed25519PrivateKey.generate()
-        path.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
-                                           serialization.NoEncryption()))
-        log(f"[keys] created {path.name}")
-    if os.name != "nt":
-        os.chmod(path, 0o600)                       # only you can read your private key
-    return serialization.load_pem_private_key(path.read_bytes(), password=None)
-
-
-def pub_b64(key):
-    return base64.b64encode(key.public_key().public_bytes(serialization.Encoding.Raw,
-                                                          serialization.PublicFormat.Raw)).decode()
+        log(f"[keys] created {path.name} (a Maroo testnet wallet; never put a mainnet key here)")
+    return maroo.Wallet.load(path)                  # only you can read your private key
 
 
 def ignore_pem(d: Path):
     gi = d / ".gitignore"
     lines = gi.read_text(encoding="utf-8").splitlines() if gi.exists() else []
-    add = [x for x in ("*.pem", ".market/") if x not in lines]
+    add = [x for x in ("*.key", ".market/") if x not in lines]
     if add:
         gi.write_text("\n".join(lines + add) + "\n", encoding="utf-8")
         log(f"[keys] added {', '.join(add)} to .gitignore")
 
 
-def verify_seller(pubkey_b64, receipt):
+def verify_seller(address, receipt):
     try:
-        body = {k: receipt.get(k) for k in RECEIPT_KEYS}
-        Ed25519PublicKey.from_public_bytes(base64.b64decode(pubkey_b64)).verify(
-            base64.b64decode(receipt["sig_seller"]), canon(body))
-        return True
-    except (InvalidSignature, KeyError, ValueError, TypeError):
+        return maroo.verify(address, receipt["sig_seller"], canon({k: receipt.get(k) for k in RECEIPT_KEYS}))
+    except KeyError:
         return False
 
 
@@ -339,7 +327,7 @@ class AcpShop:
 
     def __init__(self, key, market, md=None):
         self.key, self.market, self.md = key, market, md      # md: the .market folder whose inventory.json to refresh
-        self.pub = pub_b64(key)
+        self.pub = key.address
         self.sessions = collections.OrderedDict()
         self.opened = {}                                 # session id -> when it was created (CHECKOUT_HOLD)
         self.paying = set()                              # session ids whose payment is in flight
@@ -516,10 +504,9 @@ def check_accept(o, co, accept):
     if cert is not None:
         try:
             body = cert["cert"]
-            Ed25519PublicKey.from_public_bytes(base64.b64decode(o["market_pubkey"])).verify(
-                base64.b64decode(cert["sig"]), canon(body))
-            ok_cert = body.get("unit") == co.get("unit") and body.get("sku") == co.get("item")
-        except (InvalidSignature, KeyError, ValueError, TypeError):
+            ok_cert = (maroo.verify(o["market_pubkey"], cert["sig"], canon(body))
+                       and body.get("unit") == co.get("unit") and body.get("sku") == co.get("item"))
+        except (KeyError, ValueError, TypeError):
             pass
         if not ok_cert:
             return "the unit certificate is not the market's certificate of this unit"
@@ -557,6 +544,7 @@ ACP_FAILURE_CHECKS = frozenset({
     "payment_mandate_signed_by_buyer", "closed_mandates_types",
     "bound_to_open_mandates", "bound_to_this_checkout", "payee_is_this_shop",
     "amount_is_checkout_total", "amount_in_range",
+    "price_covers_fees", "paid_on_chain", "transaction_not_used_before",   # Round 4 (kit v5, market/ROUND4.md)
 })
 
 
@@ -582,6 +570,10 @@ def acp_pay(o, shop_url, shop_pub, receipt, buyer_key, accept=None, why=None):
         globals()["log"](msg)
         if why is not None and msg.startswith("[acp]") and " paid " not in msg and " ships unit " not in msg:
             why.append(msg[6:])
+
+    def note(reason):                                   # tests call acp_pay without `why`
+        if why is not None:
+            why.append(reason)
     c = httpx.Client(timeout=60)
     try:
         r = c.get(f"{shop_url}/.well-known/acp.json")
@@ -626,9 +618,39 @@ def acp_pay(o, shop_url, shop_pub, receipt, buyer_key, accept=None, why=None):
               "checkout_jwt": s["checkout_jwt"], "checkout_hash": h}
         pm = {"vct": "mandate.payment.1", "order": o["order"], "open_mandate": opens["payment"], "payee": shop_url,
               "amount": co["price"], "currency": "credits", "checkout_hash": h}
+        if o.get("chain"):
+            chain, digest = o["chain"], hashlib.sha256(s["checkout_jwt"].encode()).digest()
+            fee = maroo.fees(co["price"], chain["market_fee_bps"], chain["network_fee_credits"])
+            if co["price"] < fee["shop"]:
+                reason = f"the price {co['price']} does not cover the shop's fees of {fee['shop']}"
+                log(f"[maroo] not paying: {reason}")
+                note(reason)
+                with contextlib.suppress(httpx.HTTPError):
+                    c.post(f"{base}/checkout_sessions/{s['id']}/cancel", json={})
+                return None
+            wei = (co["price"] - fee["shop"]) * chain["credit_wei"]
+            fee_wei = fee["market"] * chain["credit_wei"]
+            have = maroo.balance(buyer_key.address)
+            if have < wei + fee_wei + maroo.GAS_RESERVE:
+                reason = f"wallet {buyer_key.address} is short of tOKRW; claim some at {maroo.FAUCET}"
+                log(f"[maroo] not paying: {reason}")
+                note(reason)
+                with contextlib.suppress(httpx.HTTPError):
+                    c.post(f"{base}/checkout_sessions/{s['id']}/cancel", json={})
+                return None
+            pm["tx_hash"] = maroo.pay(buyer_key, shop_pub, wei, digest)
+            log(f"[maroo] paid the shop {wei / 10 ** 18:g} tOKRW: {maroo.tx_url(pm['tx_hash'])}")
+            if fee_wei:
+                pm["fee_tx_hash"] = maroo.pay(buyer_key, chain["market_address"], fee_wei, digest)
+                log(f"[maroo] paid the market fee {fee_wei / 10 ** 18:g} tOKRW: {maroo.tx_url(pm['fee_tx_hash'])}")
         sign = lambda m: {"mandate": m, "sig": base64.b64encode(buyer_key.sign(canon(m))).decode()}
-        r = c.post(f"{base}/checkout_sessions/{s['id']}/complete",
-                   json={"payment_data": {"order": o["order"], "checkout_mandate": sign(cm), "payment_mandate": sign(pm)}})
+        payment = {"payment_data": {"order": o["order"], "checkout_mandate": sign(cm), "payment_mandate": sign(pm)}}
+        r = c.post(f"{base}/checkout_sessions/{s['id']}/complete", json=payment)
+        for _ in range(4):                              # the money has moved: keep asking while the chain is unreachable
+            if r.status_code == 200 or "chain did not answer" not in r.text:
+                break
+            time.sleep(10)
+            r = c.post(f"{base}/checkout_sessions/{s['id']}/complete", json=payment)
         if r.status_code != 200:
             log(f"[acp] payment not completed: {r.status_code} failed_checks={failed_payment_checks(r)}")
             return None
@@ -642,8 +664,8 @@ def acp_pay(o, shop_url, shop_pub, receipt, buyer_key, accept=None, why=None):
                 got += f" (the shop claimed {mr.get('claim')})"
         log(f"[acp] paid {co['price']} through {base}, settled at ledger #{mr['ledger']}{got}")
         return mr
-    except (httpx.HTTPError, ValueError, KeyError, TypeError) as e:
-        log(f"[acp] payment failed: {type(e).__name__}: {e}")
+    except (httpx.HTTPError, ValueError, KeyError, TypeError, RuntimeError, TimeoutError) as e:
+        log(f"[acp] payment failed: {type(e).__name__}: {e}")      # log() above already notes it in `why`
         return None
     finally:
         c.close()
@@ -676,7 +698,7 @@ class Market:
     def join(self, role, name, key, url=None, tries=6):
         """Join (again). Waits out a restarting market; a refusal (4xx) raises SystemExit with the market's reason."""
         ts = int(time.time())                           # proves the key: the market lets only its holder join again
-        body = {"name": name, "role": role, "pubkey": pub_b64(key), "url": url, "ts": ts,
+        body = {"name": name, "role": role, "pubkey": key.address, "url": url, "ts": ts,
                 "sig": base64.b64encode(key.sign(canon({"name": name, "role": role, "url": url, "ts": ts}))).decode()}
         if self.owner:
             body["owner"] = self.owner
@@ -1196,7 +1218,9 @@ def cmd_join(a):
     LOG_FILE = d / "logs" / "market-kit.log"
     log(f"[kit] market_kit {KIT_VERSION}, {d}")
     ignore_pem(d)
-    keys = {"shop": load_key(d / "shop_key.pem"), "buyer": load_key(d / "buyer_key.pem")}
+    keys = {"shop": load_key(d / "shop_wallet.key"), "buyer": load_key(d / "buyer_wallet.key")}
+    log(f"[maroo] shop wallet {keys['shop'].address}, buyer wallet {keys['buyer'].address}. "
+        f"From Round 4 your buyer pays on Maroo testnet: fund its wallet at {maroo.FAUCET}")
     market = Market(a.market, a.owner)
     procs, own_shop, state = [], None, {}
     (d / ".market").mkdir(exist_ok=True)

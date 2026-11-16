@@ -18,7 +18,6 @@ import unittest
 from unittest import mock
 
 import httpx
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from starlette.applications import Starlette
 from starlette.testclient import TestClient
 
@@ -27,6 +26,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "..", "..", "scripts"))
 import acp_shop                    # noqa: E402
 import market_kit as kit           # noqa: E402
+import maroo                      # noqa: E402  kit v5 wallets (scripts/maroo.py)
 
 PUBLIC = "https://nocha-furniture-a2a.onrender.com"
 
@@ -46,7 +46,7 @@ class RoundTwoMarket:
 
 class AcpShopTest(unittest.TestCase):
     def setUp(self):
-        self.key = Ed25519PrivateKey.generate()
+        self.key = maroo.Wallet.generate()
         self.settles = []
         self.market_answer = (200, {"settled": True, "ledger": 42, "mandate_receipt": {"ledger": 42, "order": "o-1"}})
 
@@ -79,16 +79,16 @@ class AcpShopTest(unittest.TestCase):
         self.assertEqual(set(mine), set(ref))
         for k in ("status", "task", "line_items", "totals", "capabilities"):
             self.assertEqual(mine[k], ref[k], k)
-        co = kit.jwt_payload(mine["checkout_jwt"], kit.pub_b64(self.key))     # what the kit's buyer checks
-        ref_co = kit.jwt_payload(ref["checkout_jwt"], kit.pub_b64(self.key))
+        co = kit.jwt_payload(mine["checkout_jwt"], self.key.address)     # what the kit's buyer checks
+        ref_co = kit.jwt_payload(ref["checkout_jwt"], self.key.address)
         self.assertIsNotNone(co)
         self.assertEqual(set(co), set(ref_co))
         self.assertEqual((co["item"], co["price"], co["task"], co["shop_url"], co["id"]),
                          ("lamp", 100, "t-1", PUBLIC, mine["id"]))
-        self.assertIsNone(kit.jwt_payload(mine["checkout_jwt"], kit.pub_b64(Ed25519PrivateKey.generate())))
+        self.assertIsNone(kit.jwt_payload(mine["checkout_jwt"], maroo.Wallet.generate().address))
 
     def test_refuses_what_it_should(self):
-        other = Ed25519PrivateKey.generate()
+        other = maroo.Wallet.generate()
         self.assertEqual(self.create(receipt(other)).status_code, 400)                      # not our signature
         forged = dict(receipt(self.key), price=90)                                          # price changed after signing
         self.assertEqual(self.create(forged).status_code, 400)

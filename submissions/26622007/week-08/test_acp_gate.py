@@ -14,7 +14,6 @@ import unittest
 import unittest.mock
 
 import httpx
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from starlette.applications import Starlette
 from starlette.testclient import TestClient
 
@@ -24,6 +23,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "..", "..", "scripts"))
 import acp_gate                    # noqa: E402
 import acp_shop                    # noqa: E402
 import market_kit as kit           # noqa: E402
+import maroo                      # noqa: E402  kit v5 wallets (scripts/maroo.py)
 
 BAD = "totato2203-r3"
 
@@ -174,7 +174,7 @@ class KitAcpShopTest(Base):
 
     def setUp(self):
         super().setUp()
-        self.key = Ed25519PrivateKey.generate()
+        self.key = maroo.Wallet.generate()
         self.market = KitMarket()
         self.shop = kit.AcpShop(self.key, self.market)
         self.shop.gate = lambda order, s: self.gate.refusal(order, s)
@@ -227,7 +227,7 @@ class AcpCheckoutTest(Base):
 
     def setUp(self):
         super().setUp()
-        self.key = Ed25519PrivateKey.generate()
+        self.key = maroo.Wallet.generate()
         self.settles = []
 
         def market(request):

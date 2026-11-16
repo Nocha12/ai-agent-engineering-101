@@ -25,8 +25,6 @@ _import_environment.start()
 
 import httpx
 import uvicorn
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -37,6 +35,7 @@ import buyer                       # noqa: E402
 import hard_limits                 # noqa: E402
 import market_buyer                # noqa: E402
 import market_kit as kit           # noqa: E402
+import maroo                      # noqa: E402  kit v5 wallets (scripts/maroo.py)
 import restock                     # noqa: E402
 import review                      # noqa: E402
 import seller                      # noqa: E402
@@ -46,9 +45,8 @@ from catalog import Catalog        # noqa: E402
 from shop_stock import StockBook, markdown   # noqa: E402
 _import_environment.stop()
 
-MARKET_KEY = Ed25519PrivateKey.generate()
-MARKET_PUB = base64.b64encode(MARKET_KEY.public_key().public_bytes(
-    serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode()
+MARKET_KEY = maroo.Wallet.generate()
+MARKET_PUB = MARKET_KEY.address     # kit v5: the market is a Maroo wallet
 
 
 def unit(uid="u1", sku="G1", cost=6000, list_price=10000, grade="A", kind="food", hours=500.0, category="식품>김치>김치"):
@@ -167,7 +165,7 @@ class EndToEnd(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.units = [unit("u-food", "G1"), unit("u-goods", "G2", kind="goods", grade="B", category="가전>청소기")]
-        self.key = Ed25519PrivateKey.generate()
+        self.key = maroo.Wallet.generate()
         self.settled = []
         patches = [
             mock.patch.object(shop_memory, "MEMORY", os.path.join(self.tmp.name, "seller.json")),
@@ -214,7 +212,7 @@ class EndToEnd(unittest.TestCase):
 
     def market(self, request):
         body = json.loads(request.content)
-        co = kit.jwt_payload(body["checkout_jwt"], kit.pub_b64(self.key))
+        co = kit.jwt_payload(body["checkout_jwt"], self.key.address)
         if self.refuse:
             return httpx.Response(400, json={"settled": False, "checks": {"payment_mandate": False}})
         self.settled.append(co)
@@ -251,9 +249,9 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(out["state"], "TASK_STATE_COMPLETED")
         rec = out["receipt"]
         self.assertEqual((rec["item"], rec["unit"], rec["claim"]), ("G1", "u-food", "A"))
-        self.assertTrue(kit.verify_seller(kit.pub_b64(self.key), rec))
+        self.assertTrue(kit.verify_seller(self.key.address, rec))
         why = []
-        mr = kit.acp_pay(self.order(["G1"]), self.url, kit.pub_b64(self.key), rec, Ed25519PrivateKey.generate(),
+        mr = kit.acp_pay(self.order(["G1"]), self.url, self.key.address, rec, maroo.Wallet.generate(),
                          {"cert": True, "min_hours_left": 48.1}, why)
         self.assertEqual(why, [])
         self.assertEqual(mr["ledger"], 7)
@@ -272,9 +270,9 @@ class EndToEnd(unittest.TestCase):
         rec = out["receipt"]
         rec["price"] = int(rec["price"])
         self.assertEqual((rec["item"], rec["unit"]), ("김치", "u-food"))
-        self.assertTrue(kit.verify_seller(kit.pub_b64(self.key), rec))
+        self.assertTrue(kit.verify_seller(self.key.address, rec))
         why = []
-        mr = kit.acp_pay(self.order(["G1"]), self.url, kit.pub_b64(self.key), rec, Ed25519PrivateKey.generate(),
+        mr = kit.acp_pay(self.order(["G1"]), self.url, self.key.address, rec, maroo.Wallet.generate(),
                          {"cert": True}, why)
         self.assertEqual(why, [])
         self.assertEqual(mr["ledger"], 7)
@@ -286,7 +284,7 @@ class EndToEnd(unittest.TestCase):
     def test_terms_come_from_the_seller_not_the_buyers_copy(self):
         rec = self.deal("G1")["receipt"]
         forged = dict(rec, unit="u-goods", claim="C", warranty_hours=99)
-        kit.acp_pay(self.order(["G1", "G2"]), self.url, kit.pub_b64(self.key), forged, Ed25519PrivateKey.generate())
+        kit.acp_pay(self.order(["G1", "G2"]), self.url, self.key.address, forged, maroo.Wallet.generate())
         self.assertEqual((self.settled[0]["unit"], self.settled[0]["claim"]), ("u-food", "A"))
         self.assertNotIn("warranty_hours", self.settled[0])
 
@@ -294,7 +292,7 @@ class EndToEnd(unittest.TestCase):
         self.units[0] = unit("u-food", "G1", hours=10)
         rec = self.deal("G1")["receipt"]
         why = []
-        mr = kit.acp_pay(self.order(["G1"]), self.url, kit.pub_b64(self.key), rec, Ed25519PrivateKey.generate(),
+        mr = kit.acp_pay(self.order(["G1"]), self.url, self.key.address, rec, maroo.Wallet.generate(),
                          {"cert": True, "min_hours_left": 48.1}, why)
         self.assertIsNone(mr)
         self.assertIn("48.1", why[0])
@@ -363,7 +361,7 @@ class EndToEnd(unittest.TestCase):
         return [(n["result"], n.get("price")) for n in (seller.flush_memory() or shop_memory.load())["negotiations"]]
 
     def pay(self, rec, acceptable=("G1",)):
-        return kit.acp_pay(self.order(list(acceptable)), self.url, kit.pub_b64(self.key), rec, Ed25519PrivateKey.generate())
+        return kit.acp_pay(self.order(list(acceptable)), self.url, self.key.address, rec, maroo.Wallet.generate())
 
     def test_a_deal_is_learned_only_once_it_is_paid(self):
         rec = self.deal("G1")["receipt"]
@@ -453,7 +451,7 @@ class RoundTwoStillWorks(EndToEnd):
         self.assertNotIn("unit", rec)
         order = dict(self.order([]), budget=150)
         order["mandates"]["payment"]["mandate"]["constraints"][0]["max"] = 150
-        self.assertEqual(kit.acp_pay(order, self.url, kit.pub_b64(self.key), rec, Ed25519PrivateKey.generate())["ledger"], 7)
+        self.assertEqual(kit.acp_pay(order, self.url, self.key.address, rec, maroo.Wallet.generate())["ledger"], 7)
         self.assertNotIn("unit", self.settled[0])
         self.assertEqual(self.settled[0]["item"], "lamp")
 

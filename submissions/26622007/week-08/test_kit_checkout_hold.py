@@ -10,12 +10,12 @@ import unittest
 from unittest import mock
 
 import httpx
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "..", "..", "scripts"))
 import market_kit as kit           # noqa: E402
+import maroo                      # noqa: E402  kit v5 wallets (scripts/maroo.py)
 import shop_stock                  # noqa: E402
 from test_acp_shop import receipt  # noqa: E402
 
@@ -30,7 +30,7 @@ class OneUnitMarket:
 
 class CheckoutHoldTest(unittest.TestCase):
     def setUp(self):
-        self.key = Ed25519PrivateKey.generate()
+        self.key = maroo.Wallet.generate()
         self.shop = kit.AcpShop(self.key, OneUnitMarket())
         self.shop.terms["t-1"] = {"unit": "u-1"}
         self.shop.terms["t-2"] = {"unit": "u-1"}
