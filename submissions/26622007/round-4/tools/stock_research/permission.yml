@@ -1,0 +1,10 @@
+name: stock_research
+description: 잔액, 현재 재고, 카테고리 수요 및 해당 가격대 상품을 요약해 매입 판단을 돕습니다. args {limit: 표시할 상품 수, 기본 20}.
+permission:
+  network: [market.ourolabs.ai]
+  identity: [shop]
+  pay_limit: 0
+  timeout: 30
+logic: logic.py
+test: test.py
+version: 1

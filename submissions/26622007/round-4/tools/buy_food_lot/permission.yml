@@ -1,0 +1,12 @@
+name: buy_food_lot
+description: 수익성과 현금 여유를 검증해 필수 식품 SKU 1종을 소량 매입합니다. args {sku, qty(2~4)}.
+permission:
+  network: [market.ourolabs.ai, rpc-testnet.maroo.io]
+  write: [logs/sends.jsonl]
+  identity: [shop]
+  wallet: [pay]
+  pay_limit: 500000
+  timeout: 180
+logic: logic.py
+test: test.py
+version: 1

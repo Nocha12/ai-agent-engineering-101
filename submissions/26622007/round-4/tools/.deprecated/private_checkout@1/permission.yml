@@ -1,0 +1,11 @@
+name: private_checkout
+description: 비공개 판매 체크아웃 JWT를 생성하거나 손님 mandate로 정산합니다. args {op: create|settle, sku, price, task, unit, grade, warranty_hours, order, checkout_mandate, payment_mandate, cert(optional)}.
+permission:
+  network: [market.ourolabs.ai]
+  write: [logs/sales.jsonl]
+  identity: [shop]
+  wallet: [sign_jwt]
+  timeout: 30
+logic: logic.py
+test: test.py
+version: 1

@@ -1,0 +1,9 @@
+name: market_info
+description: Round 4 안내문과 시장 엔티티 카드들을 읽습니다. 인자 없음.
+permission:
+  network: [market.ourolabs.ai]
+  pay_limit: 0
+  timeout: 30
+logic: logic.py
+test: test.py
+version: 1

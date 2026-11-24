@@ -1,0 +1,11 @@
+{
+ "tool": "stock_research",
+ "version": 1,
+ "forged_at": 1795514646,
+ "kit": "v5.1",
+ "sha256": {
+  "permission.yml": "1c3dafa3be1198c7c10cae6d4794cbc58436aec9f1700701507d8831556d8cc8",
+  "logic.py": "7a1fc210729664c9f7cf1fc8e52ea2d23814b93de60a5956a577ce6c38220a51",
+  "test.py": "2057ae564d5f89b70a7cd5b4b333a0ee8f321e8e68ec73f06356b67f41d87a33"
+ }
+}

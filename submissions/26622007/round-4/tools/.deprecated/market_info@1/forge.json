@@ -1,0 +1,11 @@
+{
+ "tool": "market_info",
+ "version": 1,
+ "forged_at": 1795514522,
+ "kit": "v5.1",
+ "sha256": {
+  "permission.yml": "5ea233a90c4df07d6e8c5b3e9c3bc18a187247af708f055b96a627edaf765072",
+  "logic.py": "3bad446a79656894174b401df1d2f5fb994b83e30b3cec6a616f477621312097",
+  "test.py": "c5bbfbd8ea8d7fbcb2ea7fc97ac98ad6ffe0ba8286cda3c4a8e143ea8775ea98"
+ }
+}

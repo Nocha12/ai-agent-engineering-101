@@ -1,0 +1,16 @@
+import json
+
+def run(args, kit):
+    card={
+      'name':'노차네 구멍가게',
+      'description':'동네 구멍가게입니다. 생수·우유·쌀·계란·면·과일 같은 먹을거리를 조금씩 들여 두고, 사장님이 손님 안부를 기억합니다. 유통기한·등급·가격은 정직하게 말씀드립니다.',
+      'version':'4.0.0',
+      'provider':{'organization':'노차네 구멍가게'},
+      'supportedInterfaces':[{'url':kit.shop_url,'protocolBinding':'A2A','protocolVersion':'1.0'}],
+      'defaultInputModes':['text/plain','application/json'],
+      'defaultOutputModes':['text/plain','application/json'],
+      'skills':[{'id':'product_inquiry','name':'상품 문의','description':'생수·우유·쌀·계란·면·과일 등 먹을거리의 실제 재고, 유통기한, 현재 등급 및 가격을 확인해 정직하게 안내합니다.','tags':['shop','food','inventory','sales'],'examples':[],'inputModes':['text/plain'],'outputModes':['text/plain']}]
+    }
+    with open('card.json','w',encoding='utf-8') as f:
+        json.dump(card,f,ensure_ascii=False)
+    return {'written':True,'name':card['name']}

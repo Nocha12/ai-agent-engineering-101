@@ -1,0 +1,11 @@
+{
+ "tool": "shop_snapshot",
+ "version": 2,
+ "forged_at": 1795514594,
+ "kit": "v5.1",
+ "sha256": {
+  "permission.yml": "fc8f8e4e33624fe9f25f7a39813f868a35e00df4ba648e826d6aae67cbb99a86",
+  "logic.py": "d6781d4027ad7990b388070183ce0ed741565817eb4565a0a38b5e73e001e61f",
+  "test.py": "656cab849f95a55ee16185c1d79b28075d57f08295bec67dfc25ecef953f22cc"
+ }
+}

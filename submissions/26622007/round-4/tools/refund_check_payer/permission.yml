@@ -1,0 +1,9 @@
+name: refund_check_payer
+description: 환불 2단계(읽기): 원래 결제 트랜잭션에서 보낸 사람과 우리 지갑에 들어온 금액을 체인으로 확인합니다. args {order}. 다음은 refund_send.
+permission:
+  network: [rpc-testnet.maroo.io]
+  write: [logs/refund-plans.jsonl, logs/refund-plans.test.jsonl]
+  timeout: 30
+logic: logic.py
+test: test.py
+version: 1

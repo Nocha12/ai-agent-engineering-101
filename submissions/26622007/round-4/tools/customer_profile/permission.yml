@@ -1,0 +1,8 @@
+name: customer_profile
+description: 공개 마켓 자료에서 고객 이름과 일치하는 마을 정보, 오늘 정보, 최근 결제 품목을 조회합니다. args {customer}.
+permission:
+  network: [market.ourolabs.ai]
+  timeout: 15
+logic: logic.py
+test: test.py
+version: 1

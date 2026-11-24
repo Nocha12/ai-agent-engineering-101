@@ -1,0 +1,11 @@
+name: shop_snapshot
+description: 가게 잔액·재고, 수요, 재입고 상태 및 수수료 정보를 간결히 조회합니다. args 없음.
+permission:
+  network: [market.ourolabs.ai]
+  identity: [shop]
+  pay_limit: 0
+  timeout: 30
+logic: logic.py
+test: test.py
+version: 2
+replaces: shop_snapshot@1

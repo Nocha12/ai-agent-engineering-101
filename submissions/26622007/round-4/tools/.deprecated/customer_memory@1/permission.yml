@@ -1,0 +1,7 @@
+name: customer_memory
+description: 손님 한 명의 방문·구매 선호 기억을 조회하거나 갱신합니다. args: {op: get|update, customer: 메시지의 from 값, fields: update 시 기록할 필드}.
+permission:
+  write: [customers.json, customers.test.json]
+logic: logic.py
+test: test.py
+version: 1

@@ -1,0 +1,37 @@
+{
+ "market_info": {
+  "uses": 52,
+  "fails": 0,
+  "last": 1795536856
+ },
+ "shop_snapshot": {
+  "uses": 38,
+  "fails": 0,
+  "last": 1795536826
+ },
+ "round4_guide": {
+  "uses": 26,
+  "fails": 0,
+  "last": 1795536844
+ },
+ "write_shop_card": {
+  "uses": 16,
+  "fails": 0,
+  "last": 1795536822
+ },
+ "stock_research": {
+  "uses": 9,
+  "fails": 1,
+  "last": 1795533798
+ },
+ "food_candidates": {
+  "uses": 7,
+  "fails": 0,
+  "last": 1795536831
+ },
+ "buy_food_lot": {
+  "uses": 1,
+  "fails": 0,
+  "last": 1795533829
+ }
+}

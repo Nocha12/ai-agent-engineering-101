@@ -1,0 +1,11 @@
+{
+ "tool": "write_shop_card",
+ "version": 1,
+ "forged_at": 1795514627,
+ "kit": "v5.1",
+ "sha256": {
+  "permission.yml": "c4a5d8ffc5e5ad01aed65c4a8d46fae92d30577b5c2e6d74f74820657cbaeb0e",
+  "logic.py": "44698c2520850f30e48bd3bb6db89bb8ee2fee0c460f493663f8208f427a89b8",
+  "test.py": "72341eb3b3b2ff1c03b0308a7b4d99ceac9698dfe427bb72692b1eebc5475c87"
+ }
+}

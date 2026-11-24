@@ -1,0 +1,9 @@
+name: round4_guide
+description: Round 4 안내문에서 지정한 키워드 주변 내용을 읽습니다. args {keyword: 문서에서 찾을 문자열}.
+permission:
+  network: [market.ourolabs.ai]
+  pay_limit: 0
+  timeout: 30
+logic: logic.py
+test: test.py
+version: 1

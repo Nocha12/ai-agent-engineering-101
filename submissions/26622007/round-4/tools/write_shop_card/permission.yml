@@ -1,0 +1,9 @@
+name: write_shop_card
+description: 지정된 식료품 구멍가게 이름과 설명으로 Agent Card를 기록합니다. args 없음.
+permission:
+  write: [card.json]
+  timeout: 10
+logic: logic.py
+test: test.py
+version: 2
+replaces: write_shop_card@1

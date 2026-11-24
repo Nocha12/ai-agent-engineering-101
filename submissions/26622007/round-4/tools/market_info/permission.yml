@@ -1,0 +1,10 @@
+name: market_info
+description: Round 4 안내문 또는 지정한 시장 엔티티 카드 하나를 읽습니다. args {target: 문서|orders|clearing|wholesale|forum|board|bank|model|directory}.
+permission:
+  network: [market.ourolabs.ai]
+  pay_limit: 0
+  timeout: 30
+logic: logic.py
+test: test.py
+version: 2
+replaces: market_info@1

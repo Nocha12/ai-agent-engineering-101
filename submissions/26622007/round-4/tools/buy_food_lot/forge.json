@@ -1,0 +1,11 @@
+{
+ "tool": "buy_food_lot",
+ "version": 1,
+ "forged_at": 1795533149,
+ "kit": "v5.1",
+ "sha256": {
+  "permission.yml": "56f723ce66db13b2d1ce60c90c52e6ad4671766c69cd14f276206786008b51e8",
+  "logic.py": "7b40f93ff44be2021efcfec485951998a1a6ef04fc1bcccd4a1971f4770786c0",
+  "test.py": "62a4a77e6130b0304cee7becd682e19c7a403d3b3605ffa0c09d474c98f1eec7"
+ }
+}

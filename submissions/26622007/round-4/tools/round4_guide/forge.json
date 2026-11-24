@@ -1,0 +1,11 @@
+{
+ "tool": "round4_guide",
+ "version": 1,
+ "forged_at": 1795514608,
+ "kit": "v5.1",
+ "sha256": {
+  "permission.yml": "11d5a2ef8d9651346a4fc752e648d9f7fcf445e42b39515cee5cf1822c0680bf",
+  "logic.py": "3ad38082f3d1118ce7ee77aaaaf7322631566e7ddefc844420f80572fa3b6a4b",
+  "test.py": "9c842a0423839da3ef3a454cda680845d15c69e9a9c77e04121097fe941c9aa4"
+ }
+}
