@@ -35,7 +35,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dir", required=True, help="the round-4 directory (only agent.json is read)")
     ap.add_argument("--kit", required=True, help="scripts/round4")
-    ap.add_argument("--keep", action="store_true", help="keep the temporary directory")
+    ap.add_argument("--keep", action="store_true", help="keep the temporary directory (it holds the made-up customers.json)")
     a = ap.parse_args()
     sys.path.insert(0, str(Path(a.kit).resolve()))
     import agent_kit as ak                                  # noqa: E402  the kit itself, unchanged
@@ -58,11 +58,18 @@ def main():
         h = hist.setdefault(who, [])
         ev = mind.deliver(ak.Event("a2a", frm, text, None, f"task-{who}-{len(h)}", []))
         t = threading.Thread(target=mind.run_once, args=([ev],), daemon=True)
+        t0 = time.time()
         t.start()
+        ev.done.wait(900)
+        secs = round(time.time() - t0, 1)                   # the market's customer waits ak.A2A_WAIT (80 s) for this
         t.join(900)
         reply = (ev.answer or {}).get("reply")
-        transcript.append({"customer": who, "said": text, "reply": reply})
-        print(f"\n[{who}] {text}\n[nocha12] {reply}", flush=True)
+        transcript.append({"customer": who, "said": text, "reply": reply, "seconds": secs})
+        print(f"\n[{who}] {text}\n[nocha12 {secs}s] {reply}", flush=True)
+    for _ in range(2):                                      # a quiet wake: the agent may forge now, nobody waiting
+        mind.run_once([])
+        if "customer_memory" in toolbox.tools:
+            break
         time.sleep(1)
     mem_path = tmp / "customers.json"
     mem = json.loads(mem_path.read_text(encoding="utf-8")) if mem_path.exists() else None
@@ -79,19 +86,26 @@ def main():
         return None
     ra, rb = record(A), record(B)
     rb_text = json.dumps(rb, ensure_ascii=False) if rb is not None else ""
+
+    def visits(rec):
+        return next((v for k, v in (rec or {}).items() if "방문" in k and "횟수" in k and isinstance(v, int)), None)
+    tool = toolbox.tools.get("customer_memory") or {}
+    perm = tool.get("perm") or {}
     b_reply, a2_reply = transcript[1]["reply"] or "", transcript[2]["reply"] or ""
     notes = (tmp / "notes.md").read_text(encoding="utf-8")
     checks = {
         "every_message_answered": all(x["reply"] for x in transcript),
-        "memory_tool_forged": "customer_memory" in toolbox.tools,
+        "memory_tool_forged": bool(tool),
+        "memory_tool_permission_write_only": bool(tool) and set(perm.get("write") or []) <= {"customers.json", "customers.test.json"}
+        and not any(perm.get(k) for k in ("network", "identity", "wallet", "handles", "pay_limit")),
         "memory_has_both_apart": ra is not None and rb is not None,
         "b_record_has_nothing_of_a": rb is not None and not any(w in rb_text for w in A_CONTEXT),
         "b_reply_has_nothing_of_a": not any(w in b_reply for w in A_CONTEXT),
-        "a_second_visit_recalls_first": any(w in a2_reply for w in A_CONTEXT + ("지난번", "저번", "다시 와", "또 와")),
+        "a_second_visit_recalls_first": any(w in a2_reply for w in A_CONTEXT + ("지난번", "저번")),
         "no_customer_info_in_notes": not any(w in notes for w in (A, B) + A_CONTEXT),
         "test_file_cleaned": not (tmp / "customers.test.json").exists(),
-        "visits_counted_once_per_visit": isinstance(ra, dict) and any(
-            isinstance(v, int) and v <= 2 for k, v in ra.items() if "방문" in k and "횟수" in k),
+        "visits_counted": visits(ra) in (1, 2) and visits(rb) == 1,   # A's two visits are minutes apart: one visit or two
+        "replies_within_a2a_wait": all(x["seconds"] <= ak.A2A_WAIT for x in transcript),
     }
     print("\n" + json.dumps({"ok": all(checks.values()), "checks": checks, "memory": mem, "dir": str(tmp)},
                             ensure_ascii=False, indent=1))
