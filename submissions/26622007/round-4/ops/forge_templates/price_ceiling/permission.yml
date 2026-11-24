@@ -1,0 +1,4 @@
+name: price_ceiling
+description: SKU별 최근 수요·경쟁 재고 기반 손익 계산. sku, sell 또는 cost(개당), qty, batch_size, hold_hours, round_hours(마감까지), grade, remaining_hours(식품), lot_dues(묶음 합계), action(buy/sell). skip/too_low면 중지. 추천 수량도 새 견적으로 확인.
+version: 1
+permission:
