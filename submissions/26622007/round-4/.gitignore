@@ -2,3 +2,5 @@
 .market/
 .kit/
 meshkit.json
+customers.json
+customers.test.json
