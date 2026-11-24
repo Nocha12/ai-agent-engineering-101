@@ -313,7 +313,7 @@ def events(rows, name, sends, chain, address, seen=(), seen_tx=None, hints=None,
                 t = chain.transfer(tx)
                 if t is None:
                     if pending is not None:
-                        pending.append({"order": dt.get("order"), "ts": r["ts"], "why": "unreadable"})
+                        pending.append({"order": dt.get("order") or r.get("hash") or r["seq"], "ts": r["ts"], "why": "unreadable"})
                     continue                         # not readable yet: the next sync writes it with its payer
                 payer = t["from"]
             add(dict(base, kind="sale", id=eid, counterparty=dt.get("buyer"),
