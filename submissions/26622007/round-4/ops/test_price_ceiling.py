@@ -86,7 +86,7 @@ def test_prior_stock_and_competitors_do_not_inflate_sales(monkeypatch):
 
 
 def test_action_guard_requires_both_actual_quotes_and_uses_stress_bounds():
-    good = dict(sku='water', sell=1000, cost=490, unsold=0, grade='A', hold_hours=1, remaining_hours=12, round_hours=24, lot_dues=0)
+    good = dict(sku='water', qty=1, batch_size=1, sell=1000, cost=490, unsold=0, grade='A', hold_hours=1, remaining_hours=12, round_hours=24, lot_dues=0)
     for action in ('buy', 'sell', 'price'):
         assert prices.price_guard(action, good)['expected_profit'] == 84
         with pytest.raises(ValueError):
@@ -98,12 +98,12 @@ def test_action_guard_requires_both_actual_quotes_and_uses_stress_bounds():
 
 
 def test_guard_will_not_authorize_food_without_actual_shelf_life():
-    with pytest.raises(ValueError):
-        prices.price_guard('buy', dict(sku='water', sell=5000, cost=10, grade='A', hold_hours=2, lot_dues=0))
+    with pytest.raises(ValueError, match='remaining_hours'):
+        prices.price_guard('buy', dict(sku='water', qty=1, batch_size=1, sell=5000, cost=10, grade='A', hold_hours=2, round_hours=24, lot_dues=0))
 
 
 def test_guard_never_treats_missing_dues_as_free():
-    args = dict(sku='water', sell=1000, cost=490, unsold=0, grade='A', hold_hours=1, remaining_hours=12, round_hours=24)
+    args = dict(sku='water', qty=1, batch_size=1, sell=1000, cost=490, unsold=0, grade='A', hold_hours=1, remaining_hours=12, round_hours=24)
     for action in ('buy', 'sell', 'price'):
         assert prices.price_guard(action, dict(args, lot_dues=0))
         with pytest.raises(ValueError):
@@ -113,12 +113,36 @@ def test_guard_never_treats_missing_dues_as_free():
 
 
 def test_guard_does_not_allow_override_of_missing_deadline_or_zero_velocity(monkeypatch):
-    args = dict(sku='water', sell=5000, cost=10, grade='A', hold_hours=2, remaining_hours=12, lot_dues=0, unsold=0)
+    args = dict(sku='water', qty=1, batch_size=1, sell=5000, cost=10, grade='A', hold_hours=2, remaining_hours=12, lot_dues=0, unsold=0)
     with pytest.raises(ValueError, match='round_hours'):
         prices.price_guard('buy', args)
     monkeypatch.setattr(prices, '_signals', lambda sku, now: (0, 0, 0, 0, 0))
     with pytest.raises(ValueError, match='skip'):
         prices.price_guard('buy', dict(args, round_hours=24))
+
+
+def test_guard_requires_full_lot_and_uses_available_time_with_probability_cap(monkeypatch):
+    monkeypatch.setattr(prices, '_signals', lambda sku, now: (4, 12, 0, 0, 0))
+    args = dict(sku='water', sell=1800, cost=500, grade='B', batch_size=4, hold_hours=2, remaining_hours=1, round_hours=2, lot_dues=0)
+    with pytest.raises(ValueError, match='qty'):
+        prices.price_guard('buy', args)
+    assert prices.price_guard('buy', dict(args, qty=1, unsold=0))['verdict'] == 'buy'
+
+
+def test_recommendation_respects_integer_ceiling_with_fractional_cost(monkeypatch):
+    monkeypatch.setattr(prices, '_signals', lambda sku, now: (0.9503, 12, 0, 0, 0))
+    result = prices.quote(dict(sku='water', sell=1800, cost=500.5, hold_hours=1))
+    assert (result['verdict'], result['recommended_qty']) == ('skip', 0)
+
+
+def test_competitor_depletion_only_credited_in_base_case(monkeypatch):
+    args = dict(sku='water', sell=1800, cost=500, qty=5, hold_hours=1)
+    monkeypatch.setattr(prices, '_signals', lambda sku, now: (10, 12, 1, 1, 0))
+    low = prices.quote(args)
+    monkeypatch.setattr(prices, '_signals', lambda sku, now: (10, 12, 100, 1, 0))
+    high = prices.quote(args)
+    assert low['max_buy_cost'] > high['max_buy_cost']
+    assert low['conservative_max_buy_cost'] == high['conservative_max_buy_cost']
 
 
 def test_missing_or_stale_signals_explained_separately(monkeypatch):

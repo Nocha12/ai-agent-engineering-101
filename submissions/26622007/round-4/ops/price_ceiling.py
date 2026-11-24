@@ -62,11 +62,14 @@ def _scenario(kind, shelf, grade, hold, remaining, round_hours, unsold, demand, 
         raw, count, units, shops, own = demand
         raw = Fraction(str(raw))
         speed = (count + PRIOR_SALES) / (count / raw + PRIOR_HOURS) if raw > 0 and count else 0
-        capacity = speed * horizon / ((min(units, shops) + 1) * (2 if stress else 1))
+        market = speed * horizon
+        shared = market / (shops + 1)
+        capacity = shared / 2 if stress else max(shared, market - units)
         sold = min(1, max(0, capacity - (own if action == 'buy' else 0)) / qty)
     if unsold is not None:
         conditional = max(0, 1 - unsold - (STRESS if stress else 0))
-        sold = min(sold, conditional) if (kind != 'food' or life > hold) and (round_hours is None or round_hours > 0) else 0
+        possible = life > (0 if demand is not None else hold) if kind == 'food' else True
+        sold = min(sold, conditional) if possible and (round_hours is None or round_hours > 0) else 0
     return sold, defect, carrying
 
 
@@ -136,11 +139,18 @@ def _evaluate(args, *, guard=False, now=None):
     base, stress = bounds(qty, False), bounds(qty, True)
     maximum, minimum, profit = base
     tight_max, tight_min, tight_profit = stress
-    ok = tight_profit >= 0 and tight_max is not None and tight_min is not None and cost <= tight_max and sell >= tight_min
+    def clears(limits):
+        maximum, minimum, profit = limits
+        return profit >= 0 and maximum is not None and minimum is not None and cost <= maximum and sell >= minimum
+
+    ok = clears(stress)
     verdict = ('buy' if ok else 'skip') if action == 'buy' else ('sell_ok' if ok else 'too_low')
-    candidates = [(bounds(quantity, True)[2] * quantity, -quantity) for quantity in range(1, min(qty, SUGGEST_LIMIT) + 1)]
-    best, negative_qty = max(candidates)
-    recommended = -negative_qty if best >= 0 else 0
+    candidates = []
+    for quantity in range(1, min(qty, SUGGEST_LIMIT) + 1):
+        limits = bounds(quantity, True)
+        if clears(limits):
+            candidates.append((limits[2] * quantity, -quantity))
+    recommended = -max(candidates)[1] if candidates else 0
     reason = '보수 조건도 충족' if ok else '보수 손익분기 미달 또는 판매 불가'
     if unavailable:
         reason = '공유 수요 자료 누락·만료·오류: 갱신 전 거래 금지'
@@ -168,8 +178,9 @@ def quote(args, *, guard=False):
 
 def price_guard(action, args):
     """Require actual prices (not a caller-provided verdict) before buy/sell/price actions."""
-    if action not in ('buy', 'sell', 'price') or not isinstance(args, dict) or not {'sell', 'cost', 'grade', 'hold_hours', 'round_hours', 'lot_dues'} <= args.keys():
-        raise ValueError('guard needs buy/sell/price and explicit sell, cost, grade, hold_hours, round_hours and lot_dues')
+    required = {'sell', 'cost', 'qty', 'batch_size', 'grade', 'hold_hours', 'round_hours', 'lot_dues'}
+    if action not in ('buy', 'sell', 'price') or not isinstance(args, dict) or not required <= args.keys():
+        raise ValueError('guard needs buy/sell/price and explicit ' + ', '.join(sorted(required)))
     item = DATA['items'].get(args.get('sku'))
     if item and item[1] == 'food' and args.get('remaining_hours') is None:
         raise ValueError('guard needs observed remaining_hours for food')
