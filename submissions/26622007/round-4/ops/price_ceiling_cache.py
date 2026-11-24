@@ -68,7 +68,7 @@ def build(catalog, ledger):
     start = end = None
     last_seq = batches = 0
     units, sold = {}, set()
-    costs, counts, prices = Counter(), Counter(), defaultdict(list)
+    costs, counts, prices = defaultdict(list), Counter(), defaultdict(list)
     for seq, event in enumerate(ledger, 1):
         timestamp, digest = event['ts'], text(event['hash'])
         require(integer(event['seq'], 1) == seq and event['prev'] == previous_hash and
@@ -94,7 +94,7 @@ def build(catalog, ledger):
             for unit in batch:
                 require(text(unit) not in units, f'duplicate supplied unit at {seq}')
                 units[unit] = sku
-            costs[sku] += integer(data['total'])
+            costs[sku].extend([integer(data['total']) / qty] * qty)
             counts[sku] += qty
             batches += 1
         else:
@@ -108,10 +108,10 @@ def build(catalog, ledger):
     for sku, row in items.items():
         sales, count = len(prices[sku]), counts[sku]
         row[5:] = [statistics.median(prices[sku]) if sales else None,
-                   costs[sku] / count if count else None, sales, count]
+                   statistics.median(costs[sku]) if count else None, sales, count]
         rates[row[1]][0] += sales
         rates[row[1]][1] += count
-    return {'schema_version': 1, 'items': items, 'rates': rates,
+    return {'schema_version': 2, 'items': items, 'rates': rates,
             'sample': {'round': 4, 'start': kst(start), 'end': kst(end), 'last_seq': last_seq,
                        'observed_minutes': round((end - start) / 60, 3),
                        'supply_batches': batches},

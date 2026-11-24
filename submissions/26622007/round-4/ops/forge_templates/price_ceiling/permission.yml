@@ -1,4 +1,4 @@
 name: price_ceiling
-description: 매입·가격 결정 전 손익 조회. sku, sell 또는 cost(개당), qty, batch_size, hold_hours, grade, remaining_hours(식품), unsold(0~1), lot_dues(묶음 합계), action(buy/sell). 보수 판정 skip/too_low면 중지. 실행 권한 없음.
+description: SKU별 최근 수요·경쟁 재고 기반 손익 계산. sku, sell 또는 cost(개당), qty, batch_size, hold_hours, round_hours(마감까지), grade, remaining_hours(식품), lot_dues(묶음 합계), action(buy/sell). skip/too_low면 중지. 추천 수량도 새 견적으로 확인.
 version: 1
 permission:

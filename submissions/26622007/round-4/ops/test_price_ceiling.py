@@ -5,6 +5,7 @@ import price_ceiling as prices
 
 @pytest.fixture(autouse=True)
 def catalog(monkeypatch):
+    monkeypatch.setattr(prices, '_signals', lambda sku, now: (8, 12, 0, 0, 0))
     monkeypatch.setattr(prices, 'DATA', {'items': {
         'water': ['water', 'food', 3000, 24, True, 1800, 1620, 3, 6],
         'lamp': ['lamp', 'goods', 10000, None, False, None, None, 0, 3]},
@@ -52,11 +53,40 @@ def test_extra_lot_charges_apply_once_and_fractional_ceiling_rounds_down():
 def test_default_table_flags_three_thousand_credit_staple():
     row, = prices.build_rows()
     assert row['risk'] is True and row['profit'] < 0
-    assert row['unsold'] == 0.5
+    assert row['unsold'] == 0
+
+
+def test_velocity_zero_and_uncontested_demand(monkeypatch):
+    args = dict(sku='water', cost=800, sell=1800, hold_hours=3, qty=2)
+    assert prices.quote(args)['verdict'] == 'buy'
+    monkeypatch.setattr(prices, '_signals', lambda sku, now: (0, 0, 50, 5, 0))
+    result = prices.quote(args)
+    assert (result['verdict'], result['recommended_qty']) == ('skip', 0)
+
+
+def test_expiry_and_deadline_reduce_feasible_lot():
+    args = dict(sku='water', cost=1050, sell=1800, hold_hours=5, qty=4, remaining_hours=10)
+    assert prices.quote(args)['recommended_qty'] == 4
+    for limit in ({'remaining_hours': 0.4}, {'round_hours': 0.4}):
+        reduced = prices.quote(dict(args, **limit))
+        assert reduced['verdict'] == 'skip' and reduced['recommended_qty'] == 1
+    assert prices.quote(dict(args, round_hours=0))['recommended_qty'] == 0
+
+
+def test_prior_stock_and_competitors_do_not_inflate_sales(monkeypatch):
+    args = dict(sku='water', cost=500, sell=1800, qty=1, hold_hours=1)
+    monkeypatch.setattr(prices, '_signals', lambda sku, now: (2, 1, 0, 0, 0))
+    alone = prices._evaluate(args)
+    monkeypatch.setattr(prices, '_signals', lambda sku, now: (2, 1, 9, 2, 0))
+    contested = prices._evaluate(args)
+    assert 0 < 1 - contested['unsold'] < 2 / 3
+    assert contested['unsold'] > alone['unsold']
+    monkeypatch.setattr(prices, '_signals', lambda sku, now: (2, 1, 9, 2, 2))
+    assert prices.quote(args)['verdict'] == 'skip'
 
 
 def test_action_guard_requires_both_actual_quotes_and_uses_stress_bounds():
-    good = dict(sku='water', sell=1000, cost=490, unsold=0, grade='A', hold_hours=1, remaining_hours=12, lot_dues=0)
+    good = dict(sku='water', sell=1000, cost=490, unsold=0, grade='A', hold_hours=1, remaining_hours=12, round_hours=24, lot_dues=0)
     for action in ('buy', 'sell', 'price'):
         assert prices.price_guard(action, good)['expected_profit'] == 84
         with pytest.raises(ValueError):
@@ -73,13 +103,30 @@ def test_guard_will_not_authorize_food_without_actual_shelf_life():
 
 
 def test_guard_never_treats_missing_dues_as_free():
-    args = dict(sku='water', sell=1000, cost=490, unsold=0, grade='A', hold_hours=1, remaining_hours=12)
+    args = dict(sku='water', sell=1000, cost=490, unsold=0, grade='A', hold_hours=1, remaining_hours=12, round_hours=24)
     for action in ('buy', 'sell', 'price'):
         assert prices.price_guard(action, dict(args, lot_dues=0))
         with pytest.raises(ValueError):
             prices.price_guard(action, args)
         with pytest.raises(ValueError):
             prices.price_guard(action, dict(args, lot_dues=10))
+
+
+def test_guard_does_not_allow_override_of_missing_deadline_or_zero_velocity(monkeypatch):
+    args = dict(sku='water', sell=5000, cost=10, grade='A', hold_hours=2, remaining_hours=12, lot_dues=0, unsold=0)
+    with pytest.raises(ValueError, match='round_hours'):
+        prices.price_guard('buy', args)
+    monkeypatch.setattr(prices, '_signals', lambda sku, now: (0, 0, 0, 0, 0))
+    with pytest.raises(ValueError, match='skip'):
+        prices.price_guard('buy', dict(args, round_hours=24))
+
+
+def test_missing_or_stale_signals_explained_separately(monkeypatch):
+    def stale(sku, now):
+        raise ValueError('stale snapshot')
+    monkeypatch.setattr(prices, '_signals', stale)
+    result = prices.quote(dict(sku='water', sell=5000, cost=10))
+    assert result['verdict'] == 'skip' and result['recommended_qty'] == 0 and '갱신' in result['reason']
 
 
 def test_floor_is_reachable_within_the_input_domain():

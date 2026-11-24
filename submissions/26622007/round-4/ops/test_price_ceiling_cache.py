@@ -47,7 +47,7 @@ class CacheCLI(unittest.TestCase):
         raw = self.output.read_text(encoding='utf-8')
         self.assertNotIn('NEVER-EXPORT', raw)
         cache = json.loads(raw)
-        self.assertEqual(cache['items']['rice'], ['밥', 'food', 100, 24, True, 60, 30, 3, 4])
+        self.assertEqual(cache['items']['rice'], ['밥', 'food', 100, 24, True, 60, 36, 3, 4])
         self.assertEqual(cache['items']['pen'], ['펜', 'goods', 30, None, False, None, None, 0, 0])
         self.assertEqual(cache['rates'], {'food': [3, 4], 'goods': [0, 0]})
         self.assertGreater(cache['sample']['observed_minutes'], 70)
