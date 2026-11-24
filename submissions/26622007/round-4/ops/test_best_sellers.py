@@ -67,6 +67,7 @@ class Build(unittest.TestCase):
 class Rank(unittest.TestCase):
     def setUp(self):
         self.data = bs.build_data(ledger(), CATALOG, now=NOW, keep_hours=24)
+        self.data.update(stock_as_of=NOW, ledger_as_of=NOW, sku_stock={'water': [3, 2, 0]})
 
     def test_water_tops_the_list_with_velocity_prices_and_evidence(self):
         out = bs.rank({}, self.data, now=NOW)
@@ -108,6 +109,22 @@ class Rank(unittest.TestCase):
         out = bs.rank({}, self.data, now=NOW + 5 * H)
         self.assertEqual(out['data_age_min'], 300)
         self.assertTrue(out['stale'])
+        self.assertTrue(all(item['buy_qty'] == 0 for item in out['items']))
+
+    def test_ledger_refresh_does_not_refresh_inventory(self):
+        later = NOW + 2 * H
+        data = dict(self.data, as_of=later, ledger_as_of=later)
+        self.assertTrue(bs.rank({}, data, later)['stale'])
+
+    def test_peer_and_price_replay_the_same_actual_cache_and_stock(self):
+        import price_demand
+        data = json.loads(bs.DATA_PATH.read_text(encoding='utf-8'))
+        now = price_demand.market_as_of()
+        for item in bs.rank({'top': 20}, data, now)['items']:
+            rate, count, _, competitors, own = price_demand.signals(item['sku'], now)
+            self.assertEqual((item['per_hour'], item['tx_6h']), (round(rate, 2), count))
+            expected = min(4, max(0, int(rate * 3 / (competitors + 1) + 0.5) - own)) if count >= 2 else 0
+            self.assertEqual(item['buy_qty'], expected)
 
     def test_live_rows_are_merged_by_seq_once(self):
         new = [settle(11, NOW - 0.1 * H, 'milk', 12500, buyer='b9'), settle(10, NOW, 'milk', 1)]

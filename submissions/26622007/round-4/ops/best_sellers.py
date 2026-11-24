@@ -16,8 +16,6 @@ from pathlib import Path
 
 
 # BEGIN FORGE KERNEL
-RECENT_H, WIDE_H, W_RECENT = 2, 6, 0.6     # velocity: 0.6 x (sales/h in the last 2 h) + 0.4 x (sales/h in 6 h)
-STALE_MIN = 90
 QTY_CAP = 4                                # per SKU per restock, as the 20:07 analysis found safe
 MIN_EVIDENCE = 2                           # paid sales in the last 6 h before any buy is suggested
 ARGS = {'top', 'horizon_hours', 'own_stock', 'kind', 'min_tx'}
@@ -66,6 +64,21 @@ def merge_live(data, rows, now):
 
 
 def rank(args, data, now):
+    from pathlib import Path
+    from runpy import run_path
+    module = Path(globals().get('__file__', 'best_sellers.py'))
+    shared = run_path(str(module.with_name('price_demand.py') if module.name == 'best_sellers.py' else
+                          Path('ops/price_demand.py')))
+    if module.name == 'logic.py':
+        current = shared['load_cache']()
+        if current['last_seq'] >= data['last_seq'] and current['as_of'] <= now:
+            data = current
+    try:
+        observed = max(shared['timestamp'](data.get(key)) for key in ('stock_as_of', 'ledger_as_of'))
+        shared['require_fresh'](dict(data, as_of=observed), now)
+        stale = bool(data.get('trimmed'))
+    except ValueError:
+        stale = True
     if not isinstance(args, dict) or set(args) - ARGS:
         raise ValueError('unknown input; allowed: ' + ', '.join(sorted(ARGS)))
     top, horizon, min_tx = args.get('top', 5), args.get('horizon_hours', 3), args.get('min_tx', 1)
@@ -86,18 +99,16 @@ def rank(args, data, now):
         name, k, listed = (data['items'].get(sku) or [sku, None, None])[:3]
         if kind != 'all' and k != kind or len(rows) < min_tx:
             continue
-        recent = sum(1 for r in rows if now - r[0] <= RECENT_H * 3600)
-        wide = sum(1 for r in rows if now - r[0] <= WIDE_H * 3600)
-        v = W_RECENT * recent / RECENT_H + (1 - W_RECENT) * wide / WIDE_H
+        v, wide = shared['velocity']((row[0] for row in rows), now)
         prices = [r[1] for r in rows]
         med = _median(prices)
         buyers = {}
         for r in rows:
             buyers[r[3]] = buyers.get(r[3], 0) + 1
-        sellers = len({r[2] for r in rows if now - r[0] <= WIDE_H * 3600}) or 1
-        have = own.get(sku, 0) if type(own.get(sku, 0)) is int else 0
+        _, sellers, have = (0, 0, 0) if stale else shared['stock_counts'](data, sku)
+        have = max(have, own.get(sku, 0)) if type(own.get(sku, 0)) is int else have
         want = int(v * horizon / (sellers + 1) + 0.5)
-        qty = min(QTY_CAP, max(0, want - max(0, have))) if wide >= MIN_EVIDENCE else 0
+        qty = min(QTY_CAP, max(0, want - have)) if not stale and wide >= MIN_EVIDENCE else 0
         items.append(dict(sku=sku, name=name, kind=k, per_hour=round(v, 2), tx=len(rows),
                           tx_on_chain=sum(1 for r in rows if r[4] > 0), tx_6h=wide, shops=len({r[2] for r in rows}),
                           repeat_buyers=sum(1 for n in buyers.values() if n > 1),
@@ -106,7 +117,7 @@ def rank(args, data, now):
                           price_ceiling_args=dict(sku=sku, sell=round(med), qty=max(qty, 1))))
     items.sort(key=lambda x: (-x['per_hour'], -x['tx'], x['sku']))
     age = int((now - data['as_of']) // 60)
-    return dict(as_of=int(data['as_of']), data_age_min=age, stale=age > STALE_MIN, window_h=data['keep_hours'],
+    return dict(as_of=data['as_of'], data_age_min=age, stale=stale, window_h=data['keep_hours'],
                 items=items[:top],
                 note=('실제 결제된 판매만 집계. buy_qty는 권장 상한(0이면 사지 않음)이며 price_ceiling verdict가 buy일 '
                       '때만 매입. price_ceiling_args.qty는 계산용으로 최소 1.'))
@@ -159,8 +170,13 @@ def main():
             ap.error('--build needs --data-dir')
         d = Path(a.data_dir)
         load = lambda n, dflt: json.loads((d / n).read_text(encoding='utf-8')) if (d / n).exists() else dflt
-        data = build_data(load('ledger.json', []), load('catalog.json', []), time.time(), a.keep_hours,
-                          load('txs.json', {}))
+        from runpy import run_path
+        merge = run_path(str(Path(__file__).with_name('price_demand_cache.py')))['merge_observations']
+        snapshot = json.loads(max((d / 'snapshots').glob('*.json')).read_text(encoding='utf-8'))
+        ledger = load('ledger.json', [])
+        observed = max(snapshot['ts'], ledger[-1]['ts'])
+        data = merge(build_data(ledger, load('catalog.json', []), observed, a.keep_hours, load('txs.json', {})),
+                     ledger, snapshot)
         out = Path(a.output)
         tmp = out.with_suffix('.tmp')
         tmp.write_text(json.dumps(data, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
