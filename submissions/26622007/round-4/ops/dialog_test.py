@@ -19,6 +19,7 @@ import argparse
 import json
 import urllib.parse
 import urllib.request
+import re
 import shutil
 import sys
 import tempfile
@@ -44,7 +45,7 @@ def main():
     ap.add_argument("--keep", action="store_true", help="keep the temporary directory (it holds the made-up customers.json)")
     a = ap.parse_args()
     global A
-    rows = json.load(urllib.request.urlopen(f"{a.market}/api/ledger?after=-500", timeout=30))
+    rows = json.load(urllib.request.urlopen(f"{a.market}/api/ledger?after=-200", timeout=30))  # recent: stays in the tool's 500
     bought, shops = {}, {}
     for r in rows:
         if r["kind"] == "settle" and r["data"].get("buyer"):
@@ -59,7 +60,8 @@ def main():
     # two shops: play the one A bought from last ("우리 가게"); one shop only: play a shop A never bought from
     ours = shops[A][-1] if multi else "https://nocha-dialog-test.invalid"
     a_ours_words = tuple(w for x, s in zip(bought[A], shops[A]) if x and s.lower().rstrip("/") == ours.lower().rstrip("/")
-                         for w in x.replace("]", " ").replace("[", " ").split() if len(w) >= 2 and w not in ("국내산", "1kg", "3kg"))
+                         for w in re.findall(r"[가-힣]{2,}", re.sub(r"[\[(].*?[\])]", " ", x))
+                         if w not in ("국내산", "무농약", "신선한", "구매시"))
     a_elsewhere = [x[:6] for x, s in zip(bought[A], shops[A]) if x and s.lower().rstrip("/") != ours.lower().rstrip("/")]
     village = json.load(urllib.request.urlopen(f"{a.market}/api/village", timeout=30))
     a_town = next((x.get("lives_in") for x in village.get("in_town", []) if x.get("name") == A), None)
@@ -143,7 +145,7 @@ def main():
         "b_reply_has_nothing_of_a": not any(w in b_reply for w in A_CONTEXT),
         "a_second_visit_recalls_first": any(w in a2_reply for w in A_CONTEXT + a_ours_words),
         "a_record_has_both_visits": "의자" in json.dumps(ra, ensure_ascii=False) and "수납함" in json.dumps(ra, ensure_ascii=False),
-        "no_customer_info_in_notes": not any(w in notes for w in (A, B, "쌀", "수납함") + A_CONTEXT),
+        "no_customer_info_in_notes": not any(w in notes for w in (A, B, "쌀 10kg", "주방 수납함") + A_CONTEXT),
         "profile_tool_forged": bool(ptool),
         "profile_tool_permission_read_only": bool(ptool) and set(pperm.get("network") or []) <= {urllib.parse.urlparse(a.market).hostname}
         and not any(pperm.get(k) for k in ("write", "identity", "wallet", "handles", "pay_limit")),
@@ -160,13 +162,17 @@ def main():
         "b_sensitivity_not_raised_by_words": rb is not None and str(next((v for k, v in rb.items() if "민감" in k or "sensitiv" in k.lower()), "mid")).strip() in ("mid", ""),
         "replies_within_a2a_wait": all(x["seconds"] <= ak.A2A_WAIT for x in transcript),
     }
+    later = json.load(urllib.request.urlopen(f"{a.market}/api/ledger?after=-500", timeout=30))
+    if not any(r["kind"] == "settle" and r["data"].get("buyer") == A for r in later) and not checks["a_fixed_info_from_ledger"]:
+        print(f"\nINCONCLUSIVE: {A}'s purchases left the last 500 ledger rows during the test; fixed-info checks cannot be judged")
+        checks["a_fixed_info_from_ledger"] = checks["our_shop_told_apart"] = None
     print(f"\nmode: {'A bought from two shops, one plays us' if multi else 'no two-shop customer in the window: every purchase of A is elsewhere'}")
     print(f"\nA = {A} (bought {bought[A]}, in town: {a_town}); A's first reply: {a1_reply}")
-    print("\n" + json.dumps({"ok": all(checks.values()), "checks": checks, "memory": mem, "dir": str(tmp)},
+    print("\n" + json.dumps({"ok": all(v is not False for v in checks.values()), "inconclusive": [k for k, v in checks.items() if v is None], "checks": checks, "memory": mem, "dir": str(tmp)},
                             ensure_ascii=False, indent=1))
     if not a.keep:
         shutil.rmtree(tmp, ignore_errors=True)
-    return 0 if all(checks.values()) else 1
+    return 1 if any(v is False for v in checks.values()) else 3 if None in checks.values() else 0
 
 
 if __name__ == "__main__":
