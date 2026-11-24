@@ -6,11 +6,19 @@ import price_ceiling as prices
 @pytest.fixture(autouse=True)
 def catalog(monkeypatch):
     monkeypatch.setattr(prices, '_signals', lambda sku, now: (8, 12, 0, 0, 0))
+    shared = prices._demand_module()
+    monkeypatch.setitem(shared, 'load_cache', lambda: {'as_of': 1, 'last_seq': 7})
+    monkeypatch.setitem(shared, 'signals_from', lambda cache, sku, now: prices._signals(sku, now))
     monkeypatch.setattr(prices, 'DATA', {'items': {
         'water': ['water', 'food', 3000, 24, True, 1800, 1620, 3, 6],
         'lamp': ['lamp', 'goods', 10000, None, False, None, None, 0, 3]},
         'rates': {'food': [3, 6], 'goods': [0, 3]}, 'fallback': {'sell_list_multiplier': 0.60, 'cost_list_multiplier': 0.54},
         'sample': {'end': '2026-11-24T20:10:10+09:00'}})
+
+
+def current_state(sku):
+    return dict(sku=sku, complete=True, round=4, observed_at=prices.time.time(), last_seq=7,
+                own_units=0, competitor_units=0, competitor_shops=0)
 
 
 def test_food_single_and_split_lot_at_fee_boundary():
@@ -88,11 +96,11 @@ def test_prior_stock_and_competitors_do_not_inflate_sales(monkeypatch):
 def test_action_guard_requires_both_actual_quotes_and_uses_stress_bounds():
     good = dict(sku='water', qty=1, batch_size=1, sell=1000, cost=490, unsold=0, grade='A', hold_hours=1, remaining_hours=12, round_hours=24, lot_dues=0)
     for action in ('buy', 'sell', 'price'):
-        assert prices.price_guard(action, good)['expected_profit'] == 84
+        assert prices.price_guard(action, good, read_buy_state=current_state)['expected_profit'] == 84
         with pytest.raises(ValueError):
-            prices.price_guard(action, dict(good, cost=497))
+            prices.price_guard(action, dict(good, cost=497), read_buy_state=current_state)
         with pytest.raises(ValueError):
-            prices.price_guard(action, dict(good, sell=980))
+            prices.price_guard(action, dict(good, sell=980), read_buy_state=current_state)
         with pytest.raises(ValueError):
             prices.price_guard(action, {'sku': 'water', 'verdict': 'buy'})
 
@@ -105,11 +113,11 @@ def test_guard_will_not_authorize_food_without_actual_shelf_life():
 def test_guard_never_treats_missing_dues_as_free():
     args = dict(sku='water', qty=1, batch_size=1, sell=1000, cost=490, unsold=0, grade='A', hold_hours=1, remaining_hours=12, round_hours=24)
     for action in ('buy', 'sell', 'price'):
-        assert prices.price_guard(action, dict(args, lot_dues=0))
+        assert prices.price_guard(action, dict(args, lot_dues=0), read_buy_state=current_state)
         with pytest.raises(ValueError):
             prices.price_guard(action, args)
         with pytest.raises(ValueError):
-            prices.price_guard(action, dict(args, lot_dues=10))
+            prices.price_guard(action, dict(args, lot_dues=10), read_buy_state=current_state)
 
 
 def test_guard_does_not_allow_override_of_missing_deadline_or_zero_velocity(monkeypatch):
@@ -118,7 +126,7 @@ def test_guard_does_not_allow_override_of_missing_deadline_or_zero_velocity(monk
         prices.price_guard('buy', args)
     monkeypatch.setattr(prices, '_signals', lambda sku, now: (0, 0, 0, 0, 0))
     with pytest.raises(ValueError, match='skip'):
-        prices.price_guard('buy', dict(args, round_hours=24))
+        prices.price_guard('buy', dict(args, round_hours=24), read_buy_state=current_state)
 
 
 def test_guard_requires_full_lot_and_uses_available_time_with_probability_cap(monkeypatch):
@@ -126,7 +134,7 @@ def test_guard_requires_full_lot_and_uses_available_time_with_probability_cap(mo
     args = dict(sku='water', sell=1800, cost=500, grade='B', batch_size=4, hold_hours=2, remaining_hours=1, round_hours=2, lot_dues=0)
     with pytest.raises(ValueError, match='qty'):
         prices.price_guard('buy', args)
-    assert prices.price_guard('buy', dict(args, qty=1, unsold=0))['verdict'] == 'buy'
+    assert prices.price_guard('buy', dict(args, qty=1, unsold=0), read_buy_state=current_state)['verdict'] == 'buy'
 
 
 def test_recommendation_respects_integer_ceiling_with_fractional_cost():
@@ -163,7 +171,17 @@ def test_guard_and_ranking_never_override_peer_zero_evidence_limit(monkeypatch):
     args = dict(sku='water', qty=1, batch_size=1, sell=5000, cost=100, grade='A', hold_hours=12, remaining_hours=15, round_hours=12, lot_dues=0)
     assert prices.quote(args)['recommended_qty'] == 0
     with pytest.raises(ValueError, match='한도 0개'):
+        prices.price_guard('buy', args, read_buy_state=current_state)
+
+
+def test_live_own_stock_pending_and_new_ledger_head_block_buy():
+    args = dict(sku='water', qty=1, batch_size=1, sell=5000, cost=10, grade='A', hold_hours=1, round_hours=12, remaining_hours=12, lot_dues=0)
+    assert prices.price_guard('buy', args, read_buy_state=current_state)['verdict'] == 'buy'
+    with pytest.raises(ValueError):
         prices.price_guard('buy', args)
+    for changed in (dict(own_units=10), dict(complete=False), dict(last_seq=8), dict(observed_at=1), dict(competitor_units=1)):
+        with pytest.raises(ValueError):
+            prices.price_guard('buy', args, read_buy_state=lambda sku: dict(current_state(sku), **changed))
 
 
 def test_floor_is_reachable_within_the_input_domain():

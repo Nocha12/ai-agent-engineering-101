@@ -10,6 +10,8 @@
 
 **goal 초안:** “매입·판매·가격 제시 전 `price_ceiling`으로 조회하고 실행 직전 원본 견적으로 `price_guard`를 다시 통과하라. `skip`·`too_low`·자료 누락·오류이면 진행하지 말고, 기존 매입 중지와 지갑 한도는 그대로 지켜라.”
 
+**실행 담당자:** 매입 호출은 `price_guard('buy', args, read_buy_state=reader)`이다. `reader(sku)`는 실행 도구의 신뢰된 읽기 함수이지 에이전트가 제출하는 JSON이나 과거 판정이 아니다. 현재 완전히 수집한 공개 원장 끝과 같은 시점의 재고로 `{sku, round: 4, complete: true, observed_at: Unix초, last_seq, own_units, competitor_units, competitor_shops}`를 반환한다. 재고 읽기 전후 원장 끝이 다르거나 페이지 절단·미확정 재고·오류면 `complete: false`로 반환한다. 캐시 시각을 현재 시각으로 덮어쓰지 않는다. 입력이 없거나 15초가 지났거나 캐시와 원장 끝·경쟁 재고가 다르면 매입을 거절한다. 우리 재고는 공개 캐시와 최신 확인값 중 큰 쪽을 차감한다. 리더 연결·캐시 갱신 전에는 조회만 사용한다.
+
 ## 입력
 
 - `sku`, `sell`(실제/예상 개당 판매가, 정수) 또는 `cost`(개당 매입 원가). `action` 생략 시 `cost`만 주면 판매, 나머지는 매입 조회다. 두 값을 주고 판매 판정을 보려면 `action=sell`을 명시한다. 하나만 주는 탐색 조회는 반대 가격을 캐시에서 채운다. **가드는 두 가격과 `grade`, `hold_hours`, `round_hours`, `lot_dues`(0도 명시), 식품의 경우 `remaining_hours`를 요구한다.**

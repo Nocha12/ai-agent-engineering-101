@@ -93,7 +93,7 @@ def _bounds(cost, sell, sold, defect, carrying, fixed):
     return ceiling if ceiling >= 0 else None, minimum, revenue(sell) - outlay
 
 
-def _evaluate(args, *, guard=False, now=None):
+def _evaluate(args, *, guard=False, now=None, checked_demand=None):
     if not isinstance(args, dict) or set(args) - ALLOWED:
         raise ValueError('unknown input')
     sku = args.get('sku')
@@ -124,7 +124,9 @@ def _evaluate(args, *, guard=False, now=None):
     unsold = _number(args['unsold'], 'unsold', 1) if 'unsold' in args else None
     demand = None
     unavailable = False
-    if unsold is None or guard:
+    if checked_demand is not None:
+        demand = checked_demand
+    elif unsold is None or guard:
         try:
             demand = _signals(sku, time.time() if now is None else now)
         except (ValueError, OSError, KeyError):
@@ -176,15 +178,37 @@ def _evaluate(args, *, guard=False, now=None):
                 conservative_floor=tight_min, verdict=verdict, reason=reason + f' (판매가 {sell_source}, 원가 {cost_source}; 표본 {sampled} KST)')
 
 
-def quote(args, *, guard=False):
-    """Compact advisory quote; verdict uses the stress case, profit is base-case per order."""
-    row = _evaluate(args, guard=guard)
+def _compact(row):
     return dict(max_buy_cost=row['ceiling'], min_sell_price=row['floor'], expected_profit=row['profit'],
                 conservative_max_buy_cost=row['conservative_ceiling'], conservative_min_sell_price=row['conservative_floor'],
                 recommended_qty=row['recommended_qty'], verdict=row['verdict'], reason=row['reason'])
 
 
-def price_guard(action, args):
+def quote(args):
+    """Compact advisory quote; verdict uses the stress case, profit is base-case per order."""
+    return _compact(_evaluate(args))
+
+
+def _checked_buy_demand(sku, read_buy_state):
+    if not callable(read_buy_state):
+        raise ValueError('skip: trusted current stock and ledger head required')
+    live = read_buy_state(sku)
+    now = time.time()
+    shared = _demand_module()
+    cache = shared['load_cache']()
+    if not isinstance(live, dict) or live.get('complete') is not True or live.get('round') != 4 or live.get('sku') != sku:
+        raise ValueError('skip: incomplete current market state')
+    stamp = shared['timestamp'](live.get('observed_at'))
+    if not 0 <= now - stamp <= 15 or stamp < cache['as_of'] or type(live.get('last_seq')) is not int or live['last_seq'] != cache['last_seq']:
+        raise ValueError('skip: current stock and cached ledger head not synchronized')
+    speed, count, units, shops, own = shared['signals_from'](cache, sku, now)
+    counts = [live.get(key) for key in ('competitor_units', 'competitor_shops', 'own_units')]
+    if not all(type(value) is int and value >= 0 for value in counts) or counts[:2] != [units, shops]:
+        raise ValueError('skip: current competitor stock not synchronized')
+    return speed, count, units, shops, max(own, counts[2])
+
+
+def price_guard(action, args, *, read_buy_state=None):
     """Require actual prices (not a caller-provided verdict) before buy/sell/price actions."""
     required = {'sell', 'cost', 'qty', 'batch_size', 'grade', 'hold_hours', 'round_hours', 'lot_dues'}
     if action not in ('buy', 'sell', 'price') or not isinstance(args, dict) or not required <= args.keys():
@@ -192,7 +216,8 @@ def price_guard(action, args):
     item = DATA['items'].get(args.get('sku'))
     if item and item[1] == 'food' and args.get('remaining_hours') is None:
         raise ValueError('guard needs observed remaining_hours for food')
-    result = quote(dict(args, action='buy' if action == 'buy' else 'sell'), guard=True)
+    demand = _checked_buy_demand(args['sku'], read_buy_state) if action == 'buy' else None
+    result = _compact(_evaluate(dict(args, action='buy' if action == 'buy' else 'sell'), guard=True, checked_demand=demand))
     if result['verdict'] not in ('buy', 'sell_ok'):
         raise ValueError(result['verdict'] + ': ' + result['reason'])
     return result
