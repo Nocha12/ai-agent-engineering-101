@@ -281,12 +281,12 @@ def main():
         snaps = sorted((d / 'snapshots').glob('*.json'))
         data = None
         if ledger and snaps:
-            snapshot = json.loads(snaps[-1].read_text(encoding='utf-8'))
-            observed = max(snapshot['ts'], ledger[-1]['ts'])
             try:
+                snapshot = json.loads(snaps[-1].read_text(encoding='utf-8'))
+                observed = max(snapshot['ts'], ledger[-1]['ts'])
                 data = merge(build_data(ledger, load('catalog.json', []), observed, a.keep_hours,
                                         load('txs.json', {}), chain), ledger, snapshot)
-            except ValueError as e:     # e.g. the ledger stopped answering while snapshots still arrive
+            except (ValueError, KeyError, TypeError) as e:  # e.g. the ledger stopped while snapshots still arrive
                 print(f'warning: stock not merged ({e}); built without public stock', file=sys.stderr)
             else:
                 # a chain-only sale after the shop snapshot took a unit the snapshot still counts: that SKU's stock
