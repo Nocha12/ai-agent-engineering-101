@@ -20,7 +20,12 @@ RECENT_H, WIDE_H, W_RECENT = 2, 6, 0.6     # velocity: 0.6 x (sales/h in the las
 STALE_MIN = 90
 QTY_CAP = 4                                # per SKU per restock, as the 20:07 analysis found safe
 MIN_EVIDENCE = 2                           # paid sales in the last 6 h before any buy is suggested
-ARGS = {'top', 'horizon_hours', 'own_stock', 'kind', 'min_tx', 'live'}
+ARGS = {'top', 'horizon_hours', 'own_stock', 'kind', 'min_tx'}
+
+
+def norm_url(u):
+    """The market's norm_url: strip, no trailing slash (settle rows use it, join rows may not)."""
+    return str(u or '').strip().rstrip('/')
 
 
 def _median(xs):
@@ -35,23 +40,27 @@ def _bid(name):
 
 
 def merge_live(data, rows, now):
-    """Add settle rows newer than data['last_seq'] (from GET /api/ledger?after=...). Same row shape as build."""
-    data = dict(data, sales=list(data['sales']), items=dict(data['items']), shops=list(data['shops']))
+    """Add rows newer than data['last_seq'] (from GET /api/ledger?after=...): shop joins update the URL map, paid
+    settles become sales rows of the same shape as build_data's."""
+    data = dict(data, sales=list(data['sales']), items=dict(data['items']), shops=list(data['shops']),
+                url_names=dict(data.get('url_names') or {}))
     last = data['last_seq']
     for e in rows:
         if not isinstance(e, dict) or not isinstance(e.get('seq'), int) or e['seq'] <= last:
             continue
         last = max(last, e['seq'])
         d = e.get('data') or {}
+        if e.get('kind') == 'join' and d.get('role') == 'shop' and d.get('url'):
+            data['url_names'][norm_url(d['url'])] = str(d.get('name'))
         if e.get('kind') != 'settle' or not d.get('tx_hash') or not isinstance(d.get('amount'), (int, float)):
             continue
         sku = d.get('sku') or d.get('item')
         if sku not in data['items']:
             data['items'][sku] = [str(d.get('name') or sku)[:40], None, None]
-        shop = str(d.get('shop'))
+        shop = data['url_names'].get(norm_url(d.get('shop')), norm_url(d.get('shop')))
         if shop not in data['shops']:
             data['shops'].append(shop)
-        data['sales'].append([e.get('ts', now), sku, d['amount'], data['shops'].index(shop), _bid(d.get('buyer')), 0, e['seq']])
+        data['sales'].append([e.get('ts', now), sku, d['amount'], data['shops'].index(shop), _bid(d.get('buyer')), 0])
     data['last_seq'] = last
     return data
 
@@ -68,7 +77,7 @@ def rank(args, data, now):
     if kind not in ('all', 'food', 'goods') or not isinstance(own, dict):
         raise ValueError('kind is all|food|goods, own_stock is {sku: units}')
     per = {}
-    for ts, sku, amount, shop, buyer, check, seq in data['sales']:
+    for ts, sku, amount, shop, buyer, check in data['sales']:
         if check < 0 or ts > now:
             continue
         per.setdefault(sku, []).append((ts, amount, shop, buyer, check))
@@ -88,7 +97,7 @@ def rank(args, data, now):
         sellers = len({r[2] for r in rows if now - r[0] <= WIDE_H * 3600}) or 1
         have = own.get(sku, 0) if type(own.get(sku, 0)) is int else 0
         want = int(v * horizon / (sellers + 1) + 0.5)
-        qty = max(0, min(QTY_CAP, want) - have) if wide >= MIN_EVIDENCE else 0
+        qty = min(QTY_CAP, max(0, want - max(0, have))) if wide >= MIN_EVIDENCE else 0
         items.append(dict(sku=sku, name=name, kind=k, per_hour=round(v, 2), tx=len(rows),
                           tx_on_chain=sum(1 for r in rows if r[4] > 0), tx_6h=wide, shops=len({r[2] for r in rows}),
                           repeat_buyers=sum(1 for n in buyers.values() if n > 1),
@@ -99,12 +108,13 @@ def rank(args, data, now):
     age = int((now - data['as_of']) // 60)
     return dict(as_of=int(data['as_of']), data_age_min=age, stale=age > STALE_MIN, window_h=data['keep_hours'],
                 items=items[:top],
-                note='실제 결제된 판매만 집계. buy_qty는 권장 상한이며 price_ceiling verdict가 buy일 때만 매입.')
+                note=('실제 결제된 판매만 집계. buy_qty는 권장 상한(0이면 사지 않음)이며 price_ceiling verdict가 buy일 '
+                      '때만 매입. price_ceiling_args.qty는 계산용으로 최소 1.'))
 # END FORGE KERNEL
 
 
 def build_data(ledger, catalog, now, keep_hours=24, txs=None):
-    """Compact paid-sale rows for the last keep_hours: [ts, sku, amount, shop index, buyer id, chain check, seq].
+    """Compact paid-sale rows for the last keep_hours: [ts, sku, amount, shop index, buyer id, chain check].
     chain check: 1 = on-chain transfer equals amount - (1% + 210), -1 = it does not, 0 = not checked yet."""
     cat = {c['sku']: c for c in catalog if isinstance(c, dict) and 'sku' in c}
     url_name, shops, sales, items, last = {}, [], [], {}, 0
@@ -112,21 +122,22 @@ def build_data(ledger, catalog, now, keep_hours=24, txs=None):
         last = max(last, e.get('seq', 0))
         d = e.get('data') or {}
         if e['kind'] == 'join' and d.get('role') == 'shop' and d.get('url'):
-            url_name[d['url']] = d['name']
+            url_name[norm_url(d['url'])] = d['name']
         if e['kind'] != 'settle' or not d.get('tx_hash') or now - e['ts'] > keep_hours * 3600:
             continue
         sku = d.get('sku') or d.get('item')
-        shop = url_name.get(d['shop'], d['shop'])
+        shop = url_name.get(norm_url(d['shop']), norm_url(d['shop']))
         if shop not in shops:
             shops.append(shop)
         check = 0
         t = (txs or {}).get(d['tx_hash'])
         if isinstance(t, dict) and isinstance(t.get('credits'), int):
             check = 1 if abs(t['credits'] - (d['amount'] - d['amount'] // 100 - 210)) <= 1 else -1
-        sales.append([e['ts'], sku, d['amount'], shops.index(shop), _bid(d.get('buyer')), check, e['seq']])
+        sales.append([e['ts'], sku, d['amount'], shops.index(shop), _bid(d.get('buyer')), check])
         c = cat.get(sku, {})
         items[sku] = [c.get('name') or d.get('name') or sku, c.get('kind'), c.get('list_price')]
-    return dict(as_of=now, keep_hours=keep_hours, last_seq=last, shops=shops, items=items, sales=sales)
+    return dict(as_of=now, keep_hours=keep_hours, last_seq=last, shops=shops, items=items, sales=sales,
+                url_names={u: n for u, n in url_name.items() if n in shops})
 
 
 DATA_PATH = Path(__file__).with_name('best_sellers_data.json')
