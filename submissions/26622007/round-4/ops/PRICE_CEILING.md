@@ -6,7 +6,7 @@
 
 1. 다음 승인된 작업에서 손익 모듈·원가 캐시와 `price_demand.py` 및 best_sellers의 공유 모듈·캐시를 한 버전으로 배치한다. 카탈로그·장부 집계는 로컬 공개 캐시에서 읽으며 가게 도구의 시장 요청은 **0회**다. 키트의 `root`가 가게 루트인 것을 먼저 확인한다.
 2. `python3 -I ops/price_ceiling_forge.py`로 작은 `forge_tool` 요청을 확인하고 가게 에이전트가 해당 정의를 forge하게 한다. 템플릿은 `ops/forge_templates/price_ceiling/`의 `logic.py`, `test.py`, `permission.yml`이며 지갑·신원·네트워크·파일쓰기 권한이 모두 없다. `tools/`로 직접 복사하거나 `forge.json`을 만들지 않는다. 키트 `scripts/round4/agent_kit.py:284`는 키트 자신의 forge 기록과 일치하는 도구만 로드한다.
-3. 매입·가격제시·판매 서명 **직전** 신뢰하는 원본 견적에서 인수를 다시 만들고 `price_guard(action, args)`를 호출한다. 일반 Python에서 `from ops.price_ceiling import price_guard`; `-I`로 도는 forged tool에서는 `from runpy import run_path; run_path('ops/price_ceiling.py')['price_guard'](action, args)`. `action`은 `buy`, `price`, `sell`. 오류·누락·`skip`·`too_low`이면 거래 전에 종료한다. 과거 조회 결과를 인수로 받거나 실패 시 통과시키지 않는다. 고객에게 이미 지는 환불 의무에는 이 매매 가드를 적용하지 않는다.
+3. 매입·가격제시·판매 서명 **직전** 신뢰하는 원본 견적에서 인수를 다시 만든다. 일반 Python에서는 `from ops.price_ceiling import price_guard`, `-I`로 도는 forged tool에서는 `from runpy import run_path; price_guard = run_path('ops/price_ceiling.py')['price_guard']`로 가져온다. 매입은 `price_guard('buy', args, read_buy_state=reader)`, 가격 제시·판매는 `price_guard('price', args)` 또는 `price_guard('sell', args)`를 호출한다. 오류·누락·`skip`·`too_low`이면 거래 전에 종료한다. 과거 조회 결과를 인수로 받거나 실패 시 통과시키지 않는다. 고객에게 이미 지는 환불 의무에는 이 매매 가드를 적용하지 않는다.
 
 **goal 초안:** “매입·판매·가격 제시 전 `price_ceiling`으로 조회하고 실행 직전 원본 견적으로 `price_guard`를 다시 통과하라. `skip`·`too_low`·자료 누락·오류이면 진행하지 말고, 기존 매입 중지와 지갑 한도는 그대로 지켜라.”
 
