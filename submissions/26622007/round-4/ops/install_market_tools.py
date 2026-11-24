@@ -3,8 +3,8 @@ check and forge.json hashes as the agent's forge_tool move printed by ops/best_s
 ops/price_ceiling_forge.py). Run on the market host while the kit is stopped:
     ~/ax-round4-venv/bin/python -I ops/install_market_tools.py --kit ~/ax-round4/scripts/round4 --data <best_sellers cache>
 --data is required: best_sellers_forge.py would otherwise embed ops/best_sellers_data.json, whatever is there.
-Both tools read the ops/ caches again at call time (pushed by the analytics host), so the embedded data is only the
-fallback. --print only prints the two forge_tool moves. An earlier version moves to tools/.deprecated/<name>@<ver>."""
+In the kit both tools read the ops/ caches at call time (pushed by the analytics host) and fail when they are missing
+or stale; the data embedded at forge time is not used there. --print only prints the two forge_tool moves. An earlier version moves to tools/.deprecated/<name>@<ver>."""
 import argparse
 import json
 import runpy

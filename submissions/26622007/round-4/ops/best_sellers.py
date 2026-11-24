@@ -279,17 +279,23 @@ def main():
         merge = run_path(str(Path(__file__).with_name('price_demand_cache.py')))['merge_observations']
         ledger, chain = load('ledger.json', []), load('chain/rebuild.json', None)   # chain_scan.py output, if any
         snaps = sorted((d / 'snapshots').glob('*.json'))
+        data = None
         if ledger and snaps:
             snapshot = json.loads(snaps[-1].read_text(encoding='utf-8'))
             observed = max(snapshot['ts'], ledger[-1]['ts'])
-            data = merge(build_data(ledger, load('catalog.json', []), observed, a.keep_hours, load('txs.json', {}),
-                                    chain), ledger, snapshot)
-            # a chain-only sale after the shop snapshot took a unit the snapshot still counts: that SKU's stock is
-            # not confirmed (buy_qty 0 here, price_demand refuses it) until the next snapshot
-            late = {r[1] for r in data['sales'] if r[5] == CHAIN_ONLY and r[0] > data['stock_as_of']}
-            data['stock_unconfirmed'] = sorted(set(data['stock_unconfirmed']) | late)
-        else:   # no ledger or no shop snapshot: paid sales only, no stock observation, so every buy_qty is 0
+            try:
+                data = merge(build_data(ledger, load('catalog.json', []), observed, a.keep_hours,
+                                        load('txs.json', {}), chain), ledger, snapshot)
+            except ValueError as e:     # e.g. the ledger stopped answering while snapshots still arrive
+                print(f'warning: stock not merged ({e}); built without public stock', file=sys.stderr)
+            else:
+                # a chain-only sale after the shop snapshot took a unit the snapshot still counts: that SKU's stock
+                # is not confirmed (buy_qty 0 here, price_demand refuses it) until the next snapshot
+                late = {r[1] for r in data['sales'] if r[5] == CHAIN_ONLY and r[0] > data['stock_as_of']}
+                data['stock_unconfirmed'] = sorted(set(data['stock_unconfirmed']) | late)
+        else:
             print('warning: no ledger rows or no snapshots/*.json; built without public stock', file=sys.stderr)
+        if data is None:    # paid sales (ledger and chain) only, no stock observation, so every buy_qty is 0
             data = build_data(ledger, load('catalog.json', []), time.time(), a.keep_hours, load('txs.json', {}),
                               chain)
         out = Path(a.output)

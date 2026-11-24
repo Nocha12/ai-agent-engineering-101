@@ -67,6 +67,12 @@ def main():
         dec = rows(logs / 'decisions.jsonl')
         assert len(dec) == 1 and dec[0]['tool'] == 'buy_food_lot' and dec[0]['ok'] is False and dec[0]['quote_refused'] is True
         assert dec[0]['result']['total'] == 130000 and dec[0]['result']['units'] == [{'storage': 12}]
+        paid = ak.Toolbox({'buy_food_lot': {'perm': {}}},             # paid, then the finalize step failed: not a refusal
+                          {'buy_food_lot': {'ok': True, 'result': {'ok': False, 'error': 'finalize failed', 'total': 9000,
+                                                                   'tx_hash': '0x' + 'b' * 64}}})
+        paid.call('buy_food_lot', {'sku': 'G2', 'qty': 2})
+        dec = rows(logs / 'decisions.jsonl')
+        assert len(dec) == 2 and dec[1]['quote_refused'] is False and dec[1]['result']['tx_hash'].startswith('0xb')
         # a record that cannot be written never stops the kit
         (logs / 'messages.jsonl').unlink()
         (logs / 'messages.jsonl').mkdir()

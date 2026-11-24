@@ -3,9 +3,10 @@
 run_round4.sh starts the kit through this file with the same arguments:
     python submissions/26622007/round-4/ops/agent_kit_records.py run --dir ... --market ... --name ...
 It wraps three kit methods from outside (the kit file is not edited) and writes, under <dir>/logs/:
-  messages.jsonl   every message the agent receives (A2A, mini app) as the sender wrote it, and every answer it sends,
-                   including answers a handler tool gave without the agent (kit: Mind.deliver, Mind.reply, the a2a
-                   handler's Toolbox.call)
+  messages.jsonl   every message the agent receives (A2A, mini app) as the sender wrote it, and every answer sent
+                   with reply or by the a2a handler tool without the agent (kit: Mind.deliver, Mind.reply, the a2a
+                   handler's Toolbox.call; a message the handler passed on appears twice, the handler's row has
+                   'via'). Not here: the kit's own 'busy' answer after the A2A wait and app_say broadcasts.
   decisions.jsonl  the full arguments and result of each buying/pricing tool call (best_sellers, price_ceiling,
                    buy_food_lot, ...), so a refused wholesale quote keeps its total, ceiling and units
 and it lifts the kit's 20 MB roll-over of logs/agent-kit.log (market_kit.LOG_MAX), which overwrote the older half.
@@ -67,26 +68,42 @@ def install(ak, logs):
     deliver = ak.Mind.deliver
 
     def deliver_rec(self, ev):
-        write('messages.jsonl', {'dir': 'in', 'id': getattr(ev, 'id', None), 'kind': getattr(ev, 'kind', None),
-                                 'from': _clip(getattr(ev, 'frm', None)), 'text': _clip(getattr(ev, 'text', None)),
-                                 'data': _clip(getattr(ev, 'data', None)), 'task': getattr(ev, 'task', None)})
+        try:
+            write('messages.jsonl', {'dir': 'in', 'id': getattr(ev, 'id', None), 'kind': getattr(ev, 'kind', None),
+                                     'from': _clip(getattr(ev, 'frm', None)), 'text': _clip(getattr(ev, 'text', None)),
+                                     'data': _clip(getattr(ev, 'data', None)), 'task': getattr(ev, 'task', None)})
+        except Exception:
+            pass
         return deliver(self, ev)
 
     reply = ak.Mind.reply
 
     def reply_rec(self, args):
-        ev = self.pending.get(str((args or {}).get('to')))
+        try:
+            ev = self.pending.get(str((args or {}).get('to')))
+        except Exception:
+            ev = None
         out = reply(self, args)
-        if out == 'sent':
-            write('messages.jsonl', {'dir': 'out', 'id': (args or {}).get('to'), 'kind': getattr(ev, 'kind', None),
-                                     'task': getattr(ev, 'task', None), 'text': _clip((args or {}).get('text')),
-                                     'data': _clip((args or {}).get('data')), 'state': (args or {}).get('state')})
+        try:
+            if out == 'sent':
+                write('messages.jsonl', {'dir': 'out', 'id': (args or {}).get('to'), 'kind': getattr(ev, 'kind', None),
+                                         'task': getattr(ev, 'task', None), 'text': _clip((args or {}).get('text')),
+                                         'data': _clip((args or {}).get('data')), 'state': (args or {}).get('state')})
+        except Exception:
+            pass
         return out
 
     call = ak.Toolbox.call
 
     def call_rec(self, name, args):
         out = call(self, name, args)
+        try:
+            _record_call(self, name, args, out)
+        except Exception:
+            pass
+        return out
+
+    def _record_call(self, name, args, out):
         try:
             handles = (self.tools.get(name) or {}).get('perm', {}).get('handles') or []
         except Exception:
@@ -106,9 +123,8 @@ def install(ak, logs):
             err = (res.get('error') if isinstance(res, dict) else None) or (out.get('error') if isinstance(out, dict) else None)
             write('decisions.jsonl', {'tool': name, 'args': _clip(args), 'ok': bool(tool_ok), 'error': _clip(err),
                                       'quote_refused': name == 'buy_food_lot' and isinstance(res, dict)
-                                      and 'total' in res and not res.get('ok'),
+                                      and 'total' in res and not res.get('ok') and not res.get('tx_hash'),
                                       'result': _clip(res if res is not None else out)})
-        return out
 
     ak.Mind.deliver, ak.Mind.reply, ak.Toolbox.call = deliver_rec, reply_rec, call_rec
     return done + ['Mind.deliver', 'Mind.reply', 'Toolbox.call']

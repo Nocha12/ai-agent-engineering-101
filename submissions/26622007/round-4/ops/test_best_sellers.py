@@ -272,13 +272,13 @@ def forged(data):
 class SharedCacheBuild(unittest.TestCase):
     """best_sellers.py --build writes the shared cache (paid sales + chain tail + public stock) price_demand reads."""
 
-    def build(self, chain_sale_ts):
+    def build(self, chain_sale_ts, snap_ts=NOW - 0.5 * H):
         sold = dict(seq=3, ts=NOW - 1 * H, round=4, kind='settle',
                     data=dict(shop='https://s1', sku='water', unit='u1', amount=3000, buyer='b1', tx_hash='0x' + 'a' * 64))
         rows = [dict(seq=1, ts=NOW - 50 * H, round=4, kind='join', data=dict(name='s1', role='shop', url='https://s1')),
                 dict(seq=2, ts=NOW - 2 * H, round=4, kind='supply', data=dict(shop='s1', sku='water', qty=2,
                                                                               units=['u1', 'u2'])), sold]
-        snap = dict(ts=NOW - 0.5 * H, shops=dict(round=4, shops=[dict(name='nocha12', stock={}),
+        snap = dict(ts=snap_ts, shops=dict(round=4, shops=[dict(name='nocha12', stock={}),
                                                                  dict(name='s1', stock={'water': 1})]))
         rebuild = {'book': book(), 'upto_block': 1, 'settles': [[chain_sale_ts, SHOP1, 3000, CUST, '0xc6']]}
         with tempfile.TemporaryDirectory() as tmp:
@@ -292,6 +292,12 @@ class SharedCacheBuild(unittest.TestCase):
             subprocess.run([sys.executable, '-B', str(OPS / 'best_sellers.py'), '--build', '--data-dir', tmp,
                             '--output', str(d / 'out.json')], capture_output=True, text=True, check=True)
             return json.loads((d / 'out.json').read_text(encoding='utf-8'))
+
+    def test_a_ledger_far_behind_the_snapshot_still_builds_from_chain_without_stock(self):
+        data = self.build(NOW - 0.2 * H, snap_ts=NOW + 3 * H)    # ledger stopped 4 h before the newest snapshot
+        self.assertIn('0xc6', json.dumps(data))                        # the chain sale is kept
+        self.assertNotIn('sku_stock', data)                             # no stock observation: price_demand refuses buys
+        self.assertEqual(bs.rank({}, data, NOW + 3 * H)['items'][0]['buy_qty'], 0)
 
     def test_build_carries_public_stock_and_the_chain_tail(self):
         data = self.build(NOW - 0.7 * H)                       # chain sale before the snapshot: stock already shows it
