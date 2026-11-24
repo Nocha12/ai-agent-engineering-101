@@ -56,7 +56,7 @@ def test_default_table_flags_three_thousand_credit_staple():
 
 
 def test_action_guard_requires_both_actual_quotes_and_uses_stress_bounds():
-    good = dict(sku='water', sell=1000, cost=490, unsold=0, grade='A', hold_hours=1, remaining_hours=12)
+    good = dict(sku='water', sell=1000, cost=490, unsold=0, grade='A', hold_hours=1, remaining_hours=12, lot_dues=0)
     for action in ('buy', 'sell', 'price'):
         assert prices.price_guard(action, good)['expected_profit'] == 84
         with pytest.raises(ValueError):
@@ -69,7 +69,28 @@ def test_action_guard_requires_both_actual_quotes_and_uses_stress_bounds():
 
 def test_guard_will_not_authorize_food_without_actual_shelf_life():
     with pytest.raises(ValueError):
-        prices.price_guard('buy', dict(sku='water', sell=5000, cost=10, grade='A', hold_hours=2))
+        prices.price_guard('buy', dict(sku='water', sell=5000, cost=10, grade='A', hold_hours=2, lot_dues=0))
+
+
+def test_guard_never_treats_missing_dues_as_free():
+    args = dict(sku='water', sell=1000, cost=490, unsold=0, grade='A', hold_hours=1, remaining_hours=12)
+    for action in ('buy', 'sell', 'price'):
+        assert prices.price_guard(action, dict(args, lot_dues=0))
+        with pytest.raises(ValueError):
+            prices.price_guard(action, args)
+        with pytest.raises(ValueError):
+            prices.price_guard(action, dict(args, lot_dues=10))
+
+
+def test_floor_is_reachable_within_the_input_domain():
+    assert prices.quote(dict(sku='lamp', cost=10**12, grade='B', unsold=0))['min_sell_price'] is None
+
+
+def test_minimum_is_first_profitable_price_not_a_monotonic_guarantee():
+    args = dict(sku='lamp', cost=152, grade='C', hold_hours=0, unsold=0, action='sell')
+    assert prices.quote(dict(args, sell=999))['min_sell_price'] == 999
+    assert prices.quote(dict(args, sell=999))['expected_profit'] == 0.25
+    assert prices.quote(dict(args, sell=1000))['expected_profit'] == -0.1
 
 
 @pytest.mark.parametrize('inputs', [dict(unsold=float('nan')), dict(unsold=1.01), dict(qty=True),

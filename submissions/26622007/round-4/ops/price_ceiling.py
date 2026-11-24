@@ -10,6 +10,7 @@ from math import ceil, floor, isfinite
 
 
 FEE_DIVISOR = 100
+MAX_PRICE = 10**12
 FIXED_FEE = 210
 GAS = 206
 STORAGE = Fraction(5, 1000)
@@ -55,6 +56,8 @@ def _bounds(cost, sell, sold, defect, carrying, fixed):
         minimum = max(0, floor((budget - 1) / slope))
         while revenue(minimum) < outlay:
             minimum += 1
+        if minimum > MAX_PRICE:
+            minimum = None
     return ceiling if ceiling >= 0 else None, minimum, revenue(sell) - outlay
 
 
@@ -68,8 +71,8 @@ def _evaluate(args):
     fallback = DATA['fallback']
     sell_ratio = Fraction(str(fallback['sell_list_multiplier']))
     cost_ratio = Fraction(str(fallback['cost_list_multiplier']))
-    sell = _number(args.get('sell', floor(market_sell) if market_sell is not None else floor(listed * sell_ratio)), 'sell', 10**12, True)
-    cost = _number(args.get('cost', market_cost if market_cost is not None else ceil(listed * cost_ratio)), 'cost', 10**12)
+    sell = _number(args.get('sell', floor(market_sell) if market_sell is not None else floor(listed * sell_ratio)), 'sell', MAX_PRICE, True)
+    cost = _number(args.get('cost', market_cost if market_cost is not None else ceil(listed * cost_ratio)), 'cost', MAX_PRICE)
     qty = _number(args.get('qty', 1), 'qty', 10**6, True)
     batch = _number(args.get('batch_size', 1), 'batch_size', 20, True)
     if not qty or not batch:
@@ -115,8 +118,8 @@ def quote(args):
 
 def price_guard(action, args):
     """Require actual prices (not a caller-provided verdict) before buy/sell/price actions."""
-    if action not in ('buy', 'sell', 'price') or not isinstance(args, dict) or not {'sell', 'cost', 'grade', 'hold_hours'} <= args.keys():
-        raise ValueError('guard needs buy/sell/price and explicit sell, cost, grade and hold_hours')
+    if action not in ('buy', 'sell', 'price') or not isinstance(args, dict) or not {'sell', 'cost', 'grade', 'hold_hours', 'lot_dues'} <= args.keys():
+        raise ValueError('guard needs buy/sell/price and explicit sell, cost, grade, hold_hours and lot_dues')
     item = DATA['items'].get(args.get('sku'))
     if item and item[1] == 'food' and args.get('remaining_hours') is None:
         raise ValueError('guard needs observed remaining_hours for food')
