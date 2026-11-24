@@ -104,7 +104,8 @@ def main():
         "a_second_visit_recalls_first": any(w in a2_reply for w in A_CONTEXT + ("지난번", "저번")),
         "no_customer_info_in_notes": not any(w in notes for w in (A, B) + A_CONTEXT),
         "test_file_cleaned": not (tmp / "customers.test.json").exists(),
-        "visits_counted": visits(ra) in (1, 2) and visits(rb) == 1,   # A's two visits are minutes apart: one visit or two
+        "visits_counted": visits(ra) == 1 and visits(rb) == 1,   # A's two visits are minutes apart: one visit
+        "b_sensitivity_not_raised_by_words": rb is not None and str(next((v for k, v in rb.items() if "민감" in k), "mid")).strip() in ("mid", ""),
         "replies_within_a2a_wait": all(x["seconds"] <= ak.A2A_WAIT for x in transcript),
     }
     print("\n" + json.dumps({"ok": all(checks.values()), "checks": checks, "memory": mem, "dir": str(tmp)},
