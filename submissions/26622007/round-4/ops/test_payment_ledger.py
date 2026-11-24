@@ -144,7 +144,7 @@ class Ledger(unittest.TestCase):
         new, _ = pl.sync(self.d, "m", "nocha12", FakeChain(0, mined=False), SHOP)
         self.assertNotIn("transfer_out", [e["kind"] for e in new])
         new, _ = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
-        self.assertEqual([e["kind"] for e in new], ["supply", "supply", "transfer_out"])   # unreadable lots wait too
+        self.assertEqual([e["kind"] for e in new], ["supply", "sale", "supply", "sale", "transfer_out"])   # unreadable lots and sales wait too
 
     def test_pending_grant_without_tx_is_not_counted(self):
         self.rows = [ROWS[0], row(3, "grant", {"shop": "nocha12", "credits": 5000000, "why": "start", "waiting": "x"})]
@@ -281,11 +281,11 @@ class Ledger(unittest.TestCase):
         kit_log(self.d, [])
         rec = pl.reconcile(self.d, "m", "nocha12", FakeChain(1), SHOP, 1.0)
         kinds = sorted(a["kind"] for a in rec["alerts"])
-        self.assertEqual(kinds, ["broken", "reconcile_mismatch"])
+        self.assertEqual(kinds, ["broken", "money_out", "money_out", "reconcile_mismatch"])   # the two lots are money out
         self.assertIn("order o-1", [a for a in rec["alerts"] if a["kind"] == "broken"][0]["text"])
         rec2 = pl.reconcile(self.d, "m", "nocha12", FakeChain(rec["ledger_credits"] * W), SHOP, 1.0)
         self.assertEqual(rec2["alerts"], [])
-        self.assertEqual(len(self.lines("alerts.jsonl")), 2)
+        self.assertEqual(len(self.lines("alerts.jsonl")), 4)
 
     def test_intent_without_tx_hash_is_an_alert_after_the_grace_time(self):
         kit_log(self.d, [])
@@ -333,7 +333,7 @@ class Ledger(unittest.TestCase):
         self.assertEqual(bal2 - bal, 7710 * W)
 
     def test_mismatch_alert_keeps_its_id_while_the_gap_stays(self):
-        rec = {"ok": False, "diff": 9000.0, "chain_credits": 1, "ledger_credits": 0, "note": "x", "payments_tail": "a" * 64}
+        rec = {"ok": False, "diff": 9000.4, "chain_credits": 1, "ledger_credits": 0, "note": "x", "payments_tail": "a" * 64}
         first = pl.alerts(self.d, [], [], rec, now=1795500000)
         rec["payments_tail"] = "b" * 64
         self.assertEqual(first, pl.alerts(self.d, [], [], rec, now=1795500000 + 600))
@@ -344,6 +344,37 @@ class Ledger(unittest.TestCase):
         now = pl.epoch("2026-11-24T21:00:00+09:00", 0)
         got = pl.alerts(self.d, [], [], {"ok": True}, now=now)
         self.assertEqual([a["kind"] for a in got], ["intent_without_tx"])   # the one with no time uses the file time (just now)
+
+
+    def test_sale_whose_payment_is_not_readable_yet_waits_so_its_payer_is_known(self):
+        self.rows = ROWS[:3] + [ROWS[6]]
+        kit_log(self.d, [])
+        new, _ = pl.sync(self.d, "m", "nocha12", FakeChain(0, mined=False), SHOP)
+        self.assertNotIn("sale", [e["kind"] for e in new])
+        c = FakeChain(0)
+        c.sender[TX[3]] = CUST.lower()
+        new, _ = pl.sync(self.d, "m", "nocha12", c, SHOP)
+        self.assertEqual([(e["kind"], e["payer"]) for e in new], [("sale", CUST.lower())])
+
+    def test_money_out_and_refund_over_the_sale_are_alerts(self):
+        kit_log(self.d, [sent("supply_buy", TX[2])])
+        self.rows = ROWS[:4]                     # paid, the market has not written the lot: a plain transfer out
+        rec = pl.reconcile(self.d, "m", "nocha12", FakeChain(0), SHOP, 1e12)
+        self.assertEqual([a["kind"] for a in rec["alerts"]], ["money_out"])
+        lines = [{"kind": "sale", "id": "sale-o-1", "amount": 10000}]
+        new = [{"kind": "refund", "id": "refund-x", "order": "o-1", "amount": 13000, "tx_hash": "0xr", "delta": -13000}]
+        got = pl.alerts(self.d, lines, new, {"ok": True})
+        self.assertEqual([a["kind"] for a in got], ["refund_over_amount"])
+
+    def test_agent_order_that_the_payer_did_not_pay_is_an_alert(self):
+        kit_log(self.d, [])
+        self.write_agent("refunds.jsonl", [{"purpose": "refund", "order": "o-3", "tx_hash": REFUND}])
+        c = FakeChain(0)
+        c.sender[TX[3]] = CUST.lower()           # CUST paid o-1 only
+        rec = pl.reconcile(self.d, "m", "nocha12", c, SHOP, 1e12)
+        r = [e for e in self.lines() if e["tx_hash"] == REFUND][0]
+        self.assertEqual((r["order"], r["said_order"]), ("o-1", "o-3"))
+        self.assertIn("refund_order_disagrees", [a["kind"] for a in rec["alerts"]])
 
 
 if __name__ == "__main__":

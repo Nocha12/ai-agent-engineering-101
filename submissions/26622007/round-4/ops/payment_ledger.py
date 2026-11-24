@@ -232,6 +232,7 @@ def agent_sends(d):
                 txs[tx] = {"order": order, "purpose": purpose, "source": f"{name}:{n}"}
                 intents = [i for i in intents if i["key"] != key]
             elif any(k in r for k in ("nonce", "amount", "amount_wei", "wei")):
+                # no time on the line: the file's time (goal (9) asks for ts; a later append makes this one look newer)
                 intents.append({"key": key, "order": order, "purpose": purpose, "source": f"{name}:{n}",
                                 "ts": epoch(r.get("ts") or r.get("time"), mtime)})
     return txs, intents
@@ -310,7 +311,9 @@ def events(rows, name, sends, chain, address, seen=(), seen_tx=None, hints=None,
             payer = None
             if tx and chain:
                 t = chain.transfer(tx)
-                payer = t["from"] if t else None
+                if t is None:
+                    continue                         # not readable yet: the next sync writes it with its payer
+                payer = t["from"]
             add(dict(base, kind="sale", id=eid, counterparty=dt.get("buyer"),
                      item=f"{dt.get('sku') or dt.get('item')} {dt.get('name') or ''}".strip(), qty=1, unit_price=amount,
                      amount=amount, fee=fee, storage=0, forum_fees=0, delta_wei=(amount - fee) * CREDIT_WEI, gas_wei=0,
@@ -346,10 +349,12 @@ def events(rows, name, sends, chain, address, seen=(), seen_tx=None, hints=None,
         said_refund = "refund" in (hint.get("purpose") or "")
         refund = t["ok"] and bool(paid)              # only a transfer to a wallet that paid one of our sales
         order = (hint.get("order") if hint.get("order") in paid else None) or (paid[0] if len(paid) == 1 else None)
+        disagrees = bool(hint.get("order")) and refund and hint.get("order") != order
         add({"ts": t.get("ts"), "time": iso(t["ts"]) if t.get("ts") else hhmmss, "round": None, "source": source,
              "kind": "refund" if refund else "transfer_out", "id": f"{'refund' if refund else 'out'}-{tx}",
              "counterparty": who.get(t["to"], t["to"]), "item": None, "order": order,
-             "orders_of_payer": paid or None, "said_refund": said_refund or None, "qty": None, "unit_price": None, "amount": value / CREDIT_WEI, "fee": 0,
+             "orders_of_payer": paid or None, "said_refund": said_refund or None,
+             "said_order": hint.get("order") if disagrees else None, "qty": None, "unit_price": None, "amount": value / CREDIT_WEI, "fee": 0,
              "storage": 0, "forum_fees": 0, "delta_wei": -value, "gas_wei": t["gas_wei"], "tx_hash": tx, "ok": t["ok"]})
     return out
 
@@ -395,8 +400,9 @@ def reconcile(d, market, name, chain, address, tolerance):
 def alerts(d, lines, new, rec, now=None, pending=()):
     """What the operator should hear about: [{kind, id, text}]. id is stable, so a watcher tells each one once."""
     now, out = now or time.time(), []
-    if not rec["ok"]:                                # one id per day and amount: a standing gap is told once a day
-        out.append({"kind": "reconcile_mismatch", "id": f"mismatch-{time.strftime('%Y%m%d', time.localtime(now))}-{round(rec['diff'])}",
+    if not rec["ok"]:                                # one id per day, direction and hundreds: a standing gap is told once a day
+        out.append({"kind": "reconcile_mismatch",
+                    "id": f"mismatch-{time.strftime('%Y%m%d', time.localtime(now))}-{'+' if rec['diff'] > 0 else '-'}{round(abs(rec['diff']), -2):.0f}",
                     "text": f"chain {rec['chain_credits']:g} vs ledger {rec['ledger_credits']:g} credits (diff {rec['diff']:g}): {rec['note']}"})
     by_order = {}
     for e in lines:
@@ -406,7 +412,17 @@ def alerts(d, lines, new, rec, now=None, pending=()):
         if len(txs) > 1:
             out.append({"kind": "duplicate_refund", "id": f"dup-{order}-{len(txs)}",
                         "text": f"order {order} was refunded {len(txs)} times: {', '.join(txs)}"})
+    sale_amount = {e["id"][5:]: e.get("amount") for e in lines if e.get("kind") == "sale"}
     for e in new:
+        if e.get("kind") in ("supply", "transfer_out"):  # money out that is not a refund: the operator checks the hold
+            out.append({"kind": "money_out", "id": f"out-{e['id']}",
+                        "text": f"{e['kind']} {e['id']}: {-e.get('delta', 0):g} credits to {e.get('counterparty')} ({e.get('item') or e.get('source')})"})
+        if e.get("kind") == "refund" and e.get("order") and (sale_amount.get(e["order"]) or 0) < (e.get("amount") or 0):
+            out.append({"kind": "refund_over_amount", "id": f"over-{e['tx_hash']}",
+                        "text": f"refund {e['tx_hash']} of {e['amount']:g} for order {e['order']} is more than the sale ({sale_amount.get(e['order'])})"})
+        if e.get("said_order"):
+            out.append({"kind": "refund_order_disagrees", "id": f"disagree-{e['tx_hash']}",
+                        "text": f"the agent said {e['tx_hash']} refunds {e['said_order']}, but that wallet paid {e.get('orders_of_payer')}"})
         if e.get("kind") == "refund" and not e.get("order"):
             out.append({"kind": "refund_unmatched", "id": f"unmatched-{e['tx_hash']}",
                         "text": f"refund {e['tx_hash']} to a wallet that paid orders {e.get('orders_of_payer')}: no single order, so a second refund would go unseen"})
