@@ -9,7 +9,14 @@ do not change after the fact:
   with its storage and forum fees), every sale (settle, with the shop's fee and the buyer's tx_hash) and every unit
   that broke after a sale (broken; in Round 4 the market refunds nothing);
 - the shop wallet's transfers that the kit sent (the "[maroo] <tool> sent ... from the shop wallet: <tx_url>" lines),
-  read back from the chain for the exact amount and the gas, so refunds and other transfers are recorded too.
+  read back from the chain for the exact amount and the gas, so refunds and other transfers are recorded too;
+- the agent's own send records (logs/sends.jsonl, logs/refunds.jsonl: an intent line written before each kit.pay and
+  the tx hash after it), so a transfer whose receipt wait timed out (no kit log line) is still found.
+
+A shop-wallet transfer to the wallet that paid one of our sales, or one the agent's records tie to an order, is written
+as kind "refund" with that order. reconcile raises alerts (logs/alerts.jsonl, chained like the others) for a balance
+that does not match, a second refund for one order, a new "broken" row for our shop, and an intent with no tx hash
+after 10 minutes; a watcher outside the market account reads that file and tells the operator.
 
     python3 -I payment_ledger.py sync      --dir <round-4 dir> [--market URL] [--name nocha12]
     python3 -I payment_ledger.py reconcile --dir <round-4 dir> [--market URL] [--name nocha12]
@@ -35,6 +42,8 @@ MARKET = "https://market.ourolabs.ai"
 RPC = "https://rpc-testnet.maroo.io"
 CREDIT_WEI = 10 ** 15                       # 1,000 credits = 1 tOKRW
 GENESIS = "0" * 64
+HEX_TX = re.compile(r"^0x[0-9a-fA-F]{64}$")
+INTENT_GRACE = 600                          # seconds an intent may wait for its tx hash before it is an alert
 SENT = re.compile(r"^(\d\d:\d\d:\d\d) \[maroo\] (\S+) sent \S+ tOKRW from the shop wallet: \S*/tx/(0x[0-9a-fA-F]{64})")
 
 
@@ -169,10 +178,41 @@ def kit_sends(d):
     return out
 
 
-def events(rows, name, sends, chain, address, seen=(), seen_tx=None):
+def agent_sends(d):
+    """What the agent wrote around its own transfers: ({tx_hash: {order, purpose, source}}, [intents with no tx hash]).
+    The agent writes these files itself, so the shape is read loosely: one JSON object a line; tx_hash or tx; order,
+    order_id or id; purpose or kind. A line with a nonce or an amount and no tx hash is an intent; it is open until a
+    later line names the same intent id (or the same order and purpose) with a tx hash."""
+    txs, intents = {}, []
+    for name in ("sends.jsonl", "refunds.jsonl"):
+        p = d / "logs" / name
+        if not p.exists():
+            continue
+        for n, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(r, dict):
+                continue
+            tx = str(r.get("tx_hash") or r.get("tx") or "").lower()
+            order = r.get("order") or r.get("order_id")
+            purpose = str(r.get("purpose") or r.get("kind") or ("refund" if name == "refunds.jsonl" else "")).lower()
+            key = (r.get("intent") or r.get("id") or order, purpose)
+            if HEX_TX.match(tx):
+                txs[tx] = {"order": order, "purpose": purpose, "source": f"{name}:{n}"}
+                intents = [i for i in intents if i["key"] != key]
+            elif any(k in r for k in ("nonce", "amount", "amount_wei", "wei")):
+                intents.append({"key": key, "order": order, "purpose": purpose, "source": f"{name}:{n}",
+                                "ts": r.get("ts") or r.get("time")})
+    return txs, intents
+
+
+def events(rows, name, sends, chain, address, seen=(), seen_tx=None, hints=None):
     """The shop's new money events from the market ledger rows and the kit's logged transfers, in ledger order. Amounts
     are whole wei in delta_wei/gas_wei. seen: ids already in the file (skipped, not looked up again); seen_tx: tx_hash
-    -> the line already written for it, so a lot whose transfer was first written as transfer_out is not counted twice."""
+    -> the line already written for it, so a lot whose transfer was first written as transfer_out is not counted twice.
+    hints: agent_sends()[0]; its tx hashes are read like the kit's lines, and its orders name refunds."""
     seen_tx = dict(seen_tx or {})
     me = address.lower()
     urls, who = set(), {}
@@ -239,17 +279,38 @@ def events(rows, name, sends, chain, address, seen=(), seen_tx=None):
                      amount=0, fee=0, storage=0, forum_fees=0, delta_wei=-int(dt.get("refunded") or 0) * CREDIT_WEI,
                      gas_wei=0, tx_hash=None, warranty_hours=dt.get("warranty_hours"),
                      hours_after_sale=dt.get("hours_after_sale"), unit=dt.get("unit")))
-    for hhmmss, tool, tx in sends:
-        if tx in seen_tx or f"out-{tx}" in seen or chain is None:
+    hints = hints or {}
+    payers = {}                                      # paying wallet -> our sale orders it paid (read once, when needed)
+
+    def orders_paid_by(addr):
+        if not payers.get("_read"):
+            payers["_read"] = True
+            for r in rows:
+                dt = r["data"]
+                if r["kind"] == "settle" and (dt.get("shop") or "").rstrip("/") in urls and dt.get("tx_hash"):
+                    t = chain.transfer(dt["tx_hash"].lower())
+                    if t:
+                        payers.setdefault(t["from"], []).append(dt.get("order"))
+        return payers.get(addr, [])
+
+    queue = [(hhmmss, f"kit:{tool}", tx) for hhmmss, tool, tx in sends]
+    queue += [(None, h["source"], tx) for tx, h in hints.items() if tx not in {q[2] for q in queue}]
+    for hhmmss, source, tx in queue:
+        if tx in seen_tx or f"out-{tx}" in seen or f"refund-{tx}" in seen or chain is None:
             continue
         t = chain.transfer(tx)
         if t is None or t["from"] != me:
             continue                                 # not mined yet (the next sync finds it) or not the shop wallet's
         value = t["value_wei"] if t["ok"] else 0     # a failed transaction moves no value but still burns its gas
-        add({"ts": t.get("ts"), "time": iso(t["ts"]) if t.get("ts") else hhmmss, "round": None, "source": f"kit:{tool}",
-             "kind": "transfer_out", "id": f"out-{tx}", "counterparty": who.get(t["to"], t["to"]), "item": None,
-             "qty": None, "unit_price": None, "amount": value / CREDIT_WEI, "fee": 0, "storage": 0, "forum_fees": 0,
-             "delta_wei": -value, "gas_wei": t["gas_wei"], "tx_hash": tx, "ok": t["ok"]})
+        hint = hints.get(tx) or {}
+        paid = orders_paid_by(t["to"])
+        refund = t["ok"] and ("refund" in (hint.get("purpose") or "") or bool(paid))
+        order = hint.get("order") or (paid[0] if len(paid) == 1 else None)
+        add({"ts": t.get("ts"), "time": iso(t["ts"]) if t.get("ts") else hhmmss, "round": None, "source": source,
+             "kind": "refund" if refund else "transfer_out", "id": f"{'refund' if refund else 'out'}-{tx}",
+             "counterparty": who.get(t["to"], t["to"]), "item": None, "order": order,
+             "orders_of_payer": paid or None, "qty": None, "unit_price": None, "amount": value / CREDIT_WEI, "fee": 0,
+             "storage": 0, "forum_fees": 0, "delta_wei": -value, "gas_wei": t["gas_wei"], "tx_hash": tx, "ok": t["ok"]})
     return out
 
 
@@ -261,7 +322,7 @@ def sync(d, market, name, chain, address):
     seen_tx = {e["tx_hash"]: e for e in old if e.get("tx_hash")}
     balance = old[-1]["balance_wei"] if old else 0
     new = []
-    for e in events(market_rows(market), name, kit_sends(d), chain, address, seen, seen_tx):
+    for e in events(market_rows(market), name, kit_sends(d), chain, address, seen, seen_tx, agent_sends(d)[0]):
         balance += e["delta_wei"] - e["gas_wei"]
         new.append(dict(e, delta=e["delta_wei"] / CREDIT_WEI, gas=e["gas_wei"] / CREDIT_WEI, balance_wei=balance,
                         balance_after=balance / CREDIT_WEI))
@@ -281,8 +342,38 @@ def reconcile(d, market, name, chain, address, tolerance):
            ("the wallet holds more than the ledger: a transfer in without a settlement (a customer paid but the sale did "
             "not settle yet, or a direct transfer)" if diff > 0 else
             "the wallet holds less than the ledger: a transfer out the kit did not log, or a supply/settle not on the market ledger yet")}
+    rec["alerts"] = alerts(d, lines, new, rec)
     append(d / "logs" / "reconcile.jsonl", [rec])
+    if rec["alerts"]:
+        append(d / "logs" / "alerts.jsonl", [{"ts": rec["ts"], "time": rec["time"], **a} for a in rec["alerts"]])
     return rec
+
+
+def alerts(d, lines, new, rec, now=None):
+    """What the operator should hear about: [{kind, id, text}]. id is stable, so a watcher tells each one once."""
+    now, out = now or time.time(), []
+    if not rec["ok"]:
+        out.append({"kind": "reconcile_mismatch", "id": f"mismatch-{rec['payments_tail'][:16]}-{round(rec['diff'])}",
+                    "text": f"chain {rec['chain_credits']:g} vs ledger {rec['ledger_credits']:g} credits (diff {rec['diff']:g}): {rec['note']}"})
+    by_order = {}
+    for e in lines:
+        if e.get("kind") == "refund" and e.get("order"):
+            by_order.setdefault(e["order"], []).append(e["tx_hash"])
+    for order, txs in sorted(by_order.items()):
+        if len(txs) > 1:
+            out.append({"kind": "duplicate_refund", "id": f"dup-{order}-{len(txs)}",
+                        "text": f"order {order} was refunded {len(txs)} times: {', '.join(txs)}"})
+    for e in new:
+        if e.get("kind") == "broken":
+            out.append({"kind": "broken", "id": e["id"], "text": f"a unit we sold broke: order {e['id'][7:]}, "
+                        f"{e.get('item')}, {e.get('hours_after_sale')} h after the sale, warranty {e.get('warranty_hours')} h"})
+    for i in agent_sends(d)[1]:
+        ts = i.get("ts")
+        if isinstance(ts, (int, float)) and now - ts > INTENT_GRACE:
+            out.append({"kind": "intent_without_tx", "id": f"intent-{i['source']}",
+                        "text": f"{i['source']}: a transfer intent ({i['purpose'] or '?'}, order {i['order']}) has no tx hash "
+                                f"after {int((now - ts) // 60)} min; money may have left: check the shop wallet's nonce before any retry"})
+    return out
 
 
 def shop_address(d, explicit):

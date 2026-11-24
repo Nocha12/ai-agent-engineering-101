@@ -42,7 +42,8 @@ ROWS = [
                        "item": "G1", "hours_after_sale": 3.0, "warranty_hours": 24, "refunded": 0}),
 ]
 REFUND = ("0x" + "a" * 64)
-GAS = {TX[2]: 2 * W // 10, TX[4]: W // 10, REFUND: W // 10}   # supply and refund transfers burn shop gas
+REFUND2 = ("0x" + "e" * 64)
+GAS = {TX[2]: 2 * W // 10, TX[4]: W // 10, REFUND: W // 10, REFUND2: W // 10}   # supply and refund transfers burn shop gas
 
 
 class FakeChain:
@@ -56,7 +57,7 @@ class FakeChain:
         self.calls.append(tx)
         if not self.mined:
             return None
-        if tx == REFUND:
+        if tx in (REFUND, REFUND2):
             return {"from": SHOP.lower(), "to": CUST.lower(), "value_wei": 13000 * W, "gas_wei": GAS[tx], "ok": True,
                     "ts": 1795510000}
         if tx == "0x" + "b" * 64:
@@ -238,6 +239,60 @@ class Ledger(unittest.TestCase):
         rec = pl.reconcile(self.d, "m", "nocha12", FakeChain(0), SHOP, 1.0)
         self.assertTrue(rec["ok"])
         self.assertEqual(rec["lines"], 0)
+
+
+    def write_agent(self, name, recs):
+        (self.d / "logs").mkdir(exist_ok=True)
+        (self.d / "logs" / name).write_text("".join(json.dumps(r) + "\n" for r in recs), encoding="utf-8")
+
+    def test_transfer_to_the_wallet_that_paid_our_sale_is_a_refund_of_that_order(self):
+        kit_log(self.d, [sent("refund", REFUND)])
+        c = FakeChain(0)
+        c.sender[TX[3]] = CUST.lower()              # the customer paid order o-1 from this wallet
+        new, _ = pl.sync(self.d, "m", "nocha12", c, SHOP)
+        r = [e for e in new if e["tx_hash"] == REFUND][0]
+        self.assertEqual((r["kind"], r["id"], r["order"], r["delta"]), ("refund", f"refund-{REFUND}", "o-1", -13000))
+        self.assertEqual(pl.sync(self.d, "m", "nocha12", c, SHOP)[0], [])   # not written again
+
+    def test_agent_send_record_finds_a_transfer_the_kit_never_logged_and_names_its_order(self):
+        kit_log(self.d, [])                         # the receipt wait timed out: no "[maroo] ... sent" line
+        self.write_agent("sends.jsonl", [{"purpose": "refund", "order": "o-1", "to": CUST, "amount": 13000, "nonce": 7, "ts": 1},
+                                         {"purpose": "refund", "order": "o-1", "tx_hash": REFUND}])
+        new, _ = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
+        r = [e for e in new if e["tx_hash"] == REFUND][0]
+        self.assertEqual((r["kind"], r["order"], r["source"]), ("refund", "o-1", "sends.jsonl:2"))
+        self.assertEqual(pl.agent_sends(self.d)[1], [])  # the intent is closed by its tx line
+
+    def test_second_refund_of_one_order_is_an_alert_once_per_count(self):
+        kit_log(self.d, [sent("refund", REFUND), sent("refund", REFUND2)])
+        c = FakeChain(0)
+        c.sender[TX[3]] = CUST.lower()
+        _, bal = pl.sync(self.d, "m", "nocha12", c, SHOP)
+        c.balance = bal
+        rec = pl.reconcile(self.d, "m", "nocha12", c, SHOP, 1.0)
+        dup = [a for a in rec["alerts"] if a["kind"] == "duplicate_refund"]
+        self.assertEqual([a["id"] for a in dup], ["dup-o-1-2"])
+        self.assertIn(REFUND2, dup[0]["text"])
+        self.assertEqual(pl.verify(self.d / "logs" / "alerts.jsonl"), [])
+
+    def test_new_broken_row_and_mismatch_are_alerts_and_broken_only_once(self):
+        kit_log(self.d, [])
+        rec = pl.reconcile(self.d, "m", "nocha12", FakeChain(1), SHOP, 1.0)
+        kinds = sorted(a["kind"] for a in rec["alerts"])
+        self.assertEqual(kinds, ["broken", "reconcile_mismatch"])
+        self.assertIn("order o-1", [a for a in rec["alerts"] if a["kind"] == "broken"][0]["text"])
+        rec2 = pl.reconcile(self.d, "m", "nocha12", FakeChain(rec["ledger_credits"] * W), SHOP, 1.0)
+        self.assertEqual(rec2["alerts"], [])
+        self.assertEqual(len(self.lines("alerts.jsonl")), 2)
+
+    def test_intent_without_tx_hash_is_an_alert_after_the_grace_time(self):
+        kit_log(self.d, [])
+        self.write_agent("sends.jsonl", [{"purpose": "supply", "order": "q-9", "amount": 5000, "nonce": 3, "ts": 1000}])
+        rec = {"ok": True, "payments_tail": pl.GENESIS}
+        self.assertEqual(pl.alerts(self.d, [], [], rec, now=1000 + 60), [])
+        late = pl.alerts(self.d, [], [], rec, now=1000 + pl.INTENT_GRACE + 60)
+        self.assertEqual([a["kind"] for a in late], ["intent_without_tx"])
+        self.assertIn("nonce", late[0]["text"])
 
 
 if __name__ == "__main__":
