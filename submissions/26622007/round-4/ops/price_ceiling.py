@@ -16,6 +16,8 @@ FEE_DIVISOR = 100
 MAX_PRICE = 10**12
 FIXED_FEE = 210
 GAS = 206
+REFUND_BASIS = 'net'  # 고장 환불액: 'net' = 가게 실수령액(settle 금액 − 판매 수수료, 13주차 리허설 선례), 'gross' = 판매가 전액(이전 모델)
+                     # 실제 환불 도구(ops/tools_src/refund_check_order/logic.py)의 REFUND_BASIS와 같이 바꾼다
 STORAGE = Fraction(5, 1000)
 GRADE_HOURS = 48
 DEFECT = {'A': Fraction(3, 100), 'B': Fraction(12, 100), 'C': Fraction(35, 100)}
@@ -74,17 +76,35 @@ def _scenario(kind, shelf, grade, hold, remaining, round_hours, unsold, demand, 
     return sold, defect, carrying
 
 
+def shop_fee(price):
+    return price // FEE_DIVISOR + FIXED_FEE
+
+
+def refund_amount(price):
+    """Credits the shop pays back for one broken unit sold at `price` (gas counted separately)."""
+    if REFUND_BASIS == 'net':
+        return price - shop_fee(price)
+    if REFUND_BASIS == 'gross':
+        return price
+    raise ValueError('invalid REFUND_BASIS')
+
+
 def _bounds(cost, sell, sold, defect, carrying, fixed):
     def revenue(price):
-        fee = price // FEE_DIVISOR + FIXED_FEE
-        return sold * (price - fee - defect * (price + GAS)) if price >= fee else 0
+        fee = shop_fee(price)
+        return sold * (price - fee - defect * (refund_amount(price) + GAS)) if price >= fee else 0
 
     ceiling = floor((revenue(sell) - fixed) / carrying)
     outlay = cost * carrying + fixed
     minimum = None
     if sold:
-        slope = 1 - Fraction(1, FEE_DIVISOR) - defect
-        budget = outlay / sold + FIXED_FEE + defect * GAS
+        # Lower start: shop_fee(p) >= p/100 + 210 - 99/100, so slope * p >= budget - 1 for every feasible p.
+        if REFUND_BASIS == 'net':  # (1-d)(p - fee) - d*GAS
+            slope = (1 - defect) * (1 - Fraction(1, FEE_DIVISOR))
+            budget = outlay / sold + (1 - defect) * FIXED_FEE + defect * GAS
+        else:  # p - fee - d*(p + GAS)
+            slope = 1 - Fraction(1, FEE_DIVISOR) - defect
+            budget = outlay / sold + FIXED_FEE + defect * GAS
         minimum = max(0, floor((budget - 1) / slope))
         while revenue(minimum) < outlay:
             minimum += 1

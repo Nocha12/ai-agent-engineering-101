@@ -36,7 +36,7 @@ class ReportTest(unittest.TestCase):
             html = (ops.parent / "logs" / "price-ceiling.html").read_text(encoding="utf-8")
         for text in ['lang="ko"', '<caption>', 'scope="row"', 'scope="col"',
                      '사과', '배&lt;script&gt;', '거래 &lt;표본&gt;', '원가 &amp; 추정',
-                     '999', '976', '675', '불가', '보장하지', '미판매', '보유']:
+                     '999', '976', '675', '불가', '보장하지', '미판매', '보유', '실수령액']:
             with self.subTest(text=text):
                 self.assertIn(text, html)
         self.assertNotIn('<script', html)

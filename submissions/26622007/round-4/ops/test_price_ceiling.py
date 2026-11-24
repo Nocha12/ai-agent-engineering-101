@@ -1,3 +1,5 @@
+from fractions import Fraction
+
 import pytest
 
 import price_ceiling as prices
@@ -30,7 +32,7 @@ def test_food_single_and_split_lot_at_fee_boundary():
     assert prices.quote(dict(args, qty=3, batch_size=2))['expected_profit'] == 206
 
 
-@pytest.mark.parametrize(('hours', 'profit'), [(0, 7177.82), (47, 6707.82), (48, 5779.28), (96, 2951.9), (144, 2471.9)])
+@pytest.mark.parametrize(('hours', 'profit'), [(0, 7187.12), (47, 6717.12), (48, 5816.48), (96, 3060.4), (144, 2580.4)])
 def test_goods_aging_and_storage(hours, profit):
     result = prices.quote(dict(sku='lamp', sell=10000, cost=2000, grade='A', hold_hours=hours, unsold=0))
     assert result['expected_profit'] == pytest.approx(profit)
@@ -188,11 +190,39 @@ def test_floor_is_reachable_within_the_input_domain():
     assert prices.quote(dict(sku='lamp', cost=10**12, grade='B', unsold=0))['min_sell_price'] is None
 
 
-def test_minimum_is_first_profitable_price_not_a_monotonic_guarantee():
+def test_minimum_is_first_profitable_price_not_a_monotonic_guarantee(monkeypatch):
     args = dict(sku='lamp', cost=152, grade='C', hold_hours=0, unsold=0, action='sell')
+    # net refund: 0.65 * (880 - 218) - 0.35 * 206 = 358.2 >= 152 + 206; net receipt never falls as price rises
+    assert prices.quote(dict(args, sell=880))['min_sell_price'] == 880
+    assert prices.quote(dict(args, sell=880))['expected_profit'] == 0.2
+    assert prices.quote(dict(args, sell=879))['expected_profit'] == -0.45
+    assert prices.quote(dict(args, sell=900))['expected_profit'] == prices.quote(dict(args, sell=899))['expected_profit']
+    monkeypatch.setattr(prices, 'REFUND_BASIS', 'gross')
     assert prices.quote(dict(args, sell=999))['min_sell_price'] == 999
     assert prices.quote(dict(args, sell=999))['expected_profit'] == 0.25
     assert prices.quote(dict(args, sell=1000))['expected_profit'] == -0.1
+
+
+def test_refund_is_shop_net_receipt():
+    assert prices.REFUND_BASIS == 'net'
+    assert prices.refund_amount(10000) == 10000 - (100 + 210)
+    assert prices.refund_amount(999) == 999 - 219
+
+
+@pytest.mark.parametrize('basis', ['net', 'gross'])
+@pytest.mark.parametrize(('defect', 'carrying', 'cost', 'fixed', 'sold'), [
+    (Fraction(3, 100), Fraction(1), 152, 206, Fraction(1)),        # goods grade A
+    (Fraction(12, 100), Fraction(106, 100), 2000, 206, Fraction(1, 2)),  # goods grade B, 12h storage
+    (Fraction(35, 100), Fraction(1), 152, 206, Fraction(1)),       # goods grade C
+    (Fraction(35, 100), Fraction(124, 100), 7777, Fraction(422, 3), Fraction(3, 4)),
+    (0, 1, 574, 206, Fraction(1)),                                 # food
+    (0, 1, 10**6, Fraction(206 + 11, 2), Fraction(2, 3))])          # food, lot dues
+def test_floor_is_smallest_break_even_price(monkeypatch, basis, defect, carrying, cost, fixed, sold):
+    monkeypatch.setattr(prices, 'REFUND_BASIS', basis)
+    minimum = prices._bounds(cost, 0, sold, defect, carrying, fixed)[1]
+    profit = lambda price: prices._bounds(cost, price, sold, defect, carrying, fixed)[2]
+    assert minimum is not None and profit(minimum - 1) < 0 <= profit(minimum)
+    assert all(profit(price) < 0 for price in range(max(0, minimum - 300), minimum))
 
 
 @pytest.mark.parametrize('inputs', [dict(unsold=float('nan')), dict(unsold=1.01), dict(qty=True),
