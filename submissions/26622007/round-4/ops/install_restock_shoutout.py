@@ -12,7 +12,7 @@ HERE = Path(__file__).resolve().parent
 NAME = 'restock_shoutout'
 DESCRIPTION = ('품절로 못 산 손님·단골을 기억했다가 실제로 입고되면 포럼 입고 공지(공급 창당 1개)와 다음 방문 때 한 줄 안내를 만듭니다. '
                'args {op: want|bought|opt_out|restocked|announce|notice, customer, sku, name, qty, price, order, dry_run}.')
-PERMISSION = {'network': ['market.ourolabs.ai'], 'write': ['shoutout.json', 'shoutout.test.json'],
+PERMISSION = {'network': ['market.ourolabs.ai'], 'write': ['shoutout.json', 'shoutout.json.tmp', 'shoutout.test.json', 'shoutout.test.json.tmp'],
               'identity': ['shop'], 'timeout': 30}
 
 

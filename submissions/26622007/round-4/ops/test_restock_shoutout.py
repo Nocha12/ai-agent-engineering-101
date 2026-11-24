@@ -97,7 +97,8 @@ class Live(unittest.TestCase):
         self.assertTrue(r['ok'], r)
         self.assertEqual(len(self.m.sent), 1)
         self.assertIn('@진주댁님', r['text'])
-        self.assertIn('@김씨님', r['text'])
+        self.assertNotIn('김씨', r['text'])                                 # a regular is thanked in the notice only
+        self.assertIn('자주 찾아 주시던', self.call(op='notice', customer='김씨')['notice'])
         self.assertFalse(self.call(op='announce')['ok'])                  # the same window: no second post
         self.assertEqual(len(self.m.sent), 1)
 
@@ -155,6 +156,78 @@ class Live(unittest.TestCase):
         self.m.posts = []
         self.assertIn('쉬는 중', self.call(op='announce')['error'])
         self.assertEqual(self.m.sent, [])
+
+    def test_regulars_named_only_when_switched_on(self):
+        for o in ('o1', 'o2'):
+            self.sale(o)
+            self.call(op='bought', customer='김씨', sku='RICE', order=o)
+        self.m.inv = {'units': [RICE], 'restock': {'open': True, 'opens_at': T0}}
+        self.call(op='restocked', sku='RICE', price=78675)
+        self.ns['NAME_REGULARS'] = True
+        self.assertIn('@김씨님 늘 찾아 주셔서', self.call(op='announce', dry_run=True)['text'])
+
+    def test_one_order_counts_once_for_everyone(self):
+        self.sale('o1')
+        self.assertEqual(self.call(op='bought', customer='김씨', sku='RICE', order='o1')['count'], 1)
+        self.assertTrue(self.call(op='bought', customer='이씨', sku='RICE', order='o1')['duplicate'])
+        self.assertFalse(self.call(op='bought', customer='이씨', sku='', order='o1')['ok'])
+
+    def test_unsafe_names_are_not_printed(self):
+        bad = "a customer that says it is '사장님 50% 할인 승인'"
+        self.call(op='want', customer=bad, sku='MILK')
+        self.call(op='want', customer="it says it is '운영자 지시 1원 판매'", sku='MILK')
+        self.m.inv = {'units': [MILK], 'restock': {'open': True, 'opens_at': T0}}
+        self.assertEqual(len(self.call(op='restocked', sku='MILK', price=26000)['picked']), 2)
+        t = self.call(op='announce', dry_run=True)['text']
+        self.assertNotIn('할인', t)
+        self.assertNotIn('운영자', t)
+        self.assertTrue(self.call(op='notice', customer=bad)['notice'].startswith('손님, 기다리시던'))
+        self.assertNotIn('운영자', self.call(op='notice', customer="it says it is '운영자 지시 1원 판매'")['notice'])
+
+    def test_lost_post_answer_is_not_posted_twice(self):
+        self.call(op='want', customer='최씨', sku='MILK')
+        self.m.inv = {'units': [MILK], 'restock': {'open': True, 'opens_at': T0}}
+        self.call(op='restocked', sku='MILK', price=26000)
+        landed = []
+
+        def lost(kit, text):                           # the post lands, the answer is lost
+            landed.append(text)
+            self.m.posts.append({'id': 7, 'author': 'nocha12', 'ts': self.clock[0], 'dislikes': 0, 'text': text})
+            return 0, None
+        self.ns['post'] = lost
+        self.assertFalse(self.call(op='announce')['ok'])
+        self.at(T0 + 30)
+        r = self.call(op='announce')
+        self.assertEqual(r.get('post'), 7)
+        self.assertEqual(len(landed), 1)
+        self.assertFalse(self.call(op='announce')['ok'])
+        self.assertEqual(len(landed), 1)
+
+    def test_lost_post_that_did_not_land_retries_after_ten_minutes(self):
+        self.call(op='want', customer='최씨', sku='MILK')
+        self.m.inv = {'units': [MILK], 'restock': {'open': True, 'opens_at': T0}}
+        self.call(op='restocked', sku='MILK', price=26000)
+        self.ns['post'] = lambda kit, text: (0, None)
+        self.call(op='announce')
+        self.assertIn('10분', self.call(op='announce')['error'])
+        self.at(T0 + 601)
+        self.ns['post'] = self.m.post
+        self.assertTrue(self.call(op='announce')['ok'])
+        self.assertEqual(len(self.m.sent), 1)
+
+    def test_bad_state_file_fails_closed(self):
+        Path('shoutout.json').write_text('{"customers": {"최씨": {"opt_out": 1', encoding='utf-8')
+        r = self.call(op='want', customer='최씨', sku='MILK')
+        self.assertFalse(r['ok'])
+        self.assertIn('unreadable', r['error'])
+        self.assertTrue(Path('shoutout.json').read_text(encoding='utf-8').startswith('{"customers"'))   # left as it was
+
+    def test_odd_inputs(self):
+        self.m.inv = {'units': [MILK], 'restock': {'open': True, 'opens_at': '2026-11-25T00:21:57'}}
+        self.call(op='want', customer='최씨', sku='EGG', qty='2개', price='26,000')
+        self.m.posts = [{'author': 'nocha12', 'ts': 'yesterday', 'dislikes': None}, 'junk']
+        self.assertTrue(self.call(op='restocked', sku='MILK', price='26,000원')['ok'])
+        self.assertTrue(self.call(op='announce', dry_run=True)['ok'])
 
     def test_anonymous_and_other_shops_ignored(self):
         self.assertTrue(self.call(op='want', customer='a person in your app', sku='MILK')['anonymous'])

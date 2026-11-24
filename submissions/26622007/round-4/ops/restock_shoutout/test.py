@@ -3,8 +3,9 @@ import os
 
 def test(run, kit):
     """The whole path in test mode: sold-out request, purchases, restock, one forum text, notices, caps, opt-out."""
-    if os.path.exists('shoutout.test.json'):
-        os.remove('shoutout.test.json')
+    for f in ('shoutout.test.json', 'shoutout.test.json.tmp'):
+        if os.path.exists(f):
+            os.remove(f)
     t0 = 1_800_000_000
     milk = {'unit': 'u1', 'sku': 'MILK', 'name': '[서울우유] 흰우유 1L 24팩', 'kind': 'food', 'cost': 20000, 'grade': 'A'}
     rice = {'unit': 'u2', 'sku': 'RICE', 'name': '백진주쌀 20kg', 'kind': 'food', 'cost': 59000, 'grade': 'B'}
@@ -31,7 +32,7 @@ def test(run, kit):
         assert r['picked'] == [] and r['skipped'].get('김씨') == 'already_this_restock'
         run({'op': 'restocked', 'sku': 'RICE', 'price': 78000, '_inventory': both, '_now': t0 + 30}, kit)
         a = run({'op': 'announce', '_inventory': both, '_forum': [], '_now': t0 + 40}, kit)
-        assert a['ok'] and '@진주댁님' in a['text'] and '@김씨님' in a['text'] and '백진주쌀' in a['text'], a
+        assert a['ok'] and '@진주댁님' in a['text'] and '김씨' not in a['text'] and '백진주쌀' in a['text'], a  # regulars: notice only
         n = run({'op': 'notice', 'customer': jin, '_inventory': both, '_now': t0 + 50}, kit)['notice']
         assert '2개' in n and 'A·B등급' in n and '26,000' in n and '그만' in n, n
         assert run({'op': 'notice', 'customer': jin, '_inventory': both, '_now': t0 + 60}, kit)['notice'] is None
