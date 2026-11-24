@@ -13,7 +13,12 @@ import time
 import httpx
 import patch_notes
 import profit_cohorts
-import strategy_screen
+try:
+    import strategy_screen   # private: the public branch does not carry it (cdcbb01b), so the card says so below
+except ModuleNotFoundError as e:
+    if e.name != "strategy_screen":   # a module it needs is missing: that is a real fault, not the private file
+        raise
+    strategy_screen = None
 
 MARKET = os.environ.get("MARKET_URL", "https://market.ourolabs.ai")
 ME = os.environ.get("SHOP_MARKET_NAME", "nocha12")
@@ -465,6 +470,15 @@ def jsonl_or_json(path):
         return None
 
 
+def market_opportunities(root):
+    """The public-demand screen, or a line that says it was not computed. Without the private module nothing is
+    screened and no candidate is named: the card carries the absence, never an empty screen that reads as 'no demand'."""
+    if strategy_screen is None:
+        return {"available": False, "candidates": [],
+                "basis": "strategy_screen is not on this branch; no screen was computed, this is not a finding of no demand"}
+    return strategy_screen.build(root)
+
+
 def build(root, record=False):
     md = os.path.join(root, ".market")
     rules, b = patch_notes.check(root, record=record), board(root, record=record)
@@ -491,7 +505,7 @@ def build(root, record=False):
                      inv["balance"] - (inv.get("start") or 0) - (inv.get("injected") or 0) + live_stock_cost(units),
                      "losses": (jsonl_or_json(os.path.join(md, "loss_state.json")) or {}).get("totals", {})},
             "profit_cohorts": profit_cohorts.build(root),
-            "market_opportunities": strategy_screen.build(root),
+            "market_opportunities": market_opportunities(root),
             "log_counts": log_counts(root),
             "llm": llm_table(md), "llm_last_hour": llm_last_hour(md), "memory_timing": memory_timing(md),
             "tools": dict(tools), "decisions": len(decisions), "last_decisions": decisions[-5:],
