@@ -21,6 +21,13 @@ def test(run, kit):
         assert r['ok'] and r['plan']['kind'] == 'unsettled' and r['plan']['amount'] is None, r
         assert not run({'order': 't-o2', '_checkouts': [miss], '_sales': [{'order': 'x', 'tx_hash': miss['tx_hash']}]}, kit)['ok']
         assert '없습니다' in run({'order': 't-o3'}, kit)['error']
+        nofee = dict(settle, data={k: v for k, v in settle['data'].items() if k != 'shop_fee'})
+        assert run({'order': 't-o1', '_sealed': [nofee, broken]}, kit)['plan']['amount'] == 9690   # 10000//100 + 210
+        twice = [miss, dict(miss, order='t-o9')]
+        assert '다른 주문' in run({'order': 't-o2', '_checkouts': twice}, kit)['error']
+        with open('logs/refunds.test.jsonl', 'w') as f:
+            f.write('{"purpose":"refund","order":"t-o9","paid_tx":"%s","tx_hash":"0x1"}\n' % miss['tx_hash'])
+        assert '이미' in run({'order': 't-o2', '_checkouts': [miss]}, kit)['error']                # same payment, other id
         with open('logs/refunds.test.jsonl', 'w') as f:
             f.write('{"purpose":"refund","order":"t-o1","tx_hash":"0x1"}\n')
         assert '이미' in run({'order': 't-o1', '_sealed': [settle, broken]}, kit)['error']

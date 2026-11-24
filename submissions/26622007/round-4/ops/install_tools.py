@@ -40,7 +40,8 @@ TOOLS = {
         '비공개 결제서 발급(create)과 정산(settle). 발급 전에 실재고·다른 결제서 예약·등급(상품명·인증서)·서명 지갑=가게 지갑·하한가를 확인합니다. '
         'args create {op, unit, price, task, warranty_hours, claim, order?, endgame?}, '
         'settle {op, order, checkout_jwt, checkout_mandate, payment_mandate}. 결과에 refund:true가 있으면 환불 3단계로 갑니다.',
-        {'network': [MARKET], 'write': w('logs/checkouts.jsonl', 'logs/sales.jsonl'), 'identity': ['shop'],
+        {'network': [MARKET], 'write': w('logs/checkouts.jsonl', 'logs/sales.jsonl') + ['logs/refunds.test.jsonl'],   # test fixture
+         'identity': ['shop'],
          'wallet': ['sign_jwt'], 'timeout': 90}),
 }
 RETIRE = ['refund_order']

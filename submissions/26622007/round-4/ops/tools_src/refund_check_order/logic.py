@@ -15,6 +15,7 @@ import urllib.request
 
 BASE = 'https://market.ourolabs.ai'
 REFUND_BASIS = 'net'        # 'net' = settle amount - shop fee (13주차 리허설 선례), 'gross' = settle amount
+                            # (ax-price-ceiling: price_ceiling.py REFUND_BASIS models the same refund; change both)
 PAGES = 6                   # public rows only: at most 6 pages of 500 after the settle row, 1.1 s apart
 PLANS = 'logs/refund-plans.jsonl'
 
@@ -51,9 +52,10 @@ def refund_amount(amount, shop_fee):
     return amount - shop_fee if REFUND_BASIS == 'net' else amount
 
 
-def already(kit, order):
+def already(kit, order, paid_tx=None):
+    """A refund line (sent or only intended) for this order, or for the same payment under another order id."""
     for r in _lines(_p(kit, 'logs/refunds.jsonl')) + _lines(_p(kit, 'logs/sends.jsonl')):
-        if r.get('purpose') == 'refund' and str(r.get('order')) == order:
+        if r.get('purpose') == 'refund' and (str(r.get('order')) == order or (paid_tx and r.get('paid_tx') == paid_tx)):
             return r
     return None
 
@@ -123,6 +125,8 @@ def run(args, kit):
 
     if settle:
         amount, fee, wh = _num(settle.get('amount')), _num(settle.get('shop_fee')), _num(settle.get('warranty_hours'))
+        if fee is None and amount is not None:
+            fee = int(amount) // 100 + 210          # the market's shop fee; stage 2 checks the net against the chain
         if amount is None or fee is None or not settle.get('tx_hash'):
             return {'ok': False, 'error': '판매 기록에 금액·수수료·결제 tx가 없습니다(온체인 결제가 아닌 판매는 이 도구로 환불하지 않습니다)'}
         if not broken:
@@ -142,8 +146,14 @@ def run(args, kit):
         sales = _lines('logs/sales.jsonl') if not kit.testing else args.get('_sales') or []
         if any(s.get('tx_hash') == miss['tx_hash'] or str(s.get('order')) == order for s in sales):
             return {'ok': False, 'error': '이 결제는 정산된 판매에 쓰였습니다. 정산 실패 환불 대상이 아닙니다'}
+        if any(r.get('tx_hash') == miss['tx_hash'] and str(r.get('order')) != order for r in log
+               if r.get('event') in ('unsettled', 'settled', 'issued')):
+            return {'ok': False, 'error': '이 결제는 다른 주문 번호에도 기록되어 있습니다. 사람이 확인해야 합니다'}
         plan = {'kind': 'unsettled', 'source': 'checkouts', 'tx_hash': miss['tx_hash'], 'digest_hex': miss['digest_hex'],
                 'gross': _num(miss.get('price')), 'shop_fee': _num(miss.get('shop_fee')), 'amount': None}
+    done = already(kit, order, plan['tx_hash'])
+    if done:
+        return {'ok': False, 'error': '이 결제는 이미 환불 기록이 있습니다(결제당 1회)', 'record': done}
     plan.update({'stage': 1, 'order': order, 'ts': int(time.time()), 'basis': REFUND_BASIS})
     with open(_p(kit, PLANS), 'a', encoding='utf-8') as f:
         f.write(json.dumps(plan, ensure_ascii=False, separators=(',', ':')) + '\n')

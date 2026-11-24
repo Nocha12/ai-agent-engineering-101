@@ -16,6 +16,7 @@ import base64
 import hashlib
 import json
 import math
+import os
 import time
 import urllib.error
 import urllib.request
@@ -150,7 +151,7 @@ def unit_now(inv, unit_id):
 def create(args, kit):
     unit_id, claim = str(args.get('unit') or ''), args.get('claim', args.get('grade'))   # v1 callers said grade
     price, warranty, task = args.get('price'), args.get('warranty_hours', 0), args.get('task')
-    order = str(args.get('order') or '') or None
+    order = str(args.get('order') or '') or 'o-' + os.urandom(6).hex()
     if type(price) is not int or price <= 0:
         return {'ok': False, 'error': 'price must be a positive integer (credits)'}
     if type(warranty) is not int or not 0 <= warranty <= MAX_WARRANTY:
@@ -186,7 +187,7 @@ def create(args, kit):
     hx, b64 = digest(jwt)
     _log(kit, {'event': 'issued', 'ts': int(now), 'order': order, 'unit': unit_id, 'sku': u.get('sku'), 'price': price,
           'grade': grade, 'warranty_hours': warranty, 'digest_hex': hx})
-    return {'ok': True, 'checkout_jwt': jwt, 'checkout_hash': b64, 'payload': payload}
+    return {'ok': True, 'order': order, 'checkout_jwt': jwt, 'checkout_hash': b64, 'payload': payload}
 
 
 def settle(args, kit):
@@ -198,8 +199,13 @@ def settle(args, kit):
     issued = next((r for r in reversed(_lines(_p(kit, LOG))) if r.get('event') == 'issued' and r.get('digest_hex') == hx), None)
     if not issued:
         return {'ok': False, 'error': '우리가 낸 결제서가 아닙니다'}
+    if issued.get('order') and str(issued['order']) != order:
+        return {'ok': False, 'error': '이 결제서는 다른 주문 번호로 발급했습니다', 'order': issued['order']}
     pmm = pm.get('mandate') if isinstance(pm.get('mandate'), dict) else {}
     tx_hash = pmm.get('tx_hash')
+    for r in _lines(_p(kit, 'logs/refunds.jsonl')) + _lines(_p(kit, 'logs/sends.jsonl')):
+        if r.get('purpose') == 'refund' and (str(r.get('order')) == order or (tx_hash and r.get('paid_tx') == tx_hash)):
+            return {'ok': False, 'error': '이 주문(결제)은 이미 환불했거나 환불 중입니다. 정산하지 않습니다'}
     base = {'ts': int(time.time()), 'order': order, 'unit': issued.get('unit'), 'digest_hex': hx,
             'price': issued.get('price'), 'tx_hash': tx_hash}
     done = sealed_settle(kit, args, order)

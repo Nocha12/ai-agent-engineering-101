@@ -1,6 +1,6 @@
 import os
 
-FILES = ('logs/checkouts.test.jsonl', 'logs/sales.test.jsonl')
+FILES = ('logs/checkouts.test.jsonl', 'logs/sales.test.jsonl', 'logs/refunds.test.jsonl')
 
 
 def test(run, kit):
@@ -29,6 +29,11 @@ def test(run, kit):
         s = {'op': 'settle', 'order': 'o-t1', 'checkout_jwt': r['checkout_jwt'], 'checkout_mandate': {}, 'payment_mandate': mand,
              '_inventory': {'wallet': shop, 'units': []}}
         assert '우리가 낸' in run(dict(s, checkout_jwt='x.y.z'), kit)['error']
+        assert '다른 주문' in run(dict(s, order='o-other'), kit)['error']
+        with open('logs/refunds.test.jsonl', 'w') as f:
+            f.write('{"purpose":"refund","order":"o-x","paid_tx":"0x%s","tx_hash":"0x1"}\n' % ('a' * 64))
+        assert '환불' in run(s, kit)['error']
+        os.remove('logs/refunds.test.jsonl')
         g = run(s, kit)
         assert g.get('refund') is True, g                                       # paid, unit gone: refund path
         with open(FILES[0]) as f:

@@ -15,6 +15,7 @@ import urllib.request
 RPC = 'https://rpc-testnet.maroo.io'
 PLANS = 'logs/refund-plans.jsonl'
 FRESH = 1800
+PAY_CAP = 200000            # = permission.pay_limit in ops/install_tools.py; above it the kit refuses the transfer
 WEI = 10 ** 15
 
 
@@ -52,17 +53,17 @@ def _write(kit, line):
 def run(args, kit):
     order = str(args.get('order') or '').strip()
     now = time.time()
-    for r in _lines(_p(kit, 'logs/refunds.jsonl')) + _lines(_p(kit, 'logs/sends.jsonl')):
-        if r.get('purpose') == 'refund' and str(r.get('order')) == order:
-            if r.get('tx_hash'):
-                return {'ok': False, 'error': '이 주문은 이미 환불했습니다(주문당 1회)', 'tx_hash': r['tx_hash']}
-            return {'ok': False, 'error': '이 주문의 환불 송금 결과가 불확실합니다. 다시 보내지 말고 체인에서 nonce와 영수증을 먼저 확인해야 합니다',
-                    'intent': r}
     plans = [p for p in _lines(_p(kit, PLANS)) if p.get('order') == order and now - p.get('ts', 0) <= FRESH]
     p1 = next((p for p in reversed(plans) if p.get('stage') == 1), None)
     p2 = next((p for p in reversed(plans) if p.get('stage') == 2), None)
     if not p1 or not p2 or p2.get('ts', 0) < p1.get('ts', 0) or p1.get('tx_hash') != p2.get('tx_hash'):
         return {'ok': False, 'error': '30분 안의 1·2단계 확인이 없거나 서로 다릅니다. 1단계부터 다시 합니다'}
+    for r in _lines(_p(kit, 'logs/refunds.jsonl')) + _lines(_p(kit, 'logs/sends.jsonl')):
+        if r.get('purpose') == 'refund' and (str(r.get('order')) == order or r.get('paid_tx') == p1.get('tx_hash')):
+            if r.get('tx_hash'):
+                return {'ok': False, 'error': '이 주문은 이미 환불했습니다(주문당 1회)', 'tx_hash': r['tx_hash']}
+            return {'ok': False, 'error': '이 주문의 환불 송금 결과가 불확실합니다. 다시 보내지 말고 체인에서 nonce와 영수증을 먼저 확인해야 합니다',
+                    'intent': r}
     amount, to = p2.get('amount'), str(p2.get('to') or '')
     if type(amount) is not int or amount <= 0:
         return {'ok': False, 'error': '환불 금액이 올바르지 않습니다'}
@@ -70,6 +71,8 @@ def run(args, kit):
     cap = p1.get('amount') if p1['kind'] == 'settled' else p2.get('value_credits', 0)
     if amount != cap:
         return {'ok': False, 'error': '환불 금액이 이 주문의 상한(1단계 금액·받은 금액)과 다릅니다', 'cap': cap}
+    if amount > PAY_CAP:
+        return {'ok': False, 'error': f'환불 금액이 도구 한 번의 송금 한도({PAY_CAP})를 넘습니다. 사람이 처리합니다', 'amount': amount}
     tx = rpc(kit, args, 'eth_getTransactionByHash', [p2['tx_hash']])
     if not isinstance(tx, dict) or str(tx.get('from') or '').lower() != to.lower() \
             or str(tx.get('to') or '').lower() != kit.address('shop').lower():
@@ -77,7 +80,8 @@ def run(args, kit):
     if kit.testing:
         return {'ok': False, 'error': 'testing mode: no refund sent', 'would_send': {'to': to, 'amount': amount}}
     nonce = int(rpc(kit, args, 'eth_getTransactionCount', [kit.address('shop'), 'pending']), 16)
-    base = {'purpose': 'refund', 'order': order, 'to': to, 'amount': amount, 'kind': p1['kind'], 'basis': p1.get('basis')}
+    base = {'purpose': 'refund', 'order': order, 'paid_tx': p2['tx_hash'], 'to': to, 'amount': amount, 'kind': p1['kind'],
+            'basis': p1.get('basis')}
     _write(kit, dict(base, ts=int(time.time()), nonce=nonce))
     sent = kit.pay(to, amount * WEI, '0x', role='shop')
     txid = sent if isinstance(sent, str) else str(sent)

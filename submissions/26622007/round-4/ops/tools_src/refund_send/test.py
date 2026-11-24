@@ -27,6 +27,13 @@ def test(run, kit):
             f.write(json.dumps({'stage': 2, 'order': 't-o1', 'ts': now, 'kind': 'settled', 'tx_hash': tx, 'to': payer,
                                 'amount': 10000, 'value_credits': 10000}) + '\n')
         assert '상한' in run({'order': 't-o1', '_rpc': {'eth_getTransactionByHash': paid}}, kit)['error']
+        big = {'from': payer, 'to': shop, 'value': hex(250000 * 10 ** 15)}
+        with open(FILES[0], 'a') as f:                                   # unsettled, more than one call may send
+            f.write(json.dumps({'stage': 1, 'order': 't-o5', 'ts': now, 'kind': 'unsettled', 'tx_hash': tx, 'amount': None}) + '\n')
+            f.write(json.dumps({'stage': 2, 'order': 't-o5', 'ts': now, 'kind': 'unsettled', 'tx_hash': tx, 'to': payer,
+                                'amount': 250000, 'value_credits': 250000}) + '\n')
+        assert '송금 한도' in run({'order': 't-o5', '_rpc': {'eth_getTransactionByHash': big}}, kit)['error']
+        assert not os.path.exists(FILES[2])                              # refused before any intent line
         with open(FILES[2], 'w') as f:
             f.write(json.dumps({'purpose': 'refund', 'order': 't-o1', 'nonce': 3}) + '\n')
         assert '불확실' in run({'order': 't-o1', '_rpc': {'eth_getTransactionByHash': paid}}, kit)['error']
