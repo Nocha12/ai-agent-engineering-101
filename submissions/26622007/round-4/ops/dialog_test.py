@@ -12,7 +12,8 @@ its own tools there (forge.json hashes as the kit makes them) and nothing is wri
 Scenario: a quiet wake (the agent forges while nobody waits) -> customer A first visit (a chair, a tired day after a child's sports day) -> customer B first visit (rice) ->
 customer A again. Checks: every message gets a reply; customers.json holds A and B apart; B's reply carries nothing
 from A's visit; A's second reply refers back to the first visit; nothing about customers went into notes.md.
-Recommending a product is out of scope here: the test agent cannot see stock. Prints the transcript and a JSON verdict; exit 0 when every check passes.
+The sandbox's kit.shop_url is that customer's last shop, so the agent's context names another shop's card as its own;
+it has no token, so it cannot act as that shop. Recommending a product is out of scope here: the test agent cannot see stock. Prints the transcript and a JSON verdict; exit 0 when every check passes.
 """
 import argparse
 import json
@@ -52,9 +53,11 @@ def main():
     if not bought:
         print("no customer purchase in the last 500 ledger rows; nothing to test fixed info with")
         return 2
-    A = max(bought, key=lambda k: len(bought[k]))
+    multi = [k for k in bought if len({s.lower().rstrip("/") for s in shops[k] if s}) >= 2]
+    A = max(multi or bought, key=lambda k: len(bought[k]))  # prefer a customer of two shops: one plays us, one is elsewhere
     a_items = [x[:6] for x in bought[A] if x]
-    ours = shops[A][-1]                                    # play the shop A bought from last: that one is "우리 가게"
+    # two shops: play the one A bought from last ("우리 가게"); one shop only: play a shop A never bought from
+    ours = shops[A][-1] if multi else "https://nocha-dialog-test.invalid"
     a_elsewhere = [x[:6] for x, s in zip(bought[A], shops[A]) if x and s.lower().rstrip("/") != ours.lower().rstrip("/")]
     village = json.load(urllib.request.urlopen(f"{a.market}/api/village", timeout=30))
     a_town = next((x.get("lives_in") for x in village.get("in_town", []) if x.get("name") == A), None)
@@ -146,7 +149,7 @@ def main():
         "fixed_info_kept_apart_from_talk": fixed(ra) is not None and not any(w in a_fixed for w in A_CONTEXT),
         "no_source_said_to_customer": "다른 가게" not in replies and (not a_town or a_town not in replies),
         "other_shop_items_not_said": not any(w in replies for w in a_elsewhere),
-        "our_shop_told_apart": "우리 가게" in a_fixed and not any(   # an item bought elsewhere is never labelled ours
+        "our_shop_told_apart": ("우리 가게" in a_fixed if multi else "우리 가게" not in a_fixed) and not any(   # an item bought elsewhere is never labelled ours
             w in json.dumps(e, ensure_ascii=False) and "우리 가게" in json.dumps(e, ensure_ascii=False)
             for v in (fixed(ra) or {}).values() if isinstance(v, list) for e in v for w in a_elsewhere),
         "test_file_cleaned": not (tmp / "customers.test.json").exists(),
@@ -154,12 +157,14 @@ def main():
         "b_sensitivity_not_raised_by_words": rb is not None and str(next((v for k, v in rb.items() if "민감" in k or "sensitiv" in k.lower()), "mid")).strip() in ("mid", ""),
         "replies_within_a2a_wait": all(x["seconds"] <= ak.A2A_WAIT for x in transcript),
     }
+    skipped = [k for k, v in checks.items() if v is None]
+    print(f"\nmode: {'A bought from two shops, one plays us' if multi else 'no two-shop customer in the window: every purchase of A is elsewhere'}")
     print(f"\nA = {A} (bought {bought[A]}, in town: {a_town}); A's first reply: {a1_reply}")
-    print("\n" + json.dumps({"ok": all(checks.values()), "checks": checks, "memory": mem, "dir": str(tmp)},
+    print("\n" + json.dumps({"ok": all(v is not False for v in checks.values()), "skipped": skipped, "checks": checks, "memory": mem, "dir": str(tmp)},
                             ensure_ascii=False, indent=1))
     if not a.keep:
         shutil.rmtree(tmp, ignore_errors=True)
-    return 0 if all(checks.values()) else 1
+    return 0 if all(v is not False for v in checks.values()) else 1
 
 
 if __name__ == "__main__":
