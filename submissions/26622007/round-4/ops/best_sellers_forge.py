@@ -181,11 +181,13 @@ def forge_move(data_path):
         raise ValueError('expected best_sellers data with a sales list (run best_sellers.py --build)')
     if data.get('chain'):                       # buyer names only keep chain ids equal to ledger ids; not worth the size
         data['chain'] = {k: v for k, v in data['chain'].items() if k != 'buyers'}
+    for k in ('sku_stock', 'stock_as_of', 'stock_unconfirmed'):   # the forged tool reads the live ops/ cache; without stock data this embedded copy ranks as stale (buy_qty 0)
+        data.pop(k, None)
     while True:                                 # the kit reads a tool back 12,000 chars at a time; keep it small
         logic = f'DATA = {data!r}\n\n{kernel}\n{RUN}'      # a Python literal: JSON's null/true would not parse
         if len(logic) < MAX_LOGIC or not data['sales']:
             break
-        keep = data['sales'][len(data['sales']) // 4:]          # drop the oldest quarter
+        keep = data['sales'][max(1, len(data['sales']) // 4):]  # drop the oldest quarter (at least one row)
         kept = {(r[0], r[2]) for r in keep}
         only = {h: v for h, v in (data.get('chain_only_tx') or {}).items() if tuple(v) in kept}
         data = dict(data, sales=keep, chain_only_tx=only, trimmed=data.get('trimmed', 0) + len(data['sales']) - len(keep))

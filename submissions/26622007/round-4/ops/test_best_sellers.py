@@ -461,6 +461,24 @@ class Forge(unittest.TestCase):
         self.assertIn('trimmed', ns['DATA'])
         self.assertNotIn('buyers', ns['DATA'].get('chain', {}))
 
+    def test_a_catalog_too_big_even_with_few_sales_fails_instead_of_looping(self):
+        data = bs.build_data(ledger(), CATALOG, now=NOW)
+        data['url_names'] = {'https://s%d.example' % i: 'n' * 40 for i in range(1000)}
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / 'data.json'
+            out.write_text(json.dumps(data), encoding='utf-8')
+            run = subprocess.run([sys.executable, '-B', str(OPS / 'best_sellers_forge.py'), '--data', str(out)],
+                                 capture_output=True, text=True, timeout=60)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('even with no sales', run.stderr)
+
+    def test_the_shared_stock_part_is_not_embedded(self):
+        data = bs.build_data(ledger(), CATALOG, now=NOW)
+        data.update(sku_stock={'water': [1, 1]}, stock_as_of=NOW, stock_unconfirmed=[])
+        move, ns = forged(data)
+        for k in ('sku_stock', 'stock_as_of', 'stock_unconfirmed'):
+            self.assertNotIn(k, ns['DATA'])
+
     def test_forge_move_is_read_only_and_its_test_passes_in_a_sandbox_like_run(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / 'data.json'
