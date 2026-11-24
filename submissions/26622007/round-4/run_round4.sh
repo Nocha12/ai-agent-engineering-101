@@ -70,8 +70,15 @@ leave() {
   # A job started with & ignores SIGINT, so the kit's own Ctrl-C cleanup never runs: stop its cloudflared tunnels
   # and tool runs first, then the kit.
   if [ -n "$KIT" ]; then
-    pkill -TERM -P "$KIT" 2>/dev/null
-    kill -TERM "$KIT" 2>/dev/null
+    # Send TERM again until the kit is gone (on bash 3.2 a TERM can land before the fork has started python and be
+    # lost), and KILL it after 5 s.
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+      pkill -TERM -P "$KIT" 2>/dev/null
+      kill -TERM "$KIT" 2>/dev/null || break
+      sleep 0.5
+      kill -0 "$KIT" 2>/dev/null || break
+    done
+    kill -0 "$KIT" 2>/dev/null && { pkill -KILL -P "$KIT" 2>/dev/null; kill -KILL "$KIT" 2>/dev/null; }
     wait "$KIT" 2>/dev/null
   fi
   rm -f "$PID_FILE"
