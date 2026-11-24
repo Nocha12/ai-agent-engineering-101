@@ -54,7 +54,8 @@ export OPENROUTER_API_KEY="$(read_env OPENROUTER_API_KEY)"
 export MARKET_OWNER="$(read_env MARKET_OWNER)"
 [ -n "$OPENROUTER_API_KEY" ] && [ -n "$MARKET_OWNER" ] || { echo "[run_round4] $ENV_FILE lacks a key" >&2; exit 1; }
 
-if [ -f "$PID_FILE" ] && ! kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+old="$(cat "$PID_FILE" 2>/dev/null)"
+if [ -n "$old" ] && ! kill -0 "$old" 2>/dev/null && [ "$(cat "$PID_FILE" 2>/dev/null)" = "$old" ]; then
   rm -f "$PID_FILE"               # left by a run that was killed hard
 fi
 if ! ( set -o noclobber; echo $$ > "$PID_FILE" ) 2>/dev/null; then
@@ -83,10 +84,12 @@ cd "$ROOT"
 while true; do
   echo "[run_round4] $(date '+%F %T') start: agent_kit.py ${ARGS[*]}" >> "$OUT"
   started=$SECONDS
-  trap '' TERM                    # no TERM between the start and KIT=$!: leave() must know the kit
+  stop=""                         # hold a TERM that comes before KIT=$! (an ignored TERM would be inherited by the kit)
+  trap 'stop=1' INT TERM
   "$VENV/bin/python" scripts/round4/agent_kit.py "${ARGS[@]}" >> "$OUT" 2>&1 &
   KIT=$!
   trap leave INT TERM
+  [ -n "$stop" ] && leave
   wait "$KIT"
   rc=$?
   pkill -TERM -f "cloudflared tunnel --no-autoupdate --url http://127.0.0.1:$APP_PORT\$" 2>/dev/null   # the app tunnel of a kit that died hard
