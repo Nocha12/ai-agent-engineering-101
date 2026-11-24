@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 import best_sellers as bs
@@ -67,6 +68,7 @@ class Build(unittest.TestCase):
 class Rank(unittest.TestCase):
     def setUp(self):
         self.data = bs.build_data(ledger(), CATALOG, now=NOW, keep_hours=24)
+        self.data.update(stock_as_of=NOW, ledger_as_of=NOW, sku_stock={'water': [3, 2, 0]}, stock_unconfirmed=[])
 
     def test_water_tops_the_list_with_velocity_prices_and_evidence(self):
         out = bs.rank({}, self.data, now=NOW)
@@ -85,7 +87,7 @@ class Rank(unittest.TestCase):
         top = out['items'][0]
         # 1.17/h * 4 h shared with 2 selling shops + us = 1.56 -> 2, minus 1 in stock
         self.assertEqual(top['buy_qty'], 1)
-        self.assertEqual(top['price_ceiling_args'], {'sku': 'water', 'sell': 3050, 'qty': 1})
+        self.assertEqual(top['price_ceiling_args'], {'sku': 'water', 'sell': 3050, 'qty': 1, 'hold_hours': 4})
 
     def test_one_recent_sale_is_too_thin_to_recommend_buying(self):
         milk = next(i for i in bs.rank({'horizon_hours': 48}, self.data, now=NOW)['items'] if i['sku'] == 'milk')
@@ -108,6 +110,25 @@ class Rank(unittest.TestCase):
         out = bs.rank({}, self.data, now=NOW + 5 * H)
         self.assertEqual(out['data_age_min'], 300)
         self.assertTrue(out['stale'])
+        self.assertTrue(all(item['buy_qty'] == 0 for item in out['items']))
+
+    def test_ledger_refresh_does_not_refresh_inventory(self):
+        later = NOW + 2 * H
+        data = dict(self.data, as_of=later, ledger_as_of=later)
+        self.assertTrue(bs.rank({}, data, later)['stale'])
+
+    def test_peer_and_price_replay_the_same_actual_cache_and_stock(self):
+        import price_demand
+        data = json.loads(bs.DATA_PATH.read_text(encoding='utf-8'))
+        now = price_demand.market_as_of()
+        for item in bs.rank({'top': 20}, data, now)['items']:
+            if item['sku'] in data['stock_unconfirmed']:
+                self.assertEqual(item['buy_qty'], 0)
+                continue
+            rate, count, _, competitors, own = price_demand.signals(item['sku'], now)
+            self.assertEqual((item['per_hour'], item['tx_6h']), (round(rate, 2), count))
+            expected = min(4, max(0, int(rate * 3 / (competitors + 1) + 0.5) - own)) if count >= 2 else 0
+            self.assertEqual(item['buy_qty'], expected)
 
     def test_live_rows_are_merged_by_seq_once(self):
         new = [settle(11, NOW - 0.1 * H, 'milk', 12500, buyer='b9'), settle(10, NOW, 'milk', 1)]
@@ -243,9 +264,45 @@ def forged(data):
         out.write_text(json.dumps(data), encoding='utf-8')
         move = json.loads(subprocess.run([sys.executable, '-B', str(OPS / 'best_sellers_forge.py'), '--data', str(out)],
                                          capture_output=True, text=True, check=True).stdout)
-    ns = {}
+    ns = {'__file__': bs.__file__}
     exec(compile(move['args']['logic'], 'logic.py', 'exec'), ns)
     return move, ns
+
+
+class SharedCacheBuild(unittest.TestCase):
+    """best_sellers.py --build writes the shared cache (paid sales + chain tail + public stock) price_demand reads."""
+
+    def build(self, chain_sale_ts):
+        sold = dict(seq=3, ts=NOW - 1 * H, round=4, kind='settle',
+                    data=dict(shop='https://s1', sku='water', unit='u1', amount=3000, buyer='b1', tx_hash='0x' + 'a' * 64))
+        rows = [dict(seq=1, ts=NOW - 50 * H, round=4, kind='join', data=dict(name='s1', role='shop', url='https://s1')),
+                dict(seq=2, ts=NOW - 2 * H, round=4, kind='supply', data=dict(shop='s1', sku='water', qty=2,
+                                                                              units=['u1', 'u2'])), sold]
+        snap = dict(ts=NOW - 0.5 * H, shops=dict(round=4, shops=[dict(name='nocha12', stock={}),
+                                                                 dict(name='s1', stock={'water': 1})]))
+        rebuild = {'book': book(), 'upto_block': 1, 'settles': [[chain_sale_ts, SHOP1, 3000, CUST, '0xc6']]}
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            (d / 'snapshots').mkdir()
+            (d / 'chain').mkdir()
+            (d / 'ledger.json').write_text(json.dumps(rows), encoding='utf-8')
+            (d / 'catalog.json').write_text(json.dumps(CATALOG), encoding='utf-8')
+            (d / 'snapshots' / '1.json').write_text(json.dumps(snap), encoding='utf-8')
+            (d / 'chain' / 'rebuild.json').write_text(json.dumps(rebuild), encoding='utf-8')
+            subprocess.run([sys.executable, '-B', str(OPS / 'best_sellers.py'), '--build', '--data-dir', tmp,
+                            '--output', str(d / 'out.json')], capture_output=True, text=True, check=True)
+            return json.loads((d / 'out.json').read_text(encoding='utf-8'))
+
+    def test_build_carries_public_stock_and_the_chain_tail(self):
+        data = self.build(NOW - 0.7 * H)                       # chain sale before the snapshot: stock already shows it
+        self.assertEqual((data['as_of'], data['stock_as_of'], data['ledger_as_of']), (NOW - 0.5 * H, NOW - 0.5 * H, NOW - H))
+        self.assertEqual(data['sku_stock'], {'water': [1, 1, 0]})
+        self.assertEqual(data['stock_unconfirmed'], [])
+        self.assertEqual(data['source'], 'ledger+chain')
+        self.assertEqual(sum(1 for r in data['sales'] if r[5] == bs.CHAIN_ONLY), 1)
+
+    def test_a_chain_sale_after_the_stock_snapshot_leaves_that_sku_unconfirmed(self):
+        self.assertEqual(self.build(NOW - 0.2 * H)['stock_unconfirmed'], ['water'])
 
 
 class Live(unittest.TestCase):
@@ -260,6 +317,8 @@ class Live(unittest.TestCase):
         self.ns['_live'] = lambda kit, data, deadline: (rows, True)
         out = self.ns['run']({}, FakeKit())
         self.assertTrue(out['live_truncated'])
+        self.assertTrue(out['stale'])
+        self.assertTrue(all(item['buy_qty'] == 0 for item in out['items']))
         self.assertEqual(out['as_of'], int(NOW + 60))
         self.assertEqual(out['items'][0]['tx'], 5)
 
@@ -267,7 +326,8 @@ class Live(unittest.TestCase):
         def boom(*a):
             raise OSError('down')
         self.ns['_live'] = boom
-        out = self.ns['run']({}, FakeKit())
+        with patch('time.time', return_value=NOW):
+            out = self.ns['run']({}, FakeKit())
         self.assertIn('live_error', out)
         self.assertEqual(out['items'][0]['sku'], 'water')
         self.assertEqual(out['source'], 'chain')
@@ -275,7 +335,8 @@ class Live(unittest.TestCase):
     def test_an_empty_ledger_answer_switches_to_the_chain_and_says_so(self):
         self.ns['_live'] = lambda *a: (_ for _ in ()).throw(RuntimeError('ledger answered nothing'))
         self.ns['_chain'] = lambda *a: ([[NOW - 30, 's1', 3000, CUST, '0xc1']], 0)
-        out = self.ns['run']({}, FakeKit())
+        with patch('time.time', return_value=NOW):              # the clock at the build (rows after now are skipped)
+            out = self.ns['run']({}, FakeKit())
         self.assertEqual(out['source'], 'chain')
         self.assertTrue(out['ledger_down'])
         self.assertEqual(out['items'][0]['tx'], 5)
@@ -292,7 +353,8 @@ class Live(unittest.TestCase):
     def test_a_chain_gap_keeps_the_answer_dated_by_the_build(self):
         self.ns['_live'] = lambda *a: (_ for _ in ()).throw(OSError('down'))
         self.ns['_chain'] = lambda *a: ([[NOW - 30, 's1', 3000, CUST, '0xc9']], 5000)
-        out = self.ns['run']({}, FakeKit())
+        with patch('time.time', return_value=NOW):
+            out = self.ns['run']({}, FakeKit())
         self.assertEqual(out['chain_gap_blocks'], 5000)
         self.assertEqual(out['as_of'], int(NOW))                # dated by the build: blocks in between were not read
         self.assertEqual(out['items'][0]['tx'], 5)              # but the tail's sale is counted
@@ -368,6 +430,28 @@ class Live(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.ns['run']({'live': 'false'}, FakeKit())
 
+    def test_expiry_and_seizure_disable_live_quantity_until_inventory_refresh(self):
+        for kind in ('expire', 'bankrupt'):
+            self.ns['DATA'].update(stock_as_of=NOW, ledger_as_of=NOW, sku_stock={}, stock_unconfirmed=[])
+            self.ns['_live'] = lambda *a: ([dict(seq=11, kind=kind, ts=NOW)], False)
+            with self.subTest(kind=kind), patch('time.time', return_value=NOW):
+                out = self.ns['run']({}, FakeKit())
+                self.assertTrue(out['stale'])
+                self.assertTrue(all(item['buy_qty'] == 0 for item in out['items']))
+
+
+    def test_chain_fallback_sales_hold_quantity_until_inventory_refresh(self):
+        self.ns['DATA'].update(stock_as_of=NOW, ledger_as_of=NOW, sku_stock={'water': [3, 2, 0]}, stock_unconfirmed=[])
+        self.ns['_live'] = lambda *a: (_ for _ in ()).throw(OSError('down'))
+        for settles, gap, held in (([], 0, False), ([[NOW - 30, 's1', 3000, CUST, '0xc5']], 0, True), ([], 7, True)):
+            self.ns['_chain'] = lambda *a: (settles, gap)
+            with self.subTest(settles=len(settles), gap=gap), patch('time.time', return_value=NOW):
+                out = self.ns['run']({}, FakeKit())
+                self.assertEqual(out['source'], 'chain')
+                self.assertEqual(out['stale'], held)
+                if held:
+                    self.assertTrue(all(item['buy_qty'] == 0 for item in out['items']))
+
 
 class Forge(unittest.TestCase):
     def test_a_big_sales_history_is_trimmed_to_keep_the_tool_readable(self):
@@ -394,7 +478,7 @@ class Forge(unittest.TestCase):
         # the one POST is the read-only JSON-RPC call to the chain
         self.assertEqual(args['logic'].count('.post('), 1)
         self.assertIn("httpx.post(RPC,", args['logic'])
-        ns = {}
+        ns = {'__file__': bs.__file__}
         exec(compile(args['logic'], 'logic.py', 'exec'), ns)
         exec(compile(args['test'], 'test.py', 'exec'), ns)
 

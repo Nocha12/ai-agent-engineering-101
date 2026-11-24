@@ -106,29 +106,39 @@ def _chain(kit, data, deadline):
 
 def run(args, kit):
     import time as _t
+    from runpy import run_path
     args = dict(args or {})
     live = args.pop('live', True)
     if type(live) is not bool:
         raise ValueError('live is true or false')
     testing = getattr(kit, 'testing', False)
-    now = max(_t.time(), DATA['as_of']) if not testing else DATA['as_of']
     data, extra, source = DATA, {}, 'built'
+    if globals().get('__file__', '').endswith('logic.py'):
+        data = run_path('ops/price_demand.py')['load_cache']()
+    base, base_time = data, data['as_of']
+    now = _t.time() if not testing else data['as_of']
     deadline = _t.time() + BUDGET
     if live and not testing:
         try:
-            rows, truncated = _live(kit, DATA, deadline)
-            data = merge_live(DATA, rows, now)
+            rows, truncated = _live(kit, base, deadline)
+            data = merge_live(base, rows, now)
+            if truncated or any(row.get('kind') in ('supply', 'settle', 'expire', 'bankrupt') for row in rows):
+                data['stock_pending'] = True
             if truncated:                       # the newest rows are missing: date the answer by what was read
-                now = max([e.get('ts', 0) for e in rows if isinstance(e.get('ts'), (int, float))] or [DATA['as_of']])
+                now = max([e.get('ts', 0) for e in rows if isinstance(e.get('ts'), (int, float))] or [base_time])
                 extra['live_truncated'] = True
             data, source = dict(data, as_of=now), 'ledger'
         except Exception as e:
             extra['live_error'] = 'ledger read failed: ' + type(e).__name__ + ': ' + str(e)[:80]
             extra['ledger_down'] = True
-            if DATA.get('chain'):
+            data = base
+            if base.get('chain'):
                 try:
-                    settles, gap = _chain(kit, DATA, deadline)
-                    data, unlabelled = merge_chain(DATA, settles)
+                    settles, gap = _chain(kit, base, deadline)
+                    data, unlabelled = merge_chain(base, settles)
+                    # new chain sales (or unread blocks) took units the stock snapshot still counts
+                    if gap or unlabelled or len(data['sales']) != len(base['sales']):
+                        data['stock_pending'] = True
                     extra.update(chain_sales=len(settles), chain_unlabelled=unlabelled, chain_gap_blocks=gap)
                     source = 'chain'
                     if not gap:                 # the build and the tail meet: the answer is current
@@ -138,10 +148,10 @@ def run(args, kit):
                     extra['chain_error'] = 'chain read failed, using built data: ' + type(e2).__name__
     out = rank(args, data, now)
     out['source'] = source                      # ledger | chain | built (what the newest rows came from)
-    out['built_from'] = DATA.get('source', 'ledger')
+    out['built_from'] = base.get('source', 'ledger')
     if extra.get('live_truncated') and not testing:      # age against the clock, not the newest row read
         out['data_age_min'] = int((_t.time() - now) // 60)
-        out['stale'] = out['data_age_min'] > STALE_MIN
+        out['stale'] = True
     out.update(extra)
     return out
 '''
