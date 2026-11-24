@@ -7,3 +7,5 @@ customers.test.json
 shoutout.json
 shoutout.test.json
 shoutout*.json.tmp
+logs/messages.jsonl
+logs/decisions.jsonl

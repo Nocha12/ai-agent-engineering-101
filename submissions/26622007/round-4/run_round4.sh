@@ -28,6 +28,10 @@ MARKET="${R4_MARKET:-https://market.ourolabs.ai}"
 APP_PORT="${R4_APP_PORT:-8800}"
 PID_FILE="$HERE/.kit/run_round4.pid"
 OUT="$HERE/.kit/stdout.log"
+# The kit runs through ops/agent_kit_records.py (same arguments; adds the local logs/messages.jsonl and
+# logs/decisions.jsonl and keeps agent-kit.log from rolling over). R4_NO_RECORDS=1 runs agent_kit.py directly.
+ENTRY="scripts/round4/agent_kit.py"
+[ "${R4_NO_RECORDS:-0}" != 1 ] && [ -f "$HERE/ops/agent_kit_records.py" ] && ENTRY="$HERE/ops/agent_kit_records.py"
 
 read_env() {                     # POSIX classes: macOS sed does not know \s
   grep -E "^[[:space:]]*(export[[:space:]]+)?$1=" "$ENV_FILE" | tail -1 | tr -d '\r' |
@@ -44,7 +48,7 @@ if [ "${1:-}" = --check ]; then
   done
   echo "venv: $VENV ($( [ -x "$VENV/bin/python" ] && "$VENV/bin/python" --version 2>&1 || echo MISSING))"
   echo "cloudflared: $(command -v cloudflared || echo MISSING)"
-  echo "would run: python scripts/round4/agent_kit.py ${ARGS[*]}"
+  echo "would run: python $ENTRY ${ARGS[*]}"
   exit 0
 fi
 
@@ -89,11 +93,11 @@ trap leave INT TERM
 cd "$ROOT"
 /usr/bin/caffeinate -i -w $$ &          # keeps the Mac awake while this script lives
 while true; do
-  echo "[run_round4] $(date '+%F %T') start: agent_kit.py ${ARGS[*]}" >> "$OUT"
+  echo "[run_round4] $(date '+%F %T') start: $(basename "$ENTRY") ${ARGS[*]}" >> "$OUT"
   started=$SECONDS
   stop=""                         # hold a TERM that comes before KIT=$! (an ignored TERM would be inherited by the kit)
   trap 'stop=1' INT TERM
-  "$VENV/bin/python" scripts/round4/agent_kit.py "${ARGS[@]}" >> "$OUT" 2>&1 &
+  "$VENV/bin/python" "$ENTRY" "${ARGS[@]}" >> "$OUT" 2>&1 &
   KIT=$!
   trap leave INT TERM
   [ -n "$stop" ] && leave
