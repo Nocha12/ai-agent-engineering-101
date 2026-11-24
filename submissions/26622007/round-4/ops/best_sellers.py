@@ -4,6 +4,8 @@ Input is the same public data directory price_ceiling's cache reads (~/work/ax-r
 ledger.json from GET /api/ledger, catalog.json, txs.json with the chain check of each settle, and chain/rebuild.json
 from chain_scan.py). Only settle rows with a tx_hash count, and a row whose on-chain transfer does not match
 price - (1% + 210) is dropped. Sales found on chain but not in the ledger are added with the SKU guessed from price.
+The newest snapshots/*.json (public shop stock) is merged in by price_demand_cache.merge_observations, so the output
+is the shared cache price_demand.py / price_ceiling read (sku_stock, stock_as_of, ledger_as_of, stock_unconfirmed).
 
   python3 -B ops/best_sellers.py --build --data-dir DIR [--output ops/best_sellers_data.json]
   python3 -B ops/best_sellers.py [--top 5] [--horizon-hours 3] [--kind food] [--json]
@@ -12,13 +14,12 @@ price - (1% + 210) is dropped. Sales found on chain but not in the ledger are ad
 
 import argparse
 import json
+import sys
 import time
 from pathlib import Path
 
 
 # BEGIN FORGE KERNEL
-RECENT_H, WIDE_H, W_RECENT = 2, 6, 0.6     # velocity: 0.6 x (sales/h in the last 2 h) + 0.4 x (sales/h in 6 h)
-STALE_MIN = 90
 QTY_CAP = 4                                # per SKU per restock, as the 20:07 analysis found safe
 MIN_EVIDENCE = 2                           # paid sales in the last 6 h before any buy is suggested
 ARGS = {'top', 'horizon_hours', 'own_stock', 'kind', 'min_tx'}
@@ -137,6 +138,17 @@ def merge_chain(data, settles):
 
 
 def rank(args, data, now):
+    from pathlib import Path
+    from runpy import run_path
+    module = Path(globals().get('__file__', 'ops/best_sellers.py'))
+    shared = run_path(str(module.with_name('price_demand.py') if module.name == 'best_sellers.py' else
+                          Path('ops/price_demand.py')))
+    try:
+        observed = max(shared['timestamp'](data.get(key)) for key in ('stock_as_of', 'ledger_as_of'))
+        shared['require_fresh'](dict(data, as_of=observed), now)
+        stale = bool(data.get('trimmed') or data.get('stock_pending'))
+    except ValueError:
+        stale = True
     if not isinstance(args, dict) or set(args) - ARGS:
         raise ValueError('unknown input; allowed: ' + ', '.join(sorted(ARGS)))
     top, horizon, min_tx = args.get('top', 5), args.get('horizon_hours', 3), args.get('min_tx', 1)
@@ -157,28 +169,26 @@ def rank(args, data, now):
         name, k, listed = (data['items'].get(sku) or [sku, None, None])[:3]
         if kind != 'all' and k != kind or len(rows) < min_tx:
             continue
-        recent = sum(1 for r in rows if now - r[0] <= RECENT_H * 3600)
-        wide = sum(1 for r in rows if now - r[0] <= WIDE_H * 3600)
-        v = W_RECENT * recent / RECENT_H + (1 - W_RECENT) * wide / WIDE_H
+        v, wide = shared['velocity']((row[0] for row in rows), now)
         prices = [r[1] for r in rows]
         med = _median(prices)
         buyers = {}
         for r in rows:
             buyers[r[3]] = buyers.get(r[3], 0) + 1
-        sellers = len({r[2] for r in rows if now - r[0] <= WIDE_H * 3600}) or 1
-        have = own.get(sku, 0) if type(own.get(sku, 0)) is int else 0
-        want = int(v * horizon / (sellers + 1) + 0.5)
-        qty = min(QTY_CAP, max(0, want - max(0, have))) if wide >= MIN_EVIDENCE else 0
+        _, sellers, have = (0, 0, 0) if stale else shared['stock_counts'](data, sku)
+        have = max(have, own.get(sku, 0)) if type(own.get(sku, 0)) is int else have
+        confirmed = 'stock_unconfirmed' in data and sku not in data['stock_unconfirmed']
+        qty = shared['buy_limit'](v, wide, sellers, have, horizon) if confirmed and not stale else 0
         items.append(dict(sku=sku, name=name, kind=k, per_hour=round(v, 2), tx=len(rows),
                           tx_on_chain=sum(1 for r in rows if r[4] > 0), tx_6h=wide, shops=len({r[2] for r in rows}),
                           tx_sku_guessed=sum(1 for r in rows if r[4] == CHAIN_ONLY),
                           repeat_buyers=sum(1 for n in buyers.values() if n > 1),
                           price=[min(prices), round(med), max(prices)],
                           price_vs_list=round(med / listed, 2) if listed else None, buy_qty=qty,
-                          price_ceiling_args=dict(sku=sku, sell=round(med), qty=max(qty, 1))))
+                          price_ceiling_args=dict(sku=sku, sell=round(med), qty=max(qty, 1), hold_hours=horizon)))
     items.sort(key=lambda x: (-x['per_hour'], -x['tx'], x['sku']))
     age = int((now - data['as_of']) // 60)
-    return dict(as_of=int(data['as_of']), data_age_min=age, stale=age > STALE_MIN, window_h=data['keep_hours'],
+    return dict(as_of=data['as_of'], data_age_min=age, stale=stale, window_h=data['keep_hours'],
                 items=items[:top],
                 note=('실제 결제된 판매만 집계. buy_qty는 권장 상한(0이면 사지 않음)이며 price_ceiling verdict가 buy일 '
                       '때만 매입. price_ceiling_args.qty는 계산용으로 최소 1.'))
@@ -265,8 +275,23 @@ def main():
             ap.error('--build needs --data-dir')
         d = Path(a.data_dir)
         load = lambda n, dflt: json.loads((d / n).read_text(encoding='utf-8')) if (d / n).exists() else dflt
-        data = build_data(load('ledger.json', []), load('catalog.json', []), time.time(), a.keep_hours,
-                          load('txs.json', {}), load('chain/rebuild.json', None))   # chain_scan.py output, if any
+        from runpy import run_path
+        merge = run_path(str(Path(__file__).with_name('price_demand_cache.py')))['merge_observations']
+        ledger, chain = load('ledger.json', []), load('chain/rebuild.json', None)   # chain_scan.py output, if any
+        snaps = sorted((d / 'snapshots').glob('*.json'))
+        if ledger and snaps:
+            snapshot = json.loads(snaps[-1].read_text(encoding='utf-8'))
+            observed = max(snapshot['ts'], ledger[-1]['ts'])
+            data = merge(build_data(ledger, load('catalog.json', []), observed, a.keep_hours, load('txs.json', {}),
+                                    chain), ledger, snapshot)
+            # a chain-only sale after the shop snapshot took a unit the snapshot still counts: that SKU's stock is
+            # not confirmed (buy_qty 0 here, price_demand refuses it) until the next snapshot
+            late = {r[1] for r in data['sales'] if r[5] == CHAIN_ONLY and r[0] > data['stock_as_of']}
+            data['stock_unconfirmed'] = sorted(set(data['stock_unconfirmed']) | late)
+        else:   # no ledger or no shop snapshot: paid sales only, no stock observation, so every buy_qty is 0
+            print('warning: no ledger rows or no snapshots/*.json; built without public stock', file=sys.stderr)
+            data = build_data(ledger, load('catalog.json', []), time.time(), a.keep_hours, load('txs.json', {}),
+                              chain)
         out = Path(a.output)
         tmp = out.with_suffix('.tmp')
         tmp.write_text(json.dumps(data, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
