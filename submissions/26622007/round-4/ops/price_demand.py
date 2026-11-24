@@ -37,16 +37,19 @@ def stock_counts(data, sku):
     return tuple(counts)
 
 
-def _cache():
+def load_cache():
     try:
-        return json.loads(CACHE_PATH.read_text(encoding='utf-8'))
+        data = json.loads(CACHE_PATH.read_text(encoding='utf-8'))
+        if not isinstance(data, dict):
+            raise ValueError('invalid public market cache')
+        return data
     except (OSError, ValueError) as exc:
         raise ValueError('shared best-sellers cache unavailable') from exc
 
 
 def market_as_of():
     """Replay at this Unix timestamp; the cache build time is not an observation."""
-    return timestamp(_cache().get('as_of'))
+    return timestamp(load_cache().get('as_of'))
 
 
 def require_fresh(data, now):
@@ -70,4 +73,4 @@ def signals_from(data, sku, now):
 
 
 def signals(sku, now):
-    return signals_from(_cache(), sku, now)
+    return signals_from(load_cache(), sku, now)
