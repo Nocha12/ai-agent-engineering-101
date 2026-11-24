@@ -34,10 +34,13 @@ limit. Never cut model calls, negotiations, quotes or posts to lower that count,
 One exception, not about the count (11/06 analysis, review/W-20261106-1457-AX순위정체 and W-20261106-1525-AX상한바이어):
 market_buyer.hopeless() starts no quote and no talk when every SKU the shops would be asked for asked over my Saved limit
 in at least HOPELESS_MIN_ASKS asks of the last HOPELESS_HOURS. Such a talk cannot close; keep the rule, do not widen it to
-one shop's past asks (that lost 15-20 of 165 paid orders in replay), and do not remove it (test_market_buyer_fits pins it).
+one shop's past asks (that lost 15-20 of 165 paid orders in replay). Keep it by default (test_market_buyer_fits pins it);
+when ledger or replay data shows a Players rank gain from changing it (more paid orders, Saved or forum), Terra or Astra
+may change the rule and that test together in one change, citing the evidence path.
 Do not lower the parallelism (a person's decision, 11/06 15:24): buyer.quote_shops stays at 10 (not lower; a rise above 10 needs a person, the bound was opened to 100 on 11/11) and
 market_buyer quotes while the harness chooses (PREFETCH_QUOTES). The market gives one open order per buyer, 20 s apart at
-the earliest, so the buyer's pace is the time inside one order; never cut quote_shops or turn the prefetch off (test_parallel_quotes pins it).
+the earliest, so the buyer's pace is the time inside one order; never cut quote_shops or turn the prefetch off (test_parallel_quotes pins it) unless ledger or replay data shows a
+Players rank gain; then change the setting and that test together in one change, citing the evidence path.
 Revenue rivals are no longer asked last (11/07 00:22, 0ed0627: market_buyer.RIVAL_DENY = False). The goal is the Players
 rank, and the buyer's half of it is saved, not my shop's revenue rank; choose by budget, warranty and saved share. Do not
 turn rival_deny back on from the 11/06 20:51 decision it replaced; a change to it weighs my score and the rival's together.
@@ -128,7 +131,10 @@ Every cycle, in this order:
    - tool_fix: repair or remove a tool that is left out or wrong, tools/auto_* included (made by tool_forge.py); my_customers and the buyer's
      shop_pattern are the counterpart data (who buys from me at what share of list price, what other buyers paid a shop);
    - prompt / code: seller.py, market_buyer.py, restock.py, forum.py, market_model.py, agent_memory.py: what the agents are
-     told, what they are given, a formula that the ledger shows wrong. Tests must pass;
+     told, what they are given, a formula that the ledger shows wrong. Tests must pass. Pinned tests are regression guards,
+     not bans: the goal is the Players rank, and when the data shows a gain, update the test's expectation in the same
+     change and cite the evidence path (ledger seqs or the replay file). hard_limits.py and its tests are changed only by
+     a person;
    - memory: memory/agent/MEMORY.md, strategies/*.md (one lesson per mistake, with triggers), daily/.
    - strategy_shift: only with `keep_or_shift` shift. The smallest set of code, prompt, tool and setting changes that puts
      the new strategy in place (settings still one bounded step), and meta/strategy.md rewritten: the new current
