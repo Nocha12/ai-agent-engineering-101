@@ -50,8 +50,8 @@ def merge_live(data, rows, now):
             continue
         last = max(last, e['seq'])
         d = e.get('data') or {}
-        if e.get('kind') == 'join' and d.get('role') == 'shop' and d.get('url'):
-            data['url_names'][norm_url(d['url'])] = str(d.get('name'))
+        if e.get('kind') == 'join' and d.get('role') == 'shop' and d.get('url') and d.get('name'):
+            data['url_names'][norm_url(d['url'])] = str(d['name'])
         if e.get('kind') != 'settle' or not d.get('tx_hash') or not isinstance(d.get('amount'), (int, float)):
             continue
         sku = d.get('sku') or d.get('item')
@@ -137,7 +137,7 @@ def build_data(ledger, catalog, now, keep_hours=24, txs=None):
         c = cat.get(sku, {})
         items[sku] = [c.get('name') or d.get('name') or sku, c.get('kind'), c.get('list_price')]
     return dict(as_of=now, keep_hours=keep_hours, last_seq=last, shops=shops, items=items, sales=sales,
-                url_names={u: n for u, n in url_name.items() if n in shops})
+                url_names=url_name)
 
 
 DATA_PATH = Path(__file__).with_name('best_sellers_data.json')

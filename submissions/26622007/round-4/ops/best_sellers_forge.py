@@ -34,7 +34,7 @@ def _live(kit, data):
         if len(got) < PAGE:
             return rows, False
         after = max(e['seq'] for e in got)
-        if _t.time() - start > 15:
+        if _t.time() - start > 6:              # a next page (1.1 s + up to 2 x 5 s) must end well inside 30 s
             break
     return rows, True
 
@@ -59,6 +59,9 @@ def run(args, kit):
         except Exception as e:
             extra['live_error'] = 'live ledger read failed, using built data: ' + type(e).__name__
     out = rank(args, data, now)
+    if extra.get('live_truncated') and not testing:      # age against the clock, not the newest row read
+        out['data_age_min'] = int((_t.time() - now) // 60)
+        out['stale'] = out['data_age_min'] > STALE_MIN
     out.update(extra)
     return out
 '''
