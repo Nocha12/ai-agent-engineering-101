@@ -258,7 +258,9 @@ class Ledger(unittest.TestCase):
         kit_log(self.d, [])                         # the receipt wait timed out: no "[maroo] ... sent" line
         self.write_agent("sends.jsonl", [{"purpose": "refund", "order": "o-1", "to": CUST, "amount": 13000, "nonce": 7, "ts": 1},
                                          {"purpose": "refund", "order": "o-1", "tx_hash": REFUND}])
-        new, _ = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
+        c = FakeChain(0)
+        c.sender[TX[3]] = CUST.lower()
+        new, _ = pl.sync(self.d, "m", "nocha12", c, SHOP)
         r = [e for e in new if e["tx_hash"] == REFUND][0]
         self.assertEqual((r["kind"], r["order"], r["source"]), ("refund", "o-1", "sends.jsonl:2"))
         self.assertEqual(pl.agent_sends(self.d)[1], [])  # the intent is closed by its tx line
@@ -293,6 +295,55 @@ class Ledger(unittest.TestCase):
         late = pl.alerts(self.d, [], [], rec, now=1000 + pl.INTENT_GRACE + 60)
         self.assertEqual([a["kind"] for a in late], ["intent_without_tx"])
         self.assertIn("nonce", late[0]["text"])
+
+
+    def test_refund_said_by_the_agent_to_a_wallet_that_paid_nothing_is_an_alert_not_a_refund(self):
+        kit_log(self.d, [])
+        self.write_agent("refunds.jsonl", [{"purpose": "refund", "order": "o-1", "tx_hash": REFUND}])
+        rec = pl.reconcile(self.d, "m", "nocha12", FakeChain(0), SHOP, 1.0)   # nobody paid o-1 from CUST here
+        r = [e for e in self.lines() if e["tx_hash"] == REFUND][0]
+        self.assertEqual(r["kind"], "transfer_out")
+        self.assertIn("refund_to_unknown", [a["kind"] for a in rec["alerts"]])
+
+    def test_payer_with_two_orders_and_no_hint_is_an_unmatched_refund_alert(self):
+        kit_log(self.d, [sent("refund", REFUND)])
+        c = FakeChain(0)
+        c.sender[TX[3]] = c.sender[TX[5]] = CUST.lower()
+        rec = pl.reconcile(self.d, "m", "nocha12", c, SHOP, 1.0)
+        r = [e for e in self.lines() if e["tx_hash"] == REFUND][0]
+        self.assertEqual((r["kind"], r["order"], r["orders_of_payer"]), ("refund", None, ["o-1", "o-3"]))
+        self.assertIn("refund_unmatched", [a["kind"] for a in rec["alerts"]])
+
+    def test_sealed_sale_waits_for_the_agent_record_then_counts_its_amount(self):
+        self.rows = ROWS[:4] + [row(7, "settle", {"order": "o-9", "shop": "https://a.trycloudflare.com"}, ts=1795500000.0)]
+        kit_log(self.d, [])
+        c = FakeChain(0)
+        new, bal = pl.sync(self.d, "m", "nocha12", c, SHOP)
+        self.assertEqual([e["kind"] for e in new], ["grant"])
+        pending = []
+        pl.sync(self.d, "m", "nocha12", c, SHOP, pending)
+        self.assertEqual([p["order"] for p in pending], ["o-9"])
+        late = pl.alerts(self.d, [], [], {"ok": True}, now=1795500007 + pl.INTENT_GRACE + 1, pending=pending)
+        self.assertEqual([a["id"] for a in late], ["sealed-o-9"])
+        self.write_agent("sales.jsonl", [{"ts": 1, "order": "o-9", "amount": 8000, "shop_fee": 290, "tx_hash": TX[3],
+                                          "warranty_hours": 24}])
+        new, bal2 = pl.sync(self.d, "m", "nocha12", c, SHOP)
+        self.assertEqual([(e["kind"], e["amount"], e["fee"], e["sealed"], e["tx_hash"]) for e in new],
+                         [("sale", 8000, 290, True, TX[3])])
+        self.assertEqual(bal2 - bal, 7710 * W)
+
+    def test_mismatch_alert_keeps_its_id_while_the_gap_stays(self):
+        rec = {"ok": False, "diff": 9000.0, "chain_credits": 1, "ledger_credits": 0, "note": "x", "payments_tail": "a" * 64}
+        first = pl.alerts(self.d, [], [], rec, now=1795500000)
+        rec["payments_tail"] = "b" * 64
+        self.assertEqual(first, pl.alerts(self.d, [], [], rec, now=1795500000 + 600))
+
+    def test_intent_with_an_iso_time_or_no_time_still_ages_into_an_alert(self):
+        self.write_agent("sends.jsonl", [{"purpose": "refund", "order": "o-1", "amount": 1, "nonce": 1,
+                                          "ts": "2026-11-24T20:00:00+09:00"}, {"purpose": "supply", "order": "q", "amount": 1}])
+        now = pl.epoch("2026-11-24T21:00:00+09:00", 0)
+        got = pl.alerts(self.d, [], [], {"ok": True}, now=now)
+        self.assertEqual([a["kind"] for a in got], ["intent_without_tx"])   # the one with no time uses the file time (just now)
 
 
 if __name__ == "__main__":
