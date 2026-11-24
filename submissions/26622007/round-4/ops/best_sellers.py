@@ -62,6 +62,12 @@ def merge_live(data, rows, now):
         shop = data['url_names'].get(norm_url(d.get('shop')), norm_url(d.get('shop')))
         if shop not in data['shops']:
             data['shops'].append(shop)
+        seen = (data.get('chain_only_tx') or {}).get(str(d['tx_hash']).lower())
+        if seen:                             # the build already counted this sale from the chain: swap, not add
+            for i, r in enumerate(data['sales']):
+                if r[5] == CHAIN_ONLY and r[0] == seen[0] and r[2] == seen[1]:
+                    del data['sales'][i]
+                    break
         data['sales'].append([e.get('ts', now), sku, d['amount'], data['shops'].index(shop), _bid(d.get('buyer')), 0])
     data['last_seq'] = last
     return data
@@ -83,13 +89,15 @@ def chain_settles(txs, market, shops):
     for t in txs:
         if t['to'] == market and len(t['input']) == 66:
             fee.setdefault((t['frm'], t['input']), t)
-    best = {}
+    pays = {}
     for t in txs:
         k = (t['frm'], t['input'])
         if t['to'] in shops and t['frm'] != market and len(t['input']) == 66 and k in fee:
-            cur = best.get(k)
-            if cur is None or (t['ts'] <= fee[k]['ts'] and (cur['ts'] > fee[k]['ts'] or t['ts'] >= cur['ts'])):
-                best[k] = t
+            pays.setdefault(k, []).append(t)
+    best = {}
+    for k, ps in pays.items():                 # same rule as chain_scan.classify: the latest at or before the fee
+        before = [t for t in ps if t['ts'] <= fee[k]['ts']] or ps
+        best[k] = max(before, key=lambda t: (t['ts'], t['hash']))
     out = []
     for k, t in best.items():
         p = price_from_transfers(t['credits'], fee[k]['credits'])
@@ -106,23 +114,25 @@ def guess_sku(price, bands):
 
 
 def merge_chain(data, settles):
-    """Add chain-found sales [ts, shop, price, buyer, hash] not already counted; returns (data, unlabelled)."""
-    data = dict(data, sales=list(data['sales']), shops=list(data['shops']))
-    seen = set(data.get('chain_seen') or [])
+    """Add chain-found sales [ts, shop, price, buyer, hash]; returns (data, unlabelled). Skips sales at or before
+    the ledger's newest row (those the ledger has, or payments the market refused) and ones already added.
+    data['chain_only_tx'] {hash: [ts, price]} lets merge_live swap a chain-only row for its ledger row later."""
+    data = dict(data, sales=list(data['sales']), shops=list(data['shops']),
+                chain_only_tx=dict(data.get('chain_only_tx') or {}))
+    c = data.get('chain') or {}
     unlabelled = 0
     for ts, shop, price, buyer, h in settles:
-        if h in seen:
+        if h in data['chain_only_tx'] or ts <= c.get('ledger_ts', 0):
             continue
-        seen.add(h)
-        sku = guess_sku(price, (data.get('chain') or {}).get('bands') or {})
+        sku = guess_sku(price, c.get('bands') or {})
         if sku is None:
             unlabelled += 1
             continue
         if shop not in data['shops']:
             data['shops'].append(shop)
-        name = ((data.get('chain') or {}).get('buyers') or {}).get(buyer, buyer)   # same id as its ledger rows
+        name = (c.get('buyers') or {}).get(buyer, buyer)   # same id as its ledger rows
         data['sales'].append([ts, sku, price, data['shops'].index(shop), _bid(name), CHAIN_ONLY])
-    data['chain_seen'] = sorted(seen)
+        data['chain_only_tx'][h] = [ts, price]
     return data, unlabelled
 
 
@@ -217,10 +227,10 @@ def build_data(ledger, catalog, now, keep_hours=24, txs=None, chain=None):
     book = chain.get('book') or {}
     addr = {a.lower(): s.get('name') for a, s in (book.get('shops') or {}).items() if s.get('name')}
     buyers = {a.lower(): c.get('name') for a, c in (book.get('customers') or {}).items() if c.get('name')}
-    data['chain'] = dict(market=str((book.get('chain') or {}).get('market_address', '')).lower(), shops=addr,
-                         next=int(chain.get('upto_block', 0)) + 1, bands=bands, buyers=buyers)
-    known = {str((e.get('data') or {}).get('tx_hash', '')).lower() for e in ledger if e['kind'] == 'settle'}
     newest = max((e['ts'] for e in ledger), default=0)
+    data['chain'] = dict(market=str((book.get('chain') or {}).get('market_address', '')).lower(), shops=addr,
+                         next=int(chain.get('upto_block', 0)) + 1, bands=bands, buyers=buyers, ledger_ts=newest)
+    known = {str((e.get('data') or {}).get('tx_hash', '')).lower() for e in ledger if e['kind'] == 'settle'}
     # only sales after the ledger's newest row: older chain-only payments are ones the market refused (or retries)
     fresh = [[ts, addr.get(str(to).lower(), str(to).lower()), p, b, h] for ts, to, p, b, h in chain.get('settles') or []
              if str(h).lower() not in known and ts > newest and now - ts <= keep_hours * 3600]

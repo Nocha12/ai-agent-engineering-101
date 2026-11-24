@@ -51,7 +51,7 @@ def _live(kit, data, deadline):
         if not _gap(deadline, 3):
             return rows, True
         r = httpx.get(kit.market.rstrip('/') + '/api/ledger', params={'after': after},
-                      timeout=httpx.Timeout(min(5.0, _left(deadline) - 1)))
+                      timeout=httpx.Timeout(min(5.0, _left(deadline) - 1), connect=2.0))
         r.raise_for_status()
         got = [e for e in r.json() if isinstance(e, dict) and isinstance(e.get('seq'), int) and e['seq'] > after]
         if not page and data['last_seq']:
@@ -78,7 +78,7 @@ def _chain(kit, data, deadline):
     def call(batch):
         if not _gap(deadline, 4):
             raise TimeoutError('no time left for a chain read')
-        r = httpx.post(RPC, json=batch, timeout=httpx.Timeout(min(6.0, _left(deadline) - 1)))
+        r = httpx.post(RPC, json=batch, timeout=httpx.Timeout(min(6.0, _left(deadline) - 1), connect=2.0))
         r.raise_for_status()
         out = r.json()
         if not isinstance(out, list) or any('error' in o for o in out):
@@ -90,8 +90,12 @@ def _chain(kit, data, deadline):
     txs, n = [], first
     while n <= tip and n < first + CHAIN_BATCH * CHAIN_POSTS and _left(deadline) > 1.1 + 4:
         hi = min(tip, n + CHAIN_BATCH - 1)
-        for b in call([{'jsonrpc': '2.0', 'id': i, 'method': 'eth_getBlockByNumber', 'params': [hex(x), True]}
-                       for i, x in enumerate(range(n, hi + 1))]):
+        try:
+            blocks = call([{'jsonrpc': '2.0', 'id': i, 'method': 'eth_getBlockByNumber', 'params': [hex(x), True]}
+                           for i, x in enumerate(range(n, hi + 1))])
+        except TimeoutError:                    # out of time: keep what was read, the rest counts as gap
+            break
+        for b in blocks:
             for t in (b or {}).get('transactions') or []:
                 txs.append(dict(ts=int(b['timestamp'], 16), hash=t['hash'].lower(), frm=t['from'].lower(),
                                 to=(t.get('to') or '').lower(), credits=int(t['value'], 16) // 10 ** 15,
@@ -165,13 +169,18 @@ def forge_move(data_path):
     data = json.loads(Path(data_path).read_text(encoding='utf-8'))
     if not isinstance(data, dict) or not isinstance(data.get('sales'), list):
         raise ValueError('expected best_sellers data with a sales list (run best_sellers.py --build)')
-    data.pop('chain_seen', None)                # the tool reads only blocks after chain.next: no repeats to skip
+    if data.get('chain'):                       # buyer names only keep chain ids equal to ledger ids; not worth the size
+        data['chain'] = {k: v for k, v in data['chain'].items() if k != 'buyers'}
     while True:                                 # the kit reads a tool back 12,000 chars at a time; keep it small
         logic = f'DATA = {data!r}\n\n{kernel}\n{RUN}'      # a Python literal: JSON's null/true would not parse
         if len(logic) < MAX_LOGIC or not data['sales']:
             break
         keep = data['sales'][len(data['sales']) // 4:]          # drop the oldest quarter
-        data = dict(data, sales=keep, trimmed=data.get('trimmed', 0) + len(data['sales']) - len(keep))
+        kept = {(r[0], r[2]) for r in keep}
+        only = {h: v for h, v in (data.get('chain_only_tx') or {}).items() if tuple(v) in kept}
+        data = dict(data, sales=keep, chain_only_tx=only, trimmed=data.get('trimmed', 0) + len(data['sales']) - len(keep))
+    if len(logic) >= MAX_LOGIC:
+        raise ValueError(f'tool logic is {len(logic)} chars even with no sales; shrink the catalog part of the data')
     compile(logic, 'logic.py', 'exec')
     return {'thought': 'Forge the read-only best sellers lookup from paid, on-chain sales.', 'action': 'forge_tool',
             'args': {'name': 'best_sellers',

@@ -168,6 +168,22 @@ class Chain(unittest.TestCase):
                                                               'settles': [[NOW - 60, SHOP1, 3000, CUST, '0xn']]})
         self.assertEqual(data['sales'][-1][4], bs._bid('b1'))
 
+    def test_a_chain_only_sale_seen_later_in_the_ledger_is_swapped_not_added(self):
+        data = bs.build_data(ledger(), CATALOG, now=NOW, chain={'book': book(), 'upto_block': 9,
+                                                              'settles': [[NOW - 60, SHOP1, 3000, CUST, '0xlate']]})
+        n = len(data['sales'])
+        late = settle(11, NOW - 60, 'water', 3000, buyer='b9', tx='0x')
+        late['data']['tx_hash'] = '0xlate'
+        merged = bs.merge_live(data, [late], NOW)
+        self.assertEqual(len(merged['sales']), n)
+        self.assertEqual(merged['sales'][-1][5], 0)
+
+    def test_the_tool_chain_tail_skips_what_the_ledger_already_had(self):
+        data = bs.build_data(ledger(), CATALOG, now=NOW, chain={'book': book(), 'upto_block': 9, 'settles': []})
+        old = [NOW - 0.5 * H, 's1', 3000, CUST, '0xinledger']            # before the ledger's newest row
+        merged, _ = bs.merge_chain(data, [old])
+        self.assertEqual(len(merged['sales']), len(data['sales']))
+
     def test_supply_and_grant_transfers_are_not_sales(self):
         rows = [dict(ts=NOW, hash='0xsup', frm=SHOP1, to=MARKET, credits=22203, input='0x' + 'd' * 64),
                 dict(ts=NOW, hash='0xgr', frm=MARKET, to=SHOP1, credits=5000000, input='0x')]
@@ -293,7 +309,7 @@ class Live(unittest.TestCase):
                 return self.rows
 
         class FakeHttpx:
-            Timeout = staticmethod(lambda t: t)
+            Timeout = staticmethod(lambda t, connect=None: t)
             rows = []
 
             @staticmethod
@@ -330,7 +346,7 @@ class Live(unittest.TestCase):
                 return self.out
 
         class FakeHttpx:
-            Timeout = staticmethod(lambda t: t)
+            Timeout = staticmethod(lambda t, connect=None: t)
 
             @staticmethod
             def post(url, json=None, timeout=None):
@@ -359,7 +375,7 @@ class Forge(unittest.TestCase):
         move, ns = forged(bs.build_data(rows, CATALOG, now=NOW))
         self.assertLess(len(move['args']['logic']), 40_000)
         self.assertIn('trimmed', ns['DATA'])
-        self.assertNotIn('chain_seen', ns['DATA'])
+        self.assertNotIn('buyers', ns['DATA'].get('chain', {}))
 
     def test_forge_move_is_read_only_and_its_test_passes_in_a_sandbox_like_run(self):
         with tempfile.TemporaryDirectory() as tmp:
