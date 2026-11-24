@@ -68,7 +68,7 @@ class Build(unittest.TestCase):
 class Rank(unittest.TestCase):
     def setUp(self):
         self.data = bs.build_data(ledger(), CATALOG, now=NOW, keep_hours=24)
-        self.data.update(stock_as_of=NOW, ledger_as_of=NOW, sku_stock={'water': [3, 2, 0]})
+        self.data.update(stock_as_of=NOW, ledger_as_of=NOW, sku_stock={'water': [3, 2, 0]}, stock_unconfirmed=[])
 
     def test_water_tops_the_list_with_velocity_prices_and_evidence(self):
         out = bs.rank({}, self.data, now=NOW)
@@ -122,6 +122,9 @@ class Rank(unittest.TestCase):
         data = json.loads(bs.DATA_PATH.read_text(encoding='utf-8'))
         now = price_demand.market_as_of()
         for item in bs.rank({'top': 20}, data, now)['items']:
+            if item['sku'] in data['stock_unconfirmed']:
+                self.assertEqual(item['buy_qty'], 0)
+                continue
             rate, count, _, competitors, own = price_demand.signals(item['sku'], now)
             self.assertEqual((item['per_hour'], item['tx_6h']), (round(rate, 2), count))
             expected = min(4, max(0, int(rate * 3 / (competitors + 1) + 0.5) - own)) if count >= 2 else 0
@@ -182,6 +185,15 @@ class Live(unittest.TestCase):
     def test_live_must_be_a_bool(self):
         with self.assertRaises(ValueError):
             self.ns['run']({'live': 'false'}, FakeKit())
+
+    def test_expiry_and_seizure_disable_live_quantity_until_inventory_refresh(self):
+        for kind in ('expire', 'bankrupt'):
+            self.ns['DATA'].update(stock_as_of=NOW, ledger_as_of=NOW, sku_stock={}, stock_unconfirmed=[])
+            self.ns['_live'] = lambda kit, data: ([dict(seq=11, kind=kind, ts=NOW)], False)
+            with self.subTest(kind=kind), patch('time.time', return_value=NOW):
+                out = self.ns['run']({}, FakeKit())
+                self.assertTrue(out['stale'])
+                self.assertTrue(all(item['buy_qty'] == 0 for item in out['items']))
 
 
 class Forge(unittest.TestCase):

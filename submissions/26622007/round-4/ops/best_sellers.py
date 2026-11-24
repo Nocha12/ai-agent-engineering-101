@@ -103,8 +103,8 @@ def rank(args, data, now):
             buyers[r[3]] = buyers.get(r[3], 0) + 1
         _, sellers, have = (0, 0, 0) if stale else shared['stock_counts'](data, sku)
         have = max(have, own.get(sku, 0)) if type(own.get(sku, 0)) is int else have
-        want = int(v * horizon / (sellers + 1) + 0.5)
-        qty = min(QTY_CAP, max(0, want - have)) if not stale and wide >= MIN_EVIDENCE else 0
+        confirmed = 'stock_unconfirmed' in data and sku not in data['stock_unconfirmed']
+        qty = shared['buy_limit'](v, wide, sellers, have, horizon) if confirmed and not stale else 0
         items.append(dict(sku=sku, name=name, kind=k, per_hour=round(v, 2), tx=len(rows),
                           tx_on_chain=sum(1 for r in rows if r[4] > 0), tx_6h=wide, shops=len({r[2] for r in rows}),
                           repeat_buyers=sum(1 for n in buyers.values() if n > 1),

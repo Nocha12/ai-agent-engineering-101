@@ -43,8 +43,8 @@ def render(build_rows):
                     for row in baseline))
     scenarios = [('1시간 · 기본 미판매율', baseline),
                  ('24시간 · 기본 미판매율', build_rows(hold_hours=24)),
-                 ('1시간 · 미판매율 0%', build_rows(unsold=0)),
-                 ('1시간 · 미판매율 25%', build_rows(unsold=0.25))]
+                 ('1시간 · 미판매율 0%', build_rows(hold_hours=1, unsold=0)),
+                 ('1시간 · 미판매율 25%', build_rows(hold_hours=1, unsold=0.25))]
     bounds = [{row['sku']: row for row in rows} for _, rows in scenarios]
     sensitivity = table('조건별 매입 상한 (크레딧/개)',
                         ['품목 (SKU)'] + [label for label, _ in scenarios],

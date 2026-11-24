@@ -144,10 +144,15 @@ def _evaluate(args, *, guard=False, now=None):
         maximum, minimum, profit = limits
         return profit >= 0 and maximum is not None and minimum is not None and cost <= maximum and sell >= minimum
 
-    ok = clears(stress)
+    buy_limit = qty
+    if demand is not None and action == 'buy':
+        speed, count, _, shops, own = demand
+        horizon = min(hold, round_hours) if round_hours is not None else hold
+        buy_limit = _demand_module()['buy_limit'](speed, count, shops, own, float(horizon))
+    ok = clears(stress) and qty <= buy_limit
     verdict = ('buy' if ok else 'skip') if action == 'buy' else ('sell_ok' if ok else 'too_low')
     candidates = []
-    for quantity in range(1, min(qty, SUGGEST_LIMIT) + 1):
+    for quantity in range(1, min(qty, buy_limit, SUGGEST_LIMIT) + 1):
         limits = bounds(quantity, True)
         if clears(limits):
             candidates.append((limits[2] * quantity, -quantity))
@@ -157,6 +162,8 @@ def _evaluate(args, *, guard=False, now=None):
         reason = '공유 수요 자료 누락·만료·오류: 갱신 전 거래 금지'
     elif demand is not None and not demand[0]:
         reason = '최근 해당 SKU의 유효 판매 속도 0'
+    elif qty > buy_limit:
+        reason = f'best_sellers 매입 수량 한도 {buy_limit}개'
     elif not ok and recommended:
         reason += f'; {recommended}개로 재조회'
     sell_source = '입력' if 'sell' in args else '실측' if sales else f'정가×{float(sell_ratio):.0%} 추정'

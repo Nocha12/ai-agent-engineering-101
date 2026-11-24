@@ -158,6 +158,14 @@ def test_missing_or_stale_signals_explained_separately(monkeypatch):
     assert result['verdict'] == 'skip' and result['recommended_qty'] == 0 and '갱신' in result['reason']
 
 
+def test_guard_and_ranking_never_override_peer_zero_evidence_limit(monkeypatch):
+    monkeypatch.setattr(prices, '_signals', lambda sku, now: (2, 1, 0, 0, 0))
+    args = dict(sku='water', qty=1, batch_size=1, sell=5000, cost=100, grade='A', hold_hours=12, remaining_hours=15, round_hours=12, lot_dues=0)
+    assert prices.quote(args)['recommended_qty'] == 0
+    with pytest.raises(ValueError, match='한도 0개'):
+        prices.price_guard('buy', args)
+
+
 def test_floor_is_reachable_within_the_input_domain():
     assert prices.quote(dict(sku='lamp', cost=10**12, grade='B', unsold=0))['min_sell_price'] is None
 

@@ -56,7 +56,7 @@ def run(args, kit):
             rows, truncated = _live(kit, data)
             base_time = data['as_of']
             data = merge_live(data, rows, now)
-            if truncated or any(row.get('kind') in ('supply', 'settle') for row in rows):
+            if truncated or any(row.get('kind') in ('supply', 'settle', 'expire', 'bankrupt') for row in rows):
                 data['stock_pending'] = True
             if truncated:                       # the newest rows are missing: date the answer by what was read
                 now = max([e.get('ts', 0) for e in rows if isinstance(e.get('ts'), (int, float))] or [base_time])

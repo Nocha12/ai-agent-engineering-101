@@ -101,7 +101,7 @@ class PriceDemand(unittest.TestCase):
                   settle(4, now - 60, 'b')]
         paid = dict(as_of=now + 600, keep_hours=24, last_seq=4, sales=sales)
         shops = [{'name': name, 'stock': {'egg': units}} for name, units in
-                 [('nocha12', 3), ('first', 3), ('second', 5), ('empty', 2)]]
+                 [('nocha12', 2), ('first', 3), ('second', 5), ('empty', 0)]]
         snap = dict(ts=now, shops=dict(round=4, shops=shops))
         data = merge_observations(paid, ledger, snap)
         self.assertEqual(data['as_of'], now)
@@ -109,6 +109,11 @@ class PriceDemand(unittest.TestCase):
         self.assertAlmostEqual(rate, 13 / 15)
         self.assertEqual(counts, [4, 8, 2, 2])
         self.assertEqual(price_demand.signals_from(data, 'absent', now), (0, 0, 0, 0, 0))
+        shops[-1]['stock']['egg'] = 2
+        skewed = merge_observations(paid, ledger, snap)
+        self.assertEqual(skewed['sku_stock']['egg'], [10, 3, 2])
+        with self.assertRaisesRegex(ValueError, 'ahead of ledger'):
+            price_demand.signals_from(skewed, 'egg', now)
         with self.assertRaises(ValueError):
             price_demand.signals_from(data, 'egg', now + 5400)
         for bad in [dict(data, sku_stock=None), dict(data, sku_stock={'egg': [1, 2, 0]}),

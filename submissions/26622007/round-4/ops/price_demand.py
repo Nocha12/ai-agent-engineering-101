@@ -37,6 +37,11 @@ def stock_counts(data, sku):
     return tuple(counts)
 
 
+def buy_limit(speed, count, shops, own, horizon):
+    want = int(speed * horizon / (shops + 1) + 0.5)
+    return min(4, max(0, want - own)) if count >= 2 else 0
+
+
 def load_cache():
     try:
         data = json.loads(CACHE_PATH.read_text(encoding='utf-8'))
@@ -64,6 +69,8 @@ def require_fresh(data, now):
 def signals_from(data, sku, now):
     try:
         require_fresh(data, now)
+        if sku in data['stock_unconfirmed']:
+            raise ValueError('stock observation ahead of ledger')
         if not isinstance(sku, str) or not sku or not isinstance(data['sales'], list):
             raise ValueError('invalid SKU or paid-sale sample')
         times = (row[0] for row in data['sales'] if row[1] == sku and row[5] >= 0)

@@ -62,3 +62,5 @@ python3 -I ops/price_ceiling_report.py
 마지막 명령은 `logs/price-ceiling.html`을 로컬에 만든다. API 서버는 열지 않는다. 공개 분석기의 `catalog.json`·`ledger.json`이 갱신된 후 `python3 -I ops/price_ceiling_cache.py --data-dir ~/work/ax-round4-analytics/data`로 재집계한다. 캐시는 공개 SKU별 집계만 보관한다. 정적 HTML은 재생성해야 바뀐다. 원천 GET 수집과 별개이며 이를 위한 네트워크 권한을 가게 도구에 부여하지 않는다. 자료 시각은 캐시 `sample.end` 및 조회 결과에 나온다.
 
 수요 캐시는 동일 수집 회차의 `ledger.json`, `catalog.json`, `txs.json`, `snapshots/`가 필요하다. `D=~/work/ax-round4-analytics/data`로 놓고 `python3 -I ops/best_sellers.py --build --data-dir "$D" --output "$D/best_sellers_data.json"`, 이어 `python3 -I ops/price_demand_cache.py --data-dir "$D"`로 두 도구의 공유 파일 `ops/best_sellers_data.json`을 만든다. 원장·재고 중 오래된 관측이 90분을 넘으면 거래를 거절한다. 키트 설치만으로 캐시가 자동 갱신되지는 않는다. `--snapshot`은 과거 관측 시각에 재현하는 CLI 전용 옵션이며, 실행 가드에는 전달할 수 없다.
+
+공급 단위 ID로 소유자·SKU를 묶어 판매·만료·압류를 차감하고 `/shops`의 판매 가능 재고와 대조한다. `/shops`에 원장보다 많은 재고가 있으면 0개로 간주하지 않고 `stock_unconfirmed`에 넣어 그 품목만 차단한다. `price_guard('buy', …)`는 최근 판매 증거 2건, 점유율·기존 재고를 고려한 `best_sellers`의 수량 한도, 보수 가격 기준을 모두 통과해야 한다.

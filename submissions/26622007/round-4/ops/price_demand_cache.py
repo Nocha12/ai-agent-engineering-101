@@ -98,7 +98,8 @@ def ledger_stock(ledger, stock_time, observed):
                     raise ValueError('ambiguous delayed expiry; refresh public shops')
                 observed[key] = max(0, observed[key] - 1)
             cohort[key] -= 1
-    return {key: min(earlier[key], observed[key]) + later[key] for key in sorted(observed.keys() | later.keys())}
+    unconfirmed = sorted({sku for (shop, sku), count in observed.items() if count > earlier[shop, sku]})
+    return {key: observed[key] + later[key] for key in sorted(observed.keys() | later.keys())}, unconfirmed
 
 
 def merge_observations(paid, ledger, snapshot):
@@ -126,14 +127,15 @@ def merge_observations(paid, ledger, snapshot):
             positive_number(paid.get('as_of')) - positive_number(paid.get('keep_hours')) * 3600 > observed - 6 * 3600):
         raise ValueError('observations do not cover the common demand window')
     stock = {}
-    for (name, sku), units in ledger_stock(ledger, stock_time, public_stock).items():
+    holdings, unconfirmed = ledger_stock(ledger, stock_time, public_stock)
+    for (name, sku), units in holdings.items():
         counts = stock.setdefault(sku, [0, 0, 0])
         if name == 'nocha12':
             counts[2] += units
         else:
             counts[0] += units
             counts[1] += units > 0
-    return dict(paid, as_of=observed, ledger_as_of=ledger_time, stock_as_of=stock_time, sku_stock=stock)
+    return dict(paid, as_of=observed, ledger_as_of=ledger_time, stock_as_of=stock_time, sku_stock=stock, stock_unconfirmed=unconfirmed)
 
 
 def main():
