@@ -12,7 +12,7 @@ its own tools there (forge.json hashes as the kit makes them) and nothing is wri
 Scenario: a quiet wake (the agent forges while nobody waits) -> customer A first visit (a chair, a tired day after a child's sports day) -> customer B first visit (rice) ->
 customer A again. Checks: every message gets a reply; customers.json holds A and B apart; B's reply carries nothing
 from A's visit; A's second reply refers back to the first visit; nothing about customers went into notes.md.
-The sandbox's kit.shop_url is that customer's last shop, so the agent's context names another shop's card as its own;
+When A bought from two shops, the sandbox's kit.shop_url is A's last shop, so the agent's context names another shop's card as its own;
 it has no token, so it cannot act as that shop. Recommending a product is out of scope here: the test agent cannot see stock. Prints the transcript and a JSON verdict; exit 0 when every check passes.
 """
 import argparse
@@ -58,6 +58,8 @@ def main():
     a_items = [x[:6] for x in bought[A] if x]
     # two shops: play the one A bought from last ("우리 가게"); one shop only: play a shop A never bought from
     ours = shops[A][-1] if multi else "https://nocha-dialog-test.invalid"
+    a_ours_words = tuple(w for x, s in zip(bought[A], shops[A]) if x and s.lower().rstrip("/") == ours.lower().rstrip("/")
+                         for w in x.replace("]", " ").replace("[", " ").split() if len(w) >= 2 and w not in ("국내산", "1kg", "3kg"))
     a_elsewhere = [x[:6] for x, s in zip(bought[A], shops[A]) if x and s.lower().rstrip("/") != ours.lower().rstrip("/")]
     village = json.load(urllib.request.urlopen(f"{a.market}/api/village", timeout=30))
     a_town = next((x.get("lives_in") for x in village.get("in_town", []) if x.get("name") == A), None)
@@ -139,8 +141,9 @@ def main():
         "memory_has_both_apart": ra is not None and rb is not None,
         "b_record_has_nothing_of_a": rb is not None and not any(w in rb_text for w in A_CONTEXT),
         "b_reply_has_nothing_of_a": not any(w in b_reply for w in A_CONTEXT),
-        "a_second_visit_recalls_first": any(w in a2_reply for w in A_CONTEXT + ("지난번", "저번")),
-        "no_customer_info_in_notes": not any(w in notes for w in (A, B) + A_CONTEXT),
+        "a_second_visit_recalls_first": any(w in a2_reply for w in A_CONTEXT + a_ours_words),
+        "a_record_has_both_visits": "의자" in json.dumps(ra, ensure_ascii=False) and "수납함" in json.dumps(ra, ensure_ascii=False),
+        "no_customer_info_in_notes": not any(w in notes for w in (A, B, "쌀", "수납함") + A_CONTEXT),
         "profile_tool_forged": bool(ptool),
         "profile_tool_permission_read_only": bool(ptool) and set(pperm.get("network") or []) <= {urllib.parse.urlparse(a.market).hostname}
         and not any(pperm.get(k) for k in ("write", "identity", "wallet", "handles", "pay_limit")),
@@ -157,14 +160,13 @@ def main():
         "b_sensitivity_not_raised_by_words": rb is not None and str(next((v for k, v in rb.items() if "민감" in k or "sensitiv" in k.lower()), "mid")).strip() in ("mid", ""),
         "replies_within_a2a_wait": all(x["seconds"] <= ak.A2A_WAIT for x in transcript),
     }
-    skipped = [k for k, v in checks.items() if v is None]
     print(f"\nmode: {'A bought from two shops, one plays us' if multi else 'no two-shop customer in the window: every purchase of A is elsewhere'}")
     print(f"\nA = {A} (bought {bought[A]}, in town: {a_town}); A's first reply: {a1_reply}")
-    print("\n" + json.dumps({"ok": all(v is not False for v in checks.values()), "skipped": skipped, "checks": checks, "memory": mem, "dir": str(tmp)},
+    print("\n" + json.dumps({"ok": all(checks.values()), "checks": checks, "memory": mem, "dir": str(tmp)},
                             ensure_ascii=False, indent=1))
     if not a.keep:
         shutil.rmtree(tmp, ignore_errors=True)
-    return 0 if all(v is not False for v in checks.values()) else 1
+    return 0 if all(checks.values()) else 1
 
 
 if __name__ == "__main__":
