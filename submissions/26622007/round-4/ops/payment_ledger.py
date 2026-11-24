@@ -21,8 +21,10 @@ and GET /api/inventory reports the same number) and appends the result to logs/r
 differ by more than --tolerance credits. verify checks the hash chain of both files. Standard library only.
 """
 import argparse
+import fcntl
 import hashlib
 import json
+import os
 import re
 import sys
 import time
@@ -63,8 +65,10 @@ class Chain:
         if not tx or not rc:
             return None
         price = int(rc.get("effectiveGasPrice") or tx.get("gasPrice") or "0x0", 16)
+        block = self.call("eth_getBlockByNumber", [rc["blockNumber"], False]) if rc.get("blockNumber") else None
         return {"from": (tx.get("from") or "").lower(), "to": (tx.get("to") or "").lower(), "value_wei": int(tx["value"], 16),
-                "gas_wei": int(rc["gasUsed"], 16) * price, "ok": rc.get("status") == "0x1"}
+                "gas_wei": int(rc["gasUsed"], 16) * price, "ok": rc.get("status") == "0x1",
+                "ts": int(block["timestamp"], 16) if block and block.get("timestamp") else None}
 
 
 def market_rows(market, after=0):
@@ -79,10 +83,17 @@ def market_rows(market, after=0):
             return rows
 
 
+class TornTail(Exception):
+    """The file's last line was cut off (a crash mid-write): it must be looked at before anything is appended."""
+
+
 def read_lines(path):
     if not path.exists():
         return []
-    return [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]
+    text = path.read_text(encoding="utf-8")
+    if text and not text.endswith("\n"):
+        raise TornTail(f"{path.name}: the last line has no newline (cut off mid-write); move it aside by hand")
+    return [json.loads(x) for x in text.splitlines() if x.strip()]
 
 
 def line_hash(prev, rec):
@@ -94,18 +105,47 @@ def append(path, recs):
     """Append records to an append-only JSONL file, each chained to the one before by sha256."""
     old = read_lines(path)
     prev = old[-1]["hash"] if old else GENESIS
+    out = []
+    for rec in recs:
+        rec = dict(rec, prev=prev)
+        rec["hash"] = prev = line_hash(prev, rec)
+        out.append(json.dumps(rec, ensure_ascii=False, sort_keys=True) + "\n")
+    if not out:
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a", encoding="utf-8") as f:
-        for rec in recs:
-            rec = dict(rec, prev=prev)
-            rec["hash"] = prev = line_hash(prev, rec)
-            f.write(json.dumps(rec, ensure_ascii=False, sort_keys=True) + "\n")
+    with open(path, "a", encoding="utf-8") as f:          # one write, then fsync: a crash leaves at most a torn tail
+        f.write("".join(out))
+        f.flush()
+        os.fsync(f.fileno())
+
+
+class Lock:
+    """One sync at a time (cron and a manual run may overlap): an exclusive flock on logs/.payments.lock."""
+    def __init__(self, d):
+        (d / "logs").mkdir(parents=True, exist_ok=True)
+        self.f = open(d / "logs" / ".payments.lock", "w")
+
+    def __enter__(self):
+        try:
+            fcntl.flock(self.f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            self.f.close()
+            raise
+        return self
+
+    def __exit__(self, *exc):
+        fcntl.flock(self.f, fcntl.LOCK_UN)
+        self.f.close()
 
 
 def verify(path):
     """Problems in the hash chain of one append-only file ([] when it is intact)."""
     prev, bad = GENESIS, []
-    for i, rec in enumerate(read_lines(path), 1):
+    try:
+        lines = read_lines(path)
+    except (TornTail, ValueError) as e:
+        return [f"{path.name}: {e}"]
+    for i, rec in enumerate(lines, 1):
         if rec.get("prev") != prev or rec.get("hash") != line_hash(prev, rec):
             bad.append(f"{path.name}:{i} does not follow the line before it (edited, removed or reordered)")
         prev = rec.get("hash", "")
@@ -129,9 +169,12 @@ def kit_sends(d):
     return out
 
 
-def events(rows, name, sends, chain, address, seen=()):
-    """The shop's money events from the market ledger rows and the kit's logged transfers, in ledger order. Events
-    whose id is in seen are still returned but not looked up on the chain again."""
+def events(rows, name, sends, chain, address, seen=(), seen_tx=None):
+    """The shop's new money events from the market ledger rows and the kit's logged transfers, in ledger order. Amounts
+    are whole wei in delta_wei/gas_wei. seen: ids already in the file (skipped, not looked up again); seen_tx: tx_hash
+    -> the line already written for it, so a lot whose transfer was first written as transfer_out is not counted twice."""
+    seen_tx = dict(seen_tx or {})
+    me = address.lower()
     urls, who = set(), {}
     for r in rows:
         dt = r["data"]
@@ -141,76 +184,99 @@ def events(rows, name, sends, chain, address, seen=()):
             if dt.get("name") == name and dt.get("role") == "shop" and dt.get("url"):
                 urls.add(dt["url"].rstrip("/"))
     out = []
+
+    def add(e):
+        out.append(e)
+        if e.get("tx_hash"):
+            seen_tx[e["tx_hash"].lower()] = e
+
     for r in rows:
-        dt, k, src = r["data"], r["kind"], f"market#{r['seq']}"
-        base = {"ts": r["ts"], "time": iso(r["ts"]), "round": r.get("round"), "source": src}
+        dt, k = r["data"], r["kind"]
+        base = {"ts": r["ts"], "time": iso(r["ts"]), "round": r.get("round"), "source": f"market#{r['seq']}"}
         if k == "grant" and dt.get("shop") == name:
             if not dt.get("tx_hash"):
-                continue                             # a grant still waiting to be sent: it comes back with its tx_hash
+                continue                             # a grant still waiting: the market writes a new row with its tx_hash when sent
+            eid = f"grant-{dt['tx_hash'].lower()}"
+            if eid in seen:
+                continue
             c = int(dt.get("credits") or 0)
-            out.append(dict(base, kind="grant", id=f"grant-{r['seq']}", counterparty="market", item=dt.get("why"), qty=None,
-                            unit_price=None, amount=c, fee=0, storage=0, forum_fees=0, delta=c, gas=0, tx_hash=dt["tx_hash"]))
+            add(dict(base, kind="grant", id=eid, counterparty="market", item=dt.get("why"), qty=None, unit_price=None,
+                     amount=c, fee=0, storage=0, forum_fees=0, delta_wei=c * CREDIT_WEI, gas_wei=0, tx_hash=dt["tx_hash"].lower()))
         elif k == "supply" and dt.get("shop") == name:
+            tx = (dt.get("tx_hash") or "").lower() or None
+            eid = f"supply-{tx or r['seq']}"
+            if eid in seen:
+                continue
             goods, storage, fees, qty = int(dt.get("total") or 0), int(dt.get("storage") or 0), int(dt.get("fees") or 0), int(dt.get("qty") or 0)
-            gas = 0
-            if dt.get("tx_hash") and chain and f"supply-{r['seq']}" not in seen:
-                t = chain.transfer(dt["tx_hash"])
-                gas = t["gas_wei"] / CREDIT_WEI if t else 0
-            out.append(dict(base, kind="supply", id=f"supply-{r['seq']}", counterparty="market wholesale", item=dt.get("sku"),
-                            qty=qty, unit_price=round(goods / qty, 2) if qty else None, amount=goods, fee=0, storage=storage,
-                            forum_fees=fees, delta=-(goods + storage + fees), gas=gas, tx_hash=dt.get("tx_hash"),
-                            units=dt.get("units")))
+            delta, gas, note = -(goods + storage + fees) * CREDIT_WEI, 0, None
+            prior = seen_tx.get(tx) if tx else None
+            if prior is not None and prior.get("kind") == "transfer_out":
+                delta -= prior["delta_wei"]          # that line already took the transfer (and its gas) off the balance
+                note = f"reclassifies {prior['id']}: the lot's payment was written as a transfer before the market recorded the lot"
+            elif tx and chain:
+                t = chain.transfer(tx)
+                if t is None:
+                    continue                         # not readable yet: the next sync writes it
+                gas = t["gas_wei"] if t["from"] == me else 0
+            add(dict(base, kind="supply", id=eid, counterparty="market wholesale", item=dt.get("sku"), qty=qty,
+                     unit_price=round(goods / qty, 2) if qty else None, amount=goods, fee=0, storage=storage,
+                     forum_fees=fees, delta_wei=delta, gas_wei=gas, tx_hash=tx, units=dt.get("units"), note=note))
         elif k == "settle" and (dt.get("shop") or "").rstrip("/") in urls:
+            eid = f"sale-{dt.get('order') or r.get('hash') or r['seq']}"
+            if eid in seen:
+                continue
             amount, fee = int(dt.get("amount") or 0), int(dt.get("shop_fee") or 0)
-            out.append(dict(base, kind="sale", id=dt.get("order"), counterparty=dt.get("buyer"),
-                            item=f"{dt.get('sku') or dt.get('item')} {dt.get('name') or ''}".strip(), qty=1, unit_price=amount,
-                            amount=amount, fee=fee, storage=0, forum_fees=0, delta=amount - fee, gas=0,
-                            tx_hash=dt.get("tx_hash"), grade=dt.get("grade"), claim=dt.get("claim"),
-                            warranty_hours=dt.get("warranty_hours"), unit=dt.get("unit")))
+            add(dict(base, kind="sale", id=eid, counterparty=dt.get("buyer"),
+                     item=f"{dt.get('sku') or dt.get('item')} {dt.get('name') or ''}".strip(), qty=1, unit_price=amount,
+                     amount=amount, fee=fee, storage=0, forum_fees=0, delta_wei=(amount - fee) * CREDIT_WEI, gas_wei=0,
+                     tx_hash=(dt.get("tx_hash") or "").lower() or None, grade=dt.get("grade"), claim=dt.get("claim"),
+                     warranty_hours=dt.get("warranty_hours"), unit=dt.get("unit")))
         elif k == "broken" and (dt.get("shop") or "").rstrip("/") in urls:
-            out.append(dict(base, kind="broken", id=f"broken-{dt.get('order')}", counterparty=dt.get("buyer"), item=dt.get("item"), qty=1,
-                            unit_price=None, amount=0, fee=0, storage=0, forum_fees=0, delta=-int(dt.get("refunded") or 0),
-                            gas=0, tx_hash=None, warranty_hours=dt.get("warranty_hours"),
-                            hours_after_sale=dt.get("hours_after_sale"), unit=dt.get("unit")))
-    known = {e["tx_hash"].lower() for e in out if e.get("tx_hash")}
+            eid = f"broken-{dt.get('order') or r['seq']}"
+            if eid in seen:
+                continue
+            add(dict(base, kind="broken", id=eid, counterparty=dt.get("buyer"), item=dt.get("item"), qty=1, unit_price=None,
+                     amount=0, fee=0, storage=0, forum_fees=0, delta_wei=-int(dt.get("refunded") or 0) * CREDIT_WEI,
+                     gas_wei=0, tx_hash=None, warranty_hours=dt.get("warranty_hours"),
+                     hours_after_sale=dt.get("hours_after_sale"), unit=dt.get("unit")))
     for hhmmss, tool, tx in sends:
-        if tx in known or tx in seen or chain is None:
+        if tx in seen_tx or f"out-{tx}" in seen or chain is None:
             continue
         t = chain.transfer(tx)
-        if t is None or t["from"] != address.lower():
+        if t is None or t["from"] != me:
             continue                                 # not mined yet (the next sync finds it) or not the shop wallet's
-        known.add(tx)
         value = t["value_wei"] if t["ok"] else 0     # a failed transaction moves no value but still burns its gas
-        out.append({"ts": None, "time": hhmmss, "round": None, "source": f"kit:{tool}", "kind": "transfer_out", "id": tx,
-                    "counterparty": who.get(t["to"], t["to"]), "item": None, "qty": None, "unit_price": None,
-                    "amount": value / CREDIT_WEI, "fee": 0, "storage": 0, "forum_fees": 0, "delta": -value / CREDIT_WEI,
-                    "gas": t["gas_wei"] / CREDIT_WEI, "tx_hash": tx, "ok": t["ok"]})
+        add({"ts": t.get("ts"), "time": iso(t["ts"]) if t.get("ts") else hhmmss, "round": None, "source": f"kit:{tool}",
+             "kind": "transfer_out", "id": f"out-{tx}", "counterparty": who.get(t["to"], t["to"]), "item": None,
+             "qty": None, "unit_price": None, "amount": value / CREDIT_WEI, "fee": 0, "storage": 0, "forum_fees": 0,
+             "delta_wei": -value, "gas_wei": t["gas_wei"], "tx_hash": tx, "ok": t["ok"]})
     return out
 
 
 def sync(d, market, name, chain, address):
+    """Append the new events to logs/payments.jsonl (call under Lock). Returns (new lines, balance in wei)."""
     path = d / "logs" / "payments.jsonl"
     old = read_lines(path)
     seen = {e["id"] for e in old}
-    balance = old[-1]["balance_after"] if old else 0.0
+    seen_tx = {e["tx_hash"]: e for e in old if e.get("tx_hash")}
+    balance = old[-1]["balance_wei"] if old else 0
     new = []
-    for e in events(market_rows(market), name, kit_sends(d), chain, address, seen):
-        if e["id"] in seen:
-            continue
-        seen.add(e["id"])
-        balance = round(balance + e["delta"] - e["gas"], 6)
-        new.append(dict(e, balance_after=balance))
+    for e in events(market_rows(market), name, kit_sends(d), chain, address, seen, seen_tx):
+        balance += e["delta_wei"] - e["gas_wei"]
+        new.append(dict(e, delta=e["delta_wei"] / CREDIT_WEI, gas=e["gas_wei"] / CREDIT_WEI, balance_wei=balance,
+                        balance_after=balance / CREDIT_WEI))
     append(path, new)
     return new, balance
 
 
 def reconcile(d, market, name, chain, address, tolerance):
-    new, ledger = sync(d, market, name, chain, address)
-    wallet = chain.balance_wei(address) / CREDIT_WEI
-    diff = round(wallet - ledger, 6)
-    rec = {"ts": round(time.time(), 3), "time": iso(time.time()), "wallet": address, "chain_credits": wallet,
-           "ledger_credits": ledger, "diff": diff, "ok": abs(diff) <= tolerance, "new_lines": len(new),
-           "lines": len(read_lines(d / "logs" / "payments.jsonl")),
+    new, ledger_wei = sync(d, market, name, chain, address)
+    wallet_wei = chain.balance_wei(address)
+    diff = (wallet_wei - ledger_wei) / CREDIT_WEI
+    lines = read_lines(d / "logs" / "payments.jsonl")
+    rec = {"ts": round(time.time(), 3), "time": iso(time.time()), "wallet": address, "chain_credits": wallet_wei / CREDIT_WEI,
+           "ledger_credits": ledger_wei / CREDIT_WEI, "diff": diff, "ok": abs(diff) <= tolerance, "new_lines": len(new),
+           "lines": len(lines), "payments_tail": lines[-1]["hash"] if lines else GENESIS,
            "note": None if abs(diff) <= tolerance else
            ("the wallet holds more than the ledger: a transfer in without a settlement (a customer paid but the sale did "
             "not settle yet, or a direct transfer)" if diff > 0 else
@@ -222,10 +288,12 @@ def reconcile(d, market, name, chain, address, tolerance):
 def shop_address(d, explicit):
     if explicit:
         return explicit
-    for line in (d / "logs" / "agent-kit.log").read_text(encoding="utf-8", errors="replace").splitlines():
-        m = re.search(r"\[maroo\] shop wallet (0x[0-9a-fA-F]{40})", line)
-        if m:
-            return m.group(1)
+    for name in ("agent-kit.log", "agent-kit.log.1"):
+        p = d / "logs" / name
+        if p.exists():
+            m = re.search(r"\[maroo\] shop wallet (0x[0-9a-fA-F]{40})", p.read_text(encoding="utf-8", errors="replace"))
+            if m:
+                return m.group(1)
     sys.exit("no shop wallet address: pass --address or start the kit once")
 
 
@@ -245,11 +313,19 @@ def main(argv=None):
         print(json.dumps({"ok": not bad, "problems": bad}, ensure_ascii=False))
         return 0 if not bad else 2
     chain, address = Chain(a.rpc), shop_address(d, a.address)
-    if a.cmd == "sync":
-        new, bal = sync(d, a.market.rstrip("/"), a.name, chain, address)
-        print(json.dumps({"new_lines": len(new), "ledger_credits": bal}, ensure_ascii=False))
+    try:
+        with Lock(d):
+            if a.cmd == "sync":
+                new, bal = sync(d, a.market.rstrip("/"), a.name, chain, address)
+                print(json.dumps({"new_lines": len(new), "ledger_credits": bal / CREDIT_WEI}, ensure_ascii=False))
+                return 0
+            rec = reconcile(d, a.market.rstrip("/"), a.name, chain, address, a.tolerance)
+    except BlockingIOError:
+        print(json.dumps({"skipped": "another sync holds logs/.payments.lock"}))
         return 0
-    rec = reconcile(d, a.market.rstrip("/"), a.name, chain, address, a.tolerance)
+    except TornTail as e:
+        print(json.dumps({"ok": False, "problems": [str(e)]}, ensure_ascii=False))
+        return 2
     print(json.dumps(rec, ensure_ascii=False))
     return 0 if rec["ok"] else 2
 

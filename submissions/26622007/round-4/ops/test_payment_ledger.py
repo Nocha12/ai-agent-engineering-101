@@ -47,7 +47,7 @@ GAS = {TX[2]: 2 * W // 10, TX[4]: W // 10, REFUND: W // 10}   # supply and refun
 
 class FakeChain:
     def __init__(self, balance_wei, mined=True):
-        self.balance, self.mined, self.calls = balance_wei, mined, []
+        self.balance, self.mined, self.calls, self.sender = balance_wei, mined, [], {}
 
     def balance_wei(self, address):
         return self.balance
@@ -57,10 +57,15 @@ class FakeChain:
         if not self.mined:
             return None
         if tx == REFUND:
-            return {"from": SHOP.lower(), "to": CUST.lower(), "value_wei": 13000 * W, "gas_wei": GAS[tx], "ok": True}
+            return {"from": SHOP.lower(), "to": CUST.lower(), "value_wei": 13000 * W, "gas_wei": GAS[tx], "ok": True,
+                    "ts": 1795510000}
         if tx == "0x" + "b" * 64:
-            return {"from": "0xdead", "to": SHOP.lower(), "value_wei": 5 * W, "gas_wei": 0, "ok": True}
-        return {"from": SHOP.lower(), "to": "0xmarket", "value_wei": 0, "gas_wei": GAS.get(tx, 0), "ok": True}
+            return {"from": "0xdead", "to": SHOP.lower(), "value_wei": 5 * W, "gas_wei": 0, "ok": True, "ts": 1795510000}
+        if tx == TX[2]:   # the lot of 20,000 paid from the shop wallet
+            return {"from": self.sender.get(tx, SHOP.lower()), "to": "0xmarket", "value_wei": 20000 * W, "gas_wei": GAS[tx], "ok": True,
+                    "ts": 1795510000}
+        return {"from": self.sender.get(tx, SHOP.lower()), "to": "0xmarket", "value_wei": 0, "gas_wei": GAS.get(tx, 0),
+                "ok": True, "ts": 1795510000}
 
 
 def kit_log(d, lines):
@@ -91,8 +96,9 @@ class Ledger(unittest.TestCase):
         kit_log(self.d, [sent("supply_buy", TX[2]), sent("refund", REFUND), sent("other", "0x" + "b" * 64)])
         new, bal = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
         kinds = [(e["kind"], e["id"]) for e in new]
-        self.assertEqual(kinds, [("grant", "grant-3"), ("supply", "supply-5"), ("sale", "o-1"), ("supply", "supply-9"),
-                                 ("sale", "o-3"), ("broken", "broken-o-1"), ("transfer_out", REFUND)])
+        self.assertEqual(kinds, [("grant", f"grant-{TX[1]}"), ("supply", f"supply-{TX[2]}"), ("sale", "sale-o-1"),
+                                 ("supply", f"supply-{TX[4]}"), ("sale", "sale-o-3"), ("broken", "broken-o-1"),
+                                 ("transfer_out", f"out-{REFUND}")])
         sale = new[2]
         self.assertEqual((sale["counterparty"], sale["amount"], sale["fee"], sale["delta"], sale["tx_hash"]),
                          ("이정화-8ae6", 13000, 340, 12660, TX[3]))
@@ -101,9 +107,10 @@ class Ledger(unittest.TestCase):
                          (10000, 120, 50, -10170, 0.1))
         self.assertEqual(new[1]["unit_price"], 10000)
         self.assertEqual(new[6]["counterparty"], "이정화-8ae6")
-        expect = 5000000 - 20000 - 0.2 + 12660 - 10170 - 0.1 + 11670 - 13000 - 0.1
-        self.assertAlmostEqual(bal, expect, places=6)
-        self.assertAlmostEqual(new[-1]["balance_after"], expect, places=6)
+        expect = (5000000 - 20000 + 12660 - 10170 + 11670 - 13000) * W - GAS[TX[2]] - GAS[TX[4]] - GAS[REFUND]
+        self.assertEqual(bal, expect)
+        self.assertEqual(new[6]["time"], pl.iso(1795510000))
+        self.assertEqual(new[-1]["balance_wei"], expect)
         for e in new:   # every line carries the agreed fields
             for k in ("time", "id", "counterparty", "item", "qty", "unit_price", "amount", "fee", "storage", "tx_hash",
                       "balance_after", "prev", "hash"):
@@ -126,9 +133,9 @@ class Ledger(unittest.TestCase):
         self.rows.append(row(12, "settle", {"order": "o-4", "buyer": "y", "shop": "https://b.trycloudflare.com",
                                             "amount": 5000, "shop_fee": 260, "tx_hash": "0x" + "c" * 64}))
         new, bal = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
-        self.assertEqual([e["id"] for e in new], ["o-4"])
+        self.assertEqual([e["id"] for e in new], ["sale-o-4"])
         self.assertTrue((self.d / "logs" / "payments.jsonl").read_bytes().startswith(first))
-        self.assertAlmostEqual(bal, self.lines()[-2]["balance_after"] + 4740, places=6)
+        self.assertEqual(bal, self.lines()[-2]["balance_wei"] + 4740 * W)
         self.assertEqual(pl.verify(self.d / "logs" / "payments.jsonl"), [])
 
     def test_unmined_kit_transfer_waits_for_a_later_sync(self):
@@ -136,7 +143,7 @@ class Ledger(unittest.TestCase):
         new, _ = pl.sync(self.d, "m", "nocha12", FakeChain(0, mined=False), SHOP)
         self.assertNotIn("transfer_out", [e["kind"] for e in new])
         new, _ = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
-        self.assertEqual([e["kind"] for e in new], ["transfer_out"])
+        self.assertEqual([e["kind"] for e in new], ["supply", "supply", "transfer_out"])   # unreadable lots wait too
 
     def test_pending_grant_without_tx_is_not_counted(self):
         self.rows = [ROWS[0], row(3, "grant", {"shop": "nocha12", "credits": 5000000, "why": "start", "waiting": "x"})]
@@ -159,10 +166,11 @@ class Ledger(unittest.TestCase):
     def test_reconcile_equal_and_different(self):
         kit_log(self.d, [])
         _, bal = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
-        ok = pl.reconcile(self.d, "m", "nocha12", FakeChain(int(round(bal * W))), SHOP, 1.0)
+        ok = pl.reconcile(self.d, "m", "nocha12", FakeChain(bal), SHOP, 1.0)
         self.assertTrue(ok["ok"])
-        self.assertLessEqual(abs(ok["diff"]), 1e-6)
-        extra = pl.reconcile(self.d, "m", "nocha12", FakeChain(int(round((bal + 9000) * W))), SHOP, 1.0)
+        self.assertEqual(ok["diff"], 0)
+        self.assertEqual(ok["payments_tail"], self.lines()[-1]["hash"])
+        extra = pl.reconcile(self.d, "m", "nocha12", FakeChain(bal + 9000 * W), SHOP, 1.0)
         self.assertFalse(extra["ok"])
         self.assertAlmostEqual(extra["diff"], 9000, places=3)
         self.assertIn("more than the ledger", extra["note"])
@@ -175,6 +183,54 @@ class Ledger(unittest.TestCase):
             self.assertEqual(pl.main(["reconcile", "--dir", str(self.d)]), 2)
             self.assertEqual(pl.main(["verify", "--dir", str(self.d)]), 0)
         self.assertIn('"ok": true', out.getvalue().splitlines()[-1])
+
+    def test_lot_paid_before_the_market_records_it_is_not_counted_twice(self):
+        self.rows = ROWS[:4]                     # the kit has paid the lot, the market has not written the supply row yet
+        kit_log(self.d, [sent("supply_buy", TX[2])])
+        new, bal1 = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
+        self.assertEqual(new[-1]["kind"], "transfer_out")
+        self.assertEqual(bal1, (5000000 - 20000) * W - GAS[TX[2]])
+        self.rows = ROWS[:5]
+        new, bal2 = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
+        self.assertEqual([e["kind"] for e in new], ["supply"])
+        self.assertEqual((new[0]["delta_wei"], new[0]["gas_wei"]), (0, 0))
+        self.assertIn("reclassifies", new[0]["note"])
+        self.assertEqual(bal2, bal1)
+
+    def test_supply_gas_counts_only_when_the_shop_wallet_sent_it(self):
+        self.rows = ROWS[:5]
+        kit_log(self.d, [])
+        c = FakeChain(0)
+        c.sender[TX[2]] = "0xmarket"
+        new, _ = pl.sync(self.d, "m", "nocha12", c, SHOP)
+        self.assertEqual(new[-1]["gas_wei"], 0)
+
+    def test_unreadable_supply_tx_is_written_by_a_later_sync(self):
+        self.rows = ROWS[:5]
+        kit_log(self.d, [])
+        new, _ = pl.sync(self.d, "m", "nocha12", FakeChain(0, mined=False), SHOP)
+        self.assertEqual([e["kind"] for e in new], ["grant"])
+        new, _ = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
+        self.assertEqual([(e["kind"], e["gas_wei"]) for e in new], [("supply", GAS[TX[2]])])
+
+    def test_torn_last_line_stops_sync_and_verify_reports_it(self):
+        kit_log(self.d, [])
+        pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
+        p = self.d / "logs" / "payments.jsonl"
+        p.write_bytes(p.read_bytes()[:-20])
+        with self.assertRaises(pl.TornTail):
+            pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
+        self.assertTrue(pl.verify(p))
+        with mock.patch.object(pl, "Chain", lambda rpc: FakeChain(0)), redirect_stdout(io.StringIO()):
+            self.assertEqual(pl.main(["sync", "--dir", str(self.d)]), 2)
+
+    def test_a_second_run_waits_out_the_lock(self):
+        kit_log(self.d, [])
+        with pl.Lock(self.d):
+            with mock.patch.object(pl, "Chain", lambda rpc: FakeChain(0)), redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(pl.main(["sync", "--dir", str(self.d)]), 0)
+            self.assertIn("skipped", out.getvalue())
+            self.assertFalse((self.d / "logs" / "payments.jsonl").exists())
 
     def test_empty_shop_reconciles_to_zero(self):
         self.rows = [ROWS[0]]
