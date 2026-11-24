@@ -9,7 +9,7 @@ from runpy import run_path
 
 
 from fractions import Fraction
-from math import ceil, floor, isfinite
+from math import ceil, expm1, floor, isfinite
 
 
 FEE_DIVISOR = 100
@@ -24,7 +24,7 @@ FOOD_LIFE = {'A': (Fraction(80, 100), 1), 'B': (Fraction(45, 100), Fraction(80, 
 STRESS = Fraction(1, 10)
 PRIOR_SALES, PRIOR_HOURS = Fraction(1, 4), 1
 SUGGEST_LIMIT = 4
-DEFAULT_HOLD = 3
+DEFAULT_HOLD = 12
 ALLOWED = {'sku', 'action', 'cost', 'sell', 'qty', 'batch_size', 'hold_hours', 'grade',
            'unsold', 'remaining_hours', 'round_hours', 'lot_dues'}
 
@@ -65,7 +65,8 @@ def _scenario(kind, shelf, grade, hold, remaining, round_hours, unsold, demand, 
         market = speed * horizon
         shared = market / (shops + 1)
         capacity = shared / 2 if stress else max(shared, market - units)
-        sold = min(1, max(0, capacity - (own if action == 'buy' else 0)) / qty)
+        per_unit = max(0, capacity - (own if action == 'buy' else 0)) / qty
+        sold = Fraction(str(-expm1(-float(per_unit)))) if stress else min(1, per_unit)
     if unsold is not None:
         conditional = max(0, 1 - unsold - (STRESS if stress else 0))
         possible = life > (0 if demand is not None else hold) if kind == 'food' else True

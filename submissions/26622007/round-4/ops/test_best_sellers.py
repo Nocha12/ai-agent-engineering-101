@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 import best_sellers as bs
@@ -86,7 +87,7 @@ class Rank(unittest.TestCase):
         top = out['items'][0]
         # 1.17/h * 4 h shared with 2 selling shops + us = 1.56 -> 2, minus 1 in stock
         self.assertEqual(top['buy_qty'], 1)
-        self.assertEqual(top['price_ceiling_args'], {'sku': 'water', 'sell': 3050, 'qty': 1})
+        self.assertEqual(top['price_ceiling_args'], {'sku': 'water', 'sell': 3050, 'qty': 1, 'hold_hours': 4})
 
     def test_one_recent_sale_is_too_thin_to_recommend_buying(self):
         milk = next(i for i in bs.rank({'horizon_hours': 48}, self.data, now=NOW)['items'] if i['sku'] == 'milk')
@@ -150,7 +151,7 @@ def forged(data):
         out.write_text(json.dumps(data), encoding='utf-8')
         move = json.loads(subprocess.run([sys.executable, '-B', str(OPS / 'best_sellers_forge.py'), '--data', str(out)],
                                          capture_output=True, text=True, check=True).stdout)
-    ns = {}
+    ns = {'__file__': bs.__file__}
     exec(compile(move['args']['logic'], 'logic.py', 'exec'), ns)
     return move, ns
 
@@ -164,6 +165,8 @@ class Live(unittest.TestCase):
         self.ns['_live'] = lambda kit, data: (rows, True)
         out = self.ns['run']({}, FakeKit())
         self.assertTrue(out['live_truncated'])
+        self.assertTrue(out['stale'])
+        self.assertTrue(all(item['buy_qty'] == 0 for item in out['items']))
         self.assertEqual(out['as_of'], int(NOW + 60))
         self.assertEqual(out['items'][0]['tx'], 5)
 
@@ -171,7 +174,8 @@ class Live(unittest.TestCase):
         def boom(kit, data):
             raise OSError('down')
         self.ns['_live'] = boom
-        out = self.ns['run']({}, FakeKit())
+        with patch('time.time', return_value=NOW):
+            out = self.ns['run']({}, FakeKit())
         self.assertIn('live_error', out)
         self.assertEqual(out['items'][0]['sku'], 'water')
 
@@ -201,7 +205,7 @@ class Forge(unittest.TestCase):
         for word in ('pay(', 'sign(', 'sign_jwt(', 'token(', 'open(', 'write(', '.post(', '.put(', '.delete(',
                      'kit.pay', 'kit.sign', 'kit.token', 'kit.address'):
             self.assertNotIn(word, args['logic'])
-        ns = {}
+        ns = {'__file__': bs.__file__}
         exec(compile(args['logic'], 'logic.py', 'exec'), ns)
         exec(compile(args['test'], 'test.py', 'exec'), ns)
 

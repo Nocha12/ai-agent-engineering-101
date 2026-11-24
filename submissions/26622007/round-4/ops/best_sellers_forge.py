@@ -41,19 +41,25 @@ def _live(kit, data):
 
 def run(args, kit):
     import time as _t
+    from runpy import run_path
     args = dict(args or {})
     live = args.pop('live', True)
     if type(live) is not bool:
         raise ValueError('live is true or false')
     testing = getattr(kit, 'testing', False)
-    now = max(_t.time(), DATA['as_of']) if not testing else DATA['as_of']
     data, extra = DATA, {}
+    if globals().get('__file__', '').endswith('logic.py'):
+        data = run_path('ops/price_demand.py')['load_cache']()
+    now = _t.time() if not testing else data['as_of']
     if live and not testing:
         try:
-            rows, truncated = _live(kit, DATA)
-            data = merge_live(DATA, rows, now)
+            rows, truncated = _live(kit, data)
+            base_time = data['as_of']
+            data = merge_live(data, rows, now)
+            if truncated or any(row.get('kind') in ('supply', 'settle') for row in rows):
+                data['stock_pending'] = True
             if truncated:                       # the newest rows are missing: date the answer by what was read
-                now = max([e.get('ts', 0) for e in rows if isinstance(e.get('ts'), (int, float))] or [DATA['as_of']])
+                now = max([e.get('ts', 0) for e in rows if isinstance(e.get('ts'), (int, float))] or [base_time])
                 extra['live_truncated'] = True
             data = dict(data, as_of=now)
         except Exception as e:
@@ -61,7 +67,7 @@ def run(args, kit):
     out = rank(args, data, now)
     if extra.get('live_truncated') and not testing:      # age against the clock, not the newest row read
         out['data_age_min'] = int((_t.time() - now) // 60)
-        out['stale'] = out['data_age_min'] > STALE_MIN
+        out['stale'] = True
     out.update(extra)
     return out
 '''

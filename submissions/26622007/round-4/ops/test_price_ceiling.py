@@ -65,7 +65,7 @@ def test_velocity_zero_and_uncontested_demand(monkeypatch):
 
 
 def test_expiry_and_deadline_reduce_feasible_lot():
-    args = dict(sku='water', cost=1050, sell=1800, hold_hours=5, qty=4, remaining_hours=10)
+    args = dict(sku='water', cost=750, sell=1800, hold_hours=5, qty=4, remaining_hours=10)
     assert prices.quote(args)['recommended_qty'] == 4
     for limit in ({'remaining_hours': 0.4}, {'round_hours': 0.4}):
         reduced = prices.quote(dict(args, **limit))
@@ -129,10 +129,15 @@ def test_guard_requires_full_lot_and_uses_available_time_with_probability_cap(mo
     assert prices.price_guard('buy', dict(args, qty=1, unsold=0))['verdict'] == 'buy'
 
 
-def test_recommendation_respects_integer_ceiling_with_fractional_cost(monkeypatch):
-    monkeypatch.setattr(prices, '_signals', lambda sku, now: (0.9503, 12, 0, 0, 0))
-    result = prices.quote(dict(sku='water', sell=1800, cost=500.5, hold_hours=1))
+def test_recommendation_respects_integer_ceiling_with_fractional_cost():
+    result = prices.quote(dict(sku='water', sell=1001, cost=496.5, unsold=0))
     assert (result['verdict'], result['recommended_qty']) == ('skip', 0)
+
+
+def test_conservative_share_does_not_promise_one_sale_at_one_expected_arrival(monkeypatch):
+    monkeypatch.setattr(prices, '_signals', lambda sku, now: (3.25, 3, 0, 0, 0))
+    result = prices.quote(dict(sku='water', sell=1800, cost=1000, hold_hours=1))
+    assert result['expected_profit'] > 0 and result['verdict'] == 'skip'
 
 
 def test_competitor_depletion_only_credited_in_base_case(monkeypatch):

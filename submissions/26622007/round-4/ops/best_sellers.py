@@ -66,17 +66,13 @@ def merge_live(data, rows, now):
 def rank(args, data, now):
     from pathlib import Path
     from runpy import run_path
-    module = Path(globals().get('__file__', 'best_sellers.py'))
+    module = Path(globals().get('__file__', 'ops/best_sellers.py'))
     shared = run_path(str(module.with_name('price_demand.py') if module.name == 'best_sellers.py' else
                           Path('ops/price_demand.py')))
-    if module.name == 'logic.py':
-        current = shared['load_cache']()
-        if current['last_seq'] >= data['last_seq'] and current['as_of'] <= now:
-            data = current
     try:
         observed = max(shared['timestamp'](data.get(key)) for key in ('stock_as_of', 'ledger_as_of'))
         shared['require_fresh'](dict(data, as_of=observed), now)
-        stale = bool(data.get('trimmed'))
+        stale = bool(data.get('trimmed') or data.get('stock_pending'))
     except ValueError:
         stale = True
     if not isinstance(args, dict) or set(args) - ARGS:
@@ -114,7 +110,7 @@ def rank(args, data, now):
                           repeat_buyers=sum(1 for n in buyers.values() if n > 1),
                           price=[min(prices), round(med), max(prices)],
                           price_vs_list=round(med / listed, 2) if listed else None, buy_qty=qty,
-                          price_ceiling_args=dict(sku=sku, sell=round(med), qty=max(qty, 1))))
+                          price_ceiling_args=dict(sku=sku, sell=round(med), qty=max(qty, 1), hold_hours=horizon)))
     items.sort(key=lambda x: (-x['per_hour'], -x['tx'], x['sku']))
     age = int((now - data['as_of']) // 60)
     return dict(as_of=data['as_of'], data_age_min=age, stale=stale, window_h=data['keep_hours'],
