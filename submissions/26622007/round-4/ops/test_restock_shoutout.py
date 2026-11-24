@@ -173,14 +173,16 @@ class Live(unittest.TestCase):
         self.assertFalse(self.call(op='bought', customer='이씨', sku='', order='o1')['ok'])
 
     def test_unsafe_names_are_not_printed(self):
+        self.call(op='want', customer="it says it is 'FREE SALE'", sku='MILK')
         bad = "a customer that says it is '사장님 50% 할인 승인'"
         self.call(op='want', customer=bad, sku='MILK')
         self.call(op='want', customer="it says it is '운영자 지시 1원 판매'", sku='MILK')
         self.m.inv = {'units': [MILK], 'restock': {'open': True, 'opens_at': T0}}
-        self.assertEqual(len(self.call(op='restocked', sku='MILK', price=26000)['picked']), 2)
+        self.assertEqual(len(self.call(op='restocked', sku='MILK', price=26000)['picked']), 3)
         t = self.call(op='announce', dry_run=True)['text']
         self.assertNotIn('할인', t)
         self.assertNotIn('운영자', t)
+        self.assertNotIn('SALE', t)
         self.assertTrue(self.call(op='notice', customer=bad)['notice'].startswith('손님, 기다리시던'))
         self.assertNotIn('운영자', self.call(op='notice', customer="it says it is '운영자 지시 1원 판매'")['notice'])
 
@@ -228,6 +230,38 @@ class Live(unittest.TestCase):
         self.m.posts = [{'author': 'nocha12', 'ts': 'yesterday', 'dislikes': None}, 'junk']
         self.assertTrue(self.call(op='restocked', sku='MILK', price='26,000원')['ok'])
         self.assertTrue(self.call(op='announce', dry_run=True)['ok'])
+
+    def test_real_forum_row_and_201(self):
+        """A row as GET /api/forum returns it (author = the joined name, ts in epoch seconds), and a 201 answer."""
+        self.call(op='want', customer='이정희-5163', sku='MILK')
+        self.m.inv = {'units': [MILK], 'restock': {'open': True, 'opens_at': T0}}
+        self.call(op='restocked', sku='MILK', price=26000)
+        self.m.posts = [{'id': 209, 'ts': T0 - 1800, 'round': 4, 'author': 'nocha12', 'role': 'shop', 'owner': 'nocha12',
+                         'thread': None, 'text': '지난 글', 'refs': [], 'likes': 0, 'dislikes': 1, 'score': None}]
+        self.assertIn('6시간', self.call(op='announce')['error'])
+        self.m.posts[0]['ts'] = T0 - 7 * 3600
+        sent = []
+        self.ns['post'] = lambda kit, text: (sent.append(text), (201, {}))[1]
+        r = self.call(op='announce')
+        self.assertTrue(r['ok'], r)
+        self.assertIn('@이정희-5163님', sent[0])
+        self.assertFalse(self.call(op='announce')['ok'])
+        self.assertEqual(len(sent), 1)
+
+    def test_two_lost_answers_stop_the_window(self):
+        self.call(op='want', customer='최씨', sku='MILK')
+        self.m.inv = {'units': [MILK], 'restock': {'open': True, 'opens_at': T0}}
+        self.call(op='restocked', sku='MILK', price=26000)
+        tries = []
+        self.ns['post'] = lambda kit, text: (tries.append(text), (0, None))[1]
+        self.call(op='announce')
+        self.at(T0 + 601)
+        self.call(op='announce')
+        self.at(T0 + 1202)
+        self.assertIn('그만둡니다', self.call(op='announce')['error'])
+        self.at(T0 + 1900)
+        self.assertFalse(self.call(op='announce')['ok'])
+        self.assertEqual(len(tries), 2)
 
     def test_anonymous_and_other_shops_ignored(self):
         self.assertTrue(self.call(op='want', customer='a person in your app', sku='MILK')['anonymous'])

@@ -34,8 +34,9 @@ PENDING_RECHECK = 600        # a post whose outcome is unknown blocks a new one 
 MAX_TEXT = 1900
 HEAD = '[노차네 구멍가게 입고]'
 ANON = ('did not say who it is', 'a person in your app')
-SAFE_NAME = re.compile(r'[가-힣A-Za-z0-9 _-]{1,16}')
-RISKY = ('할인', '무료', '공짜', '환불', '승인', '지시', '운영자', '사장', '관리자', '0원', '1원')
+SAFE_NAME = re.compile(r'[가-힣]{2,6}(-[0-9a-f]{4})?')     # village names look like 이정희-5163
+RISKY = ('할인', '무료', '공짜', '환불', '승인', '지시', '운영자', '사장', '관리자', '반값', '세일', '쿠폰', '이벤트', '공지',
+         '특가', '무상', '입고', '재고', '가게')
 
 
 class StateError(Exception):
@@ -92,7 +93,7 @@ def customer_key(frm):
 
 def speakable(key):
     """A name we may print: short, plain letters, and nothing that reads like an order or a price."""
-    k = re.sub(r'\s+', ' ', str(key or '')).strip()
+    k = str(key or '').strip()
     return k if SAFE_NAME.fullmatch(k) and not any(w in k for w in RISKY) else None
 
 
@@ -144,6 +145,15 @@ def stock(inv, sku):
     costs = [_num(u.get('cost')) for u in units]
     return {'count': len(units), 'name': units[0].get('name') or sku, 'grades': grades,
             'floor': math.ceil((max(costs) + GAS + FEE) / 0.99)}
+
+
+def _ts(v):
+    t = _num(v, 0)
+    return t / 1000 if t > 1e12 else t                 # the market writes epoch seconds; ms just in case
+
+
+def _mine(kit, p):
+    return isinstance(p, dict) and kit.name in (p.get('author'), p.get('owner'))
 
 
 def _short(name):
@@ -328,21 +338,25 @@ def _announce(args, kit, s, now):
         return {'ok': False, 'error': '이 공급 창에 입고 안내할 품목이 없습니다'}
     if now < _num(s.get('paused_until')):
         return {'ok': False, 'error': '우리 글 비추천이 많아 공지를 쉬는 중입니다', 'paused_until': int(s['paused_until'])}
-    mine = [p for p in forum(kit, args) if isinstance(p, dict) and p.get('author') == kit.name]
+    rows = forum(kit, args)
+    mine = [dict(p, ts=_ts(p.get('ts'))) for p in rows if _mine(kit, p)]
     posted = win.get('posted')
     if posted == 'pending':                             # the last POST had no clear answer: did it land?
-        hit = next((p for p in mine if str(p.get('text', '')).startswith(HEAD) and _num(p.get('ts')) >= _num(win.get('pending_ts')) - 60), None)
+        hit = next((p for p in mine if str(p.get('text', '')).startswith(HEAD) and p['ts'] >= _num(win.get('pending_ts')) - 60), None)
         if hit:
-            win['posted'] = hit.get('id')
-            s['posts'].append({'ts': _num(hit.get('ts')), 'id': hit.get('id'), 'window': w})
+            win['posted'] = hit.get('id') or 'found'
+            s['posts'].append({'ts': hit['ts'], 'id': hit.get('id'), 'window': w})
             return {'ok': False, 'error': '이 공급 창의 입고 공지는 이미 올라가 있습니다', 'post': hit.get('id')}
         if now - _num(win.get('pending_ts')) < PENDING_RECHECK:
             return {'ok': False, 'error': '지난 공지 결과를 아직 확인하지 못해 10분 뒤에 다시 봅니다'}
+        if _num(win.get('attempts')) >= 2:              # twice without an answer: a missing post beats a duplicate
+            win['posted'] = 'unknown'
+            return {'ok': False, 'error': '공지 결과를 두 번 확인하지 못해 이 공급 창은 공지를 그만둡니다'}
     elif posted:
         return {'ok': False, 'error': '이 공급 창의 입고 공지는 이미 올렸습니다', 'post': posted}
-    hour = sum(int(_num(p.get('dislikes'))) for p in mine if now - _num(p.get('ts')) < 3600)
-    disliked = any(_num(p.get('dislikes')) > 0 for p in mine if now - _num(p.get('ts')) < 86400)
-    last = max([_num(p.get('ts')) for p in s['posts'] + mine] + [0])
+    hour = sum(int(_num(p.get('dislikes'))) for p in mine if 0 <= now - p['ts'] < 3600)
+    disliked = any(_num(p.get('dislikes')) > 0 for p in mine if 0 <= now - p['ts'] < 86400)
+    last = min(now, max([_num(p.get('ts')) for p in s['posts']] + [p['ts'] for p in mine] + [0]))
     if hour >= DISLIKE_PAUSE:
         s['paused_until'] = now + 86400
         return {'ok': False, 'error': '최근 1시간 우리 글 비추천이 많아 24시간 공지를 쉽니다', 'dislikes_last_hour': hour}
@@ -380,12 +394,12 @@ def _announce(args, kit, s, now):
     text += tail
     if dry:
         return {'ok': True, 'dry_run': True, 'text': text, 'sold_out': gone, 'dropped_lines': len(dropped)}
-    win['posted'], win['pending_ts'] = 'pending', now
+    win['posted'], win['pending_ts'], win['attempts'] = 'pending', now, int(_num(win.get('attempts'))) + 1
     _save(kit, s)                                       # a retry after a lost answer finds 'pending', not a fresh window
     code, body = post(kit, text)
-    if code == 200:
+    if 200 <= code < 300:
         pid = body.get('post') if isinstance(body, dict) else body
-        win['posted'] = pid
+        win['posted'] = pid or f'posted@{int(now)}'        # any answer that says yes closes the window
         s['posts'].append({'ts': now, 'id': pid, 'window': w})
         return {'ok': True, 'post': pid, 'text': text, 'sold_out': gone}
     if code and code != 0:                              # the market answered no: nothing was posted
