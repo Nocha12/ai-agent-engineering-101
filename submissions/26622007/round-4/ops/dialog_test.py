@@ -12,10 +12,11 @@ its own tools there (forge.json hashes as the kit makes them) and nothing is wri
 Scenario: a quiet wake (the agent forges while nobody waits) -> customer A first visit (a chair, a tired day after a child's sports day) -> customer B first visit (rice) ->
 customer A again. Checks: every message gets a reply; customers.json holds A and B apart; B's reply carries nothing
 from A's visit; A's second reply refers back to the first visit; nothing about customers went into notes.md.
-Prints the transcript and a JSON verdict; exit 0 when every check passes.
+Recommending a product is out of scope here: the test agent cannot see stock. Prints the transcript and a JSON verdict; exit 0 when every check passes.
 """
 import argparse
 import json
+import urllib.parse
 import urllib.request
 import shutil
 import sys
@@ -43,15 +44,18 @@ def main():
     a = ap.parse_args()
     global A
     rows = json.load(urllib.request.urlopen(f"{a.market}/api/ledger?after=-500", timeout=30))
-    bought = {}
+    bought, shops = {}, {}
     for r in rows:
         if r["kind"] == "settle" and r["data"].get("buyer"):
             bought.setdefault(r["data"]["buyer"], []).append(r["data"].get("name") or "")
+            shops.setdefault(r["data"]["buyer"], []).append(r["data"].get("shop") or "")
     if not bought:
         print("no customer purchase in the last 500 ledger rows; nothing to test fixed info with")
         return 2
     A = max(bought, key=lambda k: len(bought[k]))
     a_items = [x[:6] for x in bought[A] if x]
+    ours = shops[A][-1]                                    # play the shop A bought from last: that one is "우리 가게"
+    a_elsewhere = [x[:6] for x, s in zip(bought[A], shops[A]) if x and s.lower().rstrip("/") != ours.lower().rstrip("/")]
     village = json.load(urllib.request.urlopen(f"{a.market}/api/village", timeout=30))
     a_town = next((x.get("lives_in") for x in village.get("in_town", []) if x.get("name") == A), None)
     sys.path.insert(0, str(Path(a.kit).resolve()))
@@ -64,7 +68,8 @@ def main():
     (tmp / "notes.md").write_text(HOLD, encoding="utf-8")
     mk.LOG_FILE = tmp / "logs" / "agent-kit.log"
     agent = json.loads((tmp / "agent.json").read_text(encoding="utf-8"))
-    ctx = {"market": a.market, "name": "nocha12", "tokens": {}, "addresses": {"shop": "0x0"},
+    # upper case and a slash: the tool must normalize it to tell "우리 가게" apart
+    ctx = {"market": a.market, "shop_url": ours.upper() + "/", "name": "nocha12", "tokens": {}, "addresses": {"shop": "0x0"},
            "signer": ak.Signer({}, tmp)}
     toolbox = ak.Toolbox(tmp, ctx)
     mind = ak.Mind(tmp, agent, ak.Model(agent), toolbox, ctx, ["shop"])
@@ -134,12 +139,16 @@ def main():
         "a_second_visit_recalls_first": any(w in a2_reply for w in A_CONTEXT + ("지난번", "저번")),
         "no_customer_info_in_notes": not any(w in notes for w in (A, B) + A_CONTEXT),
         "profile_tool_forged": bool(ptool),
-        "profile_tool_permission_read_only": bool(ptool) and set(pperm.get("network") or []) <= {"market.ourolabs.ai"}
+        "profile_tool_permission_read_only": bool(ptool) and set(pperm.get("network") or []) <= {urllib.parse.urlparse(a.market).hostname}
         and not any(pperm.get(k) for k in ("write", "identity", "wallet", "handles", "pay_limit")),
         "a_fixed_info_from_ledger": fixed(ra) is not None and any(w in a_fixed for w in a_items),
         "b_record_has_nothing_of_a_fixed": not any(w in b_fixed + rb_text for w in a_items),
         "fixed_info_kept_apart_from_talk": fixed(ra) is not None and not any(w in a_fixed for w in A_CONTEXT),
         "no_source_said_to_customer": "다른 가게" not in replies and (not a_town or a_town not in replies),
+        "other_shop_items_not_said": not any(w in replies for w in a_elsewhere),
+        "our_shop_told_apart": "우리 가게" in a_fixed and not any(   # an item bought elsewhere is never labelled ours
+            w in json.dumps(e, ensure_ascii=False) and "우리 가게" in json.dumps(e, ensure_ascii=False)
+            for v in (fixed(ra) or {}).values() if isinstance(v, list) for e in v for w in a_elsewhere),
         "test_file_cleaned": not (tmp / "customers.test.json").exists(),
         "visits_counted": visits(ra) == 1 and visits(rb) == 1,   # A's two visits are minutes apart: one visit
         "b_sensitivity_not_raised_by_words": rb is not None and str(next((v for k, v in rb.items() if "민감" in k or "sensitiv" in k.lower()), "mid")).strip() in ("mid", ""),
