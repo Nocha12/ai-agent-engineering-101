@@ -20,14 +20,16 @@ import sys
 from pathlib import Path
 
 MASK = '[가림]'
-CUSTOMER = re.compile(r'[가-힣]{2,4}-[0-9a-f]{4}')       # village buyers: 이름-1a2b
+CUSTOMER = re.compile(r'[가-힣]{2,6}-[0-9a-f]{4}')       # village buyers: 이름-1a2b (as restock_shoutout reads them)
 GOAL = ("동네 골목 '노차네 구멍가게'를 운영한다. 공급 창에서 먹을거리를 들여 손님과 다른 에이전트에게 팔고, 필요한 도구는 "
         "직접 만들며(forge_tool), 결제와 정산은 Maroo testnet에서 한다. 재고·등급·보증·가격을 속이지 않고, 보증 안의 고장은 "
         "장부로 확인한 뒤 환불한다. 시장 규칙 밖의 방법은 쓰지 않는다. 가격·매입·재고 판단의 기준과 수치, 손님 응대 방식은 "
         + MASK + ".")
 KEEP_LOG = ('forge', 'kit', 'maroo', 'market', 'tunnel')    # agent-kit.log tags kept as written (customer names masked)
 APP_LINES = ('the mini app is up on port', 'waiting up to', 'the page offers', 'no tools from the page')
-ARGS_KEEP = {'forge_tool': ('name',), 'read_tool': ('name',)}
+# settle evidence: the kit logs no settle line of its own; private_checkout op=settle carries it (order ids are not names)
+ARGS_KEEP = {'forge_tool': ('name',), 'read_tool': ('name',), 'private_checkout': ('op', 'order')}
+ERROR = re.compile(r'^([A-Za-z_.]+(?:Error|Exception|Exit|Interrupt))\b.*', re.S)   # keep the exception class only
 
 
 def agent_json(src):
@@ -42,14 +44,9 @@ def agent_json(src):
 
 
 def notes(src):
-    """Each note keeps its operator stamp ("[운영자 지시 11/24 23:40]") if it has one; its text is masked."""
-    out = []
-    for line in src.read_text(encoding='utf-8').splitlines():
-        if not line.strip():
-            continue
-        m = re.match(r'(\[운영자 지시 [^\]]*\])', line)
-        out.append((m.group(1) + ' ' if m else '') + MASK)
-    return '\n'.join(out) + '\n'
+    """One masked line per note; even the operator's time stamps stay out (they show when the operator stepped in)."""
+    n = sum(1 for line in src.read_text(encoding='utf-8').splitlines() if line.strip())
+    return (MASK + '\n') * n
 
 
 def _args(action, raw):
@@ -99,6 +96,24 @@ def react(src):
     return '\n'.join(out) + ('\n' if out else '')
 
 
+def _error(e):
+    m = ERROR.match(str(e or '').strip())
+    return m.group(1) if m else MASK
+
+
+def forge_log(src):
+    out = []
+    for line in src.read_text(encoding='utf-8').splitlines():
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(d, dict) and d.get('error'):
+            d['error'] = _error(d['error'])
+        out.append(json.dumps(d, ensure_ascii=False))
+    return '\n'.join(out) + ('\n' if out else '')
+
+
 LOG_LINE = re.compile(r'^(\d\d:\d\d:\d\d) \[([a-z]+)\] ?(.*)$')
 
 
@@ -109,10 +124,13 @@ def kit_log(src):
         if not m:
             continue                                         # continuation lines (traces, wrapped text): dropped
         ts, tag, text = m.groups()
-        if tag in KEEP_LOG:
+        if tag == 'forge' and ': test failed: ' in text:        # an assertion message can print a price
+            head, err = text.split(': test failed: ', 1)
+            out.append(f'{ts} [forge] {head}: test failed: {_error(err)}')
+        elif tag in KEEP_LOG:
             out.append(f'{ts} [{tag}] {CUSTOMER.sub("[손님]", text)}')
         elif tag == 'mind':
-            act = re.match(r'(sleeps \d+ s|[a-z_]+)', text)
+            act = re.match(r'(sleeps \d+ s|[a-z0-9_]+)', text)
             out.append(f'{ts} [mind] {act.group(1) if act else ""} | {MASK}')
         elif tag == 'app' and text.startswith(APP_LINES):
             out.append(f'{ts} [app] {text}')
@@ -130,7 +148,7 @@ def export(src, dst):
         (dst / 'notes.md').write_text(notes(src / 'notes.md'), encoding='utf-8')
     (dst / 'logs').mkdir()
     if (src / 'logs/forge.jsonl').exists():
-        shutil.copy2(src / 'logs/forge.jsonl', dst / 'logs/forge.jsonl')
+        (dst / 'logs/forge.jsonl').write_text(forge_log(src / 'logs/forge.jsonl'), encoding='utf-8')
     if (src / 'logs/react.jsonl').exists():
         (dst / 'logs/react.jsonl').write_text(react(src / 'logs/react.jsonl'), encoding='utf-8')
     if (src / 'logs/agent-kit.log').exists():
@@ -169,8 +187,10 @@ def check(dst):
         if p.is_file() and (p.suffix == '.key' or p.name in ('meshkit.json', 'customers.json', 'shoutout.json')
                             or '.kit' in p.parts):
             errors.append(f'{p.relative_to(dst)} must stay out')
-        if p.is_file() and p.suffix in ('.jsonl', '.log', '.md') and CUSTOMER.search(p.read_text(encoding='utf-8', errors='ignore')):
-            errors.append(f'{p.relative_to(dst)} names a customer')
+        if p.is_file() and CUSTOMER.search(p.read_text(encoding='utf-8', errors='ignore')):
+            rel = p.relative_to(dst)
+            errors.append(f'{rel} names a customer' + (' (tools/ is hash-pinned: re-forge the tool first)'
+                                                       if rel.parts[0] == 'tools' else ''))
     return errors
 
 

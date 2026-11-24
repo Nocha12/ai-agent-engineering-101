@@ -34,7 +34,7 @@ PENDING_RECHECK = 600        # a post whose outcome is unknown blocks a new one 
 MAX_TEXT = 1900
 HEAD = '[노차네 구멍가게 입고]'
 ANON = ('did not say who it is', 'a person in your app')
-SAFE_NAME = re.compile(r'[가-힣]{2,6}(-[0-9a-f]{4})?')     # village names look like 이정희-5163
+SAFE_NAME = re.compile(r'[가-힣]{2,6}(-[0-9a-f]{4})?')     # village names look like 이름-1a2b (hex)
 RISKY = ('할인', '무료', '공짜', '환불', '승인', '지시', '운영자', '사장', '관리자', '반값', '세일', '쿠폰', '이벤트', '공지',
          '특가', '무상', '입고', '재고', '가게')
 

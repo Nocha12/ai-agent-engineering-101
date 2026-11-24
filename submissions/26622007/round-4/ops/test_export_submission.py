@@ -32,7 +32,10 @@ def build(root):
     (root / 'ops' / 'price_ceiling.py').write_text('x')
     (root / 'logs' / 'sends.jsonl').write_text('{}\n')
     (root / 'logs' / 'forge.jsonl').write_text('{"tool": "shop_snapshot", "passed": true}\n')
-    rows = [{'ts': '1', 'action': 'forge_tool', 'thought': '마진 35%', 'args': "{'name': 'shop_snapshot', 'logic': 'x'}",
+    (root / 'logs' / 'forge.jsonl').write_text('{"tool": "x", "passed": false, "error": "AssertionError: floor 60656 != 60658"}\n')
+    rows = [{'ts': '0', 'action': 'private_checkout', 'thought': 'x', 'args': "{'op': 'settle', 'order': 'o-1', 'payment_mandate': {}}",
+             'observation': '{"ok": true, "settled": true, "sale": {"amount": 90000'},
+            {'ts': '1', 'action': 'forge_tool', 'thought': '마진 35%', 'args': "{'name': 'shop_snapshot', 'logic': 'x'}",
              'observation': '{"test": "passed", "tool": "shop_snapshot", "version": 1, "result": null}'},
             {'ts': '2', 'action': 'app_say', 'thought': '이정희-5163 손님에게 할인', 'args': "{'text': '이정희-5163님 쌀 9만'}",
              'observation': '{"ok": true, "result": {"said": "이정희-5163님 쌀 9만 크레딧'}]
@@ -41,6 +44,8 @@ def build(root):
         '19:00:08 [kit] agent_kit v5.1\n'
         '19:02:05 [mind] app_say | 이정희-5163에게 마진 35%로 판다\n'
         '19:03:00 [mind] sleeps 3600 s: 공급 창 기다림\n'
+        '19:03:30 [mind] round4_guide | 보관료 0.5%\n'
+        '19:03:40 [forge] x v1: test failed: AssertionError: floor 60656\n'
         '19:04:00 [market] settled o-1 with 이정희-5163 for 90000\n'
         '19:05:00 [app] 이정희-5163: 쌀 있어요?\n'
         '19:05:01 [app] the mini app is up on port 8800, behind its access code\n'
@@ -60,19 +65,26 @@ def main():
                          'tools/shop_snapshot/permission.yml', 'tools/shop_snapshot/test.py'], names
         a = json.loads((out / 'agent.json').read_text())
         assert a['persona'] == '노차' and a['llm']['model'] == 'm' and SECRET_GOAL not in a['goal'] and ex.MASK in a['goal']
-        assert (out / 'notes.md').read_text() == '[가림]\n[운영자 지시 11/24 23:40] [가림]\n'
+        assert (out / 'notes.md').read_text() == '[가림]\n[가림]\n'
         r = [json.loads(l) for l in (out / 'logs/react.jsonl').read_text().splitlines()]
+        assert r.pop(0) == {'ts': '0', 'action': 'private_checkout', 'thought': '[가림]', 'args': {'op': 'settle', 'order': 'o-1'},
+                            'observation': {'ok': True}}
+        assert json.loads((out / 'logs/forge.jsonl').read_text())['error'] == 'AssertionError'
         assert r[0] == {'ts': '1', 'action': 'forge_tool', 'thought': '[가림]', 'args': {'name': 'shop_snapshot'},
                         'observation': {'test': 'passed', 'tool': 'shop_snapshot', 'version': 1}}, r[0]
         assert r[1] == {'ts': '2', 'action': 'app_say', 'thought': '[가림]', 'args': '[가림]', 'observation': {'ok': True}}, r[1]
         log = (out / 'logs/agent-kit.log').read_text()
         assert log == ('19:00:08 [kit] agent_kit v5.1\n19:02:05 [mind] app_say | [가림]\n19:03:00 [mind] sleeps 3600 s | [가림]\n'
+                       '19:03:30 [mind] round4_guide | [가림]\n19:03:40 [forge] x v1: test failed: AssertionError\n'
                        '19:04:00 [market] settled o-1 with [손님] for 90000\n19:05:00 [app] [가림]\n'
                        '19:05:01 [app] the mini app is up on port 8800, behind its access code\n'), log
         for p in out.rglob('*'):
             if p.is_file():
                 s = p.read_text(encoding='utf-8')
-                assert '이정희' not in s and '35%' not in s and '0.6' not in s, p
+                assert '이정희' not in s and '35%' not in s and '0.6' not in s and '60656' not in s, p
+        (out / 'tools' / 'shop_snapshot' / 'logic.py').write_text('# 남궁민수아-1a2b\n')
+        assert any('re-forge' in e for e in ex.check(out))
+        (out / 'tools' / 'shop_snapshot' / 'logic.py').write_text('def run(a, k): return 1\n')
         (out / 'ops').mkdir()
         assert ex.check(out) == ['ops is not part of the submission'], ex.check(out)
     print('export tests ok')
