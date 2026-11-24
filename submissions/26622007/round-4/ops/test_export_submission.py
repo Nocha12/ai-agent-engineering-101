@@ -59,6 +59,7 @@ def main():
         build(src)
         ex.export(src, out)
         assert ex.check(out) == [], ex.check(out)
+        assert ex.warnings(out) == []                                    # the fixture has one settle that worked
         names = sorted(p.relative_to(out).as_posix() for p in out.rglob('*') if p.is_file())
         assert names == ['agent.json', 'app/index.html', 'card.json', 'logs/agent-kit.log', 'logs/forge.jsonl',
                          'logs/react.jsonl', 'notes.md', 'tools/shop_snapshot/forge.json', 'tools/shop_snapshot/logic.py',

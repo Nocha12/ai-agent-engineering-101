@@ -194,6 +194,15 @@ def check(dst):
     return errors
 
 
+def warnings(dst):
+    """Not errors, but the course reads them: settled deals (a private_checkout settle that worked)."""
+    rows = [json.loads(l) for l in (dst / 'logs/react.jsonl').read_text(encoding='utf-8').splitlines() if l.strip()]
+    settled = [r for r in rows if r.get('action') == 'private_checkout' and isinstance(r.get('args'), dict)
+               and r['args'].get('op') == 'settle' and r.get('observation') == {'ok': True}]
+    return [] if settled else ['warning: no settled sale yet (no private_checkout op=settle with ok in logs/react.jsonl); '
+                               'the course reads settled deals as evidence']
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--src')
@@ -205,7 +214,7 @@ def main():
     target = a.check or a.out
     if target:
         errs = check(Path(target).expanduser())
-        print('\n'.join(errs) or 'check ok')
+        print('\n'.join(errs + warnings(Path(target).expanduser())) or 'check ok')
         sys.exit(1 if errs else 0)
     ap.print_help()
 
