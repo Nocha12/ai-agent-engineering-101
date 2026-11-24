@@ -122,6 +122,100 @@ class Rank(unittest.TestCase):
         self.assertEqual(out['items'][0]['shops'], 2)
 
 
+MARKET, SHOP1, SHOP2, CUST = '0x' + 'm' * 40, '0x' + '1' * 40, '0x' + '2' * 40, '0x' + 'c' * 40
+
+
+def chain_pay(ts, to, price, frm=CUST, tag='a'):
+    """A buyer's settle transfer and its market fee, as slim chain rows (credits, 32-byte input)."""
+    inp = '0x' + (tag * 64)[:64]
+    return [dict(ts=ts, hash='0x' + tag + 's' + str(ts), frm=frm, to=to, credits=price - (price // 100 + 210), input=inp),
+            dict(ts=ts, hash='0x' + tag + 'f' + str(ts), frm=frm, to=MARKET, credits=2 * (price // 100), input=inp)]
+
+
+def book():
+    return {'chain': {'market_address': MARKET}, 'shops': {SHOP1: {'name': 's1', 'url': 'https://s1'},
+                                                          SHOP2: {'name': 's2', 'url': 'https://s2'}}}
+
+
+class Chain(unittest.TestCase):
+    def test_price_is_recovered_from_what_the_shop_received(self):
+        for price in (300, 999, 2999, 3000, 11302, 499999):
+            self.assertEqual(bs.price_from_transfers(price - (price // 100 + 210), 2 * (price // 100)), price)
+        self.assertIsNone(bs.price_from_transfers(2760, 61))            # an odd or inconsistent fee is not a settle
+
+    def test_a_settle_needs_its_market_fee_with_the_same_input(self):
+        rows = chain_pay(NOW - 60, SHOP1, 3000) + [dict(ts=NOW - 30, hash='0xlone', frm=CUST, to=SHOP1, credits=500,
+                                                         input='0x' + 'b' * 64)]
+        got = bs.chain_settles(rows, MARKET, {SHOP1: 's1'})
+        self.assertEqual(got, [[NOW - 60, 's1', 3000, CUST, '0xas' + str(NOW - 60)]])
+
+    def test_a_retried_payment_with_one_fee_is_one_sale(self):
+        first, fee = chain_pay(NOW - 60, SHOP1, 3000)
+        retry = dict(first, ts=NOW - 50, hash='0xretry')
+        fee = dict(fee, ts=NOW - 45)
+        got = bs.chain_settles([first, retry, fee], MARKET, {SHOP1: 's1'})
+        self.assertEqual([g[4] for g in got], ['0xretry'])
+
+    def test_chain_sales_older_than_the_ledger_newest_row_are_refused_payments(self):
+        data = bs.build_data(ledger(), CATALOG, now=NOW, chain={'book': book(), 'upto_block': 9,
+                                                              'settles': [[NOW - 5 * H, SHOP1, 3000, CUST, '0xold']]})
+        self.assertEqual(data['chain_only'], 0)
+
+    def test_chain_buyers_share_the_ledger_buyer_id(self):
+        b = book()
+        b['customers'] = {CUST: {'name': 'b1'}}
+        data = bs.build_data(ledger(), CATALOG, now=NOW, chain={'book': b, 'upto_block': 9,
+                                                              'settles': [[NOW - 60, SHOP1, 3000, CUST, '0xn']]})
+        self.assertEqual(data['sales'][-1][4], bs._bid('b1'))
+
+    def test_supply_and_grant_transfers_are_not_sales(self):
+        rows = [dict(ts=NOW, hash='0xsup', frm=SHOP1, to=MARKET, credits=22203, input='0x' + 'd' * 64),
+                dict(ts=NOW, hash='0xgr', frm=MARKET, to=SHOP1, credits=5000000, input='0x')]
+        self.assertEqual(bs.chain_settles(rows, MARKET, {SHOP1: 's1'}), [])
+
+    def test_build_adds_chain_only_sales_with_the_sku_guessed_by_price(self):
+        data = bs.build_data(ledger(), CATALOG, now=NOW, keep_hours=24, chain={
+            'book': book(), 'upto_block': 900,
+            'settles': [[NOW - 600, SHOP1, 3050, CUST, '0xnew1'],      # water's paid range 2800..3200: water
+                        [NOW - 500, SHOP2, 99999, CUST, '0xnew2']]})   # fits no SKU: counted, not labelled
+        self.assertEqual(data['source'], 'ledger+chain')
+        self.assertEqual(data['chain_only'], 2)
+        self.assertEqual(data['unlabelled'], 1)
+        self.assertEqual(data['sales'][-1][1:3], ['water', 3050])
+        self.assertEqual(data['sales'][-1][5], 2)                      # 2 = chain-only, SKU guessed
+        self.assertEqual(data['chain']['next'], 901)
+        self.assertEqual(data['chain']['shops'][SHOP1], 's1')
+
+    def test_a_ledger_sale_seen_again_on_chain_is_not_counted_twice(self):
+        rows = ledger()
+        dup = rows[2]['data']['tx_hash']
+        data = bs.build_data(rows, CATALOG, now=NOW, chain={'book': book(), 'upto_block': 1,
+                                                          'settles': [[NOW - 0.5 * H, SHOP1, 3000, CUST, dup]]})
+        self.assertEqual(data['chain_only'], 0)
+        self.assertEqual(data['source'], 'ledger')
+
+    def test_with_no_ledger_the_build_is_chain_only(self):
+        data = bs.build_data([], CATALOG, now=NOW, chain={'book': book(), 'upto_block': 5, 'bands': {'water': [2800, 3200]},
+                                                        'settles': [[NOW - 60, SHOP1, 3000, CUST, '0x1']]})
+        self.assertEqual(data['source'], 'chain')
+        self.assertEqual([r[1] for r in data['sales']], ['water'])
+        out = bs.rank({}, data, NOW)
+        self.assertEqual(out['items'][0]['tx_sku_guessed'], 1)
+
+    def test_cli_build_reads_the_chain_rebuild_next_to_the_ledger(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            (d / 'chain').mkdir()
+            (d / 'ledger.json').write_text(json.dumps(ledger()), encoding='utf-8')
+            (d / 'catalog.json').write_text(json.dumps(CATALOG), encoding='utf-8')
+            (d / 'chain' / 'rebuild.json').write_text(json.dumps({'book': book(), 'upto_block': 7, 'settles': [
+                [NOW + 10, SHOP1, 3000, CUST, '0xfresh']]}), encoding='utf-8')
+            out = subprocess.run([sys.executable, '-B', str(OPS / 'best_sellers.py'), '--build', '--data-dir', tmp,
+                                  '--output', str(d / 'o.json')], capture_output=True, text=True, check=True).stdout
+            self.assertIn('chain_only=1', out)
+            self.assertEqual(json.loads((d / 'o.json').read_text())['chain']['next'], 8)
+
+
 class FakeKit:
     testing = False
     market = 'https://market.ourolabs.ai'
@@ -140,23 +234,119 @@ def forged(data):
 
 class Live(unittest.TestCase):
     def setUp(self):
-        self.move, self.ns = forged(bs.build_data(ledger(), CATALOG, now=NOW))
+        self.move, self.ns = forged(bs.build_data(ledger(), CATALOG, now=NOW, chain={'book': book(), 'upto_block': 1,
+                                                                             'settles': []}))
+        self.real_chain = self.ns['_chain']
+        self.ns['_chain'] = lambda *a: ([], 0)                 # never the network in unit tests
 
     def test_a_truncated_tail_is_flagged_and_dated_by_its_newest_row(self):
         rows = [settle(11, NOW + 60, 'water', 3000, buyer='b8')]
-        self.ns['_live'] = lambda kit, data: (rows, True)
+        self.ns['_live'] = lambda kit, data, deadline: (rows, True)
         out = self.ns['run']({}, FakeKit())
         self.assertTrue(out['live_truncated'])
         self.assertEqual(out['as_of'], int(NOW + 60))
         self.assertEqual(out['items'][0]['tx'], 5)
 
     def test_a_failed_live_read_falls_back_to_built_data(self):
-        def boom(kit, data):
+        def boom(*a):
             raise OSError('down')
         self.ns['_live'] = boom
         out = self.ns['run']({}, FakeKit())
         self.assertIn('live_error', out)
         self.assertEqual(out['items'][0]['sku'], 'water')
+        self.assertEqual(out['source'], 'chain')
+
+    def test_an_empty_ledger_answer_switches_to_the_chain_and_says_so(self):
+        self.ns['_live'] = lambda *a: (_ for _ in ()).throw(RuntimeError('ledger answered nothing'))
+        self.ns['_chain'] = lambda *a: ([[NOW - 30, 's1', 3000, CUST, '0xc1']], 0)
+        out = self.ns['run']({}, FakeKit())
+        self.assertEqual(out['source'], 'chain')
+        self.assertTrue(out['ledger_down'])
+        self.assertEqual(out['items'][0]['tx'], 5)
+
+    def test_when_both_paths_fail_the_built_data_answers(self):
+        def boom(*a):
+            raise OSError('down')
+        self.ns['_live'] = boom
+        self.ns['_chain'] = boom
+        out = self.ns['run']({}, FakeKit())
+        self.assertEqual(out['source'], 'built')
+        self.assertIn('chain_error', out)
+
+    def test_a_chain_gap_keeps_the_answer_dated_by_the_build(self):
+        self.ns['_live'] = lambda *a: (_ for _ in ()).throw(OSError('down'))
+        self.ns['_chain'] = lambda *a: ([[NOW - 30, 's1', 3000, CUST, '0xc9']], 5000)
+        out = self.ns['run']({}, FakeKit())
+        self.assertEqual(out['chain_gap_blocks'], 5000)
+        self.assertEqual(out['as_of'], int(NOW))                # dated by the build: blocks in between were not read
+        self.assertEqual(out['items'][0]['tx'], 5)              # but the tail's sale is counted
+
+    def test_a_reset_ledger_is_caught_by_the_last_row_hash(self):
+        class R:
+            def __init__(self, rows):
+                self.rows = rows
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return self.rows
+
+        class FakeHttpx:
+            Timeout = staticmethod(lambda t: t)
+            rows = []
+
+            @staticmethod
+            def get(url, params=None, timeout=None):
+                return R(FakeHttpx.rows)
+        sys.modules['httpx'] = FakeHttpx
+        try:
+            data = dict(self.ns['DATA'], last_seq=10, last_hash='h10')
+            FakeHttpx.rows = [dict(seq=10, hash='other'), dict(seq=11, hash='h11')]
+            with self.assertRaises(RuntimeError):
+                self.ns['_live'](FakeKit(), data, __import__('time').time() + 20)
+            FakeHttpx.rows = []
+            with self.assertRaises(RuntimeError):
+                self.ns['_live'](FakeKit(), data, __import__('time').time() + 20)
+            FakeHttpx.rows = [dict(seq=10, hash='h10'), dict(seq=11, hash='h11')]
+            rows, cut = self.ns['_live'](FakeKit(), data, __import__('time').time() + 20)
+            self.assertEqual(([r['seq'] for r in rows], cut), ([11], False))
+            rows, cut = self.ns['_live'](FakeKit(), data, __import__('time').time() + 1)   # no time left
+            self.assertEqual((rows, cut), ([], True))
+        finally:
+            del sys.modules['httpx']
+
+    def test_the_chain_reader_stays_inside_its_time_budget_and_reports_the_gap(self):
+        calls = []
+
+        class R:
+            def __init__(self, out):
+                self.out = out
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return self.out
+
+        class FakeHttpx:
+            Timeout = staticmethod(lambda t: t)
+
+            @staticmethod
+            def post(url, json=None, timeout=None):
+                calls.append(len(json))
+                if json[0]['method'] == 'eth_blockNumber':
+                    return R([{'id': 0, 'result': hex(1000)}])
+                return R([{'id': c['id'], 'result': {'timestamp': hex(5), 'transactions': []}} for c in json])
+        sys.modules['httpx'] = FakeHttpx
+        try:
+            data = dict(self.ns['DATA'], chain=dict(self.ns['DATA']['chain'], next=10))
+            settles, gap = self.real_chain(FakeKit(), data, __import__('time').time() + 20)
+            self.assertEqual(settles, [])
+            self.assertEqual(gap, 1000 - 75 + 1 - 10)          # blocks 10..925 were not read
+            self.assertEqual(calls, [1, 25, 25, 25])
+        finally:
+            del sys.modules['httpx']
 
     def test_live_must_be_a_bool(self):
         with self.assertRaises(ValueError):
@@ -169,6 +359,7 @@ class Forge(unittest.TestCase):
         move, ns = forged(bs.build_data(rows, CATALOG, now=NOW))
         self.assertLess(len(move['args']['logic']), 40_000)
         self.assertIn('trimmed', ns['DATA'])
+        self.assertNotIn('chain_seen', ns['DATA'])
 
     def test_forge_move_is_read_only_and_its_test_passes_in_a_sandbox_like_run(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -180,10 +371,13 @@ class Forge(unittest.TestCase):
         args = move['args']
         self.assertEqual(args['name'], 'best_sellers')
         self.assertEqual(set(args['permission']), {'network', 'timeout'})
-        self.assertEqual(args['permission']['network'], ['market.ourolabs.ai'])
-        for word in ('pay(', 'sign(', 'sign_jwt(', 'token(', 'open(', 'write(', '.post(', '.put(', '.delete(',
-                     'kit.pay', 'kit.sign', 'kit.token', 'kit.address'):
+        self.assertEqual(args['permission']['network'], ['market.ourolabs.ai', 'rpc-testnet.maroo.io'])
+        for word in ('pay(', 'sign(', 'sign_jwt(', 'token(', 'open(', 'write(', '.put(', '.delete(',
+                     'kit.pay', 'kit.sign', 'kit.token', 'kit.address', 'eth_send', 'personal_'):
             self.assertNotIn(word, args['logic'])
+        # the one POST is the read-only JSON-RPC call to the chain
+        self.assertEqual(args['logic'].count('.post('), 1)
+        self.assertIn("httpx.post(RPC,", args['logic'])
         ns = {}
         exec(compile(args['logic'], 'logic.py', 'exec'), ns)
         exec(compile(args['test'], 'test.py', 'exec'), ns)

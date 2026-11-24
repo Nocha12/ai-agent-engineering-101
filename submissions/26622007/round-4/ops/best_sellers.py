@@ -1,8 +1,9 @@
 """Round 4 best sellers from money that actually moved (read-only; no wallet, token or operating state).
 
 Input is the same public data directory price_ceiling's cache reads (~/work/ax-round4-analytics/data:
-ledger.json from GET /api/ledger, catalog.json, txs.json with the chain check of each settle). Only settle rows with
-a tx_hash count, and a row whose on-chain transfer does not match price - (1% + 210) is dropped.
+ledger.json from GET /api/ledger, catalog.json, txs.json with the chain check of each settle, and chain/rebuild.json
+from chain_scan.py). Only settle rows with a tx_hash count, and a row whose on-chain transfer does not match
+price - (1% + 210) is dropped. Sales found on chain but not in the ledger are added with the SKU guessed from price.
 
   python3 -B ops/best_sellers.py --build --data-dir DIR [--output ops/best_sellers_data.json]
   python3 -B ops/best_sellers.py [--top 5] [--horizon-hours 3] [--kind food] [--json]
@@ -21,6 +22,7 @@ STALE_MIN = 90
 QTY_CAP = 4                                # per SKU per restock, as the 20:07 analysis found safe
 MIN_EVIDENCE = 2                           # paid sales in the last 6 h before any buy is suggested
 ARGS = {'top', 'horizon_hours', 'own_stock', 'kind', 'min_tx'}
+CHAIN_ONLY = 2                             # sales row check value: found on chain only, SKU guessed from its price
 
 
 def norm_url(u):
@@ -65,6 +67,65 @@ def merge_live(data, rows, now):
     return data
 
 
+def price_from_transfers(shop_gets, market_fee):
+    """A settle pays the shop price - (price//100 + 210) and the market 2 x (price//100) (checked on every ledger
+    settle). The shop's part alone is ambiguous (2999 and 3000 give the same), the pair is not. None if they disagree."""
+    p = shop_gets + market_fee // 2 + 210
+    return p if market_fee % 2 == 0 and market_fee == 2 * (p // 100) and shop_gets >= 0 else None
+
+
+def chain_settles(txs, market, shops):
+    """Paid sales from raw transfers [{ts, hash, frm, to, credits, input}]: a buyer -> shop transfer with a 32-byte
+    input counts only when the same buyer also paid the market a fee with the same input (the market's settle check).
+    A buyer who paid the shop twice with one input (a retry) has one sale: the last payment at or before the fee.
+    Returns [ts, shop name, price, buyer address, tx hash]."""
+    fee = {}
+    for t in txs:
+        if t['to'] == market and len(t['input']) == 66:
+            fee.setdefault((t['frm'], t['input']), t)
+    best = {}
+    for t in txs:
+        k = (t['frm'], t['input'])
+        if t['to'] in shops and t['frm'] != market and len(t['input']) == 66 and k in fee:
+            cur = best.get(k)
+            if cur is None or (t['ts'] <= fee[k]['ts'] and (cur['ts'] > fee[k]['ts'] or t['ts'] >= cur['ts'])):
+                best[k] = t
+    out = []
+    for k, t in best.items():
+        p = price_from_transfers(t['credits'], fee[k]['credits'])
+        if p is not None:
+            out.append([t['ts'], shops[t['to']], p, t['frm'], t['hash']])
+    return sorted(out)
+
+
+def guess_sku(price, bands):
+    """The chain has no SKU: the one SKU whose paid prices (lowest..highest ever seen) hold this price, else None.
+    No widening: a guessed row counts as evidence for buy_qty, so an ambiguous price stays unlabelled."""
+    fits = [s for s, (lo, hi) in bands.items() if lo <= price <= hi]
+    return fits[0] if len(fits) == 1 else None
+
+
+def merge_chain(data, settles):
+    """Add chain-found sales [ts, shop, price, buyer, hash] not already counted; returns (data, unlabelled)."""
+    data = dict(data, sales=list(data['sales']), shops=list(data['shops']))
+    seen = set(data.get('chain_seen') or [])
+    unlabelled = 0
+    for ts, shop, price, buyer, h in settles:
+        if h in seen:
+            continue
+        seen.add(h)
+        sku = guess_sku(price, (data.get('chain') or {}).get('bands') or {})
+        if sku is None:
+            unlabelled += 1
+            continue
+        if shop not in data['shops']:
+            data['shops'].append(shop)
+        name = ((data.get('chain') or {}).get('buyers') or {}).get(buyer, buyer)   # same id as its ledger rows
+        data['sales'].append([ts, sku, price, data['shops'].index(shop), _bid(name), CHAIN_ONLY])
+    data['chain_seen'] = sorted(seen)
+    return data, unlabelled
+
+
 def rank(args, data, now):
     if not isinstance(args, dict) or set(args) - ARGS:
         raise ValueError('unknown input; allowed: ' + ', '.join(sorted(ARGS)))
@@ -100,6 +161,7 @@ def rank(args, data, now):
         qty = min(QTY_CAP, max(0, want - max(0, have))) if wide >= MIN_EVIDENCE else 0
         items.append(dict(sku=sku, name=name, kind=k, per_hour=round(v, 2), tx=len(rows),
                           tx_on_chain=sum(1 for r in rows if r[4] > 0), tx_6h=wide, shops=len({r[2] for r in rows}),
+                          tx_sku_guessed=sum(1 for r in rows if r[4] == CHAIN_ONLY),
                           repeat_buyers=sum(1 for n in buyers.values() if n > 1),
                           price=[min(prices), round(med), max(prices)],
                           price_vs_list=round(med / listed, 2) if listed else None, buy_qty=qty,
@@ -113,9 +175,13 @@ def rank(args, data, now):
 # END FORGE KERNEL
 
 
-def build_data(ledger, catalog, now, keep_hours=24, txs=None):
+def build_data(ledger, catalog, now, keep_hours=24, txs=None, chain=None):
     """Compact paid-sale rows for the last keep_hours: [ts, sku, amount, shop index, buyer id, chain check].
-    chain check: 1 = on-chain transfer equals amount - (1% + 210), -1 = it does not, 0 = not checked yet."""
+    chain check: 1 = on-chain transfer equals amount - (1% + 210), -1 = it does not, 0 = not checked yet,
+    2 = found on chain only (chain_scan.py), SKU guessed from the price.
+    chain (optional): {'book': addressbook, 'upto_block': n, 'settles': [[ts, shop address, price, buyer, tx]],
+    'bands': {sku: [lo, hi]}}. Its sales the ledger does not have are added, so the build keeps working when the
+    ledger stops answering. The forged tool gets data['chain'] to read the chain itself."""
     cat = {c['sku']: c for c in catalog if isinstance(c, dict) and 'sku' in c}
     url_name, shops, sales, items, last = {}, [], [], {}, 0
     for e in ledger:
@@ -136,8 +202,38 @@ def build_data(ledger, catalog, now, keep_hours=24, txs=None):
         sales.append([e['ts'], sku, d['amount'], shops.index(shop), _bid(d.get('buyer')), check])
         c = cat.get(sku, {})
         items[sku] = [c.get('name') or d.get('name') or sku, c.get('kind'), c.get('list_price')]
-    return dict(as_of=now, keep_hours=keep_hours, last_seq=last, shops=shops, items=items, sales=sales,
-                url_names=url_name)
+    tail = [e for e in ledger if e.get('seq') == last]
+    data = dict(as_of=now, keep_hours=keep_hours, last_seq=last, last_hash=tail[-1].get('hash') if tail else None,
+                shops=shops, items=items, sales=sales, url_names=url_name, source='ledger')
+    if not chain:
+        return data
+    bands = dict(chain.get('bands') or {})
+    for e in ledger:                         # every paid price ever seen, not just the window: the chain path
+        d = e.get('data') or {}              # may run long after the ledger closed
+        sku = d.get('sku') or d.get('item')
+        if e['kind'] == 'settle' and d.get('tx_hash') and isinstance(d.get('amount'), int) and sku:
+            lo, hi = bands.get(sku, [d['amount'], d['amount']])
+            bands[sku] = [min(lo, d['amount']), max(hi, d['amount'])]
+    book = chain.get('book') or {}
+    addr = {a.lower(): s.get('name') for a, s in (book.get('shops') or {}).items() if s.get('name')}
+    buyers = {a.lower(): c.get('name') for a, c in (book.get('customers') or {}).items() if c.get('name')}
+    data['chain'] = dict(market=str((book.get('chain') or {}).get('market_address', '')).lower(), shops=addr,
+                         next=int(chain.get('upto_block', 0)) + 1, bands=bands, buyers=buyers)
+    known = {str((e.get('data') or {}).get('tx_hash', '')).lower() for e in ledger if e['kind'] == 'settle'}
+    newest = max((e['ts'] for e in ledger), default=0)
+    # only sales after the ledger's newest row: older chain-only payments are ones the market refused (or retries)
+    fresh = [[ts, addr.get(str(to).lower(), str(to).lower()), p, b, h] for ts, to, p, b, h in chain.get('settles') or []
+             if str(h).lower() not in known and ts > newest and now - ts <= keep_hours * 3600]
+    data, unlabelled = merge_chain(data, fresh)
+    for sku in {r[1] for r in data['sales'] if r[5] == CHAIN_ONLY}:
+        c = cat.get(sku, {})
+        data['items'].setdefault(sku, [c.get('name') or sku, c.get('kind'), c.get('list_price')])
+    data['chain_only'], data['unlabelled'] = len(fresh), unlabelled
+    if fresh:
+        data['source'] = 'ledger+chain' if any(r[5] != CHAIN_ONLY for r in data['sales']) or last else 'chain'
+    if not ledger:
+        data['source'] = 'chain'
+    return data
 
 
 DATA_PATH = Path(__file__).with_name('best_sellers_data.json')
@@ -160,12 +256,13 @@ def main():
         d = Path(a.data_dir)
         load = lambda n, dflt: json.loads((d / n).read_text(encoding='utf-8')) if (d / n).exists() else dflt
         data = build_data(load('ledger.json', []), load('catalog.json', []), time.time(), a.keep_hours,
-                          load('txs.json', {}))
+                          load('txs.json', {}), load('chain/rebuild.json', None))   # chain_scan.py output, if any
         out = Path(a.output)
         tmp = out.with_suffix('.tmp')
         tmp.write_text(json.dumps(data, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
         tmp.replace(out)
-        print(f'{out} sales={len(data["sales"])} last_seq={data["last_seq"]}')
+        print(f'{out} sales={len(data["sales"])} last_seq={data["last_seq"]} source={data["source"]} '
+              f'chain_only={data.get("chain_only", 0)} unlabelled={data.get("unlabelled", 0)}')
         return
     data = json.loads(Path(a.output).read_text(encoding='utf-8'))
     res = rank(dict(top=a.top, horizon_hours=a.horizon_hours, kind=a.kind), data, time.time())

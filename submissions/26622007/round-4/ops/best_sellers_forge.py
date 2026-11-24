@@ -2,8 +2,9 @@
 
 From round-4: python3 -B ops/best_sellers_forge.py [--data ops/best_sellers_data.json] > /tmp/best-sellers-move.json
 The tool embeds the paid-sale rows built by best_sellers.py --build and, at call time, reads only newer rows from
-the public ledger (GET /api/ledger?after=<last seq>, at most 3 pages, 1.1 s apart). It has no identity, wallet or
-write permission. Inside the kit's test (kit.testing) it does not touch the network.
+the public ledger (GET /api/ledger?after=<last seq>, at most 3 pages, 1.1 s apart). When the ledger fails or answers
+nothing it reads the newest blocks from the Maroo chain instead (read-only JSON-RPC, at most 3 batch POSTs 1.1 s
+apart) and says which path answered in `source`. It has no identity, wallet or write permission. Inside the kit's test (kit.testing) it does not touch the network.
 """
 
 import argparse
@@ -17,26 +18,86 @@ MAX_LOGIC = 40_000
 RUN = '''
 
 PAGE = 500                                  # the market's /api/ledger page size
+RPC = 'https://rpc-testnet.maroo.io'        # Maroo testnet, read-only calls only
+CHAIN_BATCH, CHAIN_POSTS = 25, 3            # at most 75 blocks (about 75 s of chain) per call, 1.1 s apart
+BUDGET = 22                                 # seconds for all network reads; the kit stops a tool at 30
+_LAST = [0.0]                               # last request time, shared across calls (1 request per 1.1 s)
 
 
-def _live(kit, data):
-    """Rows after data['last_seq']: at most 3 GET pages, 1.1 s apart, within 15 s. Returns (rows, truncated)."""
+def _left(deadline):
+    import time as _t
+    return deadline - _t.time()
+
+
+def _gap(deadline, need):
+    """Wait out the 1.1 s request gap; False when the time left cannot fit one more request of `need` seconds."""
+    import time as _t
+    wait = max(0.0, _LAST[0] + 1.1 - _t.time())
+    if _left(deadline) < wait + need:
+        return False
+    _t.sleep(wait)
+    _LAST[0] = _t.time()
+    return True
+
+
+def _live(kit, data, deadline):
+    """Rows after data['last_seq']: at most 3 GET pages, 1.1 s apart, within 15 s. Returns (rows, truncated).
+    The first page starts one row early: a working ledger always returns row last_seq, so an empty answer means
+    the ledger is closed or was reset, and raises."""
     import time as _t
     import httpx
-    rows, after, start = [], data['last_seq'], _t.time()
+    rows, after = [], max(0, data['last_seq'] - 1)
     for page in range(3):
-        if page:
-            _t.sleep(1.1)
-        r = httpx.get(kit.market.rstrip('/') + '/api/ledger', params={'after': after}, timeout=5)
+        if not _gap(deadline, 3):
+            return rows, True
+        r = httpx.get(kit.market.rstrip('/') + '/api/ledger', params={'after': after},
+                      timeout=httpx.Timeout(min(5.0, _left(deadline) - 1)))
         r.raise_for_status()
         got = [e for e in r.json() if isinstance(e, dict) and isinstance(e.get('seq'), int) and e['seq'] > after]
-        rows += got
+        if not page and data['last_seq']:
+            mine = [e for e in got if e['seq'] == data['last_seq']]
+            if not mine:
+                raise RuntimeError('ledger answered nothing at its last known row')
+            if data.get('last_hash') and mine[0].get('hash') != data['last_hash']:
+                raise RuntimeError('ledger was reset (its last known row has another hash)')
+        rows += [e for e in got if e['seq'] > data['last_seq']]
         if len(got) < PAGE:
             return rows, False
         after = max(e['seq'] for e in got)
-        if _t.time() - start > 6:              # a next page (1.1 s + up to 2 x 5 s) must end well inside 30 s
-            break
     return rows, True
+
+
+def _chain(kit, data, deadline):
+    """When the ledger fails: the newest blocks from the chain (eth_getBlockByNumber, full tx, JSON-RPC batches).
+    Reads from data['chain']['next'] but at most CHAIN_BATCH x CHAIN_POSTS blocks back from the tip.
+    Returns (settles [ts, shop, price, buyer, tx], gap): gap = blocks between the build and what was read."""
+    import time as _t
+    import httpx
+    c = data['chain']
+
+    def call(batch):
+        if not _gap(deadline, 4):
+            raise TimeoutError('no time left for a chain read')
+        r = httpx.post(RPC, json=batch, timeout=httpx.Timeout(min(6.0, _left(deadline) - 1)))
+        r.raise_for_status()
+        out = r.json()
+        if not isinstance(out, list) or any('error' in o for o in out):
+            raise RuntimeError('chain read failed')
+        return [o['result'] for o in sorted(out, key=lambda o: o['id'])]
+
+    tip = int(call([{'jsonrpc': '2.0', 'id': 0, 'method': 'eth_blockNumber', 'params': []}])[0], 16)
+    first = max(c['next'], tip - CHAIN_BATCH * CHAIN_POSTS + 1)
+    txs, n = [], first
+    while n <= tip and n < first + CHAIN_BATCH * CHAIN_POSTS and _left(deadline) > 1.1 + 4:
+        hi = min(tip, n + CHAIN_BATCH - 1)
+        for b in call([{'jsonrpc': '2.0', 'id': i, 'method': 'eth_getBlockByNumber', 'params': [hex(x), True]}
+                       for i, x in enumerate(range(n, hi + 1))]):
+            for t in (b or {}).get('transactions') or []:
+                txs.append(dict(ts=int(b['timestamp'], 16), hash=t['hash'].lower(), frm=t['from'].lower(),
+                                to=(t.get('to') or '').lower(), credits=int(t['value'], 16) // 10 ** 15,
+                                input=(t.get('input') or '0x').lower()))
+        n = hi + 1
+    return chain_settles(txs, c['market'], c['shops']), max(0, first - c['next']) + max(0, tip - n + 1)
 
 
 def run(args, kit):
@@ -47,18 +108,33 @@ def run(args, kit):
         raise ValueError('live is true or false')
     testing = getattr(kit, 'testing', False)
     now = max(_t.time(), DATA['as_of']) if not testing else DATA['as_of']
-    data, extra = DATA, {}
+    data, extra, source = DATA, {}, 'built'
+    deadline = _t.time() + BUDGET
     if live and not testing:
         try:
-            rows, truncated = _live(kit, DATA)
+            rows, truncated = _live(kit, DATA, deadline)
             data = merge_live(DATA, rows, now)
             if truncated:                       # the newest rows are missing: date the answer by what was read
                 now = max([e.get('ts', 0) for e in rows if isinstance(e.get('ts'), (int, float))] or [DATA['as_of']])
                 extra['live_truncated'] = True
-            data = dict(data, as_of=now)
+            data, source = dict(data, as_of=now), 'ledger'
         except Exception as e:
-            extra['live_error'] = 'live ledger read failed, using built data: ' + type(e).__name__
+            extra['live_error'] = 'ledger read failed: ' + type(e).__name__ + ': ' + str(e)[:80]
+            extra['ledger_down'] = True
+            if DATA.get('chain'):
+                try:
+                    settles, gap = _chain(kit, DATA, deadline)
+                    data, unlabelled = merge_chain(DATA, settles)
+                    extra.update(chain_sales=len(settles), chain_unlabelled=unlabelled, chain_gap_blocks=gap)
+                    source = 'chain'
+                    if not gap:                 # the build and the tail meet: the answer is current
+                        data = dict(data, as_of=now)
+                    # with a gap the rows are counted but as_of stays the build's, so age/stale stay honest
+                except Exception as e2:
+                    extra['chain_error'] = 'chain read failed, using built data: ' + type(e2).__name__
     out = rank(args, data, now)
+    out['source'] = source                      # ledger | chain | built (what the newest rows came from)
+    out['built_from'] = DATA.get('source', 'ledger')
     if extra.get('live_truncated') and not testing:      # age against the clock, not the newest row read
         out['data_age_min'] = int((_t.time() - now) // 60)
         out['stale'] = out['data_age_min'] > STALE_MIN
@@ -89,8 +165,9 @@ def forge_move(data_path):
     data = json.loads(Path(data_path).read_text(encoding='utf-8'))
     if not isinstance(data, dict) or not isinstance(data.get('sales'), list):
         raise ValueError('expected best_sellers data with a sales list (run best_sellers.py --build)')
+    data.pop('chain_seen', None)                # the tool reads only blocks after chain.next: no repeats to skip
     while True:                                 # the kit reads a tool back 12,000 chars at a time; keep it small
-        logic = f'DATA = {json.dumps(data, ensure_ascii=False, separators=(",", ":"))}\n\n{kernel}\n{RUN}'
+        logic = f'DATA = {data!r}\n\n{kernel}\n{RUN}'      # a Python literal: JSON's null/true would not parse
         if len(logic) < MAX_LOGIC or not data['sales']:
             break
         keep = data['sales'][len(data['sales']) // 4:]          # drop the oldest quarter
@@ -100,10 +177,11 @@ def forge_move(data_path):
             'args': {'name': 'best_sellers',
                      'description': ('실제 결제(체인 tx)된 판매만으로 잘 팔리는 품목 상위 목록. 선택 top(1-20, 기본 5), '
                                      'horizon_hours(기본 3), own_stock {sku: 개수}, kind(all|food|goods), min_tx(기본 1), '
-                                     'live(기본 true: 공개 장부 새 행을 GET으로 읽음). buy_qty 0이면 사지 않는다. 출력 items[sku, name, per_hour, tx, '
+                                     'live(기본 true: 공개 장부 새 행을 GET으로 읽고, 장부가 실패하거나 비면 Maroo 체인 최근 블록을 읽기 전용으로 읽음). '
+                                     'source(ledger|chain|built)는 최신 행의 출처, ledger_down은 장부 실패 표시. buy_qty 0이면 사지 않는다. 출력 items[sku, name, per_hour, tx, '
                                      'tx_on_chain, shops, repeat_buyers, price[최저,중앙,최고], price_vs_list, buy_qty, '
                                      'price_ceiling_args]. 거래·송금을 하지 않는다.'),
-                     'permission': {'network': ['market.ourolabs.ai'], 'timeout': 30},
+                     'permission': {'network': ['market.ourolabs.ai', 'rpc-testnet.maroo.io'], 'timeout': 30},
                      'logic': logic, 'test': TEST}}
 
 
