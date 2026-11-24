@@ -312,6 +312,8 @@ def events(rows, name, sends, chain, address, seen=(), seen_tx=None, hints=None,
             if tx and chain:
                 t = chain.transfer(tx)
                 if t is None:
+                    if pending is not None:
+                        pending.append({"order": dt.get("order"), "ts": r["ts"], "why": "unreadable"})
                     continue                         # not readable yet: the next sync writes it with its payer
                 payer = t["from"]
             add(dict(base, kind="sale", id=eid, counterparty=dt.get("buyer"),
@@ -414,9 +416,10 @@ def alerts(d, lines, new, rec, now=None, pending=()):
                         "text": f"order {order} was refunded {len(txs)} times: {', '.join(txs)}"})
     sale_amount = {e["id"][5:]: e.get("amount") for e in lines if e.get("kind") == "sale"}
     for e in new:
-        if e.get("kind") in ("supply", "transfer_out"):  # money out that is not a refund: the operator checks the hold
-            out.append({"kind": "money_out", "id": f"out-{e['id']}",
-                        "text": f"{e['kind']} {e['id']}: {-e.get('delta', 0):g} credits to {e.get('counterparty')} ({e.get('item') or e.get('source')})"})
+        if e.get("kind") in ("supply", "transfer_out") and not (e.get("note") or "").startswith("reclassifies"):
+            out.append({"kind": "money_out", "id": f"out-{e['id']}",   # not a refund: the operator checks the hold
+                        "text": f"{e['kind']} {e.get('tx_hash') or e['id']}: {-e.get('delta', 0):g} credits"
+                                f"{' for ' + str(e['item']) if e.get('item') else ''} ({e.get('source')})"})
         if e.get("kind") == "refund" and e.get("order") and (sale_amount.get(e["order"]) or 0) < (e.get("amount") or 0):
             out.append({"kind": "refund_over_amount", "id": f"over-{e['tx_hash']}",
                         "text": f"refund {e['tx_hash']} of {e['amount']:g} for order {e['order']} is more than the sale ({sale_amount.get(e['order'])})"})
@@ -428,9 +431,13 @@ def alerts(d, lines, new, rec, now=None, pending=()):
                         "text": f"refund {e['tx_hash']} to a wallet that paid orders {e.get('orders_of_payer')}: no single order, so a second refund would go unseen"})
         if e.get("kind") == "transfer_out" and e.get("said_refund"):
             out.append({"kind": "refund_to_unknown", "id": f"unknown-{e['tx_hash']}",
-                        "text": f"the agent called {e['tx_hash']} a refund, but {e.get('counterparty')} paid none of our sales"})
+                        "text": f"the agent called {e['tx_hash']} a refund, but the receiving wallet paid none of our sales"})
     for p in pending:
-        if now - p["ts"] > INTENT_GRACE:
+        if now - p["ts"] > INTENT_GRACE and p.get("why") == "unreadable":
+            out.append({"kind": "sale_unreadable", "id": f"unreadable-{p['order']}",
+                        "text": f"sale {p['order']}: its payment tx cannot be read from the chain after {int((now - p['ts']) // 60)} min "
+                                "(a wrong tx_hash in logs/sales.jsonl, or the RPC node is behind); it is not counted yet"})
+        elif now - p["ts"] > INTENT_GRACE:
             out.append({"kind": "sealed_unrecorded", "id": f"sealed-{p['order']}",
                         "text": f"sealed sale {p['order']} has no line in logs/sales.jsonl after {int((now - p['ts']) // 60)} min: "
                                 "the ledger cannot count it (expect a balance gap until the agent's sale tool records it)"})

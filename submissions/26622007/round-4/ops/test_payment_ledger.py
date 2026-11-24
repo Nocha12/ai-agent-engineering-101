@@ -355,12 +355,27 @@ class Ledger(unittest.TestCase):
         c.sender[TX[3]] = CUST.lower()
         new, _ = pl.sync(self.d, "m", "nocha12", c, SHOP)
         self.assertEqual([(e["kind"], e["payer"]) for e in new], [("sale", CUST.lower())])
+        pending = []
+        pl.sync(self.d, "m", "nocha12", FakeChain(0, mined=False), SHOP, pending)   # nothing new waits now
+        self.assertEqual(pending, [])
+
+    def test_sale_that_stays_unreadable_is_an_alert_after_the_grace_time(self):
+        self.rows = ROWS[:3] + [ROWS[6]]
+        kit_log(self.d, [])
+        pending = []
+        pl.sync(self.d, "m", "nocha12", FakeChain(0, mined=False), SHOP, pending)
+        got = pl.alerts(self.d, [], [], {"ok": True}, now=ROWS[6]["ts"] + pl.INTENT_GRACE + 1, pending=pending)
+        self.assertEqual([a["id"] for a in got], ["unreadable-o-1"])
 
     def test_money_out_and_refund_over_the_sale_are_alerts(self):
         kit_log(self.d, [sent("supply_buy", TX[2])])
         self.rows = ROWS[:4]                     # paid, the market has not written the lot: a plain transfer out
         rec = pl.reconcile(self.d, "m", "nocha12", FakeChain(0), SHOP, 1e12)
         self.assertEqual([a["kind"] for a in rec["alerts"]], ["money_out"])
+        self.rows = ROWS[:5]                     # the market writes the lot: reclassified, not money out again
+        rec = pl.reconcile(self.d, "m", "nocha12", FakeChain(0), SHOP, 1e12)
+        self.assertEqual(rec["alerts"], [])
+        self.assertNotIn("이정화", json.dumps(self.lines("alerts.jsonl"), ensure_ascii=False))
         lines = [{"kind": "sale", "id": "sale-o-1", "amount": 10000}]
         new = [{"kind": "refund", "id": "refund-x", "order": "o-1", "amount": 13000, "tx_hash": "0xr", "delta": -13000}]
         got = pl.alerts(self.d, lines, new, {"ok": True})
