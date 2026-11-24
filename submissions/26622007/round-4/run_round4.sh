@@ -29,8 +29,9 @@ APP_PORT="${R4_APP_PORT:-8800}"
 PID_FILE="$HERE/.kit/run_round4.pid"
 OUT="$HERE/.kit/stdout.log"
 
-read_env() {
-  grep -E "^\s*(export\s+)?$1=" "$ENV_FILE" | tail -1 | sed -E "s/^\s*(export\s+)?$1=//; s/^[\"']//; s/[\"']\s*$//"
+read_env() {                     # POSIX classes: macOS sed does not know \s
+  grep -E "^[[:space:]]*(export[[:space:]]+)?$1=" "$ENV_FILE" | tail -1 | tr -d '\r' |
+    sed -E "s/^[[:space:]]*(export[[:space:]]+)?$1=//; s/^[\"']//; s/[\"'][[:space:]]*$//"
 }
 
 ARGS=(run --dir "$HERE" --market "$MARKET" --name "$NAME" --tunnel --app "$APP_PORT" --app-tunnel)
@@ -49,18 +50,21 @@ fi
 
 mkdir -p "$HERE/.kit" "$HERE/logs"
 chmod 700 "$HERE/.kit"
-if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-  echo "[run_round4] already running as $(cat "$PID_FILE")" >&2
-  exit 1
-fi
-echo $$ > "$PID_FILE"
-
 export OPENROUTER_API_KEY="$(read_env OPENROUTER_API_KEY)"
 export MARKET_OWNER="$(read_env MARKET_OWNER)"
 [ -n "$OPENROUTER_API_KEY" ] && [ -n "$MARKET_OWNER" ] || { echo "[run_round4] $ENV_FILE lacks a key" >&2; exit 1; }
 
+if [ -f "$PID_FILE" ] && ! kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+  rm -f "$PID_FILE"               # left by a run that was killed hard
+fi
+if ! ( set -o noclobber; echo $$ > "$PID_FILE" ) 2>/dev/null; then
+  echo "[run_round4] already running as $(cat "$PID_FILE")" >&2
+  exit 1
+fi
+
 touch "$OUT" && chmod 600 "$OUT"
 KIT=""
+back=0
 leave() {
   # A job started with & ignores SIGINT, so the kit's own Ctrl-C cleanup never runs: stop its cloudflared tunnels
   # and tool runs first, then the kit.
@@ -78,12 +82,18 @@ cd "$ROOT"
 /usr/bin/caffeinate -i -w $$ &          # keeps the Mac awake while this script lives
 while true; do
   echo "[run_round4] $(date '+%F %T') start: agent_kit.py ${ARGS[*]}" >> "$OUT"
+  started=$SECONDS
+  trap '' TERM                    # no TERM between the start and KIT=$!: leave() must know the kit
   "$VENV/bin/python" scripts/round4/agent_kit.py "${ARGS[@]}" >> "$OUT" 2>&1 &
   KIT=$!
+  trap leave INT TERM
   wait "$KIT"
   rc=$?
+  pkill -TERM -f "cloudflared tunnel --no-autoupdate --url http://127.0.0.1:$APP_PORT\$" 2>/dev/null   # the app tunnel of a kit that died hard
   KIT=""
-  echo "[run_round4] $(date '+%F %T') the kit stopped (exit $rc); starting again in 30 s" >> "$OUT"
-  sleep 30 &
+  if [ $((SECONDS - started)) -lt 120 ]; then back=$(( back < 600 ? (back ? back * 2 : 30) : 600 )); else back=30; fi
+  [ "$back" -gt 600 ] && back=600
+  echo "[run_round4] $(date '+%F %T') the kit stopped (exit $rc); starting again in $back s" >> "$OUT"
+  sleep "$back" &
   wait $!                         # wait, not a plain sleep: a TERM must not wait for the sleep to finish
 done
