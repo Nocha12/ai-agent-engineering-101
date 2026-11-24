@@ -1,0 +1,79 @@
+import pytest
+
+import price_ceiling as prices
+
+
+@pytest.fixture(autouse=True)
+def catalog(monkeypatch):
+    monkeypatch.setattr(prices, 'DATA', {'items': {
+        'water': ['water', 'food', 3000, 24, True, 1800, 1620, 3, 6],
+        'lamp': ['lamp', 'goods', 10000, None, False, None, None, 0, 3]},
+        'rates': {'food': [3, 6], 'goods': [0, 3]}, 'fallback': {'sell_list_multiplier': 0.60, 'cost_list_multiplier': 0.54},
+        'sample': {'end': '2026-11-24T20:10:10+09:00'}})
+
+
+def test_food_single_and_split_lot_at_fee_boundary():
+    args = dict(sku='water', cost=574, sell=1000, unsold=0, hold_hours=0)
+    assert prices.quote(args)['max_buy_cost'] == 574
+    assert prices.quote(args)['expected_profit'] == 0
+    assert prices.quote(args)['min_sell_price'] == 999
+    assert prices.quote(dict(args, sell=998))['expected_profit'] == -1
+    assert prices.quote(dict(args, qty=3, batch_size=2))['expected_profit'] == 206
+
+
+@pytest.mark.parametrize(('hours', 'profit'), [(0, 7177.82), (47, 6707.82), (48, 5779.28), (96, 2951.9), (144, 2471.9)])
+def test_goods_aging_and_storage(hours, profit):
+    result = prices.quote(dict(sku='lamp', sell=10000, cost=2000, grade='A', hold_hours=hours, unsold=0))
+    assert result['expected_profit'] == pytest.approx(profit)
+
+
+def test_food_expiration_and_total_loss():
+    args = dict(sku='water', sell=1000, cost=574, unsold=0, remaining_hours=2)
+    assert prices.quote(dict(args, hold_hours=1.99))['expected_profit'] == 0
+    for lost in [dict(args, hold_hours=2), dict(args, unsold=1)]:
+        result = prices.quote(lost)
+        assert (result['max_buy_cost'], result['min_sell_price'], result['expected_profit']) == (None, None, -780)
+        assert result['verdict'] == 'skip'
+
+
+def test_sale_below_server_fee_never_settles():
+    result = prices.quote(dict(sku='water', sell=211, cost=0, unsold=0))
+    assert result['expected_profit'] == -206
+    assert result['max_buy_cost'] is None
+
+
+def test_extra_lot_charges_apply_once_and_fractional_ceiling_rounds_down():
+    args = dict(sku='water', sell=1000, cost=574, qty=2, batch_size=2, lot_dues=11, unsold=0)
+    assert prices.quote(args)['max_buy_cost'] == 671
+    assert prices.quote(dict(args, cost=671))['expected_profit'] == 1
+    assert prices.quote(dict(args, cost=672))['expected_profit'] == -1
+
+
+def test_default_table_flags_three_thousand_credit_staple():
+    row, = prices.build_rows()
+    assert row['risk'] is True and row['profit'] < 0
+    assert row['unsold'] == 0.5
+
+
+def test_action_guard_requires_both_actual_quotes_and_uses_stress_bounds():
+    good = dict(sku='water', sell=1000, cost=490, unsold=0, grade='A', hold_hours=1, remaining_hours=12)
+    for action in ('buy', 'sell', 'price'):
+        assert prices.price_guard(action, good)['expected_profit'] == 84
+        with pytest.raises(ValueError):
+            prices.price_guard(action, dict(good, cost=497))
+        with pytest.raises(ValueError):
+            prices.price_guard(action, dict(good, sell=980))
+        with pytest.raises(ValueError):
+            prices.price_guard(action, {'sku': 'water', 'verdict': 'buy'})
+
+
+def test_guard_will_not_authorize_food_without_actual_shelf_life():
+    with pytest.raises(ValueError):
+        prices.price_guard('buy', dict(sku='water', sell=5000, cost=10, grade='A', hold_hours=2))
+
+
+@pytest.mark.parametrize('inputs', [dict(unsold=float('nan')), dict(unsold=1.01), dict(qty=True),
+                                    dict(batch_size=21), dict(hold_hours=-1), dict(sell=1.2), dict(grade='X')])
+def test_invalid_input_rejects(inputs):
+    with pytest.raises(ValueError):
+        prices.quote(dict(sku='water', **inputs))
