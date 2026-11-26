@@ -36,9 +36,10 @@ UNITS = {'kg', 'g', 'ml', 'l', 'mg', 'cc'}
 DISH = ('장아찌', '볶음', '김치', '무침', '조림', '찌개', '칼국수', '어묵', '과자', '스틱', '소시지', '샌드', '튀김', '부침개',
         '전골', '국밥', '덮밥', '국수', '밀키트', '반찬', '양념', '절임', '소스', '만두', '떡볶이', '케이크', '주스', '젤리', '아이스크림',
         '빵', '푸딩', '튀밥', '스프', '쿠키', '라떼', '떡', '케익')   # another food after the item: '우유 식빵', '쌀 튀밥' (q4 r1 I1)
-# size / degree words: they say which one of the item, never the item itself. Matching one alone gives no rank ('보통 두부'
-# and '떡볶이(보통맛)', 11/27 07:43); order only, nothing is left out for it
-MOD = {'보통', '작은', '큰', '중간', '소형', '중형', '대형'}
+# size / degree words (2+ letters, as tokens): they say which one of the item, never the item itself. They do not rank a
+# name before one with the item ('보통 두부': 떡볶이(보통맛) after 연두부, 11/27 07:43), only among names with it ('중간
+# 계란': 중간 크기 계란 first, review I1). Order only, nothing is left out for it
+MOD = {'보통', '작은', '중간', '소형', '중형', '대형'}
 SMALL = re.compile(r'소량|소포장|작은|조금|혼자|(?<!\d)1\s?인|한\s?봉지|소용량|적당한\s?양')
 
 
@@ -381,7 +382,7 @@ def asked_out_of_stock(lost, foods, held, now, sold=None):
                 # '맛있는라면 x 20개', r19 follow-up)
                 # a brand or two before the item is fine ('오뚜기 마열라면'), a name full of other words is not the item
                 # asked ('보리차 디카페인 보리 커피' for 커피, bought 15:02): those stay behind whatever their size (q5)
-                scored.append(((-(score(core, name) - tail), miss, -hit) + ((other > 2,) if g['small'] else ()) + small
+                scored.append(((-(score(core, name) - tail), -(s - tail), miss, -hit) + ((other > 2,) if g['small'] else ()) + small
                                + (other, -sold.get(x['sku'], 0), extra, len(name)), x, pack, size))
             one = bool(syl) and not scored              # no word of 2+ letters matched: the one-letter staple (쌀, 무, 파)
             for i, x in enumerate(foods if one else ()):  # the name word is it or ends with it (햅쌀, 백미쌀),

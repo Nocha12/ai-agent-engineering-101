@@ -396,8 +396,8 @@ def _test_match_refuse_pack(g, K, now):
         assert set(o) == {'sku', 'name', 'list_price', 'shelf_hours', 'market_sold', 'we_hold', 'pack', 'pack_size'}, o
 
     # 6) the 11/27 07:43 case: '보통 두부' matched '떡볶이(보통맛)' by the word 보통 as much as 연두부 by 두부, the tie
-    #    went to the shorter 떡볶이 names, and no 두부 SKU was offered. The thing itself (the last word, 두부) comes first;
-    #    a size/taste word alone (보통, 작은, 큰) gives no rank. Order only: nothing is left out.
+    #    went to the shorter 떡볶이 names, and no 두부 SKU was offered. A size word (보통, 작은, 중간 ...) does not put a name
+    #    before one with the item itself; among those it still picks the size asked. Order only: nothing is left out.
     CAT[:] = [f('G54a4944b', '3초떡볶이(230g) 4팩 (보통맛)'), f('G-tb2', '3초 떡볶이 230g 4팩+4팩 (총1,840g) (보통맛/매운맛)'),
               f('G-tb3', '3초 떡볶이 230g 2팩+2팩 (총920g) (보통맛/매운맛)'), f('G-chili', '2026년 햇 태양초 영양 고추가루 김치용(보통맛) 3kg'),
               f('G-yeon', '[농협] 안동생명콩 국산콩 연두부 300g×5팩'),
@@ -410,9 +410,16 @@ def _test_match_refuse_pack(g, K, now):
     opts = [o['sku'] for o in tofu[0]['buy_options']]
     assert sorted(opts[:2]) == ['G-silk', 'G-yeon'], tofu
     assert opts[0] == 'G-yeon', tofu                                  # fewer other words first, as before
+    assert len(opts) == 3 and opts[2] == 'G54a4944b', tofu            # 떡볶이 still offered, after the 두부 names
     e = ask([row('a', '작은 두부', '작은 두부 있나요')])['customer_asked_out_of_stock']
     assert e[0]['buy_options'][0]['sku'] in ('G-yeon', 'G-silk'), e
     e = ask([row('a', '보통맛 떡볶이', '보통맛 떡볶이 있나요')])['customer_asked_out_of_stock']   # 떡볶이 asked: 떡볶이 first
     assert e[0]['buy_options'][0]['sku'] in ('G54a4944b', 'G-tb2', 'G-tb3'), e
     e = ask([row('a', '보통', '보통 있나요')])['customer_asked_out_of_stock']             # only a size word: still offered
-    assert e and e[0]['buy_options'], e
+    assert e and len(e[0]['buy_options']) == 3, e
+    CAT[:] = [f('G-egg-xl', '무항생제 왕란 계란 30구'), f('G-egg-m', '무항생제 중간 크기 계란 30구'), f('G-shrimp', '칵테일새우 500g'),
+              f('G-shrimp-m', '흰다리새우 중형 500g')]
+    e = ask([row('a', '중간 계란', '중간 계란 있나요')])['customer_asked_out_of_stock']       # the size asked, among eggs
+    assert e[0]['buy_options'][0]['sku'] == 'G-egg-m', e
+    e = ask([row('a', '중형 새우', '중형 새우 있나요')])['customer_asked_out_of_stock']
+    assert e[0]['buy_options'][0]['sku'] == 'G-shrimp-m', e
