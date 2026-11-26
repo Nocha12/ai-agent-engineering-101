@@ -56,11 +56,20 @@ class Label(unittest.TestCase):
 
     def test_made_things_are_not_their_ingredient(self):
         self.assertEqual(fm.label('찹쌀 꿀호떡 1.05kg'), '꿀호떡1.05kg')
-        self.assertEqual(fm.label('두부과자 55gx5팩'), '두부과자55g')
+        self.assertEqual(fm.label('두부과자 55gx5팩'), '두부과자55g×5팩')
         self.assertEqual(fm.label('비비고 김치손만두 1.4kg'), '김치손만두1.4kg')
         self.assertEqual(fm.label('김치사발면'), '김치사발면')
         self.assertEqual(fm.label('2026년 유기농 방울토마토 500g'), '방울토마토500g')
-        self.assertEqual(fm.label('정식수입 사토노유키 실큰두부 300g'), '두부300g')
+        self.assertEqual(fm.label('정식수입 사토노유키 실큰두부 300g'), '실큰두부300g')
+
+    def test_tofu_kinds_and_packs_00_10(self):   # 11/27 00:10: both were '두부300g' and four 두부 askers said no
+        self.assertEqual(fm.label('[농협] 안동생명콩 국산콩 연두부 300g×5팩'), '연두부300g×5팩')
+        self.assertEqual(fm.label('정식수입 사토노유키 실큰두부 300g 1팩 상온보관 멸균두부 연두부 순두부 단백질 식단관리'), '실큰두부300g')
+        self.assertEqual(fm.label('순두부 350g'), '순두부350g')
+        self.assertEqual(fm.label('국산콩 두부 300g'), '두부300g')
+        self.assertEqual(fm.label('몽베스트 무라벨 생수 2Lx6병(1팩)'), '생수2L×6병')
+        self.assertEqual(fm.label('하림 닭가슴살 100x10개'), '하림10개')            # review I1: no count after a bare number
+        self.assertEqual(fm.label('한계란 무항생제 유정란 30구'), '계란30구')
 
 
 class Requote(unittest.TestCase):

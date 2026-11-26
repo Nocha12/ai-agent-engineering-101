@@ -232,8 +232,24 @@ def live(inv, now):
     return good, len(units) - len(good)
 
 
+SIZE_PART = re.compile(r'\d+(?:\.\d+)?\s*(?:kg|g|l|ml|구|개입|입|팩|개|병|봉|매)(?:\s*[x×*]\s*\d+\s*(?:팩|개입|입|개|구|병|봉))?'
+                       r'(?![A-Za-z가-힣])', re.I)
+
+
 def short(name, n):
-    return re.sub(r'\[[^\]]*\]', '', str(name or '')).strip()[:n]
+    """The name cut to n characters, with the sizes and pack counts the cut dropped put back at its end: 14d1f0cb (11/26
+    23:40) asked how many eggs, and '…무항생제 유정란 20구' cut at 24 had lost '20구', so the agent could not say."""
+    s = re.sub(r'\[[^\]]*\]', '', str(name or '')).strip()
+    if len(s) <= n:
+        return s
+    cut = s[:n].rstrip()
+    m = SIZE_PART.search(s)                        # the first size only: '20구', '300g×5팩' (review r2 I1)
+    if not m or m.end() <= len(cut):
+        return cut
+    tail = ' … ' + m.group(0)
+    if len(tail) >= n - 4:                         # no room: the plain cut (the name_len ladder keeps every SKU fitting)
+        return cut
+    return s[:min(n - len(tail), m.start())].rstrip() + tail
 
 
 def norm(text):

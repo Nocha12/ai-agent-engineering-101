@@ -121,6 +121,20 @@ def test(run, kit):
     finally:
         if os.path.exists(QF):
             os.remove(QF)
+    # 11/26 23:40 14d1f0cb: '…유정란 20구' cut at 24 lost '20구'; a cut name keeps its size and pack count
+    eggs = {'units': [{'unit': 'e1', 'sku': 'G0000eeee', 'grade': 'A', 'cost': 7000, 'name': '한계란 난각번호 1번 계란 무항생제 유정란 20구'},
+                      {'unit': 't1', 'sku': 'G0000tttt', 'grade': 'C', 'cost': 2000, 'name': '[농협] 안동생명콩 국산콩 연두부 300g×5팩'}]}
+    short_ = run.__globals__['short']
+    e = run({'sku': 'G0000eeee', '_inventory': eggs, '_now': now}, kit)
+    assert e['count'] == 1 and e['items'][0]['name'].endswith('20구'), e['items']
+    t = run({'sku': '연두부', '_inventory': eggs, '_now': now}, kit)
+    assert t['count'] == 1 and '300g×5팩' in t['items'][0]['name'], t['items']
+    for k in (8, 14, 22, 24, 30):                          # review I2: a cut name stays within its length
+        for nm in ('한계란 난각번호 1번 계란 무항생제 유정란 20구', '[농협] 안동생명콩 국산콩 연두부 300g×5팩', '몽베스트 무라벨 생수 2Lx6병(1팩) 상온'):
+            assert len(short_(nm, k)) <= k, (k, short_(nm, k))
+    assert '300g' in short_('정식수입 사토노유키 실큰두부 300g 1팩 상온보관 멸균두부 연두부 순두부 단백질 식단관리', 22)
+    whole = run({'_inventory': eggs, '_now': now}, kit)
+    assert any('20구' in s['name'] for s in whole['skus']), whole['skus']
     bad = run({'_inventory': 'not a dict'}, kit)
     assert bad['ok'] is False and '재고 0이 아님' in bad['error'], bad
     return 'ok'

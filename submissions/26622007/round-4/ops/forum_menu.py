@@ -54,6 +54,7 @@ FIXED_PRICE = ('생수', '샘물', '삼다수', '먹는물', '아이시스', '�
 FIXED_SKU = ('G00b8acf0',)      # 생수 2L: never requoted (operator: the water price stays as it is)
 WORDS = [('총각김치', '총각김치'), ('배추김치', '배추김치'), ('포기김치', '배추김치'), ('김치', '김치'), ('계란', '계란'),
          ('유정란', '계란'), ('등급란', '계란'), ('특란', '계란'), ('대란', '계란'), ('삼겹살', '삼겹살'), ('목살', '목살'), ('둥굴레차', '둥굴레차'), ('취나물', '취나물'), ('시금치', '시금치'), ('콩나물', '콩나물'),
+         ('실큰두부', '실큰두부'), ('실크두부', '실크두부'), ('연두부', '연두부'), ('순두부', '순두부'),
          ('두부', '두부'), ('쌈채소', '쌈채소'), ('샐러드', '샐러드채소'), ('가자미', '가자미'), ('고등어', '고등어'),
          ('커피', '커피'), ('요거트', '요거트'), ('우유', '우유'), ('생수', '생수'), ('사과', '사과'), ('감귤', '감귤'),
          ('단호박', '단호박'), ('컵라면', '컵라면'), ('라면', '라면'), ('씻어나온쌀', '쌀'), ('백미', '쌀'), ('쌀', '쌀'),
@@ -67,13 +68,17 @@ SKIP_WORD = re.compile(r'^(\d{2,4}년?|유기농|국내산|국산|정식수입|�
 
 
 def label(name):
-    """A short word a customer would ask for, with its size: '계란20구', '쌀5kg'. A keyword counts only when the
+    """A short word a customer would ask for, with its size and pack count: '계란20구', '쌀5kg', '연두부300g×5팩'.
+    연두부·실큰(실크)두부·순두부 keep their own word, as the catalog writes it so check_item_inventory finds it by that name: customers asking for 두부 turned them down (00:10 11/27). A keyword counts only when the
     word it sits in is not another product made with it (두부과자, 김치만두, 찹쌀호떡). Without a keyword, the first
     word that is not a year, a brand in Latin letters or a selling word."""
     n = re.sub(r'\[[^\]]*\]|\([^)]*\)', ' ', str(name or '')).strip()
     n = re.sub(r'(\d)\s*[x×*]\s*(\d)', r'\1 x\2', n)
     sizes = re.findall(r'(\d+(?:\.\d+)?)\s*(kg|g|L|ml|구|개입|입|팩|개)(?![A-WYZa-wyz가-힣])', n, re.I)
     tag = (sizes[0][0] + sizes[0][1]) if sizes else ''
+    pack = re.search(r'\d(?:kg|g|l|ml|구|입|팩|개|병)\s*[x×*]\s*(\d+)\s*(팩|개입|입|개|구|병|봉)', n, re.I)   # 300g×5팩: five packs (00:10 11/27)
+    if tag and pack and n.find(sizes[0][0]) <= pack.start() < n.find(sizes[0][0]) + len(sizes[0][0]) + 4:
+        tag += '×' + pack.group(1) + pack.group(2)
     words = [re.sub(r'\d+(?:\.\d+)?\s*(kg|g|L|ml|구|개입|입|팩|개)$', '', w, flags=re.I) or w for w in n.split()]
     words = [w for w in words if w]
     made = next((w for w in words if any(x in w for x in NOT_IT)), None)
