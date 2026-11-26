@@ -1,0 +1,684 @@
+"""Tests for ops/forum_menu.py and its hook in agent_kit_records.py, offline (no market, no forum, no wallet).
+Run: python3 -I ops/test_forum_menu.py  (from the round-4 folder)"""
+import json
+import sys
+import tempfile
+import threading
+import types
+import unittest
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import forum_menu as fm  # noqa: E402
+
+LIVE = HERE.parent / 'tools' / 'restock_shoutout' / 'logic.py'   # what the hook loads in the shop
+QB_PATH = LIVE if LIVE.exists() else HERE / 'restock_shoutout' / 'logic.py'
+QB = fm.load_quote_block(QB_PATH)
+NOW = 1_800_000_000.0
+
+
+def unit(u, sku, name, grade, cost, exp=NOW + 86400):
+    return {'unit': u, 'sku': sku, 'name': name, 'grade': grade, 'cost': cost, 'kind': 'food', 'expires_at': exp}
+
+
+EGG, WATER, TEA, RICE = 'Gab7c8b3d', 'G00b8acf0', 'G0746760c', 'G3c4127d8'
+INV = {'units': [
+    unit('u1', EGG, '한계란 난각번호 1번 계란 무항생제 유정란 20구', 'B', 6361),
+    unit('u2', EGG, '한계란 난각번호 1번 계란 무항생제 유정란 20구', 'C', 6361),
+    unit('u3', WATER, '[본사공식] 몽베스트 무라벨 생수 2L', 'A', 2500),
+    unit('u4', TEA, '동서 둥굴레차 50T 60g', 'B', 1800),
+    unit('u5', RICE, '2026년 햅쌀 국산 백미 쌀 2kg', 'C', 3000),
+    unit('u6', 'Gdead0001', '이상한 상품', 'A', 1000, exp=NOW - 5),
+], 'restock': {'open': False, 'closes_at': NOW - 3600}}
+
+
+def settles(rows):
+    s = fm.Settles()
+    s.add([{'seq': i + 1, 'ts': NOW - 60 * i, 'kind': 'settle', 'data': {'sku': k, 'grade': g, 'amount': a}}
+           for i, (k, g, a) in enumerate(rows)], NOW)
+    return s
+
+
+MARKET_SETTLES = [(EGG, 'B', 7975)] * 3 + [(EGG, 'C', 5258)] * 3 + [(WATER, 'A', 1000)] * 3 + [(TEA, 'B', 2813)] * 4
+
+
+class Label(unittest.TestCase):
+    def test_words(self):
+        self.assertEqual(fm.label('한계란 난각번호 1번 계란 무항생제 유정란 20구'), '계란20구')
+        self.assertEqual(fm.label('2026년 햅쌀 씻어나온쌀 5kg 상등급'), '쌀5kg')
+        self.assertEqual(fm.label('한계란 무항생제 유정란 30구'), '계란30구')
+        self.assertEqual(fm.label('[본사공식] 몽베스트 무라벨 생수 2L'), '생수2L')
+        self.assertEqual(fm.label('[반찬천국] 취나물'), '취나물')
+        self.assertEqual(fm.label('한상궁김치 총각김치 2kg/단단한 알타리'), '총각김치2kg')
+        self.assertEqual(fm.label('[브랜드] 처음보는물건이름길다 1개'), '처음보는물건이름1개')
+
+    def test_made_things_are_not_their_ingredient(self):
+        self.assertEqual(fm.label('찹쌀 꿀호떡 1.05kg'), '꿀호떡1.05kg')
+        self.assertEqual(fm.label('두부과자 55gx5팩'), '두부과자55g')
+        self.assertEqual(fm.label('비비고 김치손만두 1.4kg'), '김치손만두1.4kg')
+        self.assertEqual(fm.label('김치사발면'), '김치사발면')
+        self.assertEqual(fm.label('2026년 유기농 방울토마토 500g'), '방울토마토500g')
+        self.assertEqual(fm.label('정식수입 사토노유키 실큰두부 300g'), '두부300g')
+
+
+class Requote(unittest.TestCase):
+    def test_plan_follows_median_above_floor_and_skips_water(self):
+        q = {f'{EGG}|B': {'price': 9675, 'ts': NOW - 10, 'by': 'x'}, f'{EGG}|C': {'price': 9675, 'ts': NOW - 10, 'by': 'x'},
+             f'{WATER}|A': {'price': 4830, 'ts': NOW - 10, 'by': 'x'}}
+        plan = fm.requote_plan(QB, INV, q, settles(MARKET_SETTLES), NOW)
+        floor = QB['stock'](INV, EGG, NOW)['floors']
+        self.assertEqual(plan[EGG]['B'], 7975)
+        self.assertEqual(plan[EGG]['C'], max(floor['C'], 5258))
+        self.assertGreaterEqual(plan[EGG]['C'], floor['C'])
+        self.assertNotIn(WATER, plan)                    # fixed price
+        self.assertEqual(plan[TEA]['B'], max(QB['stock'](INV, TEA, NOW)['floors']['B'], 2813))
+        self.assertNotIn(RICE, plan)                     # no settles: no median, nothing changes
+
+    def test_cheaper_quote_is_kept(self):
+        q = {f'{TEA}|B': {'price': 2500, 'ts': NOW - 10, 'by': 'x'}}
+        floor = QB['stock'](INV, TEA, NOW)['floors']['B']
+        plan = fm.requote_plan(QB, INV, q, settles(MARKET_SETTLES), NOW)
+        if 2500 >= floor:
+            self.assertNotIn(TEA, plan)
+
+    def test_too_few_settles(self):
+        plan = fm.requote_plan(QB, INV, {}, settles([(TEA, 'B', 2813)] * 2), NOW)
+        self.assertEqual(plan, {})
+
+    def test_apply_writes_shared_block(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / 'quotes.json'
+            p.write_text(json.dumps({f'{EGG}|B': {'price': 9675, 'ts': NOW - 10, 'by': 'x'}}))
+            out = fm.apply_plan(QB, p, INV, {EGG: {'B': 7975}}, NOW)
+            self.assertEqual(out[EGG]['B'], 7975)
+            q = json.loads(p.read_text())
+            self.assertEqual(q[f'{EGG}|B']['price'], 7975)
+            self.assertEqual(q[f'{EGG}|B']['by'], 'forum_menu')
+            self.assertEqual(QB['quote_prices'](q, EGG, QB['stock'](INV, EGG, NOW)['floors'], NOW)['B'], 7975)
+
+
+class Text(unittest.TestCase):
+    QUOTES = {f'{EGG}|B': {'price': 7975, 'ts': NOW, 'by': 'x'}, f'{EGG}|C': {'price': 7000, 'ts': NOW, 'by': 'x'},
+              f'{TEA}|B': {'price': 2900, 'ts': NOW, 'by': 'x'}, f'{WATER}|A': {'price': 4830, 'ts': NOW, 'by': 'x'},
+              f'{RICE}|C': {'price': 4700, 'ts': NOW, 'by': 'x'}}
+
+    def test_fits_the_view_and_orders_by_market_sales(self):
+        text, skus = fm.build_text(QB, INV, self.QUOTES, settles(MARKET_SETTLES), NOW, 0)
+        self.assertLessEqual(len(text), 160)
+        self.assertTrue(text.endswith(fm.TAIL))
+        self.assertEqual(skus[0], EGG)                   # 6 settles on the market, then the tea's 4
+        self.assertEqual(skus[1], TEA)
+        self.assertIn('계란20구 C7,000', text)               # cheapest shown grade of the egg
+
+    def test_unpriced_and_expired_stock_left_out(self):
+        text, skus = fm.build_text(QB, INV, {}, settles(MARKET_SETTLES), NOW, 0)
+        self.assertIsNone(text)
+        self.assertEqual(skus, [])
+        text, skus = fm.build_text(QB, INV, self.QUOTES, settles([]), NOW, 0)
+        self.assertNotIn('Gdead0001', skus)
+
+    def test_rotation(self):
+        many = {'units': [unit(f'v{i}', f'G{i:08x}', f'품목{i}번 상품', 'B', 1000) for i in range(30)]}
+        q = {f'G{i:08x}|B': {'price': 2000 + i, 'ts': NOW, 'by': 'x'} for i in range(30)}
+        a = fm.build_text(QB, many, q, settles([]), NOW, 0)[1]
+        b = fm.build_text(QB, many, q, settles([]), NOW, 1)[1]
+        self.assertEqual(a[:2], b[:2])
+        self.assertNotEqual(a[2:], b[2:])
+
+
+class Window(unittest.TestCase):
+    def test_open_flag_only(self):
+        self.assertTrue(fm.window_open({'restock': {'open': True}}))
+        self.assertFalse(fm.window_open({'restock': {'open': False, 'opens_at': NOW + 600, 'closes_at': NOW + 780}}))
+        self.assertFalse(fm.window_open({}))
+
+    def test_announce_due(self):
+        s = {'last_window': 'w', 'windows': {'w': {'ts': NOW - 60, 'skus': {EGG: {}}, 'posted': None}}}
+        self.assertTrue(fm.announce_due(s, NOW))
+        s['windows']['w']['posted'] = 'pending'
+        self.assertTrue(fm.announce_due(s, NOW))
+        s['windows']['w']['posted'] = 9287
+        self.assertFalse(fm.announce_due(s, NOW))
+        s['windows']['w'].update(posted=None, ts=NOW - fm.ANNOUNCE_WAIT - 1)
+        self.assertFalse(fm.announce_due(s, NOW))
+        s['windows']['w']['ts'] = NOW - 60
+        s['paused_until'] = NOW + 100
+        self.assertFalse(fm.announce_due(s, NOW))
+        self.assertFalse(fm.announce_due(None, NOW))
+
+class FakeMenu(fm.Menu):
+    def __init__(self, d, forum_ts=0.0, inv=None, post_code=200, ledger=None, dislikes=0):
+        market = types.SimpleNamespace(token={'shop': 't'}, joined={'shop': ('nocha12', None, None)},
+                                       base='https://market.example')
+        self.now = NOW
+        super().__init__(d, market, QB_PATH, clock=lambda: self.now, sleep=lambda s: None)
+        self.forum_ts, self.inv, self.post_code, self.posts = forum_ts, inv or INV, post_code, []
+        self.dislikes, self.afters, self.body = dislikes, [], None
+        self.ledger = ledger if ledger is not None else [
+            {'seq': i + 1, 'ts': NOW - 60, 'kind': 'settle', 'data': {'sku': k, 'grade': g, 'amount': a}}
+            for i, (k, g, a) in enumerate(MARKET_SETTLES)]
+
+    def _http(self, method, path, body=None):
+        if path == '/api/inventory':
+            return 200, self.inv
+        if path.startswith('/api/forum?'):
+            if self.forum_ts is None:
+                return 500, None
+            return 200, [{'author': 'nocha12', 'ts': self.forum_ts, 'dislikes': self.dislikes, 'text': '[노차네 구멍가게(nocha12) 지금 재고] 계란20구 B7,975'},
+                         {'author': 'yms979', 'ts': self.now, 'dislikes': 9}]
+        if path.startswith('/api/ledger?after='):
+            after = int(path.split('=')[1])
+            self.afters.append(after)
+            if after < 0:
+                return 200, self.ledger[after:]
+            return 200, [r for r in self.ledger if r['seq'] > after][:500]
+        if method == 'POST' and path == '/api/forum':
+            self.posts.append(body['text'])
+            return self.post_code, (self.body if self.body is not None else ({'id': 7} if self.post_code == 200 else None))
+        raise AssertionError(path)
+
+
+def shop(d):
+    (Path(d) / 'logs').mkdir()
+    (Path(d) / 'ops').mkdir()
+    (Path(d) / 'logs' / 'quotes.json').write_text(json.dumps(
+        {f'{EGG}|B': {'price': 9675, 'ts': NOW - 10, 'by': 'x'}, f'{WATER}|A': {'price': 4830, 'ts': NOW - 10, 'by': 'x'}}))
+
+
+class Once(unittest.TestCase):
+    def test_posts_requotes_then_waits(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            m = FakeMenu(d)
+            r = m.once()
+            self.assertTrue(r['ok'], r)
+            self.assertEqual(len(m.posts), 1)
+            floor_c = QB['stock'](INV, EGG, NOW)['floors']['C']
+            self.assertIn(f'계란20구 C{max(floor_c, 5258):,}', m.posts[0])   # the cheapest shown grade
+            q = json.loads((Path(d) / 'logs' / 'quotes.json').read_text())
+            self.assertEqual(q[f'{EGG}|B']['price'], 7975)
+            self.assertEqual(q[f'{WATER}|A']['price'], 4830)       # water untouched
+            m.now += 100
+            self.assertEqual(m.once(), {'skip': 'gap'})
+            m.now += fm.POST_GAP
+            m.forum_ts = m.now - 10                                   # restock_shoutout just posted
+            self.assertEqual(m.once(), {'skip': 'gap'})
+            self.assertEqual(len(m.posts), 1)
+            rows = [json.loads(x) for x in (Path(d) / 'logs' / 'forum-menu.jsonl').read_text().splitlines()]
+            self.assertEqual(len(rows), 1)
+
+    def test_off_switch_window_and_unreadable_forum(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            (Path(d) / 'ops' / 'forum_menu.off').write_text('')
+            self.assertEqual(FakeMenu(d).once(), {'skip': 'off'})
+            (Path(d) / 'ops' / 'forum_menu.off').unlink()
+            self.assertEqual(FakeMenu(d, inv=dict(INV, restock={'open': True})).once(), {'skip': 'supply window'})
+            (Path(d) / 'logs' / 'forum-menu-state.json').unlink()   # the window seen above is remembered
+            m = FakeMenu(d, forum_ts=None)
+            self.assertEqual(m.once(), {'skip': 'forum unreadable'})
+            self.assertEqual(m.posts, [])
+
+    def test_lost_answer_waits_a_full_gap(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            m = FakeMenu(d, post_code=0)
+            r = m.once()
+            self.assertFalse(r['ok'])
+            m.now += 60
+            self.assertEqual(m.once(), {'skip': 'gap'})
+
+    def test_refused_post_retries_next_tick(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            m = FakeMenu(d, post_code=400)
+            self.assertFalse(m.once()['ok'])
+            m.post_code = 200
+            m.now += 30
+            self.assertEqual(m.once(), {'skip': 'gap'})            # a refusal waits a minute, not a tick
+            m.now += 31
+            self.assertTrue(m.once()['ok'])
+
+    def test_no_token_no_call(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            m = fm.Menu(d, types.SimpleNamespace(token={}, joined={}), QB_PATH, clock=lambda: NOW)
+            self.assertEqual(m._http('GET', '/api/inventory'), (0, None))
+
+
+class Guards(unittest.TestCase):
+    def test_quiet_after_a_window_with_the_real_closed_shape(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            m = FakeMenu(d, inv=dict(INV, restock={'open': True, 'opens_at': NOW - 60, 'closes_at': NOW + 120}))
+            self.assertEqual(m.once(), {'skip': 'supply window'})
+            m.inv = dict(INV, restock={'open': False, 'opens_at': NOW + 1200, 'closes_at': NOW + 1380})
+            m.now += fm.AFTER_WINDOW - 30                    # q8: AFTER_WINDOW is 90 s now
+            self.assertEqual(m.once(), {'skip': 'supply window'})
+            m.now += 31
+            self.assertEqual(m.once(), {'skip': 'restock post may come'})   # no restock entry for it yet
+            m.now = NOW + 120 + fm.AFTER_WINDOW_LONG
+            self.assertTrue(m.once()['ok'])
+
+    def test_votes_do_not_skip_an_eligible_menu(self):
+        for votes in (1, 3):
+            with self.subTest(votes=votes), tempfile.TemporaryDirectory() as d:
+                shop(d)
+                m = FakeMenu(d, forum_ts=NOW - 600, dislikes=votes)
+                self.assertTrue(m.once().get('ok'))
+
+    def test_old_dislike_deadline_is_not_inherited(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            (Path(d) / 'logs' / 'forum-menu-state.json').write_text(json.dumps(
+                {'not_before': NOW + 86400}))
+            self.assertTrue(FakeMenu(d).once().get('ok'))
+
+    def test_legacy_shoutout_pause_does_not_stop_stock_menu(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            (Path(d) / 'shoutout.json').write_text(json.dumps({'paused_until': NOW + 600}))
+            m = FakeMenu(d)
+            self.assertTrue(m.once().get('ok'))
+
+    def test_waitlisted_restock_post_keeps_existing_priority(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            (Path(d) / 'shoutout.json').write_text(json.dumps(
+                {'last_window': 'w', 'paused_until': NOW + 3600,             # announce_due off: this branch alone
+                 'windows': {'w': {'ts': NOW - 120, 'skus': {EGG: {}}, 'posted': None}}}))
+            (Path(d) / 'waitlist.json').write_text(json.dumps({'entries': [{'sku': EGG}]}))
+            m = FakeMenu(d, forum_ts=NOW - 3600, dislikes=1)
+            self.assertEqual(m.once(), {'skip': 'restock post for waitlisted customers goes first'})
+            m.now = NOW - 120 + fm.ANNOUNCE_WAIT + 1           # q8 (review I2): a post that never came stops holding
+            self.assertTrue(m.once().get('ok'))
+
+    def test_market_429_retry_deadline_survives_restart(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            m = FakeMenu(d, post_code=429)
+            m.body = {'wait': 1000}
+            self.assertEqual(m.once()['status'], 429)
+            other = FakeMenu(d)
+            other.now += 350
+            self.assertEqual(other.once(), {'skip': 'gap'})
+            other.now += 650
+            self.assertTrue(other.once().get('ok'))
+
+    def test_429_counts_from_response_after_slow_backfill(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            m = FakeMenu(d, post_code=429)
+            m.body = {'wait': 60}
+            refresh = m.refresh_settles
+            def delayed(now):
+                refresh(now)
+                m.now += 90
+            m.refresh_settles = delayed
+            self.assertEqual(m.once()['status'], 429)
+            other = FakeMenu(d)
+            other.now += 91
+            self.assertEqual(other.once(), {'skip': 'gap'})
+            other.now += 59
+            self.assertTrue(other.once().get('ok'))
+
+    def test_restock_post_first(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            (Path(d) / 'shoutout.json').write_text(json.dumps(
+                {'last_window': 'w', 'windows': {'w': {'ts': NOW - 30, 'skus': {EGG: {}}, 'posted': None}}}))
+            m = FakeMenu(d)
+            self.assertEqual(m.once(), {'skip': 'restock post to come'})
+            self.assertEqual(m.posts, [])
+
+    def test_a_quote_held_up_by_a_lower_grade_is_not_rewritten(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            p = Path(d) / 'logs' / 'quotes.json'
+            q = {f'{EGG}|C': {'price': 9675, 'ts': NOW - 10, 'by': 'x'}, f'{EGG}|B': {'price': 9675, 'ts': NOW - 10, 'by': 'x'}}
+            p.write_text(json.dumps(q))
+            plan = fm.requote_plan(QB, INV, q, settles([(EGG, 'B', 7975)] * 3), NOW)
+            self.assertEqual(plan, {})
+
+    def test_backfill_then_new_rows_only(self):
+        rows = [{'seq': i, 'ts': NOW - 10, 'kind': 'settle', 'data': {'sku': TEA, 'grade': 'B', 'amount': 2813}}
+                for i in range(1, 9001)]
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            m = FakeMenu(d, ledger=rows)
+            m.refresh_settles(NOW)
+            self.assertEqual(m.afters[0], -1)
+            self.assertEqual(m.afters[1], 9000 - fm.BACKFILL)
+            self.assertEqual(m.settles.last, 9000)
+            self.assertEqual(len(m.settles.rows), fm.BACKFILL)
+            rows.append({'seq': 9001, 'ts': NOW, 'kind': 'settle', 'data': {'sku': TEA, 'grade': 'B', 'amount': 2900}})
+            m.afters.clear()
+            m.refresh_settles(NOW)
+            self.assertEqual(m.afters, [9000])
+            self.assertEqual(m.settles.last, 9001)
+
+    def test_skip_logged_once_per_reason(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            (Path(d) / 'ops' / 'forum_menu.off').write_text('')
+            m = FakeMenu(d)
+            m.once(); m.now += 30; m.once()
+            rows = (Path(d) / 'logs' / 'forum-menu.jsonl').read_text().splitlines()
+            self.assertEqual(len(rows), 1)
+            m.now += fm.SKIP_LOG
+            m.once()
+            self.assertEqual(len((Path(d) / 'logs' / 'forum-menu.jsonl').read_text().splitlines()), 2)
+
+    def test_429_waits_what_the_market_says(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            m = FakeMenu(d, post_code=429)
+            m.body = {'error': 'slow down', 'wait': 200}
+            self.assertFalse(m.once()['ok'])
+            m.post_code, m.body = 200, None
+            m.now += 100
+            self.assertEqual(m.once(), {'skip': 'gap'})
+            m.now += 101
+            self.assertTrue(m.once()['ok'])
+
+    def test_uses_the_kit_market_base(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            self.assertEqual(FakeMenu(d).base(), 'https://market.example')
+
+    def test_own_temp_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            p = Path(d) / 'logs' / 'quotes.json'
+            fm.apply_plan(QB, p, INV, {EGG: {'B': 7975}}, NOW)
+            self.assertFalse((Path(d) / 'logs' / 'quotes.json.tmp').exists())
+            self.assertEqual(sorted(x.name for x in (Path(d) / 'logs').iterdir()), ['quotes.json'])
+            self.assertEqual(json.loads(p.read_text())[f'{WATER}|A']['price'], 4830)   # other quotes kept
+
+
+class Review2(unittest.TestCase):
+    def test_slot_kept_for_a_window_about_to_open(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            m = FakeMenu(d, inv=dict(INV, restock={'open': False, 'opens_at': NOW + 200, 'closes_at': NOW + 380}))
+            self.assertEqual(m.once(), {'skip': 'supply window soon'})
+            m.inv = dict(INV, restock={'open': False, 'opens_at': NOW + fm.POST_GAP + 61, 'closes_at': NOW + 900})
+            self.assertTrue(m.once()['ok'])
+
+    def test_failed_backfill_is_tried_again_and_after_is_a_number(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            m = FakeMenu(d, ledger=[])
+            m.refresh_settles(NOW)
+            m.refresh_settles(NOW)
+            self.assertTrue(all(isinstance(a, int) for a in m.afters), m.afters)
+            m2 = FakeMenu(d)
+            real = m2._http
+            m2._http = lambda meth, path, body=None: (500, None) if path.startswith('/api/ledger?after=') and not path.endswith('-1') else real(meth, path, body)
+            m2.refresh_settles(NOW)
+            self.assertFalse(m2.backfilled)
+            m2._http = real
+            m2.refresh_settles(NOW)
+            self.assertTrue(m2.backfilled)
+            self.assertEqual(m2.settles.count(EGG), 6)
+
+    def test_future_rows_kept(self):
+        s = fm.Settles()
+        s.add([{'seq': 1, 'ts': NOW + 5, 'kind': 'settle', 'data': {'sku': TEA, 'grade': 'B', 'amount': 2813}}], NOW)
+        self.assertEqual(len(s.rows), 1)
+
+    def test_loop_error_goes_through_skip(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            m = FakeMenu(d)
+            class Stop:
+                done = False
+                def wait(self, s):
+                    return self.done
+                def is_set(self):
+                    return self.done
+            stop = Stop()
+            def boom():
+                stop.done = True
+                raise RuntimeError('x')
+            m.once = boom
+            m.loop(stop)
+            rows = [json.loads(x) for x in (Path(d) / 'logs' / 'forum-menu.jsonl').read_text().splitlines()]
+            self.assertTrue(rows and rows[-1]['skip'].startswith('error RuntimeError'), rows)
+
+
+class Review3(unittest.TestCase):
+    def test_water_by_sku_or_any_water_word(self):
+        self.assertTrue(fm.fixed('아무 이름', WATER))
+        self.assertTrue(fm.fixed('제주 삼다수 2L', 'Gx'))
+        self.assertTrue(fm.fixed('동원샘물 2L x 6병', 'Gy'))
+        self.assertFalse(fm.fixed('동서 둥굴레차 50T 60g', TEA))
+
+    def test_no_quote_gets_market_price_not_below_floor(self):
+        plan = fm.requote_plan(QB, INV, {}, settles([(TEA, 'B', 1)] * 3), NOW)
+        self.assertEqual(plan[TEA]['B'], QB['stock'](INV, TEA, NOW)['floors']['B'])
+
+    def test_a_quote_written_meanwhile_is_kept(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            p = Path(d) / 'logs' / 'quotes.json'
+            q = json.loads(p.read_text())
+            q[f'{EGG}|B'] = {'price': 7000, 'ts': NOW, 'by': 'private_checkout'}   # a tool lowered it already
+            p.write_text(json.dumps(q))
+            self.assertEqual(fm.apply_plan(QB, p, INV, {EGG: {'B': 7975}}, NOW), {})
+            self.assertEqual(json.loads(p.read_text())[f'{EGG}|B']['price'], 7000)
+
+    def test_file_changed_during_the_write_is_left_alone(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            p = Path(d) / 'logs' / 'quotes.json'
+            real = QB['quotes_load']
+            def load_then_touch(path):
+                r = real(path)
+                q = json.loads(p.read_text()); q['X|A'] = {'price': 1, 'ts': NOW, 'by': 'check_item_inventory'}
+                p.write_text(json.dumps(q))
+                import os; os.utime(p, ns=(1, 1))
+                return r
+            qb = dict(QB, quotes_load=load_then_touch)
+            self.assertEqual(fm.apply_plan(qb, p, INV, {EGG: {'B': 7975}}, NOW), {})
+            self.assertIn('X|A', json.loads(p.read_text()))
+
+    def test_odd_rows_do_not_stop_the_menu(self):
+        s = fm.Settles()
+        s.add([{'seq': 1, 'ts': 'yesterday', 'kind': 'settle', 'data': {'sku': TEA, 'grade': 'B', 'amount': 1}},
+               {'seq': 2, 'ts': NOW, 'kind': 'settle', 'data': {'sku': TEA, 'grade': 'B', 'amount': 2813}}, 'junk'], NOW)
+        self.assertEqual(len(s.rows), 1)
+
+    def test_no_line_fits_no_post(self):
+        inv = {'units': [unit('u1', EGG, '가' * 200, 'B', 6361)], 'restock': {}}
+        self.assertEqual(fm.build_text(QB, inv, {}, fm.Settles(), NOW, 0), (None, []))
+
+    def test_slot_held_until_the_restock_entry_appears(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            m = FakeMenu(d, inv=dict(INV, restock={'open': True, 'opens_at': NOW - 60, 'closes_at': NOW + 60}))
+            m.once()
+            m.inv = dict(INV, restock={'open': False, 'opens_at': NOW + 1200, 'closes_at': NOW + 1380})
+            m.now += fm.AFTER_WINDOW + 10
+            self.assertEqual(m.once(), {'skip': 'restock post may come'})
+            (Path(d) / 'shoutout.json').write_text(json.dumps(
+                {'last_window': 'w', 'windows': {'w': {'ts': NOW - 30, 'skus': {EGG: {}}, 'posted': 'p9'}}}))
+            self.assertTrue(m.once()['ok'])
+            m2 = FakeMenu(d, inv=dict(INV, restock={'open': True}))
+            (Path(d) / 'shoutout.json').unlink()
+            m2.once()
+            m2.inv = dict(INV, restock={'open': False, 'opens_at': NOW + 1200})
+            m2.now += fm.AFTER_WINDOW_LONG + 1
+            m2.forum_ts = NOW - 7200
+            self.assertTrue(m2.once()['ok'])                    # no entry at all: wait 10 min, then post
+
+
+class Review4(unittest.TestCase):
+    def test_restock_entry_appearing_during_the_backfill_wins(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            m = FakeMenu(d)
+            real = m.refresh_settles
+            def slow(now):
+                real(now)
+                (Path(d) / 'shoutout.json').write_text(json.dumps(
+                    {'last_window': 'w', 'windows': {'w': {'ts': NOW, 'skus': {EGG: {}}, 'posted': None}}}))
+            m.refresh_settles = slow
+            self.assertEqual(m.once(), {'skip': 'restock post to come'})
+            self.assertEqual(m.posts, [])
+
+    def test_last_open_survives_a_restart(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            m = FakeMenu(d, inv=dict(INV, restock={'open': True}))
+            m.once()
+            m2 = FakeMenu(d, inv=dict(INV, restock={'open': False, 'opens_at': NOW + 1200}))
+            m2.now += 60
+            self.assertEqual(m2.once(), {'skip': 'supply window'})
+
+    def test_millisecond_times_and_dict_forum(self):
+        self.assertEqual(fm._ts({'ts': NOW * 1000}), NOW)
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            m = FakeMenu(d)
+            real = m._http
+            m._http = lambda meth, path, body=None: ((200, {'posts': real(meth, path, body)[1]})
+                                                    if path.startswith('/api/forum?') else real(meth, path, body))
+            self.assertTrue(m.once()['ok'])
+
+
+class Hook(unittest.TestCase):
+    def test_starts_once_for_the_shop_only(self):
+        import agent_kit_records as rec
+        calls = []
+
+        class Market:
+            def join(self, role, name=None):
+                return {'role': role}
+
+        ak = types.SimpleNamespace(mk=types.SimpleNamespace(Market=Market))
+        real = fm.start
+        fm.start = lambda shop_dir, market, qb: calls.append((shop_dir, market, qb))
+        try:
+            rec._menu_hook(ak, Path('/x'))
+            m = Market()
+            self.assertEqual(m.join('buyer'), {'role': 'buyer'})
+            self.assertEqual(calls, [])
+            self.assertEqual(m.join('shop', 'nocha12'), {'role': 'shop'})
+            m.join('shop', 'nocha12')                    # a join again after a market reset: no second thread
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0][2], Path('/x/tools/restock_shoutout/logic.py'))
+        finally:
+            fm.start = real
+
+    def test_start_failure_keeps_join(self):
+        import agent_kit_records as rec
+
+        class Market:
+            def join(self, role):
+                return 'joined'
+
+        ak = types.SimpleNamespace(mk=types.SimpleNamespace(Market=Market))
+        real = fm.start
+        fm.start = lambda *a: (_ for _ in ()).throw(RuntimeError('boom'))
+        try:
+            rec._menu_hook(ak, Path('/x'))
+            self.assertEqual(Market().join('shop'), 'joined')
+        finally:
+            fm.start = real
+
+    def test_checkout_first_in_format(self):
+        import ast
+        src = (HERE / 'agent_kit_records.py').read_text(encoding='utf-8')
+        fmt = next(n for n in ast.walk(ast.parse(src)) if isinstance(n, ast.AugAssign)
+                   and getattr(n.target, 'attr', None) == 'FORMAT')
+        text = ast.literal_eval(fmt.value)               # the exact text added to ak.FORMAT
+        self.assertIn('Checkout first', text)
+        self.assertIn('create the checkout in this same reply at the shown price', text)
+        self.assertIn('Hold back only when the customer said not to issue yet', text)
+
+    def test_thread_stops(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            m = FakeMenu(d)
+            stop = threading.Event()
+            stop.set()
+            m.loop(stop)                                  # returns at once when stopped
+            self.assertEqual(m.posts, [])
+
+
+
+class Q8Exposure(unittest.TestCase):
+    """q8 (11/26 19:3x): take every market slot outside the window's own restock post; expiring stock first."""
+
+    def test_expiring_and_big_stock_first(self):
+        inv = {'units': [unit('e1', EGG, '한계란 난각번호 1번 계란 무항생제 유정란 20구', 'C', 6361, exp=NOW + 400 * 3600),
+                         unit('t1', TEA, '동서 둥굴레차 50T 60g', 'B', 1800, exp=NOW + 300 * 3600),
+                         unit('t2', TEA, '동서 둥굴레차 50T 60g', 'B', 1800, exp=NOW + 300 * 3600),
+                         unit('t3', TEA, '동서 둥굴레차 50T 60g', 'B', 1800, exp=NOW + 300 * 3600),
+                         unit('r1', RICE, '2026년 햅쌀 국산 백미 쌀 2kg', 'C', 3000, exp=NOW + 5 * 3600)]}
+        q = {f'{EGG}|C': {'price': 7000, 'ts': NOW, 'by': 'x'}, f'{TEA}|B': {'price': 2900, 'ts': NOW, 'by': 'x'},
+             f'{RICE}|C': {'price': 4700, 'ts': NOW, 'by': 'x'}}
+        text, skus = fm.build_text(QB, inv, q, settles(MARKET_SETTLES), NOW, 0)
+        self.assertEqual(skus[:3], [RICE, TEA, EGG])       # 5 h left, then 3 units, then the market's best seller
+        self.assertLessEqual(len(text), fm.VIEW)
+
+    def test_soonest_reads_only_good_dated_units_of_that_grade(self):
+        inv = {'units': [unit('a', EGG, 'x', 'B', 1, exp=NOW + 7200), unit('b', EGG, 'x', 'C', 1, exp=NOW + 3600),
+                         unit('c', EGG, 'x', 'B', 1, exp=NOW - 5), dict(unit('d', EGG, 'x', 'B', 1), expires_at=None)]}
+        self.assertEqual(fm.soonest(inv, EGG, 'B', NOW), 2.0)
+        self.assertIsNone(fm.soonest(inv, TEA, 'B', NOW))
+
+    def test_restock_post_naming_nobody_gets_only_the_grace(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            (Path(d) / 'shoutout.json').write_text(json.dumps(
+                {'last_window': 'w', 'windows': {'w': {'ts': NOW - fm.ANNOUNCE_GRACE + 5, 'skus': {EGG: {}}, 'posted': None}}}))
+            m = FakeMenu(d, forum_ts=NOW - 3600)
+            self.assertEqual(m.once(), {'skip': 'restock post to come'})
+            m.now += 6
+            self.assertTrue(m.once().get('ok'))
+
+    def test_restock_post_naming_customers_keeps_the_long_wait(self):
+        for why in ('waitlist', 'waited', 'regular'):                # review C1/I1: the window's own names, any kind
+            with self.subTest(why=why), tempfile.TemporaryDirectory() as d:
+                shop(d)
+                (Path(d) / 'shoutout.json').write_text(json.dumps(
+                    {'last_window': 'w', 'windows': {'w': {'ts': NOW - fm.ANNOUNCE_GRACE - 100,
+                     'skus': {EGG: {'name': '계란', 'names': {'김콩-1a2b': why}}}, 'posted': None}}}))
+                (Path(d) / 'waitlist.json').write_text(json.dumps({'entries': [{'sku': '콩나물'}]}))   # name-keyed
+                m = FakeMenu(d, forum_ts=NOW - 3600)
+                self.assertEqual(m.once(), {'skip': 'restock post to come'})
+                m.now = NOW - fm.ANNOUNCE_GRACE - 100 + fm.ANNOUNCE_WAIT + 1
+                self.assertTrue(m.once().get('ok'))
+
+    def test_names_customers_reads_only_a_real_names_dict(self):
+        mk = lambda skus: {'last_window': 'w', 'windows': {'w': {'ts': NOW, 'skus': skus}}}
+        self.assertTrue(fm.names_customers(mk({EGG: {'names': {'a': 'waited'}}})))
+        self.assertFalse(fm.names_customers(mk({EGG: {'names': {}}})))
+        self.assertFalse(fm.names_customers(mk({EGG: {}})))
+        self.assertFalse(fm.names_customers(mk([EGG])))
+        self.assertFalse(fm.names_customers(None))
+
+    def test_soon_boundary(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            m = FakeMenu(d, inv=dict(INV, restock={'open': False, 'opens_at': NOW + fm.SOON - 1, 'closes_at': NOW + 900}))
+            self.assertEqual(m.once(), {'skip': 'supply window soon'})
+            m.inv = dict(INV, restock={'open': False, 'opens_at': NOW + fm.SOON + 1, 'closes_at': NOW + 900})
+            self.assertTrue(m.once().get('ok'))
+
+    def test_a_window_without_restock_frees_the_slot_in_three_minutes(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            m = FakeMenu(d, inv=dict(INV, restock={'open': True, 'opens_at': NOW - 60, 'closes_at': NOW + 120}),
+                         forum_ts=NOW - 7200)
+            self.assertEqual(m.once(), {'skip': 'supply window'})
+            m.inv = dict(INV, restock={'open': False, 'opens_at': NOW + 1200, 'closes_at': NOW + 1380})
+            m.now += fm.AFTER_WINDOW_LONG + 1
+            self.assertTrue(m.once().get('ok'))
+            self.assertLessEqual(fm.AFTER_WINDOW_LONG, 180)
+
+if __name__ == '__main__':
+    unittest.main()
