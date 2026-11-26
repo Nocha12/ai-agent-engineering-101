@@ -402,7 +402,7 @@ def install(ak, logs, checkout=False):
         from a2a.server import request_handlers, tasks as a2a_tasks
         from a2a.helpers import get_message_text
         from a2a.types import Task
-        from checkout_delivery import Checkout, clean_reply, compose, grade_note, tokens, JWT, SIGNED, ORDER, HOLD_SECONDS
+        from checkout_delivery import Checkout, attach_data, clean_reply, compose, grade_note, tokens, JWT, SIGNED, ORDER, HOLD_SECONDS
         http_request = ContextVar('checkout_http', default=None)
         inquiry = ContextVar('checkout_inquiry', default=None)
         a2a_event = ContextVar('checkout_a2a_event', default=None)
@@ -548,6 +548,7 @@ def install(ak, logs, checkout=False):
                                         and part.get('text') == baseline):
                                     body, attached = compose(baseline, issued, cancelled, time.time())
                                     part['text'] = body
+                                    attach_data(result, attached)   # 11/27: the same originals as a data part too
                                     raw = json.dumps(response, ensure_ascii=False, separators=(',', ':')).encode()
                                     serialized = json.loads(raw)['result']
                                     checks = tokens(serialized.get('task', serialized)['status']['message']['parts'][0]['text'])

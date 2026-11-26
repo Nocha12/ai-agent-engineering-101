@@ -69,6 +69,23 @@ def compose(text, issued, cancelled, now):
     return head + ('\n\n' + tail if tail else ''), tuple(active.values())
 
 
+def attach_data(result, attached):
+    """Also put each attached checkout in the task's artifacts as an A2A data part {checkout_jwt, order} (11/27 06:40
+    check): the market's customer tool reads only the first 2,000 characters of a reply's text, so a second checkout
+    after the first one's grade line never reached it, and a customer that copies an ~850-character token by hand can
+    change it ("not signed by this shop's wallet"); the data part is read whole and its token is the one buy uses when
+    the customer names no token. The same signed originals as in the text; nothing else changes. Returns the count."""
+    data = [{'checkout_jwt': c.token, 'order': c.order} for c in attached]
+    if not data or not isinstance(result, dict):
+        return 0
+    arts = result.get('artifacts')
+    if not isinstance(arts, list):
+        arts = result['artifacts'] = []
+    arts.append({'artifactId': 'checkout-' + data[0]['order'], 'name': 'checkout',
+                 'parts': [{'data': d} for d in data]})
+    return len(data)
+
+
 UNIT = re.compile(r'u-[0-9a-f]{6,32}')
 KST = timezone(timedelta(hours=9))
 
