@@ -688,7 +688,8 @@ class Q8Exposure(unittest.TestCase):
         q = {f'{EGG}|C': {'price': 7000, 'ts': NOW, 'by': 'x'}, f'{TEA}|B': {'price': 2900, 'ts': NOW, 'by': 'x'},
              f'{RICE}|C': {'price': 4700, 'ts': NOW, 'by': 'x'}}
         text, skus = fm.build_text(QB, inv, q, settles(MARKET_SETTLES), NOW, 0)
-        self.assertEqual(skus[:3], [RICE, TEA, EGG])       # 5 h left, then 3 units, then the market's best seller
+        # 11/27 06:40: the first two lines with 10 h+ left lead (3 units, then the best seller); 5 h rice follows
+        self.assertEqual(skus[:3], [TEA, EGG, RICE])
         self.assertLessEqual(len(text), fm.VIEW)
 
     def test_soonest_reads_only_good_dated_units_of_that_grade(self):
@@ -777,7 +778,7 @@ class Clearance(unittest.TestCase):
                          unit('t1', TEA, '동서 둥굴레차 50T 60g', 'B', 1800, exp=NOW + 300 * 3600)]}
         q = {f'{TEA}|B': {'price': 2900, 'ts': NOW, 'by': 'x'}}
         text, skus = fm.build_text(QB, inv, q, settles(MARKET_SETTLES), NOW, 0)
-        self.assertEqual(skus, ['G5c96ee78', TEA, EGG])    # 5 h clearance, then tea, then the 1 h egg
+        self.assertEqual(skus, [TEA, 'G5c96ee78', EGG])    # 11/27 06:40: 300 h tea leads, then 5 h clearance, 1 h egg last
         for u in inv['units'][:2]:                         # each line keeps its unit's own clearance price
             cl = fm.clearance(u, None, NOW)
             self.assertIsNotNone(cl)
@@ -816,6 +817,37 @@ class Clearance(unittest.TestCase):
             fm.clear_item = real
         self.assertEqual(skus, [TEA, RICE])
         self.assertIn('C4,700', text)
+
+    def test_long_lines_lead_clearance_follows(self):
+        """11/27 06:40: at most LEAD_LONG lines with LONG (10) hours or more lead; 3-10 h clearance stays right after."""
+        tofu = {'category': '식품>야채/과일>신선야채(부패주의)', 'list_price': 3000}
+        inv = {'units': [dict(unit('d1', 'G5c96ee78', '정식수입 사토노유키 실큰두부 300g', 'C', 1200, exp=NOW + 4 * 3600), **tofu),
+                         unit('r1', RICE, '2026년 햅쌀 국산 백미 쌀 2kg', 'B', 3000, exp=NOW + 30 * 3600),
+                         unit('t1', TEA, '동서 둥굴레차 50T 60g', 'B', 1800, exp=NOW + 300 * 3600),
+                         unit('k1', EGG, '한계란 난각번호 1번 계란 무항생제 유정란 20구', 'B', 5000, exp=NOW + 9 * 3600)]}
+        q = {f'{RICE}|B': {'price': 4700, 'ts': NOW, 'by': 'x'}, f'{TEA}|B': {'price': 2900, 'ts': NOW, 'by': 'x'},
+             f'{EGG}|B': {'price': 7975, 'ts': NOW, 'by': 'x'}}
+        real = fm.clear_item
+        fm.clear_item = lambda inv_, sku, shown, now: real(inv_, sku, shown, now) if sku == 'G5c96ee78' else None
+        try:
+            text, skus = fm.build_text(QB, inv, q, settles(MARKET_SETTLES), NOW, 0)
+        finally:
+            fm.clear_item = real
+        self.assertEqual(skus[:2], [RICE, TEA])           # 30 h and 300 h first (in the old order between them)
+        self.assertEqual(skus[2], 'G5c96ee78')             # the 4 h clearance line is still in the post, right after
+        self.assertIn(EGG, skus)                           # the 9 h line is not long: it keeps its old place
+        self.assertTrue(text.startswith('[노차네 구멍가게(nocha12) 떨이·기한 임박]'), text)
+        cl = fm.clearance(inv['units'][0], None, NOW)
+        self.assertIn(f"C{cl['price']:,}(~", text)         # clearance price unchanged
+        self.assertLessEqual(len(text), fm.VIEW)
+
+    def test_no_long_line_keeps_the_old_order(self):
+        cat = {'category': '식품>계란/유제품>계란', 'list_price': 12900}
+        inv = {'units': [dict(unit('e1', EGG, '한계란 난각번호 1번 계란 무항생제 유정란 20구', 'C', 5000, exp=NOW + 5 * 3600), **cat),
+                         unit('r1', RICE, '2026년 햅쌀 국산 백미 쌀 2kg', 'B', 3000, exp=NOW + 8 * 3600)]}
+        q = {f'{RICE}|B': {'price': 4700, 'ts': NOW, 'by': 'x'}}
+        text, skus = fm.build_text(QB, inv, q, settles(MARKET_SETTLES), NOW, 0)
+        self.assertEqual(skus, [EGG, RICE])                # nothing 10 h+: clearance first as before
 
     def test_no_clearance_keeps_the_old_header(self):
         text, _ = fm.build_text(QB, INV, Text.QUOTES, settles(MARKET_SETTLES), NOW, 0)

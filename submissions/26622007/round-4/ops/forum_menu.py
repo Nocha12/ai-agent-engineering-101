@@ -47,6 +47,9 @@ SOON = POST_GAP - 50          # a post this close to the next window's opening w
 EXPIRING = 48                 # hours: stock this close to its date is shown first
 SHORT = 3                     # hours: a line with less left goes after every other line of the post (메인 11/27 03:5x:
                               # the market settles almost nothing this close to its date; nothing is hidden or refused)
+LONG = 10                     # hours: up to LEAD_LONG lines with this long left (or no date) lead the post (11/27 06:40
+LEAD_LONG = 2                 # check: of 880 market settles only 8 had under 10 h left, and two customers turned down the
+                              # 3-5 h clearance lines; clearance lines still follow them; order only, prices unchanged)
 WINDOW_SPAN = 900             # an entry this long before the window's last open tick belongs to it
 SETTLE_TTL = 24 * 3600      # settles kept for the medians and the popularity order
 MIN_SETTLES = 3             # settles of one SKU and grade before its median counts
@@ -657,7 +660,9 @@ def build_text(qb, inv, quotes, settles, now, turn, name='노차네 구멍가게
     rotate with turn so successive posts show different stock. None when nothing has a price. Clearance (떨이, 11/26
 19:05): SKUs with a unit on clearance (shared clearance block) come before all of these, soonest first, at the clearance
 price of that unit with its hours left, and the post reads '떨이·기한 임박'; water never. A line with under SHORT hours
-left (메인 11/27 03:5x) goes after all the others, in the same order among themselves: still in the post, never hidden."""
+left (메인 11/27 03:5x) goes after all the others, in the same order among themselves: still in the post, never hidden.
+Before all of that, the first LEAD_LONG lines (in that order) with LONG hours or more left, or no date, lead the post
+(11/27 06:40): the clearance lines come right after them."""
     items = []
     live = {}
     for sku in {u.get('sku') for u in inv.get('units') or [] if isinstance(u, dict) and u.get('sku')}:
@@ -699,6 +704,12 @@ left (메인 11/27 03:5x) goes after all the others, in the same order among the
     room = VIEW - len(f"[{name} {'떨이·기한 임박' if clear else '지금 재고'}]")   # the longer header when it may be used
     order = clear + head + rest                    # 메인 11/27 03:5x: under SHORT hours left goes last, in the same order
     order = [it for it in order if not short(it)] + [it for it in order if short(it)]
+    long_ = lambda it: it[6] is None or it[6] >= LONG
+    lead = []                                      # 11/27 06:40: the first LEAD_LONG long lines (one per name) go first
+    for it in order:
+        if len(lead) < LEAD_LONG and long_(it) and all(x[5] != it[5] for x in lead):
+            lead.append(it)
+    order = lead + [it for it in order if all(it is not x for x in lead)]
     for it in order:
         if it[5] in seen:                          # one line per name (r3 I2: by the shown name, never a cut of it)
             continue
