@@ -394,3 +394,25 @@ def _test_match_refuse_pack(g, K, now):
         o = e[0]['buy_options'][0]
         assert (o['pack'], o['pack_size']) == (pack, size), (name, o)
         assert set(o) == {'sku', 'name', 'list_price', 'shelf_hours', 'market_sold', 'we_hold', 'pack', 'pack_size'}, o
+
+    # 6) the 11/27 07:43 case: '보통 두부' matched '떡볶이(보통맛)' by the word 보통 as much as 연두부 by 두부, the tie
+    #    went to the shorter 떡볶이 names, and no 두부 SKU was offered. The thing itself (the last word, 두부) comes first;
+    #    a size/taste word alone (보통, 작은, 큰) gives no rank. Order only: nothing is left out.
+    CAT[:] = [f('G54a4944b', '3초떡볶이(230g) 4팩 (보통맛)'), f('G-tb2', '3초 떡볶이 230g 4팩+4팩 (총1,840g) (보통맛/매운맛)'),
+              f('G-tb3', '3초 떡볶이 230g 2팩+2팩 (총920g) (보통맛/매운맛)'), f('G-chili', '2026년 햇 태양초 영양 고추가루 김치용(보통맛) 3kg'),
+              f('G-yeon', '[농협] 안동생명콩 국산콩 연두부 300g×5팩'),
+              f('G-silk', '정식수입 사토노유키 실큰두부 300g 1팩 상온보관 멸균두부 연두부 순두부 단백질 식단관리'),
+              f('G-snack', '[더싱싱]아몬드땅콩 두부과자 55gx5팩')]
+    e = ask([row('김옥자-aa68', '보통 두부', '보통 두부 문의.'),
+             row('송진철-224b', '보통 두부 한 팩', '찌개에 넣을 보통 두부 한 팩을 찾습니다.')])['customer_asked_out_of_stock']
+    tofu = [x for x in e if '보통 두부' in x['asked']]
+    assert len(tofu) == 1 and tofu[0]['customers'] == 2, e
+    opts = [o['sku'] for o in tofu[0]['buy_options']]
+    assert sorted(opts[:2]) == ['G-silk', 'G-yeon'], tofu
+    assert opts[0] == 'G-yeon', tofu                                  # fewer other words first, as before
+    e = ask([row('a', '작은 두부', '작은 두부 있나요')])['customer_asked_out_of_stock']
+    assert e[0]['buy_options'][0]['sku'] in ('G-yeon', 'G-silk'), e
+    e = ask([row('a', '보통맛 떡볶이', '보통맛 떡볶이 있나요')])['customer_asked_out_of_stock']   # 떡볶이 asked: 떡볶이 first
+    assert e[0]['buy_options'][0]['sku'] in ('G54a4944b', 'G-tb2', 'G-tb3'), e
+    e = ask([row('a', '보통', '보통 있나요')])['customer_asked_out_of_stock']             # only a size word: still offered
+    assert e and e[0]['buy_options'], e
