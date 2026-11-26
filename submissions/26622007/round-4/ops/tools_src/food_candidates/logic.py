@@ -351,6 +351,9 @@ def asked_out_of_stock(lost, foods, held, now, sold=None):
             joined = [j for j in (''.join(_item_words(it))[:24] for it in g['items']) if len(j) > 1]
             pieces = _pieces((g['words'] or toks) + joined)
             core = [t for t in toks if t not in MOD] or toks       # '보통 두부': rank by 두부, not by 보통
+            # letters glued after a size word ('대형급', '보통맛') are no tail of the item itself (review 2 I1)
+            cpieces = None if core == toks else _pieces([w for w in (g['words'] or toks) if w not in MOD] + [
+                j for j in (''.join(w for w in _item_words(it) if w not in MOD)[:24] for it in g['items']) if len(j) > 1])
             scored = []
             for i, x in enumerate(foods if toks else ()):
                 if i % 200 == 0 and _mono() > stop:
@@ -382,7 +385,8 @@ def asked_out_of_stock(lost, foods, held, now, sold=None):
                 # '맛있는라면 x 20개', r19 follow-up)
                 # a brand or two before the item is fine ('오뚜기 마열라면'), a name full of other words is not the item
                 # asked ('보리차 디카페인 보리 커피' for 커피, bought 15:02): those stay behind whatever their size (q5)
-                scored.append(((-(score(core, name) - tail), -(s - tail), miss, -hit) + ((other > 2,) if g['small'] else ()) + small
+                ctail = tail if cpieces is None else name_fit(name, cpieces)[2]
+                scored.append(((-(score(core, name) - ctail), -(s - tail), miss, -hit) + ((other > 2,) if g['small'] else ()) + small
                                + (other, -sold.get(x['sku'], 0), extra, len(name)), x, pack, size))
             one = bool(syl) and not scored              # no word of 2+ letters matched: the one-letter staple (쌀, 무, 파)
             for i, x in enumerate(foods if one else ()):  # the name word is it or ends with it (햅쌀, 백미쌀),

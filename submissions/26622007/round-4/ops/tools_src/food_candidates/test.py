@@ -423,3 +423,8 @@ def _test_match_refuse_pack(g, K, now):
     assert e[0]['buy_options'][0]['sku'] == 'G-egg-m', e
     e = ask([row('a', '중형 새우', '중형 새우 있나요')])['customer_asked_out_of_stock']
     assert e[0]['buy_options'][0]['sku'] == 'G-shrimp-m', e
+    CAT[:] = [f('G-wm', '꿀수박 1통'), f('G-wm-l', '고당도 수박 대형급 8kg'), f('G-rm', '신라면 5개'), f('G-rm-n', '보통맛 라면 5개')]
+    e = ask([row('a', '대형 수박', '대형 수박 있나요')])['customer_asked_out_of_stock']       # size word glued: 대형급
+    assert e[0]['buy_options'][0]['sku'] == 'G-wm-l', e
+    e = ask([row('a', '보통 라면', '보통 라면 있나요')])['customer_asked_out_of_stock']
+    assert e[0]['buy_options'][0]['sku'] == 'G-rm-n', e
