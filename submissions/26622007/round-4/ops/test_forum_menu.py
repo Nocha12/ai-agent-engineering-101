@@ -64,10 +64,10 @@ class Label(unittest.TestCase):
 
     def test_tofu_kinds_and_packs_00_10(self):   # 11/27 00:10: both were '두부300g' and four 두부 askers said no
         self.assertEqual(fm.label('[농협] 안동생명콩 국산콩 연두부 300g×5팩'), '연두부300g×5팩')
-        self.assertEqual(fm.label('정식수입 사토노유키 실큰두부 300g 1팩 상온보관 멸균두부 연두부 순두부 단백질 식단관리'), '실큰두부300g')
+        self.assertEqual(fm.label('정식수입 사토노유키 실큰두부 300g 1팩 상온보관 멸균두부 연두부 순두부 단백질 식단관리'), '실큰두부300g×1팩')
         self.assertEqual(fm.label('순두부 350g'), '순두부350g')
         self.assertEqual(fm.label('국산콩 두부 300g'), '두부300g')
-        self.assertEqual(fm.label('몽베스트 무라벨 생수 2Lx6병(1팩)'), '생수2L×6병')
+        self.assertEqual(fm.label('몽베스트 무라벨 생수 2Lx6병(1팩)'), '생수2L×6병,1팩')
         self.assertEqual(fm.label('하림 닭가슴살 100x10개'), '하림10개')            # review I1: no count after a bare number
         self.assertEqual(fm.label('한계란 무항생제 유정란 30구'), '계란30구')
 
@@ -120,6 +120,51 @@ class Text(unittest.TestCase):
         self.assertEqual(skus[0], EGG)                   # 6 settles on the market, then the tea's 4
         self.assertEqual(skus[1], TEA)
         self.assertIn('계란20구 C7,000', text)               # cheapest shown grade of the egg
+
+    def test_display_rule_failures_written_and_still_shown(self):
+        # 대표님 11/27 01:26: the display rules run before each post. Two eggs that would read alike get their own names
+        # (review I5: the SKU tail at the latest); a rule break is written down (failed) and the item still goes up —
+        # the check never hides stock (review I4).
+        two = {'units': INV['units'] + [unit('u7', 'GEGG2', '한계란 난각번호 1번 계란 무항생제 유정란 20구', 'C', 6361)]}
+        q = dict(self.QUOTES, **{'GEGG2|C': {'price': 7100, 'ts': NOW, 'by': 'x'}})
+        failed = {}
+        text, skus = fm.build_text(QB, two, q, settles(MARKET_SETTLES), NOW, 0, failed=failed)
+        self.assertIn(EGG, skus)
+        self.assertIn('GEGG2', skus)
+        shown = [x.rsplit(' ', 1)[0] for x in text.split('] ', 1)[1].split(' — ')[0].split(' · ')]
+        self.assertEqual(len(shown), len(set(shown)), shown)
+        self.assertEqual(failed, {})
+        real = fm.display_check
+        fm.display_check = lambda names, shown: {EGG: ['용량·묶음 빠짐 20구']}
+        try:
+            failed = {}
+            text, skus = fm.build_text(QB, INV, self.QUOTES, settles(MARKET_SETTLES), NOW, 0, failed=failed)
+        finally:
+            fm.display_check = real
+        self.assertEqual(failed[EGG]['why'], ['용량·묶음 빠짐 20구'])
+        self.assertIn(EGG, skus)                           # written down, still shown
+        self.assertIn('계란20구 C7,000', text)
+
+    def test_names_alike_up_to_a_comma_both_posted(self):
+        # 동원135g×2, 150g / 동원135g×2, 100g: one line per shown name, never per its first word (r3 I2)
+        inv = {'units': INV['units'] + [unit('t1', 'GTUNA1', '동원 살코기 135gX2+동원 마일드150g', 'B', 3000),
+                                        unit('t2', 'GTUNA2', '동원 살코기 135gX2+동원 고추100g', 'B', 3000)]}
+        q = dict(self.QUOTES, **{'GTUNA1|B': {'price': 4000, 'ts': NOW, 'by': 'x'},
+                                 'GTUNA2|B': {'price': 4100, 'ts': NOW, 'by': 'x'}})
+        text, skus = fm.build_text(QB, inv, q, settles(MARKET_SETTLES), NOW, 0)
+        self.assertIn('GTUNA1', skus)
+        self.assertIn('GTUNA2', skus)
+
+    def test_display_check_reads_only_live_stock(self):
+        # an expired unit of another SKU with the same name does not rename or hide the live egg (review I4)
+        old = unit('u8', 'GEGG3', '한계란 난각번호 1번 계란 무항생제 유정란 20구', 'C', 6361, NOW - 60)
+        inv = {'units': INV['units'] + [old]}
+        failed = {}
+        text, skus = fm.build_text(QB, inv, self.QUOTES, settles(MARKET_SETTLES), NOW, 0, failed=failed)
+        self.assertEqual(skus[0], EGG)
+        self.assertIn('계란20구 C7,000', text)
+        self.assertNotIn('GEGG3', skus)
+        self.assertEqual(failed, {})
 
     def test_unpriced_and_expired_stock_left_out(self):
         text, skus = fm.build_text(QB, INV, {}, settles(MARKET_SETTLES), NOW, 0)
@@ -197,6 +242,18 @@ def shop(d):
 
 
 class Once(unittest.TestCase):
+    def test_two_alike_items_both_posted(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            two = {'units': INV['units'] + [unit('u7', 'GEGG2', '한계란 난각번호 1번 계란 무항생제 유정란 20구', 'C', 6361)],
+                   'restock': INV['restock']}
+            m = FakeMenu(d, inv=two)
+            r = m.once()
+            self.assertTrue(r['ok'], r)
+            self.assertIn('계란20구·', m.posts[0])            # still posted, under a name of its own (the other has no price yet)
+            rows = [json.loads(x) for x in (Path(d) / 'logs' / 'forum-menu.jsonl').read_text().splitlines()]
+            self.assertEqual([x for x in rows if x.get('display_fail')], [])
+
     def test_posts_requotes_then_waits(self):
         with tempfile.TemporaryDirectory() as d:
             shop(d)

@@ -45,7 +45,7 @@ def test(run, kit):
         run({'op': 'restocked', 'sku': 'RICE', 'price': 78000, '_inventory': both, '_now': t0 + 30}, kit)
         a = run({'op': 'announce', '_inventory': both, '_forum': [], '_now': t0 + 40}, kit)
         named = bool(getattr(run, '__globals__', {}).get('NAME_REGULARS'))
-        assert a['ok'] and '남겨 주신 연락처로 먼저' in a['text'] and '우유사랑' not in a['text'] and ('김씨' in a['text']) == named and '백진주쌀' in a['text'], a  # regulars named only when NAME_REGULARS
+        assert a['ok'] and '남겨 주신 연락처로 먼저' in a['text'] and '우유사랑' not in a['text'] and ('김씨' in a['text']) == named and '쌀20kg' in a['text'], a  # regulars named only when NAME_REGULARS
         n = run({'op': 'notice', 'customer': jin, '_inventory': both, '_now': t0 + 50}, kit)['notice']
         assert '2개' in n and 'A·B등급' in n and '26,000' in n and '그만' in n, n
         with open('waitlist.test.json', encoding='utf-8') as f:

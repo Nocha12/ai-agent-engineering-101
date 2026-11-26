@@ -56,6 +56,7 @@ def test(run, kit):
     assert none['count'] == 0 and 'similar' not in none and 'args {}' in none['note'], none
     milk = run({'sku': '우유 190ml 24팩', '_inventory': water, '_now': now}, kit)     # words apart: offered, not matched
     assert milk['count'] == 0 and [s['sku'] for s in milk['similar']] == ['GMILK'], milk
+    assert near['similar'][0]['name'] == '생수2L×6병,1팩' and milk['similar'][0]['name'] == '우유190ml×24팩', (near, milk)   # shared display name
     assert run({'sku': '400g x 3', '_inventory': {'units': [{'unit': 'a', 'sku': 'S', 'grade': 'A', 'cost': 1,
                 'name': '샘표 쌀소면 400g x 3개'}]}, '_now': now}, kit)['count'] == 1
     cola = {'units': [{'unit': 'c1', 'sku': 'PEP', 'grade': 'A', 'cost': 1, 'name': '펩시콜라 제로슈거 MAX 2'}]}
@@ -124,15 +125,13 @@ def test(run, kit):
     # 11/26 23:40 14d1f0cb: '…유정란 20구' cut at 24 lost '20구'; a cut name keeps its size and pack count
     eggs = {'units': [{'unit': 'e1', 'sku': 'G0000eeee', 'grade': 'A', 'cost': 7000, 'name': '한계란 난각번호 1번 계란 무항생제 유정란 20구'},
                       {'unit': 't1', 'sku': 'G0000tttt', 'grade': 'C', 'cost': 2000, 'name': '[농협] 안동생명콩 국산콩 연두부 300g×5팩'}]}
-    short_ = run.__globals__['short']
     e = run({'sku': 'G0000eeee', '_inventory': eggs, '_now': now}, kit)
-    assert e['count'] == 1 and e['items'][0]['name'].endswith('20구'), e['items']
+    assert e['count'] == 1 and e['items'][0]['name'] == '계란20구', e['items']
     t = run({'sku': '연두부', '_inventory': eggs, '_now': now}, kit)
-    assert t['count'] == 1 and '300g×5팩' in t['items'][0]['name'], t['items']
-    for k in (8, 14, 22, 24, 30):                          # review I2: a cut name stays within its length
-        for nm in ('한계란 난각번호 1번 계란 무항생제 유정란 20구', '[농협] 안동생명콩 국산콩 연두부 300g×5팩', '몽베스트 무라벨 생수 2Lx6병(1팩) 상온'):
-            assert len(short_(nm, k)) <= k, (k, short_(nm, k))
-    assert '300g' in short_('정식수입 사토노유키 실큰두부 300g 1팩 상온보관 멸균두부 연두부 순두부 단백질 식단관리', 22)
+    assert t['count'] == 1 and t['items'][0]['name'] == '연두부300g×5팩', t['items']
+    names = run.__globals__['display_names']                # 대표님 11/27 01:26: one rule, never cut by characters
+    tofu = {'S': '정식수입 사토노유키 실큰두부 300g 1팩 상온보관 멸균두부 연두부 순두부 단백질 식단관리', 'Y': '[농협] 안동생명콩 국산콩 연두부 300g×5팩'}
+    assert names(tofu) == {'S': '실큰두부300g×1팩', 'Y': '연두부300g×5팩'}, names(tofu)
     whole = run({'_inventory': eggs, '_now': now}, kit)
     assert any('20구' in s['name'] for s in whole['skus']), whole['skus']
     bad = run({'_inventory': 'not a dict'}, kit)

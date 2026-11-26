@@ -151,6 +151,401 @@ def clearance(u, base, now):
 # --- end shared clearance block
 
 
+# --- shared display name block (대표님 11/27 01:26; same text in ops/forum_menu.py, check_item_inventory, write_shop_card, refresh_full_card, restock_shoutout; ops/test_display_name.py)
+# One rule for every place that shows an item's name (forum menu, check_item_inventory, the card and its 떨이 list):
+# a product word, then every size and pack token of the catalog name (g·kg·ml·L·구·개·팩·병·입·마리·미·박스…, and a
+# bare ×3 count) as written, never cut by characters; only the product word is short. display_names() names a whole
+# shop at once so two items never read the same; display_check() is a separate rule check with its own reading of the
+# name (① no two items alike ② every size/pack token kept ③ a kind word kept when the name has one).
+DN_UNITS = r'(kg|mg|ml|cc|g|l|리터|개입|구|입|팩|개|병|판|캔|봉|펫|마리|미|박스|매|장|롤)'
+DN_SIZE = re.compile(r'(?<![0-9.])((?:\d+(?:\.\d+)?\s*[~\-]\s*)?\d+(?:\.\d+)?)\s*' + DN_UNITS + r'(?![a-wyz](?<=[glc][a-wyz]))(?!국|월|년)'
+                     r'(?!(?<=구)[성역간])(?!(?<=입)니)(?!(?<=미)[터역])(?!(?<=장)[어미])(?!(?<=롤)케)'
+                     r'(?!(?<=\s[가-힣])(?!세트|묶음)[가-힣])(?!(?<=\s[가-힣]{2})(?!세트|묶음)[가-힣])', re.I)   # 3 병아리콩: a word, not 3병   # 1.4kg내외, 2L6병
+DN_TIMES = re.compile(r'(?:(?<=[가-힣)\]])|(?<=kg|mg|ml|cc)|(?<=[0-9][gl]))\s*(?:(?:세트|박스)\s*)?[x×X*]\s*(\d+)(?![\d.])'
+                      r'(?!\s*' + DN_UNITS + r')', re.I)   # 10개세트X3, 1kgx3: a bare count, ×3
+DN_MORE = re.compile(r'\s*(?:(?:세트|박스)\s*)?[x×X*]\s*(\d+)(?![\d.])(?!\s*' + DN_UNITS + r')', re.I)   # 2 L x 6, x5 x2
+DN_MEASURE = ('kg', 'mg', 'g', 'ml', 'cc', 'l')
+DN_KINDS = ('실큰두부', '실크두부', '연두부', '순두부', '메추리알', '깻잎김치', '총각김치', '열무김치', '깍두기', '백김치', '파김치',
+            '갓김치', '물김치', '두유', '그릭요거트')
+DN_WORDS = [('총각김치', '총각김치'), ('배추김치', '배추김치'), ('포기김치', '배추김치'), ('김치', '김치'), ('계란', '계란'),
+            ('유정란', '계란'), ('등급란', '계란'), ('특란', '계란'), ('대란', '계란'), ('달걀', '계란'), ('삼겹살', '삼겹살'),
+            ('목살', '목살'), ('둥굴레차', '둥굴레차'), ('취나물', '취나물'), ('시금치', '시금치'), ('콩나물', '콩나물'),
+            ('두부', '두부'), ('쌈채소', '쌈채소'), ('샐러드', '샐러드채소'), ('가자미', '가자미'), ('고등어', '고등어'),
+            ('커피', '커피'), ('요거트', '요거트'), ('우유', '우유'), ('생수', '생수'), ('사과', '사과'), ('감귤', '감귤'),
+            ('단호박', '단호박'), ('컵라면', '컵라면'), ('라면', '라면'), ('씻어나온쌀', '쌀'), ('백미', '쌀'), ('쌀', '쌀'),
+            ('단팥빵', '단팥빵'), ('찰보리빵', '찰보리빵'), ('빵', '빵'), ('고구마스틱', '고구마스틱'), ('크래커', '크래커'),
+            ('그래놀라', '그래놀라'), ('과자', '과자'),
+            ('오뚜기밥', '즉석밥'), ('햇반', '즉석밥'), ('한돈', '돼지고기'), ('돼지', '돼지고기'), ('녹차', '녹차'),
+            ('허브차', '허브차'), ('깻잎', '깻잎'), ('애호박', '애호박'), ('양파', '양파'), ('감자', '감자'),
+            ('된장', '된장'), ('청국장', '청국장'), ('콜라', '콜라'), ('식혜', '식혜'), ('조미김', '김'), ('오이', '오이'),
+            ('방울토마토', '방울토마토'), ('토마토', '토마토'), ('단감', '단감'), ('블루베리', '블루베리'), ('치킨', '치킨'),
+            ('보리차', '보리차'), ('보리', '보리'), ('젓갈', '젓갈'), ('액젓', '액젓'), ('노가리', '노가리'), ('프레첼', '프레첼'), ('양갱', '양갱'),
+            ('오믈렛', '오믈렛'), ('크런치바', '크런치바'), ('에너지바', '에너지바'), ('초코바', '초코바'), ('버섯탕', '버섯탕'),
+            ('야채컵', '야채컵'), ('찹쌀떡', '찹쌀떡'), ('치즈케이크', '치즈케이크')]
+DN_TAILS = ('탕', '케이크', '주스', '생수')   # 갈비탕, 초코 케이크, 토마토 주스: the word that ends in it (콤부차 after DN_WORDS)
+DN_NOT_TAIL = ('사탕', '설탕', '명차', '홍차티백')
+DN_ALONE = ('배', '귤', '무', '파', '김', '떡', '밤', '감', '쌀')   # one-syllable kinds: only as a word by itself (나주 배 5kg)
+DN_NOT_IT = ('과자', '만두', '호떡', '떡', '면', '사발', '전분', '주스', '스낵', '칩', '양념', '소스', '라떼', '음료', '쿠키', '케이크',
+             '국수', '즙', '식빵', '스틱', '찌개')
+DN_SKIP = re.compile(r'^(\d{2,4}년산?|\d{2}년|유기농|국내산|국산|정식수입|산지직송|당일수확|무농약|본사공식|햅쌀|햇곡|Fresh|'
+                     r'내외|이상|이하|미만|짜리|덤|세트|무료배송|\d+(?:\.\d+)?\w*|[A-Za-z]+)$')
+DN_WORD_MAX = 8
+
+
+def dn_norm(name):
+    """The name as the rules read it: NFKC (㎏ ㎖ ℓ, full-width), ⅹ ✕ as ×, 1,000 as 1000; None is ''."""
+    import unicodedata
+    s = unicodedata.normalize('NFKC', '' if name is None else str(name))
+    s = re.sub(r'[ⅹ✕✖]', '×', s)
+    return re.sub(r'(?<=\d),(?=\d{3}(?!\d))', '', s)
+
+
+def dn_num(num):
+    """'1.50' -> '1.5', '007' -> '7', '4 ~ 6' -> '4~6'."""
+    parts = [x.strip() for x in re.split(r'[~\-]', num)]
+    return '~'.join(x.rstrip('0').rstrip('.') if '.' in x else x.lstrip('0') or '0' for x in parts)
+
+
+def dn_tokens(name):
+    """[(key, text, start, end)]: each size or pack token of the name once, in order (a range as 4~6미), and each bare
+    count after a size or a word (key ('3', '×')); a count after a size already given is that size's again, not more."""
+    s, out, seen = dn_norm(name), [], set()
+    hits = {m.start(): (m.end(), m.group(1), m.group(2).lower()) for m in DN_SIZE.finditer(s)}
+    for m in DN_TIMES.finditer(s):
+        hits.setdefault(m.start(), (m.end(), m.group(1), '×'))
+    for a in sorted(hits):                              # 생수 2 L x 6, 라면 120g x5 x2: the count right after a hit
+        end = hits[a][0]
+        while True:
+            m = DN_MORE.match(s, end)
+            if not m or any(x < m.end() and hits[x][0] > m.start() for x in hits if x != a and x >= end):
+                break
+            hits.setdefault(m.start(), (m.end(), m.group(1), '×'))
+            end = m.end()
+    rows = []
+    for a in sorted(hits):
+        b, num, unit = hits[a]
+        num, unit = dn_num(num), 'l' if unit == '리터' else unit
+        rows.append(((num, unit), '×' + num if unit == '×' else num + ('L' if unit == 'l' else unit), a, b))
+    pairs, size, held = set(), None, None
+    for row in rows:                                    # 1kg x3 (1kg x3): one; 500g x2 + 500g x3: both, each with its size
+        key = row[0]
+        if key[1] != '×':
+            size, held = key, None
+            if key in seen:
+                held = row                              # a size given before: again only if a new count follows it
+                continue
+            seen.add(key)
+            out.append(row)
+            continue
+        if (size, key[0]) in pairs:
+            continue
+        pairs.add((size, key[0]))
+        if held:
+            out.append(held)
+            held = None
+        out.append(row)
+    return out
+
+
+def dn_size(name):
+    """'300g×5팩', '2L×6병,1팩', '10개×3': every token as written; a pack count right after a size joins it with ×."""
+    s, toks, text = dn_norm(name), dn_tokens(name), ''
+    for i, (key, t, a, b) in enumerate(toks):
+        if key[1] == '×':
+            text += t
+        elif i and re.fullmatch(r'\s*[x×X*]?\s*', s[toks[i - 1][3]:a]) and key[1] not in DN_MEASURE:
+            text += '×' + t
+        else:
+            text += (', ' if text[-1:].isdigit() else ',' if text else '') + t   # 135g×2, 150g: never read as 2,150
+    return text
+
+
+def dn_kind(name):
+    """The kind word of the first name word that ends in one (실큰두부 in '실큰두부 300g … 연두부 순두부', 두유 in 완전두유),
+    or ''; a word that only contains it is another thing (두유과자, 순두부찌개)."""
+    for w in dn_words(name):
+        hit = [k for k in DN_KINDS if w.endswith(k)]
+        if hit:
+            return max(hit, key=len)
+    return ''
+
+
+def dn_words(name):
+    n = re.sub(r'\[[^\]]*\]|\([^)]*\)', ' ', dn_norm(name))
+    n = re.sub(r'[x×*]\s*\d+[가-힣]*', ' ', DN_SIZE.sub(' ', n), flags=re.I)     # 라면x20봉: a count, not a word (1kgx3 사과 keeps 사과)
+    n = re.sub(r'(?<=[가-힣])[x×*](?=\s|$)', ' ', n)                                   # the x left of 라면x20봉
+    words = (re.sub(r'[^0-9A-Za-z가-힣+]', '', x) for x in re.split(r'[\s/,]+', n))
+    words = (w if DN_SKIP.match(w) else re.sub(r'[\d+]+$', '', w) for w in words)   # 국산100% is 국산: no digit runs into the size
+    return [w for w in words if w and not re.fullmatch(r'[\d+]+', w)]
+
+
+def dn_word(name):
+    """The product word: the kind word when there is one, else the made thing (두부과자), else a customer word for a
+    keyword, else a one-syllable kind standing alone (나주 배), else the first word that is not a year, a Latin brand
+    or a selling word. Only this part is ever shortened."""
+    kind = dn_kind(name)
+    if kind:
+        return kind
+    words = dn_words(name)
+    tail = dn_tail(words, DN_TAILS)
+    if tail:
+        return tail
+    made = next((w for w in words if any(x in w for x in DN_NOT_IT) and w not in DN_NOT_IT
+                 and not DN_SKIP.match(w) and not w.endswith('용')), None)   # 10스틱 is a count, 주스용 사과 is 사과   # 양념 치킨: 양념 alone is not it
+    if made:
+        return made.replace('+', '')[:DN_WORD_MAX]
+    for key, word in DN_WORDS:
+        for w in words:
+            if w.endswith(key) and len(w) - len(key) <= 3:
+                return word
+    for key, word in DN_WORDS:
+        for w in words:
+            if key in w and not any(x in w.replace(key, '', 1) for x in DN_NOT_IT):
+                return word
+    tail = dn_tail(words, ('차',))                                  # 콤부차, 청보리차 (보리 커피 is 커피 above)
+    if tail:
+        return tail
+    alone = next((w for w in words if w in DN_ALONE), None)
+    if alone:
+        return alone
+    first = next((w for w in words if not DN_SKIP.match(w)), words[0] if words else '')
+    return first.replace('+', '')[:DN_WORD_MAX]
+
+
+def dn_tail(words, tails):
+    for i, w in enumerate(words):
+        t = next((t for t in tails if w.endswith(t)), None)
+        if not t or DN_SKIP.match(w) or w.endswith(DN_NOT_TAIL) or (t == '차' and len(w) < 3):
+            continue
+        if w == t and t in ('케이크', '주스') and i and not DN_SKIP.match(words[i - 1]):
+            w = words[i - 1] + w                                   # 초코 케이크, 토마토 주스: the two words
+        if w != t:
+            return w.replace('+', '')[-DN_WORD_MAX:]
+    return ''
+
+
+def display_name(name):
+    return dn_word(name) + dn_size(name)
+
+
+def dn_own(name, base, others):
+    """A word of this name that none of the others has: a plain word, else one in brackets or with a number (one letter
+    tags too: (A) / (B)), else two words together; sizes are never the word. None when there is none."""
+    def plain(w):
+        return re.sub(r'[^0-9A-Za-z가-힣]', '', DN_SIZE.sub('', w))
+    own = [w for w in dn_words(name) if not DN_SKIP.match(w) and w != base and not any(w in o for o in others)]
+    own = next((w for w in own if base in w), None) or next(iter(own), None)   # 백진주쌀 before 밥이
+    if own:
+        return own
+    raw = [plain(x) for x in re.split(r'[\s/,()\[\]]+', dn_norm(name))]
+    raw = [w for w in raw if w and not re.fullmatch(r'\d+', w) and w != base]
+    own = next((w for w in raw if len(w) >= 2 and not any(w in o for o in others)), None)
+    if own:
+        return own
+    tags = [plain(t) for t in re.findall(r'[(\[]([^)\]]{1,3})[)\]]', dn_norm(name))]
+    own = next((t for t in tags if t and not any(re.search(r'[(\[]\s*' + re.escape(t) + r'\s*[)\]]', o) for o in others)), None)
+    if own:
+        return own
+    return next((a + b for i, a in enumerate(raw) for b in raw[i + 1:]
+                 if a not in b and b not in a and not any(a in o and b in o for o in others)), None)
+
+
+def display_names(names):
+    """{sku: name} -> {sku: shown}. Items that would read the same get a word of their own name that the others do not
+    have ('씻어나온쌀5kg', '백미쌀5kg'), never cut; any shown name still alike, with these or any other item, ends in the
+    last 4 characters of its SKU (계란20구·7c8b), so no two items of a shop ever read the same."""
+    names = {k: dn_norm(v) for k, v in names.items()}
+    shown = {k: display_name(v) for k, v in names.items()}
+    groups = {}
+    for k, v in shown.items():
+        groups.setdefault(v, []).append(k)
+    for v, ks in groups.items():
+        if len(ks) < 2:
+            continue
+        for k in ks:
+            others = [names[o] for o in ks if o != k]
+            base = dn_word(names[k])
+            own = dn_own(names[k], base, others)
+            if own:
+                own = own.replace('+', '')
+                cut = next((n for n in range(len(base) - 1, 0, -1) if own.endswith(base[:n])), 0)   # 유럽샐러드+샐러드채소
+                shown[k] = (own if base in own else own + base[cut:]) + dn_size(names[k])
+    by = {}
+    for k in sorted(shown, key=str):
+        by.setdefault(shown[k], []).append(k)
+    for v, ks in by.items():
+        if len(ks) > 1:
+            n = 4
+            while n < max(len(str(k)) for k in ks) and len({str(k)[-n:] for k in ks}) < len(ks):
+                n += 1                                  # Gaaaa1111 / Gbbbb1111: as long as it takes to differ
+            for k in ks:
+                shown[k] = f'{v}·{str(k)[-n:]}'
+    seen = {}
+    for k in sorted(shown, key=str):
+        seen.setdefault(shown[k], []).append(k)
+    for v, ks in seen.items():
+        if len(ks) > 1:                                 # still alike (1 and '1', a name that reads like a tail)
+            for k in ks:
+                shown[k] = f'{v}·{k!r}'
+    return shown
+
+
+def dn_check_tokens(name):
+    """The rule check's own reading (not dn_tokens/DN_SIZE): the name is cut into number runs and the letters right
+    after each; a number counts when those letters start with a unit of its own list, unless a longer word starts there
+    (6개국, 3개월, 3구성, 2입니다, 6미터); a ×N or xN after a size or a Korean word is a count. Returns {(num, unit)}."""
+    import unicodedata
+    s = unicodedata.normalize('NFKC', '' if name is None else str(name))
+    s = s.replace('ⅹ', '×').replace('✕', '×').replace('✖', '×')
+    units = {'kg': 'kg', 'mg': 'mg', 'ml': 'ml', 'cc': 'cc', 'g': 'g', 'l': 'l', '리터': 'l', '개입': '개입', '구': '구',
+             '입': '입', '팩': '팩', '개': '개', '병': '병', '판': '판', '캔': '캔', '봉': '봉', '펫': '펫', '마리': '마리',
+             '미': '미', '박스': '박스', '매': '매', '장': '장', '롤': '롤'}
+    not_unit = ('개국', '개월', '개년', '구성', '구역', '구간', '입니', '미터', '미역', '장어', '장미', '롤케', '판매', '봉지')
+    out, i, n = set(), 0, len(s)
+    while i < n:
+        if not s[i].isdigit() or (i and (s[i - 1].isdigit() or (s[i - 1] == '.' and i > 1 and s[i - 2].isdigit()))):
+            i += 1
+            continue
+        m = re.compile(r'\d{1,3}(?:,\d{3})+(?!\d)(?:\.\d+)?|\d+(?:\.\d+)?').match(s, i)   # 1,000g is one number; 2,4캔 two
+        j, num = m.end(), m.group(0).replace(',', '')
+        r = re.compile(r'\s*[~\-]\s*(\d+(?:\.\d+)?)').match(s, j)      # 4~6미: the range is the size
+        if r:
+            j, num = r.end(), num + '~' + r.group(1)
+        k = j
+        while k < n and s[k] == ' ':
+            k += 1
+        word = ''
+        while k < n and (s[k].isalpha()):
+            word += s[k]
+            k += 1
+        low = word.lower()
+        hit = None
+        if low and low[0].isascii():
+            lat = re.match(r'[a-z]+', low).group(0)
+            for u in ('kg', 'mg', 'ml', 'cc', 'g', 'l'):
+                if lat == u or (lat.startswith(u) and lat[len(u)] == 'x'):
+                    hit = u
+                    break
+        elif not any(low.startswith(w) for w in not_unit):
+            hit = next((u for u in sorted(units, key=len, reverse=True) if low.startswith(u)), None)
+            han = re.match(r'[가-힣]*', low).group(0)
+            if hit and k - len(word) > j and han not in (hit, hit + '세트', hit + '묶음'):   # 3 병아리콩: a word
+                hit = None
+            hit = units[hit] if hit else None
+        if hit:
+            v = '~'.join(x.rstrip('0').rstrip('.') if '.' in x else x.lstrip('0') or '0' for x in num.split('~'))
+            out.add((v, hit))
+        i = j
+    for m in re.finditer(r'[x×X*]\s*(\d+)', s):
+        a = m.start()
+        while a and s[a - 1] == ' ':
+            a -= 1
+        before = re.sub(r'\s+', '', s[max(0, a - 12):a]).lower()       # 2 L x 6: the size before, spaces out
+        after = s[m.end():m.end() + 3].lstrip().lower()
+        if any(after.startswith(u) for u in units) or (m.end() < n and s[m.end()] in '.'):
+            continue                                    # 300g x 5팩: a size of its own, read above
+        if before.endswith(('세트', '박스')):
+            before = before[:-2]
+        if (before and ('가' <= before[-1] <= '힣' or before[-1] in ')]')) or re.search(r'(kg|mg|ml|cc|\d[gl])$', before):
+            out.add((m.group(1).lstrip('0') or '0', '×'))
+    return out
+
+
+def dn_check_kinds(name):
+    """The rule check's own kind word: the longest kind of its own list that the first word ending in one ends with
+    (outside [shop tags] and (notes)), as {kind: words that show it}; {} when no word ends in one."""
+    kinds = {'실큰두부': ('실큰두부',), '실크두부': ('실크두부',), '연두부': ('연두부',), '순두부': ('순두부',),
+             '총각김치': ('총각김치',), '열무김치': ('열무김치',), '포기김치': ('포기김치', '배추김치'), '두부': ('두부',), '두유': ('두유',), '김치': ('김치',), '깍두기': ('깍두기',), '계란': ('계란',), '달걀': ('달걀', '계란'),
+             '우유': ('우유',), '요거트': ('요거트',), '커피': ('커피',), '양갱': ('양갱',), '오믈렛': ('오믈렛',), '탕': ('탕',),
+             '케이크': ('케이크',), '생수': ('생수',), '주스': ('주스',), '라면': ('라면', '면'), '그래놀라': ('그래놀라',),
+             '크래커': ('크래커',), '고등어': ('고등어',), '가자미': ('가자미',), '삼겹살': ('삼겹살',), '목살': ('목살',),
+             '사과': ('사과',), '감귤': ('감귤',), '노가리': ('노가리',), '젓갈': ('젓갈',), '액젓': ('액젓',), '식혜': ('식혜',),
+             '콜라': ('콜라',), '빵': ('빵',)}
+    n = re.sub(r'\[[^\]]*\]|\([^)]*\)', ' ', '' if name is None else str(name))
+    found = []
+    for i, w in enumerate(x for x in re.split(r'[\s/,+]+', n) if x.strip()):
+        w = re.sub(r'[^가-힣]', '', w)
+        hit = [k for k in kinds if w.endswith(k)] if w and not w.endswith(('사탕', '설탕')) else []
+        if hit:
+            found.append((i, max(hit, key=len), w))
+    if not found:
+        return {}
+    first = found[0]
+    if first[0] == 0 and len(first[2]) > len(first[1]) and len(found) > 1:   # 연세우유 … 두유: the first word is the brand
+        first = found[1]
+    k = first[1]
+    return {k: kinds[k]}
+
+
+def display_check(names, shown):
+    """{sku: [why]} for items whose shown name breaks a rule: ① another item reads the same ② a size/pack token of the
+    name is missing ③ the name has a kind word and the shown name does not show it."""
+    bad, by = {}, {}
+    for k, v in shown.items():
+        by.setdefault(v, []).append(k)
+    for k, v in shown.items():
+        why = []
+        if len(by[v]) > 1:
+            why.append('같은 표시 ' + v)
+        have = dn_check_tokens(v)
+        lost = ['×' + a if u == '×' else a + ('L' if u == 'l' else u)
+                for a, u in sorted(dn_check_tokens(names.get(k))) if (a, u) not in have]
+        if lost:
+            why.append('용량·묶음 빠짐 ' + ','.join(lost))
+        kinds = dn_check_kinds(names.get(k))
+        if kinds and not any(x in v for shows in kinds.values() for x in shows):
+            why.append('종류어 빠짐 ' + '/'.join(sorted(kinds)))
+        if why:
+            bad[k] = why
+    return bad
+
+
+def dn_live(units, now=None):
+    """The units still good at now (no date, or a date after now); all of them when now is None."""
+    out = []
+    for u in units or []:
+        if not isinstance(u, dict):
+            continue
+        e = u.get('expires_at')                         # as _fresh: 0 or no date is none
+        if now is None or not (isinstance(e, (int, float)) and not isinstance(e, bool) and 0 < e <= now):
+            out.append(u)
+    return out
+
+
+def shop_names(units, now=None):
+    """{sku: shown name}, by the shared display name block (대표님 11/27 01:26): the SKUs on sale at now named among
+    themselves (every place names the shop the same way; review r3 I5), a SKU with nothing on sale among all."""
+    names = {}
+    for u in units or []:
+        if isinstance(u, dict) and u.get('sku') and u['sku'] not in names:
+            names[u['sku']] = str(u.get('name') or u['sku'])
+    if now is None:
+        return display_names(names)
+    on = {u.get('sku') for u in dn_live(units, now)}
+    out = display_names({k: v for k, v in names.items() if k in on})
+    every = display_names(names)
+    used = set(out.values())
+    for k in sorted((k for k in names if k not in on), key=str):   # nothing on sale: named among all, never like another
+        v, n = every[k], 4
+        while v in used:
+            v = f'{every[k]}·{str(k)[-n:]}' if n <= len(str(k)) else f'{every[k]}·{k!r}·{len(used)}'
+            n += 1
+        used.add(v)
+        out[k] = v
+    return out
+
+
+def shop_check(units):
+    """(shown, bad): the shop's shown names and display_check over all of them — run before each forum post."""
+    names = {}
+    for u in units:
+        if isinstance(u, dict) and u.get('sku') and u['sku'] not in names:
+            names[u['sku']] = str(u.get('name') or u['sku'])
+    shown = display_names(names)
+    return shown, display_check(names, shown)
+# --- end shared display name block
+
+
 def clear_card(units, now, qpath, limit=300):
     """'떨이·기한 임박: <name> <grade> <price>(~<HH:MM until>) / ...' for each SKU and grade on clearance (its soonest unit, the
     price private_checkout issues for it), soonest first, whole items within limit characters; '' when none."""
@@ -171,9 +566,9 @@ def clear_card(units, now, qpath, limit=300):
             cl = clearance(u, base, now)
             if cl and (k not in best or cl['hours_left'] < best[k][0]['hours_left']):
                 best[k] = (cl, u)
-        text = ''
+        text, shown = '', shop_names(units, now)      # what is on sale (r3 I5)
         for k, (cl, u) in sorted(best.items(), key=lambda kv: (kv[1][0]['hours_left'], kv[0])):
-            name = re.sub(r'\[[^\]]*\]', '', str(u.get('name') or k[0])).strip()[:12]
+            name = shown.get(k[0]) or str(k[0])
             until = time.strftime('%H:%M', time.localtime(float(u['expires_at'])))   # a time, not hours (review M3)
             part = f"{name} {k[1]} {cl['price']:,}(~{until})"
             longer = (text + ' / ' if text else '') + part
@@ -198,10 +593,9 @@ def run(args,kit):
         if not sku or grade not in ('A','B','C'): continue
         grouped.setdefault(sku,{}).setdefault(grade,[]).append(u)
     if not grouped: return {'written':False,'error':'판매 가능한 재고가 없습니다'}
-    parts=[]
+    parts=[]; shown=shop_names(units, float(args.get('_now') or time.time()) if kit.testing else time.time())   # on sale (r3 I5)
     for sku,grades in grouped.items():
-        sample=next(u for u in units if u.get('sku')==sku)
-        name=re.sub(r'\[[^\]]*\]','',str(sample.get('name') or sku)).strip()[:10]
+        name=shown.get(sku,str(sku))
         quotes=[]
         for grade,items in grades.items():
             floor=math.ceil((max(float(u.get('cost') or 0) for u in items)+205+210)/0.99)

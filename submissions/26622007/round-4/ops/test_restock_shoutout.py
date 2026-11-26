@@ -211,7 +211,7 @@ class Live(unittest.TestCase):
         self.m.inv = {'units': [bread], 'restock': {'open': False}}
         r = self.call(op='want', customer='진주댁', sku='우유')
         self.assertFalse(r['ok'])
-        self.assertEqual(r['names'], ['우유식빵 420g'])
+        self.assertEqual(r['names'], ['우유식빵420g'])                  # the shared display name (11/27 01:26)
         self.assertTrue(self.call(op='want', customer='진주댁', sku='우유', force=True)['ok'])
         self.assertFalse(self.call(op='want', customer='진주댁', sku='G0000dddd', force=True)['ok'])   # the SKU itself is held: no forcing
 
@@ -282,7 +282,7 @@ class Live(unittest.TestCase):
         self.assertNotIn('milkfan_77', Path('logs/lost_deals.jsonl').read_text(encoding='utf-8').lower())
 
     def test_a_dropped_line_tells_nobody(self):                                         # M-2
-        self.ns['MAX_TEXT'] = 150                                                       # room for one line only
+        self.ns['MAX_TEXT'] = 120                                                       # room for one line only (shorter shared names, 11/27)
         units = []
         for i in range(2):
             sku = 'G000000%02d' % i
@@ -396,7 +396,7 @@ class Live(unittest.TestCase):
         self.m.inv = {'units': [RICE], 'restock': {'open': False}}           # the milk sold before 박씨 came back
         n = self.call(op='notice', customer='박씨')['notice']
         self.assertNotIn('우유', n)
-        self.assertIn('백진주쌀', n)
+        self.assertIn('쌀20kg', n)
         self.at(T0 + 86400 + 10)                                             # a day later the cap is free again
         self.m.inv = {'units': [egg], 'restock': {'open': True, 'opens_at': T0 + 86400}}
         self.assertEqual(len(self.call(op='restocked', sku='EGG', price=9000)['picked']), 1)
@@ -581,6 +581,21 @@ def dry_run():
     os.chdir('/')
     tmp.cleanup()
 
+
+
+class Names(unittest.TestCase):
+    def test_find_stock_names_the_whole_shop(self):
+        # two eggs that read alike one by one get their own names, as the shop's other places show them (review I6)
+        ns = load()
+        u = lambda i, sku: {'unit': i, 'sku': sku, 'name': '한계란 난각번호 1번 계란 무항생제 유정란 20구', 'grade': 'B',
+                            'cost': 5000, 'expires_at': T0 + 86400}
+        inv = {'units': [u('u1', 'Gaaaa1111'), u('u2', 'Gbbbb2222')]}
+        st, skus, names, exact = ns['find_stock'](inv, '계란', T0)
+        self.assertEqual(skus, ['Gaaaa1111', 'Gbbbb2222'])
+        self.assertEqual(len(set(names)), 2, names)
+        self.assertEqual(names, [ns['shop_names'](inv['units'])[k] for k in skus])
+        self.assertIn(names[0], ns['notice_text']('k', '계란', {'count': 1, 'grades': ['B'], 'floors': {'B': 1}, 'floor': 1},
+                                                   7000, shown=names[0]))
 
 if __name__ == '__main__':
     if '--dry-run' in sys.argv:
