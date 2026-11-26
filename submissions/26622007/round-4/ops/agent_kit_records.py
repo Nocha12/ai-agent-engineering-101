@@ -471,7 +471,7 @@ def install(ak, logs, checkout=False):
                         return
                     if start is not None:
                         header, start = start, None
-                        emitted, waived = (), ()
+                        emitted, waived, sent_data = (), (), 0
                         task, msg_id, status_id, baseline, issued, cancelled = http.pop('answer')
                         if event['type'] == 'http.response.body' and not event.get('more_body', False):
                             try:
@@ -485,7 +485,7 @@ def install(ak, logs, checkout=False):
                                         and part.get('text') == baseline):
                                     body, attached = compose(baseline, issued, cancelled, time.time())
                                     part['text'] = body
-                                    attach_data(result, attached)   # 11/27: the same originals as a data part too
+                                    sent_data = attach_data(result, attached, cancelled)   # 11/27: same originals as data parts
                                     raw = json.dumps(response, ensure_ascii=False, separators=(',', ':')).encode()
                                     serialized = json.loads(raw)['result']
                                     checks = tokens(serialized.get('task', serialized)['status']['message']['parts'][0]['text'])
@@ -505,7 +505,8 @@ def install(ak, logs, checkout=False):
                         for c in emitted:               # the grade line as sent (operator 11/26 12:40), '' when dropped
                             write('checkout-sends.jsonl', {'kind': 'checkout_asgi_handoff', 'task': task, 'message_id': msg_id,
                                                            'order': c.order, 'checkout_hash': c.digest,
-                                                           'grade_line': c.note if c.note and c.note in body else ''})
+                                                           'grade_line': c.note if c.note and c.note in body else '',
+                                                           'data_part': sent_data})
                         for c in waived:
                             write('checkouts.jsonl', {'event': 'delivery_waived', 'task': task, 'message_id': msg_id,
                                                       'order': c.order, 'digest_hex': c.digest})
