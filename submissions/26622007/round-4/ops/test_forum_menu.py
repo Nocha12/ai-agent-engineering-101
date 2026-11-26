@@ -759,12 +759,63 @@ class Clearance(unittest.TestCase):
         q = {f'{EGG}|B': {'price': 7975, 'ts': NOW, 'by': 'x'}, f'{TEA}|B': {'price': 2900, 'ts': NOW, 'by': 'x'},
              f'{WATER}|C': {'price': 4830, 'ts': NOW, 'by': 'x'}}
         text, skus = fm.build_text(QB, inv, q, settles(MARKET_SETTLES), NOW, 0)
-        self.assertEqual(skus[0], EGG)
+        # 메인 11/27 03:5x: 2 h (egg) and 1 h (water) are under SHORT: both after tea, in the old order among themselves
+        self.assertEqual(skus, [TEA, EGG, WATER])
         until = time.strftime('%H:%M', time.localtime(NOW + 2 * 3600))
-        self.assertTrue(text.startswith(f'[노차네 구멍가게(nocha12) 떨이·기한 임박] 계란20구 C4,190(~{until})'), text)
+        self.assertTrue(text.startswith('[노차네 구멍가게(nocha12) 떨이·기한 임박]'), text)
+        self.assertIn(f' · 계란20구 C4,190(~{until})', text)
         self.assertIn('생수', text)                        # water is listed at its own price, not on clearance
         self.assertNotIn('생수2L C4,', text.split('·')[0])
         self.assertLessEqual(len(text), fm.VIEW)
+
+    def test_three_hours_or_more_first_short_last_in_the_same_post(self):
+        """메인 11/27 03:5x: lines with SHORT (3) hours or more lead; clearance under 3 h follows, prices as before."""
+        cat = {'category': '식품>계란/유제품>계란', 'list_price': 12900}
+        tofu = {'category': '식품>야채/과일>신선야채(부패주의)', 'list_price': 3000}
+        inv = {'units': [dict(unit('e1', EGG, '한계란 난각번호 1번 계란 무항생제 유정란 20구', 'C', 5000, exp=NOW + 1 * 3600), **cat),
+                         dict(unit('d1', 'G5c96ee78', '정식수입 사토노유키 실큰두부 300g', 'C', 1200, exp=NOW + 5 * 3600), **tofu),
+                         unit('t1', TEA, '동서 둥굴레차 50T 60g', 'B', 1800, exp=NOW + 300 * 3600)]}
+        q = {f'{TEA}|B': {'price': 2900, 'ts': NOW, 'by': 'x'}}
+        text, skus = fm.build_text(QB, inv, q, settles(MARKET_SETTLES), NOW, 0)
+        self.assertEqual(skus, ['G5c96ee78', TEA, EGG])    # 5 h clearance, then tea, then the 1 h egg
+        for u in inv['units'][:2]:                         # each line keeps its unit's own clearance price
+            cl = fm.clearance(u, None, NOW)
+            self.assertIsNotNone(cl)
+            self.assertIn(f"C{cl['price']:,}(~", text)
+        self.assertTrue(text.startswith('[노차네 구멍가게(nocha12) 떨이·기한 임박]'), text)
+        self.assertLessEqual(len(text), fm.VIEW)
+
+    def test_only_short_lines_still_posted(self):
+        cat = {'category': '식품>계란/유제품>계란', 'list_price': 12900}
+        inv = {'units': [dict(unit('e1', EGG, '한계란 난각번호 1번 계란 무항생제 유정란 20구', 'C', 5000, exp=NOW + 3600), **cat)]}
+        text, skus = fm.build_text(QB, inv, {}, settles(MARKET_SETTLES), NOW, 0)
+        self.assertEqual(skus, [EGG])                      # nothing hidden: the short line is the post
+        self.assertTrue(text.startswith('[노차네 구멍가게(nocha12) 떨이·기한 임박] 계란20구 C'), text)
+
+    def test_a_sku_with_a_longer_unit_on_clearance_shows_that_unit(self):
+        cat = {'category': '식품>계란/유제품>계란', 'list_price': 12900}
+        e1 = dict(unit('e1', EGG, '한계란 난각번호 1번 계란 무항생제 유정란 20구', 'C', 5000, exp=NOW + 1 * 3600), **cat)
+        e2 = dict(unit('e2', EGG, '한계란 난각번호 1번 계란 무항생제 유정란 20구', 'C', 5000, exp=NOW + 6 * 3600), **cat)
+        left, g, cl = fm.clear_item({'units': [e1, e2]}, EGG, {}, NOW)
+        self.assertEqual((left, g), (6.0, 'C'))
+        self.assertEqual(cl['price'], fm.clearance(e2, None, NOW)['price'])
+        left, _, _ = fm.clear_item({'units': [e1]}, EGG, {}, NOW)   # only a short one: that one
+        self.assertEqual(left, 1.0)
+        a = dict(e2, unit='e3', expires_at=NOW + 4 * 3600)             # two long ones: the sooner of them
+        self.assertEqual(fm.clear_item({'units': [e2, a, e1]}, EGG, {}, NOW)[0], 4.0)
+
+    def test_short_line_not_on_clearance_also_goes_last(self):
+        inv = {'units': [unit('r1', RICE, '2026년 햅쌀 국산 백미 쌀 2kg', 'C', 3000, exp=NOW + 2 * 3600),
+                         unit('t1', TEA, '동서 둥굴레차 50T 60g', 'B', 1800, exp=NOW + 300 * 3600)]}
+        q = {f'{RICE}|C': {'price': 4700, 'ts': NOW, 'by': 'x'}, f'{TEA}|B': {'price': 2900, 'ts': NOW, 'by': 'x'}}
+        real = fm.clear_item
+        fm.clear_item = lambda *a: None                     # as if no clearance applied (rice has no catalog shelf here)
+        try:
+            text, skus = fm.build_text(QB, inv, q, settles(MARKET_SETTLES), NOW, 0)
+        finally:
+            fm.clear_item = real
+        self.assertEqual(skus, [TEA, RICE])
+        self.assertIn('C4,700', text)
 
     def test_no_clearance_keeps_the_old_header(self):
         text, _ = fm.build_text(QB, INV, Text.QUOTES, settles(MARKET_SETTLES), NOW, 0)
