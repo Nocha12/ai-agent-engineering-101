@@ -54,9 +54,11 @@ def compose(text, issued, cancelled, now):
             if used > VISIBLE:
                 break
             fit += 1
-        raise ValueError(f'결제서 {len(lines)}장은 손님 도구가 읽는 답장 앞 2,000자를 넘습니다. 이 답장에는 {fit}장만 남기고 '
-                         f'나머지 order는 checkout_cancel 목록으로 빼세요. 손님께는 나머지는 다음 메시지를 주시면 이어서 '
-                         f'결제서를 드린다고 쓰세요')
+        orders = [c.order for c in active.values()]
+        raise ValueError(f'결제서 {len(lines)}장은 손님 도구가 읽는 답장 앞 2,000자를 넘습니다. 이 답장에는 {max(fit, 1)}장만 남기고 '
+                         f'나머지 order는 checkout_cancel 목록으로 빼세요(예: {orders[max(fit, 1):]}). 이 답장의 state는 '
+                         f'input_required로 두고, 손님께 나머지는 다음 메시지를 주시면 이어서 결제서를 드린다고 쓰세요(같은 대화로 '
+                         f'이어 와야 빼 둔 unit을 바로 다시 낼 수 있습니다)')
     notes = '\n'.join(c.note for c in active.values() if c.note)
     rest = REPLY_MAX - len(head) - 2
     if notes and len(body) + 2 + len(notes) <= rest:   # grade notes give way to prose, prose to the originals

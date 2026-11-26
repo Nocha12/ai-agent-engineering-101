@@ -59,6 +59,8 @@ class Compose(unittest.TestCase):
         self.assertIn('2,000', msg)
         self.assertIn('2장', msg)                           # two of these fit
         self.assertIn('checkout_cancel', msg)
+        self.assertIn('input_required', msg)
+        self.assertIn("['task-3']", msg)               # names the order(s) to drop
 
     def test_cancel_down_to_fit_works(self):
         cs = [co(1), co(2), co(3)]
@@ -84,6 +86,13 @@ class Compose(unittest.TestCase):
         text, attached = cd.compose(PROSE, cs, set(), NOW)
         self.assertEqual(len(attached), 2)
         self.check_visible(text, cs)
+
+    def test_notes_dropped_prose_kept_when_both_do_not_fit(self):
+        prose = '가' * (cd.REPLY_MAX - 1200)
+        text, _ = cd.compose(prose, [co(1)], set(), NOW)
+        self.assertNotIn('등급 근거', text)
+        self.assertIn(prose[:500], text)
+        self.assertLessEqual(len(text), cd.REPLY_MAX)
 
     def test_no_checkout_plain_reply(self):
         text, attached = cd.compose(PROSE * 3, [], set(), NOW)
