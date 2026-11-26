@@ -2,6 +2,8 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
+import base64
+import json
 import re
 
 HOLD_SECONDS = 300   # Same as the existing private_checkout unit reservation.
@@ -69,20 +71,36 @@ def compose(text, issued, cancelled, now):
     return head + ('\n\n' + tail if tail else ''), tuple(active.values())
 
 
-def attach_data(result, attached):
-    """Also put each attached checkout in the task's artifacts as an A2A data part {checkout_jwt, order} (11/27 06:40
-    check): the market's customer tool reads only the first 2,000 characters of a reply's text, so a second checkout
-    after the first one's grade line never reached it, and a customer that copies an ~850-character token by hand can
-    change it ("not signed by this shop's wallet"); the data part is read whole and its token is the one buy uses when
-    the customer names no token. The same signed originals as in the text; nothing else changes. Returns the count."""
-    data = [{'checkout_jwt': c.token, 'order': c.order} for c in attached]
-    if not data or not isinstance(result, dict):
+def _fields(token):
+    """item, price, grade claim and unit from the token's own signed payload ({} when it does not read)."""
+    try:
+        body = token.split('.')[1]
+        pl = json.loads(base64.urlsafe_b64decode(body + '=' * (-len(body) % 4)))
+        return {k: pl[k] for k in ('item', 'price', 'claim', 'unit') if k in pl and isinstance(pl[k], (str, int))}
+    except Exception:
+        return {}
+
+
+def attach_data(result, attached, cancelled=()):
+    """Also put each attached checkout in the task's artifacts as an A2A data part (11/27 06:40 check): the market's
+    customer tool reads only the first 2,000 characters of a reply's text, so a second checkout after the first one's
+    grade line never reached it, and a customer that copies an ~850-character token by hand can change it ("not
+    signed by this shop's wallet"); the data part is read whole and buy uses it when the customer names no token.
+    Each entry is {checkout_jwt, order} plus item, price, claim and unit read from the same signed payload, so a
+    customer with several can tell them apart. A checkout reply that attaches none (all cancelled or past their hold)
+    carries {checkouts: [], cancelled: [...]} instead, so the customer's last data no longer holds an old token.
+    The same signed originals as in the text; nothing else changes. Returns the number of checkouts attached."""
+    if not isinstance(result, dict):
         return 0
+    data = [dict(_fields(c.token), checkout_jwt=c.token, order=c.order) for c in attached]
+    parts = [{'data': d} for d in data] or [{'data': {'checkouts': [], 'cancelled': sorted(str(o) for o in cancelled)}}]
+    if result.get('kind') == 'task':                 # the v0.3 binding names each part's kind
+        for p in parts:
+            p['kind'] = 'data'
     arts = result.get('artifacts')
     if not isinstance(arts, list):
         arts = result['artifacts'] = []
-    arts.append({'artifactId': 'checkout-' + data[0]['order'], 'name': 'checkout',
-                 'parts': [{'data': d} for d in data]})
+    arts.append({'artifactId': 'checkout-' + (data[0]['order'] if data else 'none'), 'name': 'checkout', 'parts': parts})
     return len(data)
 
 
