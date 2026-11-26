@@ -351,6 +351,23 @@ def stock_changes(old, new):
     return out
 
 
+PIN_TAG = '[운영자'
+PIN_HEAD = 'Operator instructions in your notes (kept in view even when the notes below no longer reach them; file order, later lines are newer):\n'
+
+
+def pinned_notes(text, tail):
+    """The kit shows only the last 3,000 chars of notes.md (agent_kit.Mind.notes), so operator lines written early fall
+    out of view as the shop adds its own notes (11/26 21:40 check). Every line that starts with '[운영자' and is not
+    already whole inside the tail goes in front of the tail, once each, in file order. Nothing is cut or changed."""
+    lines, seen = [], set()
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith(PIN_TAG) and line not in seen and line not in tail:
+            seen.add(line)
+            lines.append(line)
+    return PIN_HEAD + '\n'.join(lines) + '\n\n' + tail if lines else tail
+
+
 def install(ak, logs, checkout=False):
     """Wrap ak.Mind.deliver/reply and ak.Toolbox.call; lift ak.mk.LOG_MAX. Returns the names that were wrapped."""
     logs.mkdir(parents=True, exist_ok=True)
@@ -1069,6 +1086,20 @@ def install(ak, logs, checkout=False):
             return contacts.step(entry)
         except Exception:
             return entry
+
+    if callable(getattr(ak.Mind, 'notes', None)):   # operator lines of notes.md stay in view (pinned_notes)
+        notes0 = ak.Mind.notes
+
+        def notes_pinned(self):
+            tail = notes0(self)                 # the kit's own answer and its own errors, unchanged
+            try:
+                text = (self.root / 'notes.md').read_text(encoding='utf-8')
+                return pinned_notes(text, tail) if isinstance(tail, str) and text[-3000:] == tail else tail
+            except Exception:
+                return tail
+
+        ak.Mind.notes = notes_pinned
+        done.append('Mind.notes(pinned)')
 
     if hasattr(ak.Mind, 'step_log'):            # logs/react.jsonl: the step is kept, the contact is not
         step_log = ak.Mind.step_log
