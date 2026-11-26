@@ -20,7 +20,9 @@ Both files hold customer text: they stay on this machine (.gitignore) and out of
 (ops/export_submission.py keeps only the three logs the course asks for). A record that fails to write never stops
 the kit.
 """
+import copy
 import json
+import queue
 from contextvars import ContextVar
 from dataclasses import dataclass
 from base64 import urlsafe_b64encode
@@ -38,6 +40,15 @@ SCRUB_TAIL = 256 << 10          # and blanked in the last bytes already written 
 SCRUBBED = ('react.jsonl', 'agent-kit.log', 'messages.jsonl', 'lost_deals.jsonl')
 NO_ROLLOVER = 1 << 40
 _lock = threading.Lock()
+PAR_MAX = 4                     # A2A conversations served at the same time, each in its own thread (대표님 11/27 00:55)
+WORKER_NO = ('buy_food_lot', 'forum_post', 'write_shop_card', 'refresh_full_card')   # not from a customer's run (r1 I2, r2 M3)
+STOCK_EVERY = 20                # s: a parallel run's live stock (check_item_inventory) is fetched again after this long
+PAR_NOTE = ("\n\nThis run serves only the customer message(s) listed above; other customers are answered at the same "
+            "time by other runs of you. Item, price and stock: say only what the 'Live stock now' list in this run (fetched "
+            "just now, again every %d s) or a check_item_inventory call in this run shows, never a value from your notes "
+            "or an earlier run. private_checkout looks the unit up live again and holds it; when it answers unit_held, "
+            "offer what it lists instead. In this run do not buy stock, forge tools or post on the forum: reply, then "
+            "sleep." % STOCK_EVERY)
 
 
 def _dir_arg(argv):
@@ -468,11 +479,37 @@ def install(ak, logs, checkout=False):
 
     reply = ak.Mind.reply
 
+    def conv_key(ev):
+        return str(getattr(ev, 'task', None) or getattr(ev, 'id', ''))
+
+    def mine_only():
+        try:                                    # a copy: other threads add and answer messages meanwhile (r2 M1)
+            ids = [e.id for e in list(par.mind.pending.values())
+                   if conv_key(e) == getattr(par, 'key', None) and not e.done.is_set()]
+        except Exception:
+            ids = []
+        return f"error: reply only to this run's customer message. Waiting here: {ids}"
+
+    def not_mine(ev):
+        """A parallel run: a message of another conversation (or none). The kit's loop: a conversation a parallel run
+        serves (r2 I1); the kit's error lists every waiting id, those too."""
+        if getattr(par, 'worker', False):
+            return ev is None or conv_key(ev) != getattr(par, 'key', None)
+        if ev is None:
+            return False                        # the kit's own error, as before
+        with wlock:
+            return conv_key(ev) in workers
+
+    def elsewhere():
+        return 'error: that customer is being answered in another run of you; reply only to the messages listed in this run'
+
     def reply_rec(self, args):
         try:
             ev = self.pending.get(str((args or {}).get('to')))
         except Exception:
             ev = None
+        if not_mine(ev):                        # another customer's message: never answered from here (r1 I1, r2 I1)
+            return mine_only() if getattr(par, 'worker', False) else elsewhere()
         issued = getattr(ev, 'checkout_issued', ()) if checkout else ()
         effective = args
         if issued and not ev.done.is_set():
@@ -515,6 +552,7 @@ def install(ak, logs, checkout=False):
     # kit's busy answer went out (11/26 10:01 bread 11ae3b1e, 11:24 rice ea45d5f0). Before each model call, any message
     # taken this run whose id is not in what the model reads is added back to the last observation, once.
     seen = threading.local()
+    par = threading.local()                     # set in the threads that serve one A2A conversation each
     model = getattr(ak, 'Model', None)
     patch_seen = all(callable(getattr(c, n, None)) for c, n in ((ak.Mind, 'fresh'), (ak.Mind, 'run_once'), (model, 'complete')))
     fresh0, run_once0, complete0 = (ak.Mind.fresh, ak.Mind.run_once, model.complete) if patch_seen else (None,) * 3
@@ -523,10 +561,14 @@ def install(ak, logs, checkout=False):
         out = fresh0(self)
         if out and getattr(seen, 'mind', None) is self:
             seen.taken.extend(out)
+            if any(getattr(e, 'kind', None) == 'a2a' for e in out):
+                par.a2a = True                  # a customer came in this run: live stock from the next call on
         return out
 
     def run_seen(self, events):
         seen.mind, seen.taken, seen.readded = self, list(events or []), set()   # the run's first prompt is cut too (r5 M2)
+        par.stock_at = 0                        # every run that serves a customer starts with a live stock lookup
+        par.a2a = getattr(par, 'worker', False) or any(getattr(e, 'kind', None) == 'a2a' for e in events or [])
         try:
             return run_once0(self, events)
         finally:
@@ -561,6 +603,28 @@ def install(ak, logs, checkout=False):
                                                     'tasks': [e.task for e in lost]})
         except Exception:
             pass
+        try:
+            if getattr(par, 'a2a', False) and messages and messages[-1].get('role') == 'user':
+                if getattr(par, 'worker', False) and len(messages) > 1 and messages[1].get('role') == 'user' and PAR_NOTE not in messages[1]['content']:
+                    messages[1] = dict(messages[1], content=messages[1]['content'] + PAR_NOTE)
+                now = time.time()
+                if now - getattr(par, 'stock_at', 0) >= STOCK_EVERY:
+                    par.stock_at = now          # set first: a retried call within STOCK_EVERY adds nothing twice
+                    try:
+                        out = seen.mind.toolbox.call('check_item_inventory', {})
+                    except Exception:           # no such tool or it crashed: the failure note below (review r2 M1)
+                        out = None
+                    res = out.get('result') if isinstance(out, dict) and out.get('ok') else None
+                    when = time.strftime('%H:%M:%S', time.localtime(now))
+                    if isinstance(res, dict) and res.get('ok') is not False:
+                        add = (f"\n\nLive stock now ({when}, check_item_inventory; refreshed every {STOCK_EVERY} s): "
+                               + json.dumps(res, ensure_ascii=False)[:5000])
+                    else:
+                        add = (f"\n\nLive stock lookup failed at {when}: call check_item_inventory before you state an "
+                               "item, price or stock.")
+                    messages[-1] = dict(messages[-1], content=messages[-1]['content'] + add)
+        except Exception:
+            pass
         out = complete0(self, messages, *a, **k)
         seen.taken = []                                 # only once the model got them; a failed call keeps them (r3 M1)
         return out
@@ -570,12 +634,36 @@ def install(ak, logs, checkout=False):
         done += ['Mind.fresh', 'Mind.run_once', 'Model.complete']
 
     call = ak.Toolbox.call
+    checkout_lock, pay_lock = threading.RLock(), threading.RLock()
 
     def call_rec(self, name, args):
+        """private_checkout, every wallet tool (refund_send, buy_food_lot, any with permission.wallet; review C1) and
+        the calls that set a shown price in quotes.json run one call at a time: create reads the live inventory and the open holds and logs its
+        issue before it returns, so two customers served in parallel never get the same unit (the last one of an
+        item goes to one; the other gets unit_held and the free alternatives). An unpaid hold runs out (HOLD)."""
+        if getattr(par, 'worker', False) and name in WORKER_NO:
+            return {'ok': False, 'error': f'{name} is not used in a customer run; the main run does it (reply, then sleep)'}
+        try:                                    # every wallet tool: one nonce and one balance at a time
+            w = ((getattr(self, 'tools', None) or {}).get(name) or {}).get('perm', {}).get('wallet')
+            wallet = {w} if isinstance(w, str) else set(w or ())       # 'pay' is not {'p', 'a', 'y'} (r2 M5)
+        except Exception:
+            wallet = {'pay'}                    # unknown: the safe side
+        if 'pay' in wallet or name in ('refund_send', 'buy_food_lot'):
+            with pay_lock:                      # sends: their own lock, so a 180 s send never holds a checkout (r1 M1)
+                return call_one(self, name, args)
+        if wallet or name in ('private_checkout', 'restock_shoutout') or (
+                name == 'check_item_inventory' and isinstance(args, dict) and args.get('quote')):   # quotes.json too
+            with checkout_lock:
+                return call_one(self, name, args)
+        return call_one(self, name, args)
+
+    def call_one(self, name, args):
         ev = None
         if checkout and name == 'private_checkout' and isinstance(args, dict) and args.get('op') == 'create':
             mind = getattr(active_mind, 'current', None)
             ev = mind.pending.get(str(args.get('reply_to'))) if mind is not None else None
+            if not_mine(ev):                    # another customer's message (r1 I1, r2 I1)
+                return {'ok': False, 'error': (mine_only() if getattr(par, 'worker', False) else elsewhere())[7:]}
             req = getattr(ev, 'checkout_request', None)
             if ev is None or ev.kind != 'a2a' or not ev.task or ev.done.is_set() or not req or not req.open:
                 return {'ok': False, 'error': 'private checkout needs reply_to of a live synchronous A2A message'}
@@ -676,7 +764,101 @@ def install(ak, logs, checkout=False):
                                       'result': _clip(res if res is not None else out)})
 
     ak.Mind.deliver, ak.Mind.reply, ak.Toolbox.call = deliver_rec, reply_rec, call_rec
-    done += ['Mind.deliver', 'Mind.reply', 'Toolbox.call']
+    forge = getattr(ak.Toolbox, 'forge', None)
+    if callable(forge):
+        def forge_rec(self, args):
+            if getattr(par, 'worker', False):
+                return 'error: forge_tool is not used in a customer run; the main run does it (reply, then sleep)'
+            with pay_lock, checkout_lock:       # its test may run a wallet or a checkout with a live signer (r1 M3, r2 M2)
+                return forge(self, args)
+        ak.Toolbox.forge = forge_rec
+    done += ['Mind.deliver', 'Mind.reply', 'Toolbox.call'] + (['Toolbox.forge'] if callable(forge) else [])
+
+    # 대표님 11/27 00:55 "동시에 들어오면 동시에 해": the kit serves every message in one loop, so a customer who wrote
+    # while the agent worked for another waited past the A2A window (11/26 21:37 6842e6f2, 23:14 728bb36b). Each A2A
+    # conversation (its task id) now gets its own thread running the kit's own run_once on a copy of the mind that
+    # shares pending (reply), tools and model but has its own inbox; later messages of the same conversation go to
+    # the same thread. Mini-app messages and timers stay in the kit's loop, and so does a conversation that comes
+    # while PAR_MAX are being served.
+    workers, wlock, home = {}, threading.Lock(), {}
+    HOME_SPAN = 120                         # s: a conversation the kit's loop took stays there this long
+    lg = getattr(ak, 'log', None) or (lambda line='': None)
+
+    def serve(w, key):
+        par.worker, par.key, par.mind = True, key, w
+        try:
+            while True:
+                with wlock:
+                    events = w.fresh()
+                    if not events:
+                        workers.pop(key, None)
+                        return
+                try:
+                    ak.Mind.run_once(w, events)
+                except Exception as e:          # like the kit's loop: one run never ends the shop
+                    lg(f"[mind] parallel run failed: {type(e).__name__}: {e}")
+                    time.sleep(5)               # not a hot loop when a run fails before its first model call
+        finally:
+            with wlock:
+                if workers.get(key) is w:
+                    workers.pop(key, None)
+                left = []
+                try:
+                    while True:
+                        left.append(w.inbox.get_nowait())
+                except queue.Empty:
+                    pass
+                if left:                        # the kit's loop serves them: the conversation stays there (r2 M4)
+                    home[key] = time.time()
+            for e in left:                      # never dropped: back to the kit's loop
+                if not e.done.is_set():
+                    w.par_home.inbox.put(e)
+
+    def dispatch(self, ev):
+        if getattr(ev, 'kind', None) != 'a2a' or getattr(self, 'par_home', None) is not None:
+            return deliver_rec(self, ev)
+        key = str(getattr(ev, 'task', None) or getattr(ev, 'id', ''))
+        start = None
+        with wlock:
+            w = workers.get(key)
+            for k, t in list(home.items()):
+                if time.time() - t > HOME_SPAN:
+                    home.pop(k, None)
+            if w is None and len(workers) < PAR_MAX and key not in home:
+                try:
+                    w = copy.copy(self)
+                    w.inbox, w.wake_at, w.par_home = queue.Queue(), 0.0, self
+                    workers[key] = start = w
+                except Exception:
+                    w = None
+            if w is not None:
+                try:
+                    return_ev = deliver_rec(w, ev)  # pending is shared: reply() from any run finds it
+                except Exception:               # never a slot nobody serves (r1 M4)
+                    if start is not None:
+                        workers.pop(key, None)
+                    w = start = None
+            if w is None:
+                home[key] = time.time()         # this conversation stays in the kit's loop for a while (r1 M6)
+        if w is None:
+            return deliver_rec(self, ev)
+        if start is not None:
+            try:
+                threading.Thread(target=serve, args=(start, key), daemon=True, name=f'a2a-{key[:12]}').start()
+            except Exception:                   # no thread: the kit's loop takes it
+                with wlock:
+                    workers.pop(key, None)
+                    home[key] = time.time()     # and keeps the conversation (r2 M4)
+                    try:
+                        while True:
+                            self.inbox.put(start.inbox.get_nowait())
+                    except queue.Empty:
+                        pass
+        return return_ev
+
+    if all(callable(getattr(ak.Mind, n, None)) for n in ('fresh', 'run_once', 'loop')):   # the kit's loop as we know it
+        ak.Mind.deliver = dispatch
+        done.append('Mind.deliver(parallel)')
 
     def safe(x):                                # masking never stops the kit: on any error the kit's own value goes on
         try:
