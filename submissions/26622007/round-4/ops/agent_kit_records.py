@@ -351,14 +351,14 @@ def stock_changes(old, new):
     return out
 
 
-PIN_TAG = '[운영자'
-PIN_HEAD = 'Operator instructions in your notes (kept in view even when the notes below no longer reach them; file order, later lines are newer):\n'
+PIN_TAG = '[운영자 최신 지시'        # only the operator's current instructions; older '[운영자 지시 …]' lines are history (review I2)
+PIN_HEAD = 'Current operator instructions in your notes (kept in view even when the notes below no longer reach them; file order, later lines are newer):\n'
 
 
 def pinned_notes(text, tail):
     """The kit shows only the last 3,000 chars of notes.md (agent_kit.Mind.notes), so operator lines written early fall
-    out of view as the shop adds its own notes (11/26 21:40 check). Every line that starts with '[운영자' and is not
-    already whole inside the tail goes in front of the tail, once each, in file order. Nothing is cut or changed."""
+    out of view as the shop adds its own notes (11/26 21:40 check). Every line that starts with '[운영자 최신 지시' and is
+    not already whole inside the tail goes in front of the tail, once each, in file order. Nothing is cut or changed."""
     lines, seen = [], set()
     for line in text.splitlines():
         line = line.strip()
@@ -1093,8 +1093,12 @@ def install(ak, logs, checkout=False):
         def notes_pinned(self):
             tail = notes0(self)                 # the kit's own answer and its own errors, unchanged
             try:
-                text = (self.root / 'notes.md').read_text(encoding='utf-8')
-                return pinned_notes(text, tail) if isinstance(tail, str) and text[-3000:] == tail else tail
+                for _ in range(2):              # a note appended between the two reads: read both once more (M1)
+                    text = (self.root / 'notes.md').read_text(encoding='utf-8')
+                    if isinstance(tail, str) and text and text.endswith(tail):   # any kit window size (M2)
+                        return pinned_notes(text, tail)
+                    tail = notes0(self)
+                return tail
             except Exception:
                 return tail
 
