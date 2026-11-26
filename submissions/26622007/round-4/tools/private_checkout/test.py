@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 
 
@@ -38,6 +39,32 @@ def test(run, kit):
         w = run(dict(a, order='o-t1c', task='쌀 다시', inquiry_task='t'), kit)      # wrapper names the inquiry
         assert w['ok'] and w['payload']['task'] == '쌀 다시' and 'inquiry_task' not in w['payload'], w
         assert run(dict(a, order='o-t1d', task='t', inquiry_task='t-z'), kit).get('code') == 'unit_held'
+        # 11/27: one inquiry, a second unit of the same SKU and grade within 30 s may be a double order (930158ae
+        # 11/26 20:40): issued, and flagged (duplicate_of) so the reply keeps one unless the customer wants both
+        ud = dict(unit, unit='u-d2', cert={'unit': 'u-d2', 'grade': 'B'})
+        ud3 = dict(unit, unit='u-d3', cert={'unit': 'u-d3', 'grade': 'B'})
+        ud4 = dict(unit, unit='u-d4', cert={'unit': 'u-d4', 'grade': 'B'})
+        ue = dict(unit, unit='u-e1', sku='G7', cert={'unit': 'u-e1', 'grade': 'B'})
+        uc = dict(unit, unit='u-c3', grade='C', cert={'unit': 'u-c3', 'grade': 'C'})
+        dinv = dict(inv, units=[unit, ud, ud3, ud4, ue, uc])
+        dd = run(dict(a, unit='u-d2', order='t-2', _inventory=dinv), kit)
+        assert dd['ok'] and dd['duplicate_of'] in ('o-t1', 'o-t1b', 'o-t1c'), dd
+        de = run(dict(a, unit='u-e1', order='t-3', _inventory=dinv), kit)                 # another SKU
+        assert de['ok'] and 'duplicate_of' not in de, de
+        do = run(dict(a, unit='u-d3', order='t-4', inquiry_task='t-dd', _inventory=dinv), kit)   # another inquiry
+        assert do['ok'] and 'duplicate_of' not in do, do
+        dc = run(dict(a, unit='u-c3', claim='C', order='t-5', _inventory=dinv), kit)      # B -> C: a change (review I3)
+        assert dc['ok'] and 'duplicate_of' not in dc, dc
+        # a checkout dropped from its reply (delivery_waived) or given up as undelivered no longer counts (review I3)
+        log = FILES[0]
+        rows = [json.loads(x) for x in open(log, encoding='utf-8') if x.strip()]
+        live = [x for x in rows if x.get('event') == 'issued' and x.get('holder') == 't' and x.get('grade') == 'B']
+        with open(log, 'a', encoding='utf-8') as f:
+            for i, x in enumerate(live):
+                ev = ('delivery_waived', 'delivery_overdue')[i % 2]
+                f.write(json.dumps({'event': ev, 'order': x['order'], 'digest_hex': x['digest_hex'], 'ts': x['ts']}) + '\n')
+        d4 = run(dict(a, unit='u-d4', order='t-6', _inventory=dinv), kit)
+        assert d4['ok'] and 'duplicate_of' not in d4, d4
         un = dict(unit, unit='u-n', cert={'unit': 'u-n', 'grade': 'B'})
         n0 = dict(a, unit='u-n', order='o-n0', task='쌀 1개', inquiry_task=None, _inventory=dict(inv, units=[un]))
         assert run(n0, kit)['ok']                                               # no wrapper: no holder,

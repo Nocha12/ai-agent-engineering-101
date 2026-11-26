@@ -37,6 +37,8 @@ import urllib.request
 BASE = 'https://market.ourolabs.ai'
 RPC = 'https://rpc-testnet.maroo.io'
 GAS, FEE = 205, 210          # goal (3): floor = (cost + 205/qty + 210) / 0.99; one unit is the conservative qty
+DUP_SPAN = 30                # s: a second unit of a SKU and grade for one inquiry in this span is flagged (대표님 11/27)
+DEAD = ('settled', 'refused', 'unsettled', 'delivery_waived', 'delivery_overdue')
 HOLD = 300                   # an open checkout keeps its unit for 5 minutes (대표님 06:2x: 15 min lost deals)
 REISSUE_SPAN = 900           # one inquiry's back-to-back reissues of a unit stop sparing it its own hold after 15 min
 MAX_WARRANTY = 72
@@ -472,6 +474,19 @@ def create(args, kit):
     if price < low:
         return {'ok': False, 'error': '가격이 하한보다 낮습니다', 'floor': low}
     holder, rows = (str(holder) if holder else None), _lines(_p(kit, LOG))
+    dup = None
+    if holder:                                       # the A2A task is what is known at issue (the payer comes at settle):
+        # only a live checkout counts: not paid or failed, not dropped from its reply (delivery_waived), not given up
+        # as undelivered (delivery_overdue, or bound when the inquiry could no longer take it) (review I3)
+        closed = {r.get('digest_hex') for r in rows if r.get('event') in DEAD
+                  or (r.get('event') == 'delivery_bound' and r.get('can_attach_at_issue_return') is False)}
+        dup = next((r for r in reversed(rows) if r.get('event') == 'issued' and r.get('holder') == holder
+                    and r.get('sku') == sku and r.get('grade') == grade and r.get('unit') != unit_id
+                    and r.get('order') != order and r.get('digest_hex') not in closed
+                    and 0 <= now - (r.get('ts') or 0) < DUP_SPAN), None)   # another grade or item: a change, not a double
+        # 11/26 20:40 930158ae: a second unit of the same item 11 s later. Not refused (two 판 asked at once, a
+        # checkout the customer never got, a unit switch all look the same here; review r1 I4/I5): issued, and the
+        # answer says so, so the reply cancels one with checkout_cancel unless the customer asked for both
     held = open_hold(kit, unit_id, order, now, holder, rows)
     if held and holder and held.get('holder') == holder:        # this inquiry has kept the unit for REISSUE_SPAN already
         return {'ok': False, 'code': 'reissue_wait', 'held_until': int(held['ts'] + HOLD),
@@ -527,7 +542,8 @@ def create(args, kit):
     if same:
         return dict({'ok': True, 'order': str(same.get('order')), 'checkout_jwt': jwt, 'checkout_hash': b64,
                      'payload': payload, 'reused': True}, **evidence)
-    return dict({'ok': True, 'order': order, 'checkout_jwt': jwt, 'checkout_hash': b64, 'payload': payload}, **evidence)
+    return dict({'ok': True, 'order': order, 'checkout_jwt': jwt, 'checkout_hash': b64, 'payload': payload}, **evidence,
+                **({'duplicate_of': str(dup.get('order'))} if dup else {}))
 
 
 def settle(args, kit):

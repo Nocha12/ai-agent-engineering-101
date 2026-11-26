@@ -63,6 +63,8 @@ def complete(self, messages, max_tokens=4000, timeout=180):
         plan = [('buy_food_lot', {'sku': 'G1', 'qty': 1}), ('forum_post', {'text': 'x'}), ('forge_tool', {'name': 'x'}),
                 ('private_checkout', {'op': 'create', 'unit': unit, 'reply_to': other.group(1)}),
                 ('reply', {'to': other.group(1), 'text': 'not yours'})]
+    if 'twice' in ctx:                                      # a second unit of the same item right after the first
+        plan = [('private_checkout', {'op': 'create', 'unit': 'U5', 'reply_to': mid})]
     plan += [('private_checkout', {'op': 'create', 'unit': unit, 'reply_to': mid}), ('reply', {'to': mid, 'text': f'{unit} 결제서예요'})]
     if done < len(plan):
         name, args = plan[done]
@@ -97,7 +99,8 @@ class Tools(ak.Toolbox):
         self.issued.append((u, args.get('order'), holder))
         tok = 'eyJ' + base64.urlsafe_b64encode(json.dumps({'o': args.get('order')}).encode()).decode().rstrip('=') + '.eyJx.c2ln'
         dg = hashlib.sha256(tok.encode()).digest()
-        return {'ok': True, 'result': {'ok': True, 'order': args.get('order'), 'checkout_jwt': tok,
+        dup = {'duplicate_of': holder} if str(args.get('order')).endswith('-2') else {}
+        return {'ok': True, 'result': {'ok': True, 'order': args.get('order'), 'checkout_jwt': tok, **dup,
                                        'payload': {'iat': int(time.time()), 'price': 5000}, 'quote': 5000,
                                        'checkout_hash': base64.urlsafe_b64encode(dg).decode().rstrip('=')}}
 
@@ -166,6 +169,11 @@ def main():
         assert kl.done.is_set() and kl.answer['reply'] == 'U3 결제서예요', kl.answer
         th.join()
         assert o3['t-slow'][0] and o3['t-slow'][1] == 'U2 결제서예요', o3
+        # 3b: a second checkout of the same item and grade in 30 s is issued and flagged, with the order ids to keep one
+        o4 = {}
+        ask(mind, 'unit U6 두 번 task t-dup twice', 't-dup', o4)
+        got = SEEN['t-dup']
+        assert '"duplicate_of": "t-dup"' in got[1] and 'checkout_cancel' in got[1] and 't-dup-2' in got[1], got[1]
         print('parallel checkout ok', out['t-a'][1], '/', out['t-b'][1])
 
 

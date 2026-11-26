@@ -136,8 +136,8 @@ def main():
         mine = [p for p in PROMPTS if 'unit U4' in p[1]]            # by content: workers may still be going to sleep
         assert tools.stock_calls > before and mine and 'Live stock now' in mine[0][-1], tools.stock_calls
         assert not any('never a value from your notes' in p[1] for p in mine)
-        # one run, one live lookup: the reply goes as written, no second lookup before it (the reply-time check is
-        # not in this release; main 11/27 01:29)
+        # one run, one live lookup: the reply names 계란 without its size (20구), so it names no one item and goes as
+        # written with no look-up before it (test_reply_recheck.py has the check itself)
         tools.held = set()
         calls0 = tools.stock_calls
         c = scene(mind, [('계란 unit U4 주세요', 't-one')])

@@ -42,6 +42,10 @@ NO_ROLLOVER = 1 << 40
 _lock = threading.Lock()
 PAR_MAX = 4                     # A2A conversations served at the same time, each in its own thread (대표님 11/27 00:55)
 WORKER_NO = ('buy_food_lot', 'forum_post', 'write_shop_card', 'refresh_full_card')   # not from a customer's run (r1 I2, r2 M3)
+REWRITE_ROOM = 25               # s: a reply this close to the A2A window goes with a line of the new values, not back
+RECHECK_MAX = 3                 # items looked up again (each on its own, at the same time) right before a reply
+RECHECK_BUDGET = 8              # s: look-ups not back by then count as no answer (the reply goes as written)
+RECHECK_ROOM = 30               # s: a customer with less of the A2A window left than this gets the reply as written
 STOCK_EVERY = 20                # s: a parallel run's live stock (check_item_inventory) is fetched again after this long
 PAR_NOTE = ("\n\nThis run serves only the customer message(s) listed above; other customers are answered at the same "
             "time by other runs of you. Item, price and stock: say only what the 'Live stock now' list in this run (fetched "
@@ -270,6 +274,81 @@ def _menu_hook(ak, shop_dir):
         return out
 
     ak.mk.Market.join = join_rec
+
+
+COMMON = {'정식수입', '국내산', '국산', '무항생제', '상온보관', '유기농', '당일수확', '산지직송', '무농약', '본사공식', '상등급'}
+NAMES, _names_lock = {}, threading.Lock()      # sku -> shown name, from every answer that had names (all runs)
+SIZE_RE = re.compile(r'\d+(?:\.\d+)?(?:kg|ml|g|l|개입|구|입|팩|개|병|판|캔|봉|펫)', re.I)
+
+
+def told_from(res, by_id=False):
+    """{sku: {'name', 'count', 'prices': {grade: price}}} from a check_item_inventory answer: the whole shop (skus; names
+    left out when the shop is large) or one item ({sku}: count is the whole SKU, items are its first units with the
+    shown name). Prices only where set: a first quote is not a change (review I2). Clearance prices are not read: they
+    move with the clock, and private_checkout issues at the price of the moment by itself."""
+    out = {}
+    if not isinstance(res, dict) or res.get('ok') is False:
+        return out
+    for s in res.get('skus') or []:
+        if isinstance(s, dict) and isinstance(s.get('sku'), str):
+            g = s.get('grades') if isinstance(s.get('grades'), dict) else {}
+            out[s['sku']] = {'name': s.get('name') if isinstance(s.get('name'), str) else None,
+                             'count': s.get('count') if type(s.get('count')) is int else None,
+                             'prices': {str(k): v['price'] for k, v in g.items()
+                                        if isinstance(v, dict) and type(v.get('price')) is int}}
+    asked = res.get('sku') if isinstance(res.get('sku'), str) else None
+    items = [i for i in res.get('items') or [] if isinstance(i, dict) and isinstance(i.get('sku'), str)]
+    one = asked is not None and all(i['sku'] == asked for i in items) and type(res.get('count')) is int
+    for i in items:
+        t = out.setdefault(i['sku'], {'name': None, 'count': res['count'] if one else None, 'prices': {}})
+        if isinstance(i.get('name'), str):
+            t['name'] = i['name']
+        if type(i.get('price')) is int:
+            t['prices'].setdefault(str(i.get('grade')), i['price'])
+    if by_id and one and not items and res['count'] == 0:   # asked by its SKU id and none left (r2 M3, r3 I1)
+        out.setdefault(asked, {'name': None, 'count': 0, 'prices': {}})
+    with _names_lock:
+        NAMES.update({k: v['name'] for k, v in out.items() if v['name']})
+    return out
+
+
+def merge_told(told, new):
+    """Field by field: a whole-shop answer without names keeps the name an earlier answer gave (review r1 I1)."""
+    for k, v in new.items():
+        old = told.get(k) or {}
+        told[k] = {'name': v.get('name') or old.get('name'),
+                   'count': v['count'] if v.get('count') is not None else old.get('count'),   # by-name: none (r2 I1)
+                   'prices': dict(old.get('prices') or {}, **(v.get('prices') or {}))}
+    return told
+
+
+def named_in(text, sku, name):
+    """The reply speaks of this SKU: its id, its shown name as one word (spaces left out), or a word of the name
+    together with every size of it (계란 and 20구 for 계란20구); a product word alone names every egg (review r1 I3)."""
+    if sku in text:
+        return True
+    if not name:
+        return False
+    flat = re.sub(r'\s+', '', text)
+    if re.sub(r'\s+', '', name) in flat:
+        return True
+    sizes = [x.lower() for x in SIZE_RE.findall(name)]
+    words = [w for w in re.findall(r'[가-힣]{2,}', SIZE_RE.sub(' ', name)) if w not in COMMON]
+    low = flat.lower()                          # 20구 is not inside 120구 (r2 M1)
+    return bool(sizes) and any(w in text for w in words) and all(re.search(r'(?<![\d.])' + re.escape(z), low) for z in sizes)
+
+
+def stock_changes(old, new):
+    """What moved between what the model was told and the live answer now: sold out, or a set price that is another
+    now. Fewer left is not (other customers buy all the time; review r1 I3); a first price is not (review I2)."""
+    out = []
+    if type(old.get('count')) is int and old['count'] > 0 and new.get('count') == 0:
+        out.append('지금 재고 없음')
+    for g, p in sorted((old.get('prices') or {}).items()):
+        q = (new.get('prices') or {}).get(g)
+        if type(p) is int and type(q) is int and p != q:
+            out.append(f"{g}등급 {q:,}크레딧")
+    return out
 
 
 def install(ak, logs, checkout=False):
@@ -503,6 +582,68 @@ def install(ak, logs, checkout=False):
     def elsewhere():
         return 'error: that customer is being answered in another run of you; reply only to the messages listed in this run'
 
+    def recheck(mind, ev, text, cancel):
+        """대표님 11/27: right before a reply goes, each item it names (RECHECK_MAX at most, the ones this run asked
+        about first) is looked up live on its own (check_item_inventory {sku}; review I1), all at the same time within
+        RECHECK_BUDGET, and compared with what the model was told in this run. Changed: once per message the reply
+        goes back to be written again with the new values; after that, or when the customer has waited too long for
+        another model step, it goes with a line of the new values added (review I2). None: send as written."""
+        told = getattr(par, 'told', None)
+        issued = getattr(ev, 'checkout_issued', ())
+        if issued and not (cancel is True or (isinstance(cancel, list) and {c.order for c in issued} <= set(cancel))):
+            return None                         # a checkout goes with it and carries its own price (r1 M5)
+        if not isinstance(told, dict) or not told:
+            return None
+        age = time.time() - getattr(ev, 'at', time.time())
+        wait = getattr(ak, 'A2A_WAIT', 80)
+        if wait - age < RECHECK_ROOM:
+            return None                         # no time to look: as written (r1 I2)
+        with _names_lock:
+            names = {k: v.get('name') or NAMES.get(k) for k, v in told.items()}
+        asked = getattr(par, 'asked', ())
+        named = sorted((k for k in told if named_in(text, k, names[k])), key=lambda k: (k not in asked, k))
+        got = {}
+
+        def look(sku):
+            try:
+                out = mind.toolbox.call('check_item_inventory', {'sku': sku})
+                res = out.get('result') if isinstance(out, dict) and out.get('ok') else None
+                if isinstance(res, dict) and res.get('sku') == sku:
+                    got[sku] = told_from(res, by_id=True).get(sku)
+            except Exception:
+                pass
+        ts = [threading.Thread(target=look, args=(k,), daemon=True) for k in named[:RECHECK_MAX]]
+        for t in ts:
+            t.start()
+        end = time.time() + RECHECK_BUDGET
+        for t in ts:
+            t.join(max(0.0, end - time.time()))
+        changed = []
+        for sku in named[:RECHECK_MAX]:
+            new = got.get(sku)
+            if not new:
+                continue                        # no answer for it in time: that item goes as written
+            moved = stock_changes(told[sku], new)
+            merge_told(told, {sku: new})
+            if moved:
+                changed.append(f"{new.get('name') or names[sku] or sku}({sku}): " + ', '.join(moved))
+        if not changed:
+            return None
+        age = time.time() - getattr(ev, 'at', time.time())
+        with _lock:                             # once per message, also when two runs reply to it (r1 M1)
+            late = age >= wait - REWRITE_ROOM or getattr(ev, 'recheck_back', 0) >= 1 \
+                or getattr(par, 'calls', 0) >= int(mind.agent.get('max_steps') or 40) - 1 \
+                or time.time() > getattr(par, 'deadline', float('inf')) - REWRITE_ROOM   # no step or time left (r2 M5, r3 M2)
+            if not late:
+                ev.recheck_back = 1
+        write('missed-messages.jsonl', {'kind': 'reply_stock_changed', 'ids': [ev.id], 'tasks': [ev.task],
+                                        'waited': int(age), 'changed': changed[:6], 'sent_with_note': late,
+                                        'looked_up': len(ts), 'answered': len(got), 'named': len(named)})
+        if late:
+            return '\n\n(보내기 직전 다시 확인한 재고) ' + ' / '.join(changed[:6])
+        return ('error: not sent. Stock or price of an item in your reply changed since you looked (live, just now): '
+                + ' / '.join(changed[:6]) + '. Write the reply again with these values and send it with reply.')
+
     def reply_rec(self, args):
         try:
             ev = self.pending.get(str((args or {}).get('to')))
@@ -510,6 +651,16 @@ def install(ak, logs, checkout=False):
             ev = None
         if not_mine(ev):                        # another customer's message: never answered from here (r1 I1, r2 I1)
             return mine_only() if getattr(par, 'worker', False) else elsewhere()
+        fixed = None
+        try:                                    # never stops a reply: on any error it goes as written
+            if ev is not None and getattr(ev, 'kind', None) == 'a2a' and not ev.done.is_set():
+                fixed = recheck(self, ev, str((args or {}).get('text') or ''), (args or {}).get('checkout_cancel'))
+        except Exception:
+            fixed = None
+        if isinstance(fixed, str) and fixed.startswith('error:'):
+            return fixed
+        if fixed:
+            args = dict(args, text=str(args.get('text') or '') + fixed)
         issued = getattr(ev, 'checkout_issued', ()) if checkout else ()
         effective = args
         if issued and not ev.done.is_set():
@@ -567,7 +718,9 @@ def install(ak, logs, checkout=False):
 
     def run_seen(self, events):
         seen.mind, seen.taken, seen.readded = self, list(events or []), set()   # the run's first prompt is cut too (r5 M2)
-        par.stock_at = 0                        # every run that serves a customer starts with a live stock lookup
+        par.stock_at, par.told, par.asked, par.calls = 0, {}, set(), 0
+        par.deadline = time.time() + 60 * float((getattr(self, 'agent', None) or {}).get('run_minutes') or 8)   # as the kit's run (r3 M2)
+        # every run that serves a customer starts with a live stock lookup
         par.a2a = getattr(par, 'worker', False) or any(getattr(e, 'kind', None) == 'a2a' for e in events or [])
         try:
             return run_once0(self, events)
@@ -617,6 +770,12 @@ def install(ak, logs, checkout=False):
                     res = out.get('result') if isinstance(out, dict) and out.get('ok') else None
                     when = time.strftime('%H:%M:%S', time.localtime(now))
                     if isinstance(res, dict) and res.get('ok') is not False:
+                        par.told = merge_told(dict(getattr(par, 'told', None) or {}), told_from(res))   # what it is told
+                        if isinstance(res.get('skus'), list) and not res.get('more_skus'):   # gone from the list: none left (r2 M6)
+                            listed = {x.get('sku') for x in res['skus'] if isinstance(x, dict)}
+                            for sku_, t_ in par.told.items():   # not k: complete_rec's **k (kwargs)
+                                if sku_ not in listed:
+                                    t_['count'] = 0
                         add = (f"\n\nLive stock now ({when}, check_item_inventory; refreshed every {STOCK_EVERY} s): "
                                + json.dumps(res, ensure_ascii=False)[:5000])
                     else:
@@ -625,6 +784,7 @@ def install(ak, logs, checkout=False):
                     messages[-1] = dict(messages[-1], content=messages[-1]['content'] + add)
         except Exception:
             pass
+        par.calls = getattr(par, 'calls', 0) + 1        # model calls in this run (the reply check's last-step rule)
         out = complete0(self, messages, *a, **k)
         seen.taken = []                                 # only once the model got them; a failed call keeps them (r3 M1)
         return out
@@ -720,6 +880,13 @@ def install(ak, logs, checkout=False):
                 ev.checkout_issued = (*issued, c)
             kept = next((old for old in ev.checkout_issued if old.digest == c.digest), c)   # a reissue keeps the first
             res = dict({'ok': True, 'order': order}, **({'grade_evidence': 'attached'} if kept.note else {}))
+            dup = r.get('duplicate_of')
+            if isinstance(dup, str) and re.fullmatch(r'[A-Za-z0-9-]{1,80}', dup) and dup != order:
+                res['duplicate_of'] = dup       # 대표님 11/27: same buyer, same item and grade, 30 s
+                here = dup in {c.order for c in ev.checkout_issued}
+                res['duplicate_note'] = (f'이 문의에 30초 안에 같은 상품·같은 등급 결제서({dup})를 이미 냈습니다. 손님이 두 개를 원한 게 '
+                                         + (f'아니면 답장에 checkout_cancel: ["{dup}"] 또는 ["{order}"]로 하나만 남기세요' if here else
+                                            f'아니면 {dup}는 앞 답장으로 이미 갔으니 이번 답장에 checkout_cancel: ["{order}"]를 넣으세요'))   # r2 M2
             q = r.get('quote')
             if type(q) is int and 0 < q < 10 ** 9:      # the shown price for this SKU and grade (operator 11/26 12:40)
                 res['quote'] = q
@@ -736,6 +903,19 @@ def install(ak, logs, checkout=False):
             pass
         try:
             _record_call(self, name, args, out)
+        except Exception:
+            pass
+        try:                                    # what the model reads of the stock in this run (the reply check's base)
+            # par is per thread: the reply check's own look-ups run in threads of their own and add nothing here
+            if name == 'check_item_inventory' and isinstance(getattr(par, 'told', None), dict):
+                res = out.get('result') if isinstance(out, dict) and out.get('ok') else None
+                a = args.get('sku') if isinstance(args, dict) and isinstance(args.get('sku'), str) else None
+                with _names_lock:
+                    by_id = a is not None and (a in par.told or a in NAMES)
+                got = told_from(res, by_id=by_id)
+                merge_told(par.told, got)
+                if a:                           # one item asked: the SKUs it answered for, never the name (r2 M3, r3 M1)
+                    par.asked.update(got)
         except Exception:
             pass
         return out
@@ -769,8 +949,21 @@ def install(ak, logs, checkout=False):
         def forge_rec(self, args):
             if getattr(par, 'worker', False):
                 return 'error: forge_tool is not used in a customer run; the main run does it (reply, then sleep)'
-            with pay_lock, checkout_lock:       # its test may run a wallet or a checkout with a live signer (r1 M3, r2 M2)
+            try:
+                w = ((args or {}).get('permission') or {}).get('wallet')
+                ops = {w} if isinstance(w, str) else set(w or ())
+            except Exception:
+                ops = {'pay'}
+            name = str((args or {}).get('name') or '')
+            locks = ([pay_lock] if 'pay' in ops else []) + (
+                [checkout_lock] if ops or name in ('private_checkout', 'restock_shoutout', 'check_item_inventory') else [])
+            for lk in locks:                    # only what its test may touch (r1 M3, r2 M2, r3 M1); pay before checkout
+                lk.acquire()
+            try:
                 return forge(self, args)
+            finally:
+                for lk in reversed(locks):
+                    lk.release()
         ak.Toolbox.forge = forge_rec
     done += ['Mind.deliver', 'Mind.reply', 'Toolbox.call'] + (['Toolbox.forge'] if callable(forge) else [])
 
@@ -835,8 +1028,9 @@ def install(ak, logs, checkout=False):
                 try:
                     return_ev = deliver_rec(w, ev)  # pending is shared: reply() from any run finds it
                 except Exception:               # never a slot nobody serves (r1 M4)
-                    if start is not None:
-                        workers.pop(key, None)
+                    if start is None:
+                        raise                   # its worker still serves the conversation (r3 M2)
+                    workers.pop(key, None)
                     w = start = None
             if w is None:
                 home[key] = time.time()         # this conversation stays in the kit's loop for a while (r1 M6)
