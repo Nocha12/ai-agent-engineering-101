@@ -7,6 +7,7 @@ import re
 HOLD_SECONDS = 300   # Same as the existing private_checkout unit reservation.
 DEADLINE = 600
 REPLY_MAX = 4000
+VISIBLE = 2000       # the customer tool reads only agent_says = said[:2000] (Q00/agent-market house/customer.py)
 JWT = re.compile(r'(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+)?(?![A-Za-z0-9_-])')
 
 
@@ -36,22 +37,33 @@ def clean_reply(text):
 
 
 def compose(text, issued, cancelled, now):
-    """Keep prose, rebuild all order/token pairs from trusted issuance metadata."""
+    """Keep prose, rebuild all order/token pairs from trusted issuance metadata. The signed originals open the reply
+    so every one of them is inside the VISIBLE characters the customer reads; prose follows, grade notes last."""
     active = {c.digest: c for c in issued if c.order not in cancelled and 0 <= now - c.at < HOLD_SECONDS}
     if len({c.order for c in active.values()}) != len(active):
         raise ValueError('duplicate checkout order ids')
     body = clean_reply(text)
-    lines = lambda notes: '\n\n'.join((c.note + '\n' if notes and c.note else '') + f'checkout_jwt ({c.order}): {c.token}'
-                                       for c in active.values())
-    suffix = lines(True)
-    if len(suffix) > REPLY_MAX:                      # the signed originals come first; grade notes give way
-        suffix = lines(False)
-    if len(suffix) > REPLY_MAX:
-        raise ValueError('too many checkouts for one reply; explicitly cancel unneeded orders')
-    if not suffix:
+    if not active:
         return body[:REPLY_MAX], ()
-    lead = body[:max(0, REPLY_MAX - len(suffix) - 2)].rstrip()
-    return (lead + '\n\n' if lead else '') + suffix, tuple(active.values())
+    lines = [f'checkout_jwt ({c.order}): {c.token}' for c in active.values()]
+    head = '\n\n'.join(lines)
+    if len(head) > VISIBLE:
+        fit, used = 0, 0
+        for x in lines:
+            used += len(x) + (2 if fit else 0)
+            if used > VISIBLE:
+                break
+            fit += 1
+        raise ValueError(f'결제서 {len(lines)}장은 손님 도구가 읽는 답장 앞 2,000자를 넘습니다. 이 답장에는 {fit}장만 남기고 '
+                         f'나머지 order는 checkout_cancel 목록으로 빼세요. 손님께는 나머지는 다음 메시지를 주시면 이어서 '
+                         f'결제서를 드린다고 쓰세요')
+    notes = '\n'.join(c.note for c in active.values() if c.note)
+    rest = REPLY_MAX - len(head) - 2
+    if notes and len(body) + 2 + len(notes) <= rest:   # grade notes give way to prose, prose to the originals
+        tail = (body + '\n\n' if body else '') + notes
+    else:
+        tail = body[:rest].rstrip()
+    return head + ('\n\n' + tail if tail else ''), tuple(active.values())
 
 
 UNIT = re.compile(r'u-[0-9a-f]{6,32}')
