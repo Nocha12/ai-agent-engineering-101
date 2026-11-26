@@ -127,6 +127,98 @@ class Settles:
         return int(statistics.median(a)) if len(a) >= MIN_SETTLES else None
 
 
+# --- shared clearance block (떨이, 대표님 11/26 19:05; same text in private_checkout, check_item_inventory, write_shop_card, refresh_full_card, ops/forum_menu.py; ops/test_clearance_block.py)
+# r = hours left / min(the item's whole shelf life, 48 h) (shelf life: catalog shelf_hours by category, the
+# certificate's span when unknown; 48 h so a 30-day item with days left is not marked down).
+# r > 0.5: not on clearance. 0.25 < r <= 0.5: price = base x (0.5 + r), never under cost + fees (no loss).
+# r <= 0.25: the same price, and the floor drops with time: ceil((cost x r / 0.25 + 205 + 210) / 0.99), 420 at the end,
+# so a unit that would be thrown away (0 credits) still sells for more than its fee. Water is never on clearance.
+CLEAR_HALF, CLEAR_LOSS, CLEAR_SPAN = 0.5, 0.25, 48
+CLEAR_GAS, CLEAR_FEE = 205, 210
+CLEAR_WATER = ('생수', '샘물', '삼다수', '먹는물', '아이시스', '백산수', '에비앙', '워터', 'water', 'Water')
+CLEAR_WATER_SKU = ('G00b8acf0',)
+CLEAR_SHELF = {                     # catalog shelf_hours by food category (식품> dropped), /api/catalog 11/26 19:30
+    '건강용품/다이어트/건강기능>다이어트식품/장건강': 720, '건강용품/다이어트/건강기능>비타민/미네랄/영양제': 720, '건강용품/다이어트/건강기능>전통건강식품': 720,
+    '건강용품/다이어트/건강기능>헬스보조식품': 720, '계란/유제품>계란': 96, '계란/유제품>버터': 96, '계란/유제품>요거트': 96, '계란/유제품>우유/두유': 96,
+    '계란/유제품>치즈': 96, '기타 가공식품>과자': 720, '기타 가공식품>국수/파스타/누들': 720, '기타 가공식품>기능성 가공식품': 720, '기타 가공식품>기타 가공식품': 720,
+    '기타 가공식품>꿀/잼': 720, '기타 가공식품>디저트': 48, '기타 가공식품>샌드위치': 720, '기타 가공식품>생식/선식': 720, '기타 가공식품>스프': 720,
+    '기타 가공식품>영유아 식음료': 720, '기타 가공식품>통조림캔': 720, '기타 가공식품>한과/떡': 48, '김치/반찬/즉석요리>김치': 168, '김치/반찬/즉석요리>반찬/젓갈': 168,
+    '김치/반찬/즉석요리>즉석조리식품': 24, '김치/반찬/즉석요리>찌개/탕류/장류': 720, '빵/제과>베이킹 용품/재료': 720, '빵/제과>비스켓/쿠키': 720, '빵/제과>빵': 48,
+    '빵/제과>케이크/파이': 48, '시리얼/곡물/콩류>가공 시리얼 제품': 720, '시리얼/곡물/콩류>곡물': 720, '시리얼/곡물/콩류>시리얼/곡물/콩류세트': 720,
+    '시리얼/곡물/콩류>씨리얼/밀가루': 720, '식용류/지방유지류>오일': 720, '식품선물세트>식품선물세트': 720, '야채/과일>기타 채소/과일': 168,
+    '야채/과일>신선과일(부패주의)': 48, '야채/과일>신선야채(부패주의)': 48, '양념/조미료/소스>소스/양념/조미료': 720, '양념/조미료/소스>식초/요리용 와인': 720,
+    '양념/조미료/소스>허브/향신료': 720, '육류>가공/조리 육류': 720, '육류>기타 육류': 720, '육류>신선육류': 24, '음료>주스/코코아/생수': 720, '음료>커피/차': 720,
+    '조리/가공 과일/야채/견과류>조리/가공 견과류': 720, '조리/가공 과일/야채/견과류>조리/가공 과일': 720, '조리/가공 과일/야채/견과류>조리/가공 야채': 168,
+    '초콜릿/캔디/시럽>시럽': 720, '초콜릿/캔디/시럽>초콜릿/캔디/젤리': 720, '해산물>가공/조리 생선': 720, '해산물>가공/조리 오징어/문어류': 720,
+    '해산물>가공/조리 해조류': 720, '해산물>기타 해산물': 720, '해산물>신선 오징어/문어류': 24, '해산물>신선생선': 24, '해산물>신선조개류/갑각류': 24,
+    '해산물>신선해조류': 24,
+}
+
+
+def _clear_num(v):
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and abs(v) < 1e15 else None
+
+
+def clear_water(u):
+    name = str(u.get('name') or '')
+    return u.get('sku') in CLEAR_WATER_SKU or any(w in name for w in CLEAR_WATER)
+
+
+def clear_ratio(u, now):
+    """(hours left, r) for a food unit still good; None for goods, water, a unit without a date or past it."""
+    if not isinstance(u, dict) or u.get('kind') not in (None, 'food') or clear_water(u):
+        return None
+    e = _clear_num(u.get('expires_at'))
+    if e is None or e <= now:
+        return None
+    left = (e - now) / 3600
+    cat = str(u.get('category') or '')
+    shelf = CLEAR_SHELF.get(cat[3:] if cat.startswith('식품>') else cat)
+    if not shelf:
+        c = u.get('cert') if isinstance(u.get('cert'), dict) else {}
+        c = c.get('cert') if isinstance(c.get('cert'), dict) else c
+        s = _clear_num(c.get('supplied_at')) or _clear_num(u.get('supplied_at'))
+        shelf = (e - s) / 3600 if s is not None and s < e else None
+    if not shelf:
+        return None
+    return left, min(1.0, left / min(shelf, CLEAR_SPAN))
+
+
+def clearance(u, base, now):
+    """None, or {'price', 'floor', 'hours_left', 'r', 'loss'} for a unit on clearance. base: the unit's usual price
+    (the shown price; 0.6 x list price when there is none)."""
+    lr = clear_ratio(u, now)
+    if lr is None or lr[1] > CLEAR_HALF:
+        return None
+    left, r = lr
+    cost = _clear_num(u.get('cost'))
+    if cost is None or cost < 0:                       # no number to price from (review M1): not on clearance
+        return None
+    share = min(1.0, r / CLEAR_LOSS)
+    floor = math.ceil((cost * share + CLEAR_GAS + CLEAR_FEE) / 0.99)
+    b = _clear_num(base) or round(0.6 * (_clear_num(u.get('list_price')) or 0))
+    price = max(floor, min(int(b), int(round(b * (0.5 + r), -1))))   # never above the usual price (review M2)
+    return {'price': price, 'floor': floor, 'hours_left': round(left, 1), 'r': round(r, 3),
+            'loss': price < math.ceil((cost + CLEAR_GAS + CLEAR_FEE) / 0.99)}
+# --- end shared clearance block
+
+
+def clear_item(inv, sku, shown, now):
+    """(hours left, grade, clearance) of this SKU's soonest unit on clearance; None when none is (shared block)."""
+    best = None
+    for u in inv.get('units') or []:
+        if not (isinstance(u, dict) and u.get('sku') == sku):
+            continue
+        g = str(u.get('grade') or '?')
+        try:
+            cl = clearance(u, shown.get(g), now)
+        except Exception:
+            cl = None
+        if cl and (best is None or cl['hours_left'] < best[0]):
+            best = (cl['hours_left'], g, dict(cl, until=float(u['expires_at'])))
+    return best
+
+
 def fixed(name, sku=None):
     """Water keeps the price it has: by SKU, or by any water word in the name (also inside brackets)."""
     return sku in FIXED_SKU or any(w in str(name or '') for w in FIXED_PRICE)
@@ -200,13 +292,21 @@ def apply_plan(qb, path, inv, plan, now):
 def build_text(qb, inv, quotes, settles, now, turn, name='노차네 구멍가게(nocha12)'):
     """(text, [sku]) — the cheapest shown grade of each item we hold: what expires within EXPIRING hours first
     (soonest first), then the most units we hold, then the most-sold SKUs on the market; the first two stay, the rest
-    rotate with turn so successive posts show different stock. None when nothing has a price."""
+    rotate with turn so successive posts show different stock. None when nothing has a price. Clearance (떨이, 11/26
+19:05): SKUs with a unit on clearance (shared clearance block) come before all of these, soonest first, at the clearance
+price of that unit with its hours left, and the post reads '떨이·기한 임박'; water never."""
     items = []
     for sku in {u.get('sku') for u in inv.get('units') or [] if isinstance(u, dict) and u.get('sku')}:
         st = qb['stock'](inv, sku, now)
         if not st:
             continue
         shown = {g: p for g, p in qb['quote_prices'](quotes, sku, st['floors'], now).items() if p}
+        clr = None if fixed(st['name'], sku) else clear_item(inv, sku, shown, now)
+        if clr:                                    # 떨이 11/26 19:05: before everything else, at its clearance price
+            left, g, cl = clr
+            items.append(((-1, left), -st['count'], -settles.count(sku), sku,
+                          f"{label(st['name'])} {g}{cl['price']:,}(~{time.strftime('%H:%M', time.localtime(cl['until']))})"))
+            continue
         if not shown:
             continue
         g = min(shown, key=lambda k: (shown[k], k))
@@ -217,23 +317,27 @@ def build_text(qb, inv, quotes, settles, now, turn, name='노차네 구멍가게
     if not items:
         return None, []
     items.sort()
+    clear = [it for it in items if it[0][0] == -1]
+    items = items[len(clear):]
     head, rest = items[:2], items[2:]
     if rest:
         k = (turn * 3) % len(rest)
         rest = rest[k:] + rest[:k]
-    text, chosen, seen = f'[{name} 지금 재고]', [], set()
-    for it in head + rest:
+    text, chosen, seen = '', [], set()
+    room = VIEW - len(f"[{name} {'떨이·기한 임박' if clear else '지금 재고'}]")   # the longer header when it may be used
+    for it in clear + head + rest:
         if it[4].split()[0] in seen:              # one line per label: two '계란20구' lines read as a mistake
             continue
         add = (' ' if not chosen else ' · ') + it[4]
-        if len(text) + len(add) + len(TAIL) > VIEW:
+        if len(text) + len(add) + len(TAIL) > room:
             continue
         text += add
         chosen.append(it[3])
         seen.add(it[4].split()[0])
     if not chosen:
         return None, []
-    return text + TAIL, chosen
+    lead = '떨이·기한 임박' if any(it[0][0] == -1 and it[3] in chosen for it in clear) else '지금 재고'   # what fits (N3)
+    return f'[{name} {lead}]' + text + TAIL, chosen
 
 
 def soonest(inv, sku, grade, now):

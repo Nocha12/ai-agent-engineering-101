@@ -11,7 +11,11 @@ ok:false, never zero stock.
 Shown price (operator 11/26 12:40): each grade carries price, the one shown price for that SKU and grade kept in
 logs/quotes.json by the shared quote block (also in private_checkout and restock_shoutout): never below the grade's
 floor, never below a lower grade's. args {sku, quote: {grade: price}} sets the shown price for a grade that has none;
-requote: true replaces it. Answers and checkouts quote that price, so one unit is not offered at two prices."""
+requote: true replaces it. Answers and checkouts quote that price, so one unit is not offered at two prices.
+
+Clearance (떨이, 대표님 11/26 19:05; shared clearance block): units whose time left is half or less of min(shelf life,
+48 h) carry clearance {price, floor}; args {} lists them first (clearance, soonest first, CLEAR_LIST at most). The
+clearance price is what private_checkout issues without price for that unit; it is never stored as the shown price."""
 import json
 import math
 import os
@@ -23,6 +27,7 @@ import httpx
 GAS, FEE = 205, 210            # per-lot gas and per-sale fee: the floor write_shop_card and private_checkout use
 LIMIT = 4800                   # characters of the answer
 ITEMS = 20                     # units listed for one item
+CLEAR_LIST = 12               # clearance lines in the whole-shop answer
 
 
 # --- shared quote block (same text in check_item_inventory, restock_shoutout, private_checkout; ops/test_quote_block.py)
@@ -94,6 +99,82 @@ def quote_set(path, sku, prices, floors, by, now, replace=False):
     shown = quote_prices(q, sku, dict({g: 0 for g in out}, **floors), now)
     return {g: shown.get(g) or out[g] for g in out}
 # --- end shared quote block
+
+
+# --- shared clearance block (떨이, 대표님 11/26 19:05; same text in private_checkout, check_item_inventory, write_shop_card, refresh_full_card, ops/forum_menu.py; ops/test_clearance_block.py)
+# r = hours left / min(the item's whole shelf life, 48 h) (shelf life: catalog shelf_hours by category, the
+# certificate's span when unknown; 48 h so a 30-day item with days left is not marked down).
+# r > 0.5: not on clearance. 0.25 < r <= 0.5: price = base x (0.5 + r), never under cost + fees (no loss).
+# r <= 0.25: the same price, and the floor drops with time: ceil((cost x r / 0.25 + 205 + 210) / 0.99), 420 at the end,
+# so a unit that would be thrown away (0 credits) still sells for more than its fee. Water is never on clearance.
+CLEAR_HALF, CLEAR_LOSS, CLEAR_SPAN = 0.5, 0.25, 48
+CLEAR_GAS, CLEAR_FEE = 205, 210
+CLEAR_WATER = ('생수', '샘물', '삼다수', '먹는물', '아이시스', '백산수', '에비앙', '워터', 'water', 'Water')
+CLEAR_WATER_SKU = ('G00b8acf0',)
+CLEAR_SHELF = {                     # catalog shelf_hours by food category (식품> dropped), /api/catalog 11/26 19:30
+    '건강용품/다이어트/건강기능>다이어트식품/장건강': 720, '건강용품/다이어트/건강기능>비타민/미네랄/영양제': 720, '건강용품/다이어트/건강기능>전통건강식품': 720,
+    '건강용품/다이어트/건강기능>헬스보조식품': 720, '계란/유제품>계란': 96, '계란/유제품>버터': 96, '계란/유제품>요거트': 96, '계란/유제품>우유/두유': 96,
+    '계란/유제품>치즈': 96, '기타 가공식품>과자': 720, '기타 가공식품>국수/파스타/누들': 720, '기타 가공식품>기능성 가공식품': 720, '기타 가공식품>기타 가공식품': 720,
+    '기타 가공식품>꿀/잼': 720, '기타 가공식품>디저트': 48, '기타 가공식품>샌드위치': 720, '기타 가공식품>생식/선식': 720, '기타 가공식품>스프': 720,
+    '기타 가공식품>영유아 식음료': 720, '기타 가공식품>통조림캔': 720, '기타 가공식품>한과/떡': 48, '김치/반찬/즉석요리>김치': 168, '김치/반찬/즉석요리>반찬/젓갈': 168,
+    '김치/반찬/즉석요리>즉석조리식품': 24, '김치/반찬/즉석요리>찌개/탕류/장류': 720, '빵/제과>베이킹 용품/재료': 720, '빵/제과>비스켓/쿠키': 720, '빵/제과>빵': 48,
+    '빵/제과>케이크/파이': 48, '시리얼/곡물/콩류>가공 시리얼 제품': 720, '시리얼/곡물/콩류>곡물': 720, '시리얼/곡물/콩류>시리얼/곡물/콩류세트': 720,
+    '시리얼/곡물/콩류>씨리얼/밀가루': 720, '식용류/지방유지류>오일': 720, '식품선물세트>식품선물세트': 720, '야채/과일>기타 채소/과일': 168,
+    '야채/과일>신선과일(부패주의)': 48, '야채/과일>신선야채(부패주의)': 48, '양념/조미료/소스>소스/양념/조미료': 720, '양념/조미료/소스>식초/요리용 와인': 720,
+    '양념/조미료/소스>허브/향신료': 720, '육류>가공/조리 육류': 720, '육류>기타 육류': 720, '육류>신선육류': 24, '음료>주스/코코아/생수': 720, '음료>커피/차': 720,
+    '조리/가공 과일/야채/견과류>조리/가공 견과류': 720, '조리/가공 과일/야채/견과류>조리/가공 과일': 720, '조리/가공 과일/야채/견과류>조리/가공 야채': 168,
+    '초콜릿/캔디/시럽>시럽': 720, '초콜릿/캔디/시럽>초콜릿/캔디/젤리': 720, '해산물>가공/조리 생선': 720, '해산물>가공/조리 오징어/문어류': 720,
+    '해산물>가공/조리 해조류': 720, '해산물>기타 해산물': 720, '해산물>신선 오징어/문어류': 24, '해산물>신선생선': 24, '해산물>신선조개류/갑각류': 24,
+    '해산물>신선해조류': 24,
+}
+
+
+def _clear_num(v):
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and abs(v) < 1e15 else None
+
+
+def clear_water(u):
+    name = str(u.get('name') or '')
+    return u.get('sku') in CLEAR_WATER_SKU or any(w in name for w in CLEAR_WATER)
+
+
+def clear_ratio(u, now):
+    """(hours left, r) for a food unit still good; None for goods, water, a unit without a date or past it."""
+    if not isinstance(u, dict) or u.get('kind') not in (None, 'food') or clear_water(u):
+        return None
+    e = _clear_num(u.get('expires_at'))
+    if e is None or e <= now:
+        return None
+    left = (e - now) / 3600
+    cat = str(u.get('category') or '')
+    shelf = CLEAR_SHELF.get(cat[3:] if cat.startswith('식품>') else cat)
+    if not shelf:
+        c = u.get('cert') if isinstance(u.get('cert'), dict) else {}
+        c = c.get('cert') if isinstance(c.get('cert'), dict) else c
+        s = _clear_num(c.get('supplied_at')) or _clear_num(u.get('supplied_at'))
+        shelf = (e - s) / 3600 if s is not None and s < e else None
+    if not shelf:
+        return None
+    return left, min(1.0, left / min(shelf, CLEAR_SPAN))
+
+
+def clearance(u, base, now):
+    """None, or {'price', 'floor', 'hours_left', 'r', 'loss'} for a unit on clearance. base: the unit's usual price
+    (the shown price; 0.6 x list price when there is none)."""
+    lr = clear_ratio(u, now)
+    if lr is None or lr[1] > CLEAR_HALF:
+        return None
+    left, r = lr
+    cost = _clear_num(u.get('cost'))
+    if cost is None or cost < 0:                       # no number to price from (review M1): not on clearance
+        return None
+    share = min(1.0, r / CLEAR_LOSS)
+    floor = math.ceil((cost * share + CLEAR_GAS + CLEAR_FEE) / 0.99)
+    b = _clear_num(base) or round(0.6 * (_clear_num(u.get('list_price')) or 0))
+    price = max(floor, min(int(b), int(round(b * (0.5 + r), -1))))   # never above the usual price (review M2)
+    return {'price': price, 'floor': floor, 'hours_left': round(left, 1), 'r': round(r, 3),
+            'loss': price < math.ceil((cost + CLEAR_GAS + CLEAR_FEE) / 0.99)}
+# --- end shared clearance block
 
 
 def _quotes_path(kit):
@@ -199,6 +280,36 @@ def named(asked, name):
     return bool(re.fullmatch('[가-힣]', q)) and any(t.endswith(q) for t in re.findall(r'[가-힣]+', str(name or '')))
 
 
+CLEAR_NOTE = ('떨이·기한 임박: clearance는 "SKU 등급 떨이가/떨이하한 남은시간"이고 그 price로 먼저 안내합니다(곧 버리게 되는 재고). private_checkout을 price 없이 내면 그 unit의 '
+              '떨이가로 나가고, 흥정은 floor(떨이 하한)까지만 내립니다. unit ID는 args {sku}로 봅니다')
+
+
+def clear_safe(u, base, now):
+    try:                                                # an odd unit never stops the stock answer
+        return clearance(u, base, now)
+    except Exception:
+        return None
+
+
+def clear_lines(units, now, qpath):
+    """'<sku> <grade> <price>/<floor> <hours>h' for each SKU and grade on clearance, soonest first; the base
+    price is that grade's shown price, as in the per-SKU answer."""
+    q = quotes_load(qpath)
+    gf = {}
+    for u in units:
+        k = (u['sku'], str(u.get('grade') or '?')[:8])
+        gf[k] = max(gf.get(k, 0), floor(u.get('cost')))
+    best = {}
+    for u in units:
+        k = (u['sku'], str(u.get('grade') or '?')[:8])
+        base = quote_prices(q, k[0], {g: f for (s2, g), f in gf.items() if s2 == k[0]}, now).get(k[1])
+        cl = clear_safe(u, base, now)
+        if cl and (k not in best or cl['hours_left'] < best[k][0]['hours_left']):
+            best[k] = (cl, u)
+    rows = sorted(best.items(), key=lambda kv: (kv[1][0]['hours_left'], kv[0]))[:CLEAR_LIST]
+    return [f"{k[0]} {k[1]} {cl['price']}/{cl['floor']} {cl['hours_left']}h" for k, (cl, u) in rows]   # short: SKUs must still fit
+
+
 def summary(units, name_len):
     skus = {}
     for u in units:
@@ -225,7 +336,14 @@ def answer(args, kit):
     units, expired = live(inv, now)
     if asked:
         mine = [u for u in units if u['sku'] == asked] or [u for u in units if named(asked, u.get('name'))]
-        mine.sort(key=lambda u: (str(u.get('grade') or '?'), hours_left(u, now) if hours_left(u, now) is not None else 1e9))
+        def clear_first(u):
+            try:
+                lr = clear_ratio(u, now)
+            except Exception:
+                lr = None
+            return 0 if lr and lr[1] <= CLEAR_HALF else 1
+        mine.sort(key=lambda u: (clear_first(u), str(u.get('grade') or '?'),     # clearance units are cut last (review M6)
+                                 hours_left(u, now) if hours_left(u, now) is not None else 1e9))
         items = [{'unit': str(u.get('unit'))[:40], 'sku': str(u['sku'])[:20], 'name': short(u.get('name'), 24),
                   'grade': str(u.get('grade') or '?')[:8], 'cost': num(u.get('cost')), 'floor': floor(u.get('cost')),
                   'hours_left': hours_left(u, now), 'list_price': num(u.get('list_price')) or None} for u in mine[:ITEMS]]
@@ -257,10 +375,17 @@ def answer(args, kit):
         shown = {}
         for (s, g), f in gf.items():
             shown[(s, g)] = quote_prices(q, s, {g2: f2 for (s2, g2), f2 in gf.items() if s2 == s}, now).get(g)
-        for it in items:
+        on_clear = False
+        for it, u in zip(items, mine):
             it['price'] = shown.get((it['sku'], it['grade']))
+            cl = clear_safe(u, it['price'], now)
+            if cl:
+                it['clearance'] = {'price': cl['price'], 'floor': cl['floor']}
+                on_clear = True
         out = {'ok': True, 'sku': asked, 'count': len(mine), 'items': items, 'more': max(0, len(mine) - ITEMS),
                'note_price': 'price: 이 품목·등급 안내가(손님께 이 값으로 안내). null이면 아직 없음 → args {sku, quote:{등급:가격}}로 정함'}
+        if on_clear:
+            out['note_clearance'] = CLEAR_NOTE
         if set_note:
             out['quote_error'] = set_note
         if isinstance(quoted, dict):
@@ -280,7 +405,7 @@ def answer(args, kit):
             out['items'].pop()
             out['more'] = len(mine) - len(out['items'])
         return out
-    out = {}
+    out, clear = {}, clear_lines(units, now, _quotes_path(kit))
     for name_len in (22, 14, 8, 0):                     # shorter names until the whole shop fits
         skus = summary(units, name_len)
         q = quotes_load(_quotes_path(kit))
@@ -294,11 +419,14 @@ def answer(args, kit):
             if not name_len:
                 s.pop('name')
         out = {'ok': True, 'balance': num(inv.get('balance')), 'restock': window(inv), 'units': len(units),
-               'expired': expired, 'skus': skus,
-               'note': 'grades: 등급별 n(개수)·floor(하한가)·price(안내가, 없으면 아직 안 정함)·hours_left(가장 빨리 끝나는 소비기한까지 시간). unit ID는 args {sku}로 봅니다'}
+               'expired': expired}
+        if clear:
+            out['clearance'], out['note_clearance'] = clear, CLEAR_NOTE
+        out.update({'skus': skus,
+               'note': 'grades: 등급별 n(개수)·floor(하한가)·price(안내가, 없으면 아직 안 정함)·hours_left(가장 빨리 끝나는 소비기한까지 시간). unit ID는 args {sku}로 봅니다'})
         if len(json.dumps(out, ensure_ascii=False)) <= LIMIT:
             break
     while len(json.dumps(out, ensure_ascii=False)) > LIMIT and out['skus']:      # still too long: cut, and say so
-        out['skus'] = out['skus'][:len(out['skus']) * 3 // 4]
+        out['skus'] = out['skus'][:-1]                # one at a time: the clearance lines must not cost whole quarters
         out['more_skus'] = len(skus) - len(out['skus'])
     return out

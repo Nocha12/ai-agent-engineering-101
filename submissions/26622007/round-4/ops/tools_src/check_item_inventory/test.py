@@ -101,6 +101,23 @@ def test(run, kit):
         two = {'units': rice['units'] + [{'unit': 'k9', 'sku': 'R10', 'grade': 'B', 'cost': 9000, 'name': '쌀 10kg'}]}
         amb = run({'sku': '쌀', 'quote': {'B': 20000}, '_inventory': two, '_now': now + 2}, kit)
         assert 'R10' in amb['quote_error'] and 'quoted_sku' not in amb, amb         # review r1 M9: no silent pick
+        # 떨이 11/26 19:05: r = hours left / min(shelf life, 48 h); r <= 0.5 on clearance, r <= 0.25 may go under cost
+        egg = {'kind': 'food', 'category': '식품>계란/유제품>계란', 'list_price': 12900, 'name': '계란 20구', 'sku': 'EG'}
+        cl = {'units': [dict(egg, unit='e1', grade='C', cost=5000, expires_at=now + 6 * 3600),
+                        dict(egg, unit='e2', grade='C', cost=5000, expires_at=now + 2 * 3600),
+                        dict(egg, unit='e3', grade='A', cost=7000, expires_at=now + 47 * 3600),
+                        dict(egg, unit='w1', sku='G00b8acf0', name='몽베스트 생수 2Lx6병', grade='C', cost=2500,
+                             category='식품>음료>주스/코코아/생수', expires_at=now + 3600)]}
+        one = run({'sku': 'EG', '_inventory': cl, '_now': now}, kit)
+        by = {i['unit']: i.get('clearance') for i in one['items']}
+        assert by['e2'] == {'price': 4190, 'floor': 1261} and by['e1'] == {'price': 4840, 'floor': 2945}, by
+        assert by['e3'] is None and '떨이' in one['note_clearance'], one   # 47 h of 48: not on clearance
+        whole = run({'_inventory': cl, '_now': now}, kit)
+        assert whole['clearance'] == ['EG C 4190/1261 2.0h'], whole   # soonest unit per grade; no water
+        assert list(whole)[:6] == ['ok', 'balance', 'restock', 'units', 'expired', 'clearance'], list(whole)
+        assert 'clearance' not in run({'_inventory': rice, '_now': now}, kit)
+        with open(QF) as f:
+            assert '"EG|' not in f.read()                                  # never stored as the shown price
     finally:
         if os.path.exists(QF):
             os.remove(QF)

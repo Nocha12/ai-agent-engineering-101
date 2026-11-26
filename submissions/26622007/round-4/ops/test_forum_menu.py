@@ -1,6 +1,7 @@
 """Tests for ops/forum_menu.py and its hook in agent_kit_records.py, offline (no market, no forum, no wallet).
 Run: python3 -I ops/test_forum_menu.py  (from the round-4 folder)"""
 import json
+import time
 import sys
 import tempfile
 import threading
@@ -679,6 +680,30 @@ class Q8Exposure(unittest.TestCase):
             m.now += fm.AFTER_WINDOW_LONG + 1
             self.assertTrue(m.once().get('ok'))
             self.assertLessEqual(fm.AFTER_WINDOW_LONG, 180)
+
+class Clearance(unittest.TestCase):
+    """떨이 11/26 19:05: units on clearance lead the post at their clearance price; water never."""
+
+    def test_clearance_first_with_its_price(self):
+        cat = {'category': '식품>계란/유제품>계란', 'list_price': 12900}
+        inv = {'units': [dict(unit('e1', EGG, '한계란 난각번호 1번 계란 무항생제 유정란 20구', 'C', 5000, exp=NOW + 2 * 3600), **cat),
+                         dict(unit('e2', EGG, '한계란 난각번호 1번 계란 무항생제 유정란 20구', 'B', 6000, exp=NOW + 47 * 3600), **cat),
+                         dict(unit('w1', WATER, '[본사공식] 몽베스트 무라벨 생수 2L', 'C', 2500, exp=NOW + 3600), **cat),
+                         unit('t1', TEA, '동서 둥굴레차 50T 60g', 'B', 1800, exp=NOW + 300 * 3600)]}
+        q = {f'{EGG}|B': {'price': 7975, 'ts': NOW, 'by': 'x'}, f'{TEA}|B': {'price': 2900, 'ts': NOW, 'by': 'x'},
+             f'{WATER}|C': {'price': 4830, 'ts': NOW, 'by': 'x'}}
+        text, skus = fm.build_text(QB, inv, q, settles(MARKET_SETTLES), NOW, 0)
+        self.assertEqual(skus[0], EGG)
+        until = time.strftime('%H:%M', time.localtime(NOW + 2 * 3600))
+        self.assertTrue(text.startswith(f'[노차네 구멍가게(nocha12) 떨이·기한 임박] 계란20구 C4,190(~{until})'), text)
+        self.assertIn('생수', text)                        # water is listed at its own price, not on clearance
+        self.assertNotIn('생수2L C4,', text.split('·')[0])
+        self.assertLessEqual(len(text), fm.VIEW)
+
+    def test_no_clearance_keeps_the_old_header(self):
+        text, _ = fm.build_text(QB, INV, Text.QUOTES, settles(MARKET_SETTLES), NOW, 0)
+        self.assertTrue(text.startswith('[노차네 구멍가게(nocha12) 지금 재고]'), text)
+
 
 if __name__ == '__main__':
     unittest.main()
