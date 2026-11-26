@@ -1,11 +1,11 @@
 {
  "tool": "buy_food_lot",
- "version": 1,
- "forged_at": 1795533149,
+ "version": 8,
+ "forged_at": 1795656287,
  "kit": "v5.1",
  "sha256": {
-  "permission.yml": "56f723ce66db13b2d1ce60c90c52e6ad4671766c69cd14f276206786008b51e8",
-  "logic.py": "7b40f93ff44be2021efcfec485951998a1a6ef04fc1bcccd4a1971f4770786c0",
-  "test.py": "62a4a77e6130b0304cee7becd682e19c7a403d3b3605ffa0c09d474c98f1eec7"
+  "permission.yml": "3de3202457ad471794e4e3fc873e18449c4905e29c7eff23f785d623f2d746af",
+  "logic.py": "f1bbb7d1b038552b4bc6ad2fc3245b048e2d56f26746a83adf302ba279bb99b9",
+  "test.py": "ce72c26754bcb0ef9f99c3464e8da3896388ceaeb4d7d71ca8dae0610d8f9e4a"
  }
 }

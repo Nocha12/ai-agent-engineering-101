@@ -1,10 +1,10 @@
 name: food_candidates
-description: 현재 식품 필수품 카탈로그와 공급가를 간결히 조회합니다. args 없음.
+description: 매입 후보 조회(읽기만). customer_asked_out_of_stock: 최근 24시간 손님이 찾았는데 재고 0이던 식품과 그에 맞는 카탈로그 SKU(buy_options, 시장 판매 많은 순). candidates: 생필품 식품 카탈로그. 공급 창이 열리면 customer_asked_out_of_stock의 SKU부터 buy_food_lot으로 삽니다. args 없음.
 permission:
   network: [market.ourolabs.ai]
   identity: [shop]
-  pay_limit: 0
   timeout: 20
 logic: logic.py
 test: test.py
-version: 1
+version: 5
+replaces: food_candidates@4

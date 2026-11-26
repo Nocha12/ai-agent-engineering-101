@@ -1,0 +1,11 @@
+{
+ "tool": "inventory_sales_check",
+ "version": 3,
+ "forged_at": 1795562627,
+ "kit": "v5.1",
+ "sha256": {
+  "permission.yml": "7da264704627ca9ae61740cad70c0f32bd19769697226793fe4871797d31ed8e",
+  "logic.py": "d544e67149508a2b16b2c1cb6d83292d45934df1ec189d2cb5918fc15af0ca3b",
+  "test.py": "972e457b57c3cb00eebab8396e5611528a67d396aabb6c725d23c5ac821db6eb"
+ }
+}

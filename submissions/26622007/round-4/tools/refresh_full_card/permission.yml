@@ -1,0 +1,12 @@
+name: refresh_full_card
+description: 현재 판매 가능한 재고 전체를 조회해 지정된 가게 카드에 품목별 등급과 하한 이상 가격을 기록합니다. args 없음. 떨이·기한 임박 재고는 고정 설명 바로 뒤에 떨이가로 먼저 적습니다.
+permission:
+  network: [market.ourolabs.ai]
+  write: [card.json, card.test.json]
+  identity: [shop]
+  pay_limit: 0
+  timeout: 20
+logic: logic.py
+test: test.py
+version: 3
+replaces: refresh_full_card@2

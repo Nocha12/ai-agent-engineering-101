@@ -1,0 +1,11 @@
+{
+ "tool": "refresh_full_card",
+ "version": 3,
+ "forged_at": 1795697553,
+ "kit": "v5.1",
+ "sha256": {
+  "permission.yml": "5b1d2f265098d59fb218a874d3d7a441e2433d33192c8f730d55d5cb8bfa68c6",
+  "logic.py": "b35711579d4a8a13fb08c2a7ff4d1dd948223c50865e8ea312cdda18ea2c6156",
+  "test.py": "72028ca51f127f9100617d76ad486abe7cbb9f4ff3dd30fda6577578865cf5c3"
+ }
+}

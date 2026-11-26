@@ -83,6 +83,118 @@ class Chain:
                 "ts": int(block["timestamp"], 16) if block and block.get("timestamp") else None}
 
 
+    def block_at(self, ts):
+        """The first block at or after ts (binary search over block timestamps)."""
+        hi = int(self.call("eth_blockNumber", []), 16)
+        lo = max(0, hi - 2_000_000)
+        while lo < hi:
+            m = (lo + hi) // 2
+            if int(self.call("eth_getBlockByNumber", [hex(m), False])["timestamp"], 16) < ts:
+                lo = m + 1
+            else:
+                hi = m
+        return lo
+
+    def payments_to(self, address, t0, t1, limit=400):
+        """[(tx_hash, from, value_wei, input hex without 0x, ok, block time)] sent to address in blocks with t0 <= time <= t1."""
+        me, out, n = address.lower(), [], self.block_at(t1 + 1) - 1
+        for _ in range(limit):
+            b = self.call("eth_getBlockByNumber", [hex(n), True]) if n >= 0 else None
+            if not b or int(b["timestamp"], 16) < t0:
+                break
+            for tx in b.get("transactions") or []:
+                if isinstance(tx, dict) and (tx.get("to") or "").lower() == me:
+                    rc = self.call("eth_getTransactionReceipt", [tx["hash"]]) or {}
+                    out.append((tx["hash"].lower(), (tx.get("from") or "").lower(), int(tx["value"], 16),
+                                (tx.get("input") or "")[2:].lower(), rc.get("status") == "0x1", int(b["timestamp"], 16)))
+            n -= 1
+        return out
+
+
+def recover_sealed(d, rows, chain, address, pending):
+    """A buyer can settle our sealed checkout with the market without the agent (it never hears of it), so the sale has
+    no line in logs/sales.jsonl. For each such order, find the buyer's transfer to our wallet between the order row and
+    the settle row whose data is the digest of a checkout we issued (logs/checkouts.jsonl), and write the sale line the
+    agent would have written. Returns the orders recovered.
+    The payment must come from the wallet the order's buyer joined with (join row pubkey): several customers can pay
+    sealed checkouts within the same minute, and the checkout digest alone does not say which order paid it (11/26
+    20:05 three orders in 45 s took each other's payments). Among that buyer's matching payments the one closest to
+    the order row wins. An order whose buyer key is unknown is left for the agent (no guess). Two names joined with
+    one wallet are not told apart by the key; the time to the order row decides between them."""
+    issued = {}
+    for _, r in jsonl(d / "logs" / "checkouts.jsonl"):
+        if r.get("event") == "issued" and r.get("digest_hex"):
+            issued[str(r["digest_hex"]).lower()] = r
+    if not issued or not pending:
+        return []
+    order_ts = {r["data"].get("order"): r["ts"] for r in rows if r["kind"] == "order"}
+    order_buyer = {r["data"].get("order"): r["data"].get("buyer") for r in rows if r["kind"] == "order"}
+    keys = {}
+    for r in rows:
+        if r["kind"] == "join" and r["data"].get("pubkey") and r["data"].get("name"):
+            keys.setdefault(r["data"]["name"], set()).add(str(r["data"]["pubkey"]).lower())
+    have = agent_sales(d)
+    used = {str(s.get("tx_hash") or "").lower() for s in have.values()}
+    for _, r in jsonl(d / "logs" / "checkouts.jsonl"):
+        if r.get("event") == "unsettled" and r.get("tx_hash"):
+            used.add(str(r["tx_hash"]).lower())          # a payment we owe back, not a sale
+    for name in ("sends.jsonl", "refunds.jsonl"):
+        for _, r in jsonl(d / "logs" / name):
+            if r.get("paid_tx"):
+                used.add(str(r["paid_tx"]).lower())
+    tried_path = d / "logs" / ".sealed-tried.json"
+    try:
+        tried = json.loads(tried_path.read_text())
+    except (OSError, ValueError):
+        tried = {}
+    now = time.time()
+    done = []
+    for p in pending:
+        o = p.get("order")
+        if not o or p.get("why") or str(o) in have:
+            continue
+        buyer_keys = keys.get(order_buyer.get(o)) or set()
+        if not buyer_keys:
+            continue                                 # no join key for this buyer yet: no guess, and no try used up
+        last, n = tried.get(str(o), [0, 0])
+        if n >= 6 or now - last < 1200:
+            continue
+        tried[str(o)] = [now, n + 1]
+        anchor = order_ts.get(o, p["ts"])
+        t0 = order_ts.get(o, p["ts"] - 900) - 30
+        try:
+            pays = chain.payments_to(address, t0, p["ts"] + 30)
+        except Exception:
+            continue
+        found = []
+        for pay in pays:
+            tx, frm, wei, data, ok = pay[:5]
+            c = issued.get(data)
+            if not ok or not c or tx in used or str(frm).lower() not in buyer_keys:
+                continue
+            price = int(c.get("price") or 0)
+            fee = int(price * 0.01) + 210
+            if wei != (price - fee) * CREDIT_WEI:
+                continue
+            found.append((abs(pay[5] - anchor) if len(pay) > 5 and pay[5] is not None else 0, len(found), tx, frm, data, c, price, fee))
+        for _, _, tx, frm, data, c, price, fee in sorted(found)[:1]:
+            rec = {"ts": int(p["ts"]), "order": o, "checkout_order": c.get("order"), "sku": c.get("sku"),
+                   "unit": c.get("unit"), "grade": c.get("grade"), "warranty_hours": c.get("warranty_hours"),
+                   "amount": price, "shop_fee": fee, "tx_hash": tx, "payer": frm, "sealed": True, "ledger": p.get("seq"),
+                   "checkout_digest_hex": data,
+                   "source": "payment_ledger: the buyer settled our sealed checkout with the market directly"}
+            with open(d / "logs" / "sales.jsonl", "a", encoding="utf-8") as f:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            used.add(tx)
+            done.append(o)
+            break
+    try:
+        tried_path.write_text(json.dumps(tried))
+    except OSError:
+        pass
+    return done
+
+
 def market_rows(market, after=0):
     rows = []
     while True:
@@ -302,7 +414,7 @@ def events(rows, name, sends, chain, address, seen=(), seen_tx=None, hints=None,
                 rec = sales.get(str(dt.get("order")))
                 if not rec or rec.get("amount") is None or rec.get("shop_fee") is None:
                     if pending is not None:
-                        pending.append({"order": dt.get("order"), "ts": r["ts"]})
+                        pending.append({"order": dt.get("order"), "ts": r["ts"], "seq": r.get("seq")})
                     continue                         # written once the agent's sale record has it
                 dt = dict(dt, amount=rec["amount"], shop_fee=rec["shop_fee"], tx_hash=rec.get("tx_hash"),
                           warranty_hours=rec.get("warranty_hours"))
@@ -367,10 +479,23 @@ def sync(d, market, name, chain, address, pending=None):
     path = d / "logs" / "payments.jsonl"
     old = read_lines(path)
     seen = {e["id"] for e in old}
-    seen_tx = {e["tx_hash"]: e for e in old if e.get("tx_hash")}
+    seen_tx = {}
+    fixed = {str(e["order"]): e for e in old if e.get("kind") == "sale_correction" and e.get("order")}
+    for e in old:
+        if e.get("kind") == "sale" and e["id"][5:] in fixed:   # rca1126: the sale's payer/amount as corrected
+            f = fixed[e["id"][5:]]
+            e = dict(e, payer=f.get("payer"), amount=f.get("amount"), fee=f.get("fee"),
+                     tx_hash=f.get("corrected_tx") or e.get("tx_hash"), corrected_by=f["id"])
+        if e.get("tx_hash"):
+            seen_tx[e["tx_hash"]] = e
     balance = old[-1]["balance_wei"] if old else 0
     new = []
-    for e in events(market_rows(market), name, kit_sends(d), chain, address, seen, seen_tx, agent_sends(d)[0],
+    rows = market_rows(market)
+    probe = []
+    list(events(rows, name, kit_sends(d), chain, address, seen, seen_tx, agent_sends(d)[0], agent_sales(d), probe))
+    if chain is not None and hasattr(chain, "payments_to") and any(not q.get("why") for q in probe):
+        recover_sealed(d, rows, chain, address, probe)
+    for e in events(rows, name, kit_sends(d), chain, address, seen, seen_tx, agent_sends(d)[0],
                     agent_sales(d), pending):
         balance += e["delta_wei"] - e["gas_wei"]
         new.append(dict(e, delta=e["delta_wei"] / CREDIT_WEI, gas=e["gas_wei"] / CREDIT_WEI, balance_wei=balance,
@@ -414,7 +539,12 @@ def alerts(d, lines, new, rec, now=None, pending=()):
         if len(txs) > 1:
             out.append({"kind": "duplicate_refund", "id": f"dup-{order}-{len(txs)}",
                         "text": f"order {order} was refunded {len(txs)} times: {', '.join(txs)}"})
-    sale_amount = {e["id"][5:]: e.get("amount") for e in lines if e.get("kind") == "sale"}
+    sale_amount = {}
+    for e in lines:                                  # a sale_correction line (rca1126) replaces its sale's amount
+        if e.get("kind") == "sale":
+            sale_amount[e["id"][5:]] = e.get("amount")
+        elif e.get("kind") == "sale_correction" and e.get("order"):
+            sale_amount[str(e["order"])] = e.get("amount")
     for e in new:
         if e.get("kind") in ("supply", "transfer_out") and not (e.get("note") or "").startswith("reclassifies"):
             out.append({"kind": "money_out", "id": f"out-{e['id']}",   # not a refund: the operator checks the hold

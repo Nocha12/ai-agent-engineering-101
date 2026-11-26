@@ -1,0 +1,11 @@
+{
+ "tool": "price_ceiling",
+ "version": 1,
+ "forged_at": 1795539574,
+ "kit": "v5.1",
+ "sha256": {
+  "permission.yml": "79c4907db0c1a7271c87fe1940e32cb05fc46ac8280427ad9d7df9683c8245b5",
+  "logic.py": "5fe72cda5ab90067fa09e911b438380675646549780c7d2433d5553737142fd5",
+  "test.py": "52b602581a6da22625877598e082c5ae9ae1b9f71d6b60a208e610216eafff1a"
+ }
+}

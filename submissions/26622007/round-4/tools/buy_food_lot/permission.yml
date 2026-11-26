@@ -1,12 +1,13 @@
 name: buy_food_lot
-description: 수익성과 현금 여유를 검증해 필수 식품 SKU 1종을 소량 매입합니다. args {sku, qty(2~4)}.
+description: 식품 SKU 1종을 매입합니다. args {sku, qty(1~4)}. 확인은 대표님 최소 기준뿐: 식품만, price_ceiling 손익분기 상한 이하의 견적(예상 판매가>원가+수수료), 품목당 4개. 이미 가진 재고가 있어도 매입할 수 있습니다. 손님이 찾았는데 재고 0이던 식품은 food_candidates의 customer_asked_out_of_stock에서 SKU를 고릅니다. 송금 뒤 같은 견적으로 매입 확정을 여러 번 시도하고, 끝내 확정이 안 되면 다시 송금하지 않고 기록합니다(그 뒤 새 매입은 거절). 나중에 args {confirm: 견적 ID}(송금 결과를 모르면 tx_hash도)로 확정만 다시 합니다.
 permission:
   network: [market.ourolabs.ai, rpc-testnet.maroo.io]
-  write: [logs/sends.jsonl]
+  write: [logs/sends.jsonl, logs/sends.test.jsonl, logs/supply-pending.jsonl, logs/supply-pending.test.jsonl]
   identity: [shop]
   wallet: [pay]
   pay_limit: 500000
   timeout: 180
 logic: logic.py
 test: test.py
-version: 1
+version: 8
+replaces: buy_food_lot@7

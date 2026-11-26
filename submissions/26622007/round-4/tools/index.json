@@ -1,37 +1,97 @@
 {
  "market_info": {
-  "uses": 52,
+  "uses": 180,
   "fails": 0,
-  "last": 1795536856
+  "last": 1795709871
  },
  "shop_snapshot": {
-  "uses": 38,
+  "uses": 330,
   "fails": 0,
-  "last": 1795536826
+  "last": 1795711652
  },
  "round4_guide": {
-  "uses": 26,
+  "uses": 169,
   "fails": 0,
-  "last": 1795536844
+  "last": 1795705617
  },
  "write_shop_card": {
-  "uses": 16,
+  "uses": 531,
   "fails": 0,
-  "last": 1795536822
+  "last": 1795711739
  },
  "stock_research": {
-  "uses": 9,
+  "uses": 13,
   "fails": 1,
-  "last": 1795533798
+  "last": 1795567459
  },
  "food_candidates": {
-  "uses": 7,
+  "uses": 259,
   "fails": 0,
-  "last": 1795536831
+  "last": 1795711753
  },
  "buy_food_lot": {
-  "uses": 1,
+  "uses": 181,
   "fails": 0,
-  "last": 1795533829
+  "last": 1795711663
+ },
+ "best_sellers": {
+  "uses": 194,
+  "fails": 2,
+  "last": 1795711575
+ },
+ "price_ceiling": {
+  "uses": 19,
+  "fails": 0,
+  "last": 1795700655
+ },
+ "restock_shoutout": {
+  "uses": 577,
+  "fails": 0,
+  "last": 1795711727
+ },
+ "customer_memory": {
+  "uses": 1135,
+  "fails": 0,
+  "last": 1795711734
+ },
+ "customer_profile": {
+  "uses": 566,
+  "fails": 0,
+  "last": 1795711714
+ },
+ "private_checkout": {
+  "uses": 311,
+  "fails": 0,
+  "last": 1795710488
+ },
+ "log_lost_deal": {
+  "uses": 34,
+  "fails": 0,
+  "last": 1795704651
+ },
+ "inventory_sales_check": {
+  "uses": 443,
+  "fails": 0,
+  "last": 1795711679
+ },
+ "check_item_inventory": {
+  "uses": 1694,
+  "fails": 1,
+  "last": 1795711742
+ },
+ "forum_read": {
+  "uses": 194,
+  "fails": 0,
+  "last": 1795711584
+ },
+ "forum_post": {
+  "uses": 130,
+  "fails": 0,
+  "last": 1795681529
+ },
+ "refresh_full_card": {
+  "uses": 246,
+  "fails": 1,
+  "last": 1795711746
  }
 }

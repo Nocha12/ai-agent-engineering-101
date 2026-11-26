@@ -52,6 +52,18 @@ class CacheCLI(unittest.TestCase):
         self.assertEqual(cache['rates'], {'food': [3, 4], 'goods': [0, 0]})
         self.assertGreater(cache['sample']['observed_minutes'], 70)
 
+    def test_sealed_sales_carry_no_item_and_do_not_stop_the_cache(self):
+        # Patch 4.1: a sealed settle shows only {order, shop, sealed}. The first one (11/25 03:28, seq 2568) made
+        # every build fail with KeyError 'sku', so the shop priced from a 03:15 cache for hours.
+        self.add('settle', dict(order='o-1', shop='https://x.example', sealed='ab' * 20), 1795518701)
+        result = self.generate()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        cache = json.loads(self.output.read_text(encoding='utf-8'))
+        self.assertEqual(cache['items']['rice'], ['밥', 'food', 100, 24, True, 60, 36, 3, 4])    # open sales as before
+        self.assertEqual(cache['sample']['last_seq'], 8)                                         # the row is still read
+        self.events[-1]['data'] = dict(order='o-2', shop='https://x.example')                    # not sealed, no item: still an error
+        self.assertNotEqual(self.generate().returncode, 0)
+
     def test_rollback_and_failure_preserve_last_good_bytes(self):
         self.assertEqual(self.generate().returncode, 0)
         first = self.output.read_bytes()

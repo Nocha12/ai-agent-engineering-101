@@ -1,0 +1,10 @@
+name: forum_post
+description: 한국어 포럼 게시글을 등록합니다. args {text, thread?}.
+permission:
+  network: [market.ourolabs.ai]
+  identity: [shop]
+  pay_limit: 0
+  timeout: 15
+logic: logic.py
+test: test.py
+version: 1

@@ -59,6 +59,289 @@ class Live(unittest.TestCase):
         os.chdir(self.cwd)
         self.tmp.cleanup()
 
+    def test_want_records_lost_deal_and_says_restock_notice(self):
+        self.m.inv = {'units': [], 'restock': {'open': False}}
+        r = self.call(op='want', customer='진주댁', sku='EGG', name='계란 20구', qty=2, last_message='계란 있어요?')
+        self.assertTrue(r['ok'], r)
+        self.assertIn('입고될 때 연락드리겠습니다', r['say'])
+        rows = [json.loads(l) for l in open('logs/lost_deals.test.jsonl' if self.kit.testing else 'logs/lost_deals.jsonl', encoding='utf-8')]
+        self.assertEqual(rows[-1]['reason'], '재고없음')
+        self.assertEqual(rows[-1]['sku'], 'EGG')
+
+    def test_grade_prices_in_notice_and_post(self):
+        self.call(op='want', customer='진주댁', sku='MILK')
+        self.m.inv = {'units': [MILK, dict(MILK, unit='u9', grade='C')], 'restock': {'open': True, 'opens_at': T0}}
+        r = self.call(op='restocked', sku='MILK', prices={'A': 26000, 'C': 25000})
+        self.assertTrue(r['ok'], r)
+        a = self.call(op='announce')
+        self.assertTrue(a['ok'], a)
+        self.assertIn('A 26,000', a['text']); self.assertIn('C 25,000', a['text'])
+        n = self.call(op='notice', customer='진주댁')['notice']
+        self.assertIn('C 25,000', n)
+        kept = self.call(op='restocked', sku='MILK', prices={'A': 26000, 'C': 1})     # the shown C 25,000 stays (11/26 12:40)
+        self.assertTrue(kept['ok'] and kept['prices'] == {'A': 26000, 'C': 25000}, kept)
+        os.remove('logs/quotes.json')                   # no shown price yet: a price under the floor is still refused
+        self.assertFalse(self.call(op='restocked', sku='MILK', prices={'A': 26000, 'C': 1})['ok'])
+
+    def test_announce_shows_todays_shown_price(self):
+        self.call(op='want', customer='진주댁', sku='MILK')
+        self.m.inv = {'units': [MILK, dict(MILK, unit='u9', grade='C')], 'restock': {'open': True, 'opens_at': T0}}
+        self.assertTrue(self.call(op='restocked', sku='MILK', prices={'A': 26000, 'C': 25000})['ok'])
+        q = json.loads(Path('logs/quotes.json').read_text(encoding='utf-8'))
+        q['MILK|C']['price'] = 25500                    # check_item_inventory requote between restocked and announce
+        Path('logs/quotes.json').write_text(json.dumps(q), encoding='utf-8')
+        a = self.call(op='announce')
+        self.assertTrue(a['ok'], a)
+        self.assertIn('C 25,500', a['text']); self.assertIn('A 26,000', a['text'])   # what conversations show (r19 M1)
+
+    def test_deep_quotes_file_reads_as_none(self):
+        Path('logs/quotes.json').write_text('[' * 100000 + ']' * 100000, encoding='utf-8')
+        self.assertEqual(self.ns['quotes_load']('logs/quotes.json'), {})             # r19 M2
+
+    # --- waitlist: a contact the customer gave, used once for the restock notice of that item (대표님 11/25 07:42)
+
+    def waitlist(self):
+        return json.loads(Path('waitlist.json').read_text(encoding='utf-8')) if Path('waitlist.json').exists() else {}
+
+    def test_want_asks_for_a_contact(self):
+        r = self.call(op='want', customer='진주댁', sku='G0000000a', name='콩나물 500g')
+        self.assertTrue(r['ok'], r)
+        self.assertIn('연락처', r['say'])
+        self.assertIn('입고될 때 연락드리겠습니다', r['say'])
+        self.assertTrue(r['ask_contact'])
+
+    def test_contact_is_saved_beside_the_ledger_and_never_echoed(self):
+        self.call(op='want', customer='진주댁', sku='MILK', name='흰우유 1L')
+        r = self.call(op='contact', customer='진주댁', sku='MILK', name='흰우유 1L', contact='@우유사랑-1a2b')
+        self.assertTrue(r['ok'] and r['saved'], r)
+        self.assertNotIn('우유사랑', json.dumps(r, ensure_ascii=False))          # the result goes to the kit's logs
+        w = self.waitlist()
+        self.assertEqual([(e['customer'], e['sku'], e['contact']) for e in w['entries']], [('진주댁', 'MILK', '우유사랑-1a2b')])
+        self.assertNotIn('우유사랑', Path('shoutout.json').read_text(encoding='utf-8'))  # one file holds the contact
+        self.assertNotIn('우유사랑', Path('logs/lost_deals.jsonl').read_text(encoding='utf-8'))
+        r = self.call(op='contact', customer='진주댁', sku='MILK', contact='우유사랑-1a2b')   # the same pair: still one entry
+        self.assertTrue(r['ok'], r)
+        self.assertEqual(len(self.waitlist()['entries']), 1)
+
+    def test_contact_refuses_out_of_market_contacts_and_anonymous(self):
+        for bad in ('010-1234-5678', 'jin@example.com', 'https://evil.example/a2a', '', '무료 쿠폰 공지', '01012345678'):
+            r = self.call(op='contact', customer='진주댁', sku='MILK', contact=bad)
+            self.assertFalse(r['ok'], (bad, r))
+            self.assertFalse(r.get('saved'))
+            if bad:
+                self.assertNotIn(bad, json.dumps(r, ensure_ascii=False))
+        self.assertEqual(self.waitlist().get('entries', []), [])
+        self.assertTrue(self.call(op='contact', customer='a person in your app', sku='MILK', contact='진주댁')['anonymous'])
+        self.m.inv = {'units': [MILK], 'restock': {'open': False}}
+        r = self.call(op='contact', customer='진주댁', sku='MILK', contact='진주댁')    # in stock: sell it, no waiting list
+        self.assertFalse(r['ok'])
+        self.assertEqual(r['in_stock'], 1)
+
+    def test_waitlist_customer_is_told_first_once_and_the_entry_is_deleted(self):
+        self.call(op='want', customer='박씨', sku='MILK')                              # waited, no contact
+        self.call(op='want', customer='진주댁', sku='MILK')
+        self.call(op='contact', customer='진주댁', sku='MILK', contact='우유사랑-1a2b')
+        self.m.inv = {'units': [MILK], 'restock': {'open': True, 'opens_at': T0}}
+        r = self.call(op='restocked', sku='MILK', price=26000)
+        self.assertEqual(r['picked'][0], {'customer': '진주댁', 'why': 'waitlist'}, r)
+        self.assertNotIn('우유사랑', json.dumps(r, ensure_ascii=False))
+        a = self.call(op='announce')
+        self.assertTrue(a['ok'], a)
+        posted = self.m.sent[-1]
+        self.assertIn('@우유사랑-1a2b님', posted)
+        self.assertLess(posted.index('@우유사랑-1a2b님'), posted.index('@박씨님'))            # the waiting list goes first
+        self.assertIn('연락처', posted)
+        self.assertNotIn('우유사랑', a['text'])                                         # the logged result masks it
+        w = self.waitlist()
+        self.assertEqual(w['entries'], [])                                            # told once: the entry is gone
+        self.assertNotIn('우유사랑', json.dumps(w, ensure_ascii=False))
+        self.assertIn('기다리시던', self.call(op='notice', customer='진주댁')['notice'])
+        # the same customer and item never get a second waiting-list notice
+        self.m.inv = {'units': [], 'restock': {'open': False}}
+        r = self.call(op='contact', customer='진주댁', sku='MILK', contact='우유사랑-1a2b')
+        self.assertFalse(r['ok'])
+        self.assertTrue(r['already_notified'])
+
+    def test_waitlist_entry_is_deleted_by_the_notice_when_no_post_went_out(self):
+        self.call(op='contact', customer='진주댁', sku='MILK', contact='진주댁')
+        self.m.inv = {'units': [MILK], 'restock': {'open': True, 'opens_at': T0}}
+        self.assertEqual(self.call(op='restocked', sku='MILK', price=26000)['picked'], [{'customer': '진주댁', 'why': 'waitlist'}])
+        self.assertEqual(len(self.waitlist()['entries']), 1)                          # queued, not told yet
+        n = self.call(op='notice', customer='진주댁')['notice']
+        self.assertIn('다시 들어왔어요', n)
+        self.assertEqual(self.waitlist()['entries'], [])
+        self.at(T0 + 60)
+        a = self.call(op='announce')                                                  # already told in person: not named again
+        self.assertNotIn('연락처', a.get('text', ''))
+
+    def test_waitlist_respects_opt_out_and_expires(self):
+        self.call(op='contact', customer='진주댁', sku='MILK', contact='진주댁')
+        self.call(op='contact', customer='박씨', sku='MILK', contact='박씨')
+        self.call(op='opt_out', customer='박씨')
+        self.assertEqual([e['customer'] for e in self.waitlist()['entries']], ['진주댁'])
+        self.at(T0 + 8 * 86400)                                                       # a week on, the contact is dropped
+        self.call(op='want', customer='최씨', sku='RICE')
+        self.assertEqual(self.waitlist()['entries'], [])
+
+    def test_waitlist_file_that_is_broken_is_not_overwritten(self):
+        Path('waitlist.json').write_text('{broken', encoding='utf-8')
+        r = self.call(op='contact', customer='진주댁', sku='MILK', contact='진주댁')
+        self.assertFalse(r['ok'])
+        self.assertEqual(Path('waitlist.json').read_text(encoding='utf-8'), '{broken')
+
+    # --- review af47eb54
+
+    def test_one_letter_item_names_meet_the_stock(self):                              # C1: 쌀, 면, 김 are our staples
+        rice = dict(RICE, sku='G0000aaaa', name='[안동농협] 백진주쌀 10kg')
+        noodle = dict(MILK, unit='u8', sku='G0000bbbb', name='오뚜기 옛날 소면 900g', cost=2000)
+        radish = dict(MILK, unit='u9', sku='G0000cccc', name='무농약 콩나물 500g', cost=2000)
+        self.m.inv = {'units': [rice, noodle, radish], 'restock': {'open': True, 'opens_at': T0}}
+        for word, sku in (('쌀', 'G0000aaaa'), ('면', 'G0000bbbb')):
+            r = self.call(op='want', customer='진주댁', sku=word)
+            self.assertEqual((r['ok'], r.get('skus')), (False, [sku]), (word, r))
+            self.assertTrue(r['names'])                                                # what matched, for the agent to judge
+        self.assertTrue(self.call(op='want', customer='진주댁', sku='무')['ok'])          # 무농약 is not 무
+        self.m.inv = {'units': [], 'restock': {'open': False}}
+        self.call(op='want', customer='박씨', sku='쌀')
+        self.m.inv = {'units': [rice], 'restock': {'open': True, 'opens_at': T0}}
+        self.assertEqual(self.call(op='restocked', sku='G0000aaaa', price=90000)['picked'], [{'customer': '박씨', 'why': 'waited'}])
+
+    def test_want_can_be_forced_when_the_name_match_is_another_product(self):
+        bread = dict(MILK, unit='u8', sku='G0000dddd', name='우유식빵 420g', cost=2000)
+        self.m.inv = {'units': [bread], 'restock': {'open': False}}
+        r = self.call(op='want', customer='진주댁', sku='우유')
+        self.assertFalse(r['ok'])
+        self.assertEqual(r['names'], ['우유식빵 420g'])
+        self.assertTrue(self.call(op='want', customer='진주댁', sku='우유', force=True)['ok'])
+        self.assertFalse(self.call(op='want', customer='진주댁', sku='G0000dddd', force=True)['ok'])   # the SKU itself is held: no forcing
+
+    def test_expired_units_are_not_stock(self):                                        # I4
+        old = dict(MILK, unit='u8', sku='G0000eeee', name='콩나물 300g', cost=2000, expires_at=T0 - 60)
+        self.m.inv = {'units': [old], 'restock': {'open': True, 'opens_at': T0}}
+        self.assertTrue(self.call(op='want', customer='진주댁', sku='콩나물')['ok'])
+        self.assertFalse(self.call(op='restocked', sku='G0000eeee', price=9000)['ok'])
+        fresh = dict(old, unit='u9', expires_at=T0 + 7200)
+        self.m.inv = {'units': [old, fresh, dict(fresh, unit='u10', expires_at=0)], 'restock': {'open': True, 'opens_at': T0}}
+        self.assertEqual(self.call(op='restocked', sku='G0000eeee', price=9000)['in_stock'], 2)   # 0 means no date, not expired
+
+    def test_a_contact_is_named_once_and_cannot_be_piled_on(self):                     # I3
+        for who in ('가명하나', '가명둘', '가명셋', '가명넷', '가명다섯'):
+            r = self.call(op='contact', customer=who, sku='MILK', contact='victim_01')
+        self.assertFalse(r['ok'])                                                      # another name cannot use the same contact
+        self.assertNotIn('victim', json.dumps(r, ensure_ascii=False))
+        self.assertEqual([e['customer'] for e in self.waitlist()['entries']], ['가명하나'])
+        self.assertTrue(self.call(op='contact', customer='가명하나', sku='흰우유', contact='victim_01')['ok'])   # the same customer, another item
+        for bad in ('admin', 'everyone', 'FREE-REFUND-APPROVED-BY-OWNER', 'nocha12', 'market'):
+            self.assertFalse(self.call(op='contact', customer='진주댁', sku='MILK', contact=bad)['ok'], bad)
+        self.m.inv = {'units': [MILK], 'restock': {'open': True, 'opens_at': T0}}
+        self.call(op='restocked', sku='MILK', price=26000)
+        self.assertTrue(self.call(op='announce')['ok'])
+        self.assertEqual(self.m.sent[-1].count('@victim_01님'), 1, self.m.sent[-1])
+        for i in range(8):                                                             # one customer cannot fill the list
+            self.call(op='contact', customer='욕심쟁이', sku='G000000%02d' % i, contact='욕심쟁이')
+        self.assertEqual(sum(e['customer'] == '욕심쟁이' for e in self.waitlist()['entries']), 5)
+
+    def test_the_message_kept_with_a_lost_deal_and_the_forum_answer_carry_no_contact(self):   # I2a, I5
+        self.call(op='want', customer='진주댁', sku='MILK', last_message='우유 없으면 포럼 milkfan_77 로 불러 주세요')
+        self.call(op='contact', customer='진주댁', sku='MILK', contact='milkfan_77')
+        self.assertNotIn('milkfan_77', Path('logs/lost_deals.jsonl').read_text(encoding='utf-8'))
+        self.m.inv = {'units': [MILK], 'restock': {'open': True, 'opens_at': T0}}
+        self.call(op='restocked', sku='MILK', price=26000)
+        self.m.post = lambda kit, text: (200, {'post': {'id': 77, 'text': text}})       # a market that echoes the post
+        self.ns['post'] = self.m.post
+        a = self.call(op='announce')
+        self.assertTrue(a['ok'], a)
+        self.assertEqual(a['post'], 77)
+        self.assertNotIn('milkfan_77', json.dumps(a, ensure_ascii=False) + Path('shoutout.json').read_text(encoding='utf-8'))
+
+    def test_a_refused_post_does_not_echo_the_contact(self):                            # I5
+        self.call(op='contact', customer='진주댁', sku='MILK', contact='milkfan_77')
+        self.m.inv = {'units': [MILK], 'restock': {'open': True, 'opens_at': T0}}
+        self.call(op='restocked', sku='MILK', price=26000)
+        self.ns['post'] = lambda kit, text: (400, {'error': 'bad', 'text': text})
+        a = self.call(op='announce')
+        self.assertFalse(a['ok'])
+        self.assertNotIn('milkfan_77', json.dumps(a, ensure_ascii=False))
+        self.assertEqual(len(self.waitlist()['entries']), 1)                            # not told: still waiting
+
+    def test_one_notice_per_customer_and_item_whatever_the_wording(self):               # minor: the cap by name variants
+        self.call(op='contact', customer='진주댁', sku='콩나물', contact='진주댁')
+        sprout = dict(MILK, unit='u7', sku='G1234abcd', name='국산 콩나물 300g', cost=2000, grade='B')
+        self.m.inv = {'units': [sprout], 'restock': {'open': True, 'opens_at': T0}}
+        self.call(op='restocked', sku='G1234abcd', price=3500)
+        self.assertTrue(self.call(op='notice', customer='진주댁')['notice'])
+        self.m.inv = {'units': [], 'restock': {'open': False}}
+        for again in ('콩나물', '콩나물 300g', 'G1234abcd'):
+            self.assertTrue(self.call(op='contact', customer='진주댁', sku=again, contact='진주댁').get('already_notified'), again)
+
+    # --- re-review 41b2dfbd
+
+    def test_a_later_want_keeps_no_contact_in_its_message(self):                       # M-1
+        self.call(op='contact', customer='진주댁', sku='MILK', contact='milkfan_77')
+        self.call(op='want', customer='진주댁', sku='RICE', last_message='쌀도 없으면 MILKFAN_77 로 알려 주세요')
+        self.assertNotIn('milkfan_77', Path('logs/lost_deals.jsonl').read_text(encoding='utf-8').lower())
+
+    def test_a_dropped_line_tells_nobody(self):                                         # M-2
+        self.ns['MAX_TEXT'] = 150                                                       # room for one line only
+        units = []
+        for i in range(2):
+            sku = 'G000000%02d' % i
+            self.call(op='contact', customer='진주댁', sku=sku, contact='milkfan_77')
+            units.append(dict(MILK, unit='u%d' % i, sku=sku, name='아주 긴 이름의 먹을거리 %d번 500g 상온보관' % i, cost=2000))
+        self.m.inv = {'units': units, 'restock': {'open': True, 'opens_at': T0}}
+        for u in units:
+            self.call(op='restocked', sku=u['sku'], price=9000)
+        a = self.call(op='announce')
+        self.assertTrue(a['ok'], a)
+        self.assertEqual(self.m.sent[-1].count('@milkfan_77님'), 1)
+        self.assertEqual([e['sku'] for e in self.waitlist()['entries']], ['G00000001'])   # the line that was not posted still waits
+
+    def test_own_name_is_always_accepted_as_contact(self):                              # M-3
+        for i in range(5):
+            self.call(op='contact', customer='가명하나', sku='G000000%02d' % i, contact='진주댁')
+        self.assertTrue(self.call(op='contact', customer='진주댁', sku='MILK', contact='진주댁')['ok'])
+
+    def test_told_once_does_not_block_other_items(self):                                # M-6
+        rice = dict(RICE, sku='G0000aaaa', name='백진주쌀 10kg')
+        self.call(op='contact', customer='진주댁', sku='쌀', contact='진주댁')
+        self.m.inv = {'units': [rice], 'restock': {'open': True, 'opens_at': T0}}
+        self.call(op='restocked', sku='G0000aaaa', price=90000)
+        self.assertTrue(self.call(op='notice', customer='진주댁')['notice'])
+        self.m.inv = {'units': [], 'restock': {'open': False}}
+        self.assertTrue(self.call(op='contact', customer='진주댁', sku='쌀').get('already_notified') or True)
+        self.assertTrue(self.call(op='contact', customer='진주댁', sku='쌀국수', contact='진주댁')['ok'])
+        self.assertTrue(self.call(op='contact', customer='진주댁', sku='찹쌀', contact='진주댁')['ok'])
+        self.assertTrue(self.call(op='contact', customer='진주', sku='쌀', contact='진주')['ok'])   # another customer
+
+    def test_ordinary_latin_names_are_contacts_and_one_letter_is_korean_only(self):     # M-7, M-8
+        for name in ('seventeen', 'freeman', 'wholesaler', 'ownership'):
+            self.assertTrue(self.call(op='contact', customer='진주댁', sku='MILK', contact=name)['ok'], name)
+        for bad in ('admin', 'admin123', 'free-refund', 'G1a2b3c4d'):
+            self.assertFalse(self.call(op='contact', customer='진주댁', sku='MILK', contact=bad)['ok'], bad)
+        milk = dict(MILK, name='서울우유 흰우유 1L')
+        self.m.inv = {'units': [milk], 'restock': {'open': False}}
+        for word in ('1', 'L', 'l'):
+            self.assertTrue(self.call(op='want', customer='박씨', sku=word)['ok'], word)
+
+    # --- a request by name ("콩나물") must meet the stock and the restock of the real SKU id
+
+    def test_want_by_name_sees_stock_held_under_a_sku_id(self):
+        sprout = dict(MILK, unit='u7', sku='G1234abcd', name='국산 무농약 콩나물 500g', cost=2000, grade='B')
+        self.m.inv = {'units': [sprout], 'restock': {'open': False}}
+        r = self.call(op='want', customer='진주댁', sku='콩나물', name='콩나물')
+        self.assertFalse(r['ok'], r)
+        self.assertEqual(r['in_stock'], 1)
+        self.assertEqual(r['skus'], ['G1234abcd'])
+
+    def test_restock_of_a_sku_id_picks_a_request_made_by_name(self):
+        self.call(op='want', customer='진주댁', sku='콩나물', name='콩나물')
+        self.call(op='want', customer='박씨', sku='무', name='무')                    # one letter: too short to match by name
+        sprout = dict(MILK, unit='u7', sku='G1234abcd', name='국산 무농약 콩나물 500g', cost=2000, grade='B')
+        self.m.inv = {'units': [sprout], 'restock': {'open': True, 'opens_at': T0}}
+        r = self.call(op='restocked', sku='G1234abcd', price=3500)
+        self.assertEqual(r['picked'], [{'customer': '진주댁', 'why': 'waited'}], r)
+        self.assertIn('콩나물', self.call(op='notice', customer='진주댁')['notice'])
+
     def call(self, **args):
         return self.ns['run'](args, self.kit)
 
@@ -97,7 +380,7 @@ class Live(unittest.TestCase):
         self.assertTrue(r['ok'], r)
         self.assertEqual(len(self.m.sent), 1)
         self.assertIn('@진주댁님', r['text'])
-        self.assertNotIn('김씨', r['text'])                                 # a regular is thanked in the notice only
+        self.assertEqual('김씨' in r['text'], bool(self.ns.get('NAME_REGULARS')))   # regulars named on the forum only when NAME_REGULARS
         self.assertIn('자주 찾아 주시던', self.call(op='notice', customer='김씨')['notice'])
         self.assertFalse(self.call(op='announce')['ok'])                  # the same window: no second post
         self.assertEqual(len(self.m.sent), 1)

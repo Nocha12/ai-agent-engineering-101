@@ -853,10 +853,13 @@ def cmd_run(a):
             if a.app_host not in ("127.0.0.1", "localhost"):
                 links += [f"http://{ip}:{a.app}/" for ip in ctx["deny_hosts"] if ip.count(".") == 3]
             if a.app_tunnel:
-                atp, aurl = mk.open_tunnel(a.app)
-                app_procs.append(atp)
-                ctx["deny_hosts"] = ctx["deny_hosts"] + [aurl.split("//", 1)[1]]
-                links.append(aurl + "/")
+                try:                                    # the shop runs without the remote page if trycloudflare refuses (429)
+                    atp, aurl = mk.open_tunnel(a.app)
+                    app_procs.append(atp)
+                    ctx["deny_hosts"] = ctx["deny_hosts"] + [aurl.split("//", 1)[1]]
+                    links.append(aurl + "/")
+                except RuntimeError as e:
+                    log(f"[app] no tunnel for the mini app ({e}); the shop keeps running, the page is local only")
             log(f"[app] the mini app is up on port {a.app}" + (", behind its access code" if key else ""))
             for u in links:                             # printed, never logged: the log is readable by the agent's tools
                 print(f"[app] open {u}" + (f"?k={key}" if key else ""), flush=True)

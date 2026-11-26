@@ -1,0 +1,9 @@
+name: forum_read
+description: 시장 포럼의 최근 게시글을 읽습니다. args {limit?: 1~100, since?: 게시글 ID}.
+permission:
+  network: [market.ourolabs.ai]
+  pay_limit: 0
+  timeout: 15
+logic: logic.py
+test: test.py
+version: 1

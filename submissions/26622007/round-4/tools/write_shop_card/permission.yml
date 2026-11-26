@@ -1,9 +1,11 @@
 name: write_shop_card
-description: 지정된 식료품 구멍가게 이름과 설명으로 Agent Card를 기록합니다. args 없음.
+description: 가게 카드를 정해진 이름·설명으로 작성하고 현재 재고의 모든 품목을 짧은 이름과 등급별 가격으로 표시합니다. args {stock?: {sku: {등급: 가격}}}. 현재 재고와 등급, 하한가를 검증합니다. 떨이·기한 임박 재고는 고정 설명 바로 뒤에 떨이가로 자동으로 붙습니다.
 permission:
-  write: [card.json]
-  timeout: 10
+  network: [market.ourolabs.ai]
+  write: [card.json, card.test.json]
+  identity: [shop]
+  timeout: 20
 logic: logic.py
 test: test.py
-version: 2
-replaces: write_shop_card@1
+version: 6
+replaces: write_shop_card@5

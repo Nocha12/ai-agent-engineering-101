@@ -17,7 +17,7 @@ MAX_PRICE = 10**12
 FIXED_FEE = 210
 GAS = 206
 REFUND_BASIS = 'net'  # 고장 환불액: 'net' = 가게 실수령액(settle 금액 − 판매 수수료, 13주차 리허설 선례), 'gross' = 판매가 전액(이전 모델)
-                     # 실제 환불 도구(ops/tools_src/refund_check_order/logic.py)의 REFUND_BASIS와 같이 바꾼다
+                     # 실제 환불 도구(submissions/26622007/round-4/ops/tools_src/refund_check_order/logic.py)의 REFUND_BASIS와 같이 바꾼다
 STORAGE = Fraction(5, 1000)
 GRADE_HOURS = 48
 DEFECT = {'A': Fraction(3, 100), 'B': Fraction(12, 100), 'C': Fraction(35, 100)}

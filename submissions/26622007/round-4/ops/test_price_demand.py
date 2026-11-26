@@ -45,6 +45,38 @@ class PriceDemand(unittest.TestCase):
         paid = dict(last_seq=5, as_of=104, keep_hours=24)
         self.assertEqual(merge_observations(paid, ledger, snap)['sku_stock'], {'egg': [1, 1, 1]})
 
+    def test_sealed_sale_names_no_unit_and_leaves_the_stock_count_running(self):
+        # Patch 4.1 sealed settle: {order, shop, sealed}, no unit or SKU. It stopped every stock merge from
+        # 11/25 03:28 (best_sellers was built without public stock). The unit it took is unknown, so nothing is
+        # removed for it; the next public shop snapshot corrects the count.
+        snap = dict(ts=100, shops=dict(round=4, shops=[dict(name='nocha12', stock={'egg': 2})]))
+        ledger = [supply(1, 99, 'nocha12', 'a', 'b'),
+                  dict(seq=2, ts=101, round=4, kind='settle', data=dict(order='o-1', shop='https://x.example', sealed='ab' * 20)),
+                  settle(3, 102, 'a')]
+        paid = dict(last_seq=3, as_of=102, keep_hours=24)
+        self.assertEqual(merge_observations(paid, ledger, snap)['sku_stock'], {'egg': [0, 0, 1]})
+        ledger[1]['data'].pop('sealed')                                   # an open settle without its unit is still refused
+        with self.assertRaises(ValueError):
+            merge_observations(paid, ledger, snap)
+
+    def test_a_shop_that_sold_sealed_can_still_go_bankrupt(self):
+        # re-review 41b2dfbd I-4: the sealed sale took a unit we still count, so the seizure is one short of our count
+        snap = dict(ts=100, shops=dict(round=4, shops=[dict(name='nocha12', stock={'egg': 1})]))
+        ledger = [supply(1, 99, 'nocha12', 'own'), supply(2, 101, 'rival', 'a', 'b'),
+                  dict(seq=3, ts=102, round=4, kind='settle', data=dict(order='o-1', shop='https://x.example', sealed='ab' * 20)),
+                  dict(seq=4, ts=103, round=4, kind='bankrupt', data=dict(shop='rival', seized_units=1))]
+        paid = dict(last_seq=4, as_of=103, keep_hours=24)
+        self.assertEqual(merge_observations(paid, ledger, snap)['sku_stock'], {'egg': [0, 0, 1]})
+        ledger[3]['data']['seized_units'] = 3                                # more than was ever supplied: still refused
+        with self.assertRaises(ValueError):
+            merge_observations(paid, ledger, snap)
+        ledger[3]['data']['seized_units'] = -1                               # never a negative count
+        with self.assertRaises(ValueError):
+            merge_observations(paid, ledger, snap)
+        ledger[3]['data']['seized_units'] = 0                                # two short with one sealed sale: refused
+        with self.assertRaises(ValueError):
+            merge_observations(paid, ledger, snap)
+
     def test_public_clocks_agree_through_ninety_minutes_inclusive(self):
         for snapshot_time, ledger_time in [(100, 5500), (5500, 100)]:
             ledger = [supply(1, ledger_time, 'nocha12', 'one')]

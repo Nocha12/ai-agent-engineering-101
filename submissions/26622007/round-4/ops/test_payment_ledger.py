@@ -392,5 +392,161 @@ class Ledger(unittest.TestCase):
         self.assertIn("refund_order_disagrees", [a["kind"] for a in rec["alerts"]])
 
 
+    def test_corrected_sale_is_read_with_its_corrected_payer_and_amount(self):
+        """rca1126: a sale_correction line moves a sale to another customer's payment. A later transfer to the old
+        payer is not that order's refund, and the refund limit is the corrected amount."""
+        kit_log(self.d, [])
+        c = FakeChain(0)
+        c.sender[TX[3]] = CUST.lower()
+        pl.sync(self.d, "m", "nocha12", c, SHOP)
+        last = self.lines()[-1]
+        fix = {"ts": 1795510000, "time": pl.iso(1795510000), "round": 4, "source": "rca1126 correction",
+               "kind": "sale_correction", "id": "fix-o-1-rca1126", "order": "o-1", "counterparty": "x", "item": None,
+               "qty": None, "unit_price": None, "amount": 9000, "fee": 300, "storage": 0, "forum_fees": 0,
+               "delta_wei": -3960 * W, "gas_wei": 0, "corrected_tx": "0x" + "c" * 64, "payer": "0xother",
+               "delta": -3960.0, "gas": 0.0, "balance_wei": last["balance_wei"] - 3960 * W,
+               "balance_after": (last["balance_wei"] - 3960 * W) / W}
+        pl.append(self.d / "logs" / "payments.jsonl", [fix])
+        kit_log(self.d, [sent("refund", REFUND)])
+        new, _ = pl.sync(self.d, "m", "nocha12", c, SHOP)
+        out = [e for e in new if e["tx_hash"] == REFUND][0]
+        self.assertEqual((out["kind"], out["order"]), ("transfer_out", None))   # CUST paid no sale once o-1 was corrected
+        lines = [{"kind": "sale", "id": "sale-o-1", "amount": 13000}, {"kind": "sale_correction", "order": "o-1", "amount": 9000}]
+        got = pl.alerts(self.d, lines, [{"kind": "refund", "id": "refund-x", "order": "o-1", "amount": 10000,
+                                         "tx_hash": "0xr", "delta": -10000}], {"ok": True})
+        self.assertEqual([a["kind"] for a in got], ["refund_over_amount"])
+
+
+class SealedRecovery(unittest.TestCase):
+    def test_buyer_settled_sealed_checkout_gets_a_sale_line(self):
+        import tempfile
+        from pathlib import Path as P
+        with tempfile.TemporaryDirectory() as tmp:
+            d = P(tmp); (d / "logs").mkdir()
+            (d / "logs" / "checkouts.jsonl").write_text(json.dumps({"event": "issued", "order": "o-ours", "unit": "u1", "sku": "EGG",
+                "price": 9675, "grade": "B", "warranty_hours": 0, "digest_hex": "ab" * 32}) + "\n")
+            class C:
+                def payments_to(self, address, t0, t1):
+                    assert t0 <= 1000 - 30 and t1 >= 1006
+                    return [("0x" + "11" * 32, "0xbuyer", 9369 * pl.CREDIT_WEI, "cd" * 32, True),   # someone else's data
+                            ("0x" + "22" * 32, "0xbuyer", 9369 * pl.CREDIT_WEI, "ab" * 32, True)]
+            rows = [{"kind": "join", "ts": 1, "data": {"name": "b-1", "pubkey": "0xBuyer"}},
+                    {"kind": "order", "ts": 1000, "data": {"order": "o-m", "buyer": "b-1"}},
+                    {"kind": "order", "ts": 1000, "data": {"order": "o-n", "buyer": "b-1"}}]
+            got = pl.recover_sealed(d, rows, C(), "0xme", [{"order": "o-m", "ts": 1006}])
+            self.assertEqual(got, ["o-m"])
+            s = pl.agent_sales(d)["o-m"]
+            self.assertEqual((s["amount"], s["shop_fee"], s["tx_hash"], s["grade"]), (9675, 306, "0x" + "22" * 32, "B"))
+            self.assertEqual(pl.recover_sealed(d, rows, C(), "0xme", [{"order": "o-m", "ts": 1006}]), [])   # once
+            (d / "logs" / ".sealed-tried.json").unlink()
+            with open(d / "logs" / "checkouts.jsonl", "a") as f:
+                f.write(json.dumps({"event": "unsettled", "tx_hash": "0x" + "33" * 32}) + "\n")
+            class C2:
+                def payments_to(self, address, t0, t1):
+                    return [("0x" + "33" * 32, "0xbuyer", 9369 * pl.CREDIT_WEI, "ab" * 32, True)]   # the buyer's own payment, owed back
+            self.assertEqual(pl.recover_sealed(d, rows, C2(), "0xme", [{"order": "o-n", "ts": 1006}]), [])   # owed back, not a sale
+
+    def test_back_to_back_sealed_orders_each_get_their_own_buyers_payment(self):
+        """11/26 20:05: o-f456 (paid 3163 at 1114), o-7878 (2780 at 1132), o-25a6 (6750 at 1159), payments listed newest
+        first. Matching on the digest alone gave o-f456 the 2780 payment, o-7878 the 6750 one, and left o-25a6 with
+        nothing (wallet 2922 over the ledger)."""
+        import tempfile
+        from pathlib import Path as P
+        with tempfile.TemporaryDirectory() as tmp:
+            d = P(tmp); (d / "logs").mkdir()
+            ck = [("5137", 3163, "a1"), ("63e6", 2780, "b2"), ("710d", 6750, "c3")]
+            (d / "logs" / "checkouts.jsonl").write_text("".join(json.dumps({"event": "issued", "order": o, "unit": "u-" + o,
+                "sku": "S" + o, "price": pr, "grade": "B", "warranty_hours": 0, "digest_hex": h * 32}) + "\n" for o, pr, h in ck))
+            net = lambda pr: (pr - (int(pr * 0.01) + 210)) * pl.CREDIT_WEI
+            pays = [("0xc3", "0x9ee0", net(6750), "c3" * 32, True, 1159),
+                    ("0xb2", "0xda39", net(2780), "b2" * 32, True, 1132),
+                    ("0xa1", "0x2d0e", net(3163), "a1" * 32, True, 1114)]
+            class C:
+                def payments_to(self, address, t0, t1):
+                    return [x for x in pays if t0 <= x[5] <= t1]
+            rows = [{"kind": "join", "ts": 1, "data": {"name": n, "pubkey": k}} for n, k in
+                    (("bae", "0x2D0E"), ("yoon", "0xda39"), ("eom", "0x9ee0"))]
+            rows += [{"kind": "order", "ts": 1114.08, "data": {"order": "o-f456", "buyer": "bae"}},
+                     {"kind": "order", "ts": 1132.2, "data": {"order": "o-7878", "buyer": "yoon"}},
+                     {"kind": "order", "ts": 1159.3, "data": {"order": "o-25a6", "buyer": "eom"}}]
+            pending = [{"order": "o-f456", "ts": 1118.7}, {"order": "o-7878", "ts": 1136.8}, {"order": "o-25a6", "ts": 1163.9}]
+            self.assertEqual(pl.recover_sealed(d, rows, C(), "0xme", pending), ["o-f456", "o-7878", "o-25a6"])
+            s = pl.agent_sales(d)
+            self.assertEqual({o: (s[o]["amount"], s[o]["tx_hash"], s[o]["checkout_order"]) for o in s},
+                             {"o-f456": (3163, "0xa1", "5137"), "o-7878": (2780, "0xb2", "63e6"), "o-25a6": (6750, "0xc3", "710d")})
+
+    def test_same_buyer_twice_in_the_window_takes_the_payment_nearest_its_order(self):
+        import tempfile
+        from pathlib import Path as P
+        with tempfile.TemporaryDirectory() as tmp:
+            d = P(tmp); (d / "logs").mkdir()
+            (d / "logs" / "checkouts.jsonl").write_text("".join(json.dumps({"event": "issued", "order": o, "price": 1000,
+                "digest_hex": h * 32}) + "\n" for o, h in (("k1", "a1"), ("k2", "b2"))))
+            w = (1000 - 220) * pl.CREDIT_WEI
+            class C:
+                def payments_to(self, address, t0, t1):
+                    return [x for x in [("0xlate", "0xb", w, "b2" * 32, True, 1046), ("0xearly", "0xb", w, "a1" * 32, True, 1000)]
+                            if t0 <= x[5] <= t1]
+            rows = [{"kind": "join", "ts": 1, "data": {"name": "b", "pubkey": "0xb"}},
+                    {"kind": "order", "ts": 1000, "data": {"order": "o-1", "buyer": "b"}},
+                    {"kind": "order", "ts": 1046, "data": {"order": "o-2", "buyer": "b"}}]
+            pl.recover_sealed(d, rows, C(), "0xme", [{"order": "o-1", "ts": 1004}, {"order": "o-2", "ts": 1050}])
+            s = pl.agent_sales(d)
+            self.assertEqual((s["o-1"]["tx_hash"], s["o-2"]["tx_hash"]), ("0xearly", "0xlate"))
+
+    def test_payment_from_another_wallet_or_unknown_buyer_is_not_recorded(self):
+        import tempfile
+        from pathlib import Path as P
+        with tempfile.TemporaryDirectory() as tmp:
+            d = P(tmp); (d / "logs").mkdir()
+            (d / "logs" / "checkouts.jsonl").write_text(json.dumps({"event": "issued", "order": "k", "price": 1000,
+                                                                     "digest_hex": "a1" * 32}) + "\n")
+            class C:
+                def payments_to(self, address, t0, t1):
+                    return [("0xt", "0xother", (1000 - 220) * pl.CREDIT_WEI, "a1" * 32, True)]   # old 5-tuple shape
+            rows = [{"kind": "join", "ts": 1, "data": {"name": "b", "pubkey": "0xb"}},
+                    {"kind": "order", "ts": 1000, "data": {"order": "o-1", "buyer": "b"}},
+                    {"kind": "order", "ts": 1000, "data": {"order": "o-2", "buyer": "nobody"}}]
+            self.assertEqual(pl.recover_sealed(d, rows, C(), "0xme", [{"order": "o-1", "ts": 1004}, {"order": "o-2", "ts": 1004}]), [])
+            self.assertEqual(pl.agent_sales(d), {})
+
+
+    def test_order_settled_at_another_shop_does_not_block_ours(self):
+        import tempfile
+        from pathlib import Path as P
+        with tempfile.TemporaryDirectory() as tmp:
+            d = P(tmp); (d / "logs").mkdir()
+            (d / "logs" / "checkouts.jsonl").write_text(json.dumps({"event": "issued", "order": "k", "price": 1000,
+                                                                     "digest_hex": "a1" * 32}) + "\n")
+            class C:
+                def payments_to(self, address, t0, t1):
+                    return [("0xt", "0xb", (1000 - 220) * pl.CREDIT_WEI, "a1" * 32, True, 1003)]
+            rows = [{"kind": "join", "ts": 1, "data": {"name": "b", "pubkey": "0xb"}},
+                    {"kind": "order", "ts": 1000, "data": {"order": "o-1", "buyer": "b"}},
+                    {"kind": "order", "ts": 1003, "data": {"order": "o-x", "buyer": "b"}},
+                    {"kind": "settle", "ts": 1005, "data": {"order": "o-x", "shop": "https://other"}},
+                    {"kind": "settle", "ts": 1006, "data": {"order": "o-1", "shop": "https://ours"}}]
+            self.assertEqual(pl.recover_sealed(d, rows, C(), "0xme", [{"order": "o-1", "ts": 1006}]), ["o-1"])
+
+    def test_unknown_buyer_key_does_not_use_up_the_tries(self):
+        """Review 11/26 I2: with no join key the order was counted as tried; after six rounds a late join row could
+        no longer recover it."""
+        import tempfile
+        from pathlib import Path as P
+        with tempfile.TemporaryDirectory() as tmp:
+            d = P(tmp); (d / "logs").mkdir()
+            (d / "logs" / "checkouts.jsonl").write_text(json.dumps({"event": "issued", "order": "k", "price": 1000,
+                                                                     "digest_hex": "a1" * 32}) + "\n")
+            class C:
+                def payments_to(self, address, t0, t1):
+                    return [("0xt", "0xb", (1000 - 220) * pl.CREDIT_WEI, "a1" * 32, True, 1001)]
+            order = [{"kind": "order", "ts": 1000, "data": {"order": "o-1", "buyer": "b"}}]
+            for _ in range(8):
+                self.assertEqual(pl.recover_sealed(d, order, C(), "0xme", [{"order": "o-1", "ts": 1004}]), [])
+            tried = json.loads((d / "logs" / ".sealed-tried.json").read_text())
+            self.assertNotIn("o-1", tried)
+            rows = [{"kind": "join", "ts": 1, "data": {"name": "b", "pubkey": "0xb"}}] + order
+            self.assertEqual(pl.recover_sealed(d, rows, C(), "0xme", [{"order": "o-1", "ts": 1004}]), ["o-1"])
+
 if __name__ == "__main__":
     unittest.main()

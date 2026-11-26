@@ -1,0 +1,10 @@
+name: inventory_sales_check
+description: 우리 재고(로그인 /api/inventory)를 품목·등급별 개수·하한가로 묶고, 공개 장부 최근 1,500줄의 같은 SKU·등급 정산가 중앙값을 붙입니다. args {}. 조회가 실패하면 ok:false이고 재고 0이 아닙니다.
+permission:
+  network: [market.ourolabs.ai]
+  identity: [shop]
+  timeout: 60
+logic: logic.py
+test: test.py
+version: 3
+replaces: inventory_sales_check@2

@@ -1,11 +1,11 @@
 {
  "tool": "restock_shoutout",
- "version": 1,
- "forged_at": 1795535248,
+ "version": 9,
+ "forged_at": 1795672820,
  "kit": "v5.1",
  "sha256": {
-  "permission.yml": "5025b37ae3e4c58186372fb02bde8fd10b31000f9f4abc5035c78e957f968a7f",
-  "logic.py": "8f083fd952ba7322689a0d3798b69945ae8f8e5ec617c70bfcd894a16b5b43a3",
-  "test.py": "d5ac06d48425e84db4fd4dbb5ec7bc5ffa07adbe90dc2f9f0d92c46b3860c48d"
+  "permission.yml": "f27efc780e1bdf84b5c4a8bfca26d6f7be3c4f5f2de91491cde6e54ba1af3f72",
+  "logic.py": "0ea2cd24c982498ed6f73756282b74cce36c3fc362d0e646a9714b9d479f7d37",
+  "test.py": "4586dd3f0b1d67223f09c445a725d500d0d1e520f8b31ec2c162d6c343d3ee1a"
  }
 }

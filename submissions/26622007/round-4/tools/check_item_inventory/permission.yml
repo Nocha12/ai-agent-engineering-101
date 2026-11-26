@@ -1,0 +1,11 @@
+name: check_item_inventory
+description: 우리 가게 실제 재고 전체를 잘리지 않게 봅니다(로그인 /api/inventory). args {}: 품목마다 이름·개수와 등급별 개수(n)·하한가(floor)·남은 시간(hours_left). args {sku: SKU ID나 품목 이름(예: 콩나물)}: 그 품목의 unit ID·등급·원가·하한가·남은 시간. 소비기한이 지난 unit은 재고로 세지 않습니다. 조회가 실패하면 ok:false이고 재고 0이 아닙니다. price는 품목·등급 안내가(같은 단위는 이 값 하나로 안내, 높은 등급이 같거나 비쌈). 안내가가 없으면 args {sku, quote: {등급: 가격}}로 정하고, 바꿀 때만 requote: true. 떨이·기한 임박 unit은 clearance {price, floor}(전체 조회는 맨 앞 clearance 목록): 그 price로 먼저 안내합니다.
+permission:
+  network: [market.ourolabs.ai]
+  write: [logs/quotes.json, logs/quotes.json.tmp, logs/quotes.test.json, logs/quotes.test.json.tmp]
+  identity: [shop]
+  timeout: 20
+logic: logic.py
+test: test.py
+version: 8
+replaces: check_item_inventory@7

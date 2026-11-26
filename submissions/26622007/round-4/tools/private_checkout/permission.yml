@@ -1,12 +1,12 @@
 name: private_checkout
-description: 비공개 결제서 발급(create)과 정산(settle). 발급 전에 실재고·다른 결제서 예약·등급(상품명·인증서)·서명 지갑=가게 지갑·하한가를 확인합니다. args create {op, unit, price, task, warranty_hours, claim, order?, endgame?}, settle {op, order, checkout_jwt, checkout_mandate, payment_mandate}. 결과에 refund:true가 있으면 환불 3단계로 갑니다.
+description: 비공개 결제서 발급(create)과 정산(settle). 발급 전에 실재고·다른 결제서 예약·등급(상품명·인증서)·서명 지갑=가게 지갑·하한가를 확인합니다. args create {op, unit, price?, task, warranty_hours, claim, order?, endgame?}, settle {op, order, checkout_jwt, checkout_mandate, payment_mandate}. 결과에 refund:true가 있으면 환불 3단계로 갑니다. price를 빼면 그 품목·등급 안내가(check_item_inventory의 price)로 냅니다. 처음 낸 가격이 안내가가 되고, 결과 quote가 안내가입니다. 떨이(기한 임박) unit은 price를 빼면 떨이가로 내고, 하한도 남은 시간만큼 낮아 원가 아래로 낼 수 있습니다(결과 clearance).
 permission:
-  network: [market.ourolabs.ai]
-  write: [logs/checkouts.jsonl, logs/checkouts.test.jsonl, logs/sales.jsonl, logs/sales.test.jsonl, logs/refunds.test.jsonl]
+  network: [market.ourolabs.ai, rpc-testnet.maroo.io]
+  write: [logs/checkouts.jsonl, logs/checkouts.test.jsonl, logs/sales.jsonl, logs/sales.test.jsonl, logs/refunds.test.jsonl, logs/quotes.json, logs/quotes.json.tmp, logs/quotes.test.json, logs/quotes.test.json.tmp]
   identity: [shop]
   wallet: [sign_jwt]
   timeout: 90
 logic: logic.py
 test: test.py
-version: 2
-replaces: private_checkout@1
+version: 9
+replaces: private_checkout@8

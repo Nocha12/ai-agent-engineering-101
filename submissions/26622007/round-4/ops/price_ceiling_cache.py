@@ -86,6 +86,8 @@ def build(catalog, ledger):
         if kind not in ('supply', 'settle'):
             continue
         data = event['data']
+        if kind == 'settle' and data.get('sealed') and 'sku' not in data:
+            continue                             # a sealed sale (Patch 4.1) shows no item and no price: nothing to learn
         sku = text(data['sku'])
         require(sku in items, f'unknown ledger SKU at {seq}')
         if kind == 'supply':

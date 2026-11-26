@@ -1,0 +1,11 @@
+{
+ "tool": "check_item_inventory",
+ "version": 8,
+ "forged_at": 1795697553,
+ "kit": "v5.1",
+ "sha256": {
+  "permission.yml": "fc865c04c141831c732b916a89eaab8f9815b23b4df82aff6ebf51b475e7291d",
+  "logic.py": "a7c95499d0a3318fa7414ace582dcb5468a700941194f99eca02cbf09064e986",
+  "test.py": "89cdc600613b6a7af52c127682a43c2c44a12991cfb5522a965b533f24c9a6c2"
+ }
+}

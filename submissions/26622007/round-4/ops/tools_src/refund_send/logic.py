@@ -64,6 +64,9 @@ def run(args, kit):
                 return {'ok': False, 'error': '이 주문은 이미 환불했습니다(주문당 1회)', 'tx_hash': r['tx_hash']}
             return {'ok': False, 'error': '이 주문의 환불 송금 결과가 불확실합니다. 다시 보내지 말고 체인에서 nonce와 영수증을 먼저 확인해야 합니다',
                     'intent': r}
+    if p1.get('kind') != 'settled' and any(str(s.get('order')) == order or (p1.get('tx_hash') and s.get('tx_hash') == p1.get('tx_hash'))
+                                          for s in _lines(_p(kit, 'logs/sales.jsonl'))):
+        return {'ok': False, 'error': '1·2단계 뒤에 이 주문이 정산됐습니다(sales.jsonl). 미정산 환불은 하지 않습니다. 1단계부터 다시 합니다'}
     amount, to = p2.get('amount'), str(p2.get('to') or '')
     if type(amount) is not int or amount <= 0:
         return {'ok': False, 'error': '환불 금액이 올바르지 않습니다'}

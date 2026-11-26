@@ -1,0 +1,11 @@
+{
+ "tool": "log_lost_deal",
+ "version": 1,
+ "forged_at": 1795543737,
+ "kit": "v5.1",
+ "sha256": {
+  "permission.yml": "d4ecad03d60d755389a8d60fc81e56f52c836c0ef1e9749a99447ee42bd65e77",
+  "logic.py": "e044c849a88bc59085ed94016bd081ae5080e7ab5f26c359122714341c7ca329",
+  "test.py": "7913b53b29372c3f623f2191136b786d5417cace11352537bfbf51ee48aa669c"
+ }
+}

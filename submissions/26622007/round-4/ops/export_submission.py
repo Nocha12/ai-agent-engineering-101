@@ -184,7 +184,7 @@ def check(dst):
     errors += [f'logs/{p.name} is not part of the submission' for p in (dst / 'logs').iterdir()
                if p.name not in ('forge.jsonl', 'react.jsonl', 'agent-kit.log')]
     for p in dst.rglob('*'):
-        if p.is_file() and (p.suffix == '.key' or p.name in ('meshkit.json', 'customers.json', 'shoutout.json')
+        if p.is_file() and (p.suffix == '.key' or p.name in ('meshkit.json', 'customers.json', 'shoutout.json', 'waitlist.json')
                             or '.kit' in p.parts):
             errors.append(f'{p.relative_to(dst)} must stay out')
         if p.is_file() and CUSTOMER.search(p.read_text(encoding='utf-8', errors='ignore')):

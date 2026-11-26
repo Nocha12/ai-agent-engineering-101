@@ -38,13 +38,16 @@ def verify_public_chain(ledger):
             raise ValueError(f'invalid public ledger hash at {seq}')
 
 
-def removals(kind, data, live):
+def removals(kind, data, live, sealed=0):
+    """sealed: sealed sales so far. Each took one unit we cannot name, so some shop holds one unit fewer than we count."""
     if kind == 'settle':
+        if data.get('sealed') and 'unit' not in data and 'sku' not in data:
+            return []                            # a sealed sale (Patch 4.1) names no unit: the next shop snapshot corrects the count
         return [(text(data.get('unit')), None, text(data.get('sku')))]
     owner = text(data.get('shop'))
     if kind == 'bankrupt':
         seized = [(unit, owner, key[1]) for unit, (key, cohort) in live.items() if key[0] == owner]
-        if type(data.get('seized_units')) is not int or data['seized_units'] != len(seized):
+        if type(data.get('seized_units')) is not int or not max(0, len(seized) - sealed) <= data['seized_units'] <= len(seized):
             raise ValueError('seized unit count does not match public supply')
         return seized
     units, skus = data.get('units'), data.get('skus')
@@ -55,7 +58,7 @@ def removals(kind, data, live):
 
 def ledger_stock(ledger, stock_time, observed):
     """Cap pre-snapshot inventory only; later sales consume their actual supply cohort."""
-    live, seen = {}, set()
+    live, seen, sealed = {}, set(), 0
     earlier, later = Counter(), Counter()
     previous_time = 0
     for seq, event in enumerate(ledger, 1):
@@ -87,7 +90,9 @@ def ledger_stock(ledger, stock_time, observed):
                 live[unit] = (key, cohort)
                 cohort[key] += 1
             continue
-        for unit, owner, sku in removals(kind, data, live):
+        gone = removals(kind, data, live, sealed)
+        sealed += kind == 'settle' and not gone
+        for unit, owner, sku in gone:
             if unit not in live:
                 raise ValueError(f'unmatched or duplicate unit removal at {seq}')
             key, cohort = live.pop(unit)

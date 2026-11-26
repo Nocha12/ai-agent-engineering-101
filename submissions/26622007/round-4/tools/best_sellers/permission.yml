@@ -1,0 +1,8 @@
+name: best_sellers
+description: 실제 결제(체인 tx)된 판매만으로 잘 팔리는 품목 상위 목록. 선택 top(1-20, 기본 5), horizon_hours(기본 3), own_stock {sku: 개수}, kind(all|food|goods), min_tx(기본 1), live(기본 true: 공개 장부 새 행을 GET으로 읽고, 장부가 실패하거나 비면 Maroo 체인 최근 블록을 읽기 전용으로 읽음). source(ledger|chain|built)는 최신 행의 출처, ledger_down은 장부 실패 표시. buy_qty 0이면 사지 않는다. 출력 items[sku, name, per_hour, tx, tx_on_chain, shops, repeat_buyers, price[최저,중앙,최고], price_vs_list, buy_qty, price_ceiling_args]. 거래·송금을 하지 않는다.
+permission:
+  network: [market.ourolabs.ai, rpc-testnet.maroo.io]
+  timeout: 30
+logic: logic.py
+test: test.py
+version: 1

@@ -1,11 +1,11 @@
 {
  "tool": "food_candidates",
- "version": 1,
- "forged_at": 1795533810,
+ "version": 5,
+ "forged_at": 1795675016,
  "kit": "v5.1",
  "sha256": {
-  "permission.yml": "0a8de40f0c9b45c154d3b2c09f1c28de343b19591b8b24a86daf8493ad6e23f9",
-  "logic.py": "37715885ffc176b66ba1479e91e7b3c4f5ca0d58b2f41388b8367c4b65d9d2b9",
-  "test.py": "366db9785979c02d66194358864365753bd56387ff3f20d5d63b971fdc77c224"
+  "permission.yml": "888019bbfb97e0b551c4db1e6705ab849ba816ec85b9676a0b6be41616890493",
+  "logic.py": "eb04859ad7c5108f57e683cba4e4d722b07af50076152a0a948ea8bc31e45798",
+  "test.py": "18fba937ff02ff63ed1a676954bb6c5436e7bf5ecd43377bc78700b19ac174d0"
  }
 }

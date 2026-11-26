@@ -1,0 +1,8 @@
+name: log_lost_deal
+description: 구매 문의가 결제되지 않고 끝난 거래를 logs/lost_deals.jsonl에 한 줄 기록합니다. args {customer, item, offered_price, grade_stock, wanted, last_message, reason}.
+permission:
+  write: [logs/lost_deals.jsonl]
+  timeout: 10
+logic: logic.py
+test: test.py
+version: 1
