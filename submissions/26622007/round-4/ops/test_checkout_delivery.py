@@ -71,6 +71,18 @@ class Compose(unittest.TestCase):
         data = result['artifacts'][0]['parts'][0]['data']
         self.assertEqual((data['price'], data['until'], data['checkout_jwt']), (4441, '01/15 18:00 KST', token))
 
+    def test_closed_checkout_does_not_invite_followup_in_same_task(self):
+        unit = 'u-e1fa9c84e002'
+        cert = {'kind': 'food', 'unit': unit, 'grade': None}
+        payload = {'unit': unit, 'price': 4441, 'claim': 'B', 'cert': {'cert': cert}}
+        encoded = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
+        c = cd.Checkout('task-1', f'eyJhbGciOiJFZERTQSJ9.{encoded}.c2ln', NOW - 10)
+        text, attached = cd.compose('B등급', [c, co(2)], {'task-2'}, NOW)
+        result = {'status': {'state': 'TASK_STATE_COMPLETED'}}
+        cd.attach_data(result, attached, {'task-2'}, now=NOW)
+        self.assertNotIn(cd.FOLLOWUP, text)
+        self.assertNotIn('next_message', result['artifacts'][0]['parts'][0]['data'])
+
     def check_visible(self, text, cs):
         seen = cd.tokens(text[:cd.VISIBLE])
         for c in cs:

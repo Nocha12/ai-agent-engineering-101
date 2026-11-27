@@ -139,7 +139,7 @@ def grade_free_reply(issued, cancelled, now, item_names=None, continuation=False
     if type(end) in (int, float) and 1e9 < end < 1e11 and end > now:
         terms.append(f"소비기한 {datetime.fromtimestamp(end, KST):%m/%d %H:%M KST}까지")
     text = ' · '.join(terms) or '결제서를 발급했어요.'
-    if continuation or cancelled:
+    if continuation:
         text += '\n' + FOLLOWUP
     return text
 
@@ -173,7 +173,7 @@ def attach_data(result, attached, cancelled=(), now=None):
         return 0
     now = time.time() if now is None else now
     status = result.get('status')
-    continuation = bool(cancelled) or (isinstance(status, dict) and input_required(status.get('state')))
+    continuation = isinstance(status, dict) and input_required(status.get('state'))
     data = [dict(_fields(c.token, now, continuation), checkout_jwt=c.token, order=c.order) for c in attached]
     parts = [{'data': d} for d in data] or [{'data': {'checkouts': [], 'cancelled': sorted(str(o) for o in cancelled)}}]
     if result.get('kind') == 'task':                 # the v0.3 binding names each part's kind
