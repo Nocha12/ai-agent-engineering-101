@@ -266,13 +266,17 @@ def hours_left(u, now):
     return round((e - now) / 3600, 1) if isinstance(e, (int, float)) and not isinstance(e, bool) and e > 0 else None
 
 
-def until(u):
+def until(u, now=None):
     """The unit's expires_at as 'MM/DD HH:MM KST', the same minute the checkout's signed certificate line shows
     (ops/checkout_delivery.grade_note: seconds dropped); None without a date. Customers compare the reply with that
-    signed line word for word (11/27 0b2461b6: '18시까지' against 18:27, no sale)."""
+    signed line word for word (11/27 0b2461b6: '18시까지' against 18:27, no sale). A signed expiry already past
+    (now) gives None, not that time: the checkout carries no certificate line for that unit, and the wrapper
+    (agent_kit_records.with_until) then shows the hour from hours_left, the inventory date (review 2 N2)."""
     c = u.get('cert') if isinstance(u.get('cert'), dict) else {}
     c = c.get('cert') if isinstance(c.get('cert'), dict) else {}      # the signed certificate itself (review 1 M2):
     e = c.get('expires_at') if c.get('unit') == u.get('unit') else None   # private_checkout's grade_evidence reads it
+    if isinstance(e, (int, float)) and not isinstance(e, bool) and 1e9 < e < 1e11 and e <= (time.time() if now is None else now):
+        return None
     if not (isinstance(e, (int, float)) and not isinstance(e, bool) and 1e9 < e < 1e11):
         e = u.get('expires_at')                         # no certificate of this unit: the inventory's own date
     if not (isinstance(e, (int, float)) and not isinstance(e, bool) and 1e9 < e < 1e11):
@@ -843,7 +847,7 @@ def answer(args, kit):
                   'grade': str(u.get('grade') or '?')[:8], 'cost': num(u.get('cost')), 'floor': floor(u.get('cost')),
                   'hours_left': hours_left(u, now), 'list_price': num(u.get('list_price')) or None} for u in mine[:ITEMS]]
         for it, u in zip(items, mine):
-            t = until(u)
+            t = until(u, now)
             if t:
                 it['until'] = t
         posted = forum_units(kit, args, now) if items else {}

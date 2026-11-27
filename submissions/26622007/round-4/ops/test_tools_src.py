@@ -63,7 +63,11 @@ def main():
                 print('FAIL', t)
                 traceback.print_exc()
     print('tools', len(tools), 'fail', fails)
-    sys.exit(1 if fails else 0)
+    # the refund tools' chain user-agent (f19827cf) is checked here too, so this suite keeps it (review M3)
+    import subprocess
+    ua = subprocess.run([sys.executable, '-I', '-B', os.path.join(HERE, 'test_refund_rpc_ua.py')])
+    print('PASS' if ua.returncode == 0 else 'FAIL', 'refund_rpc_ua')
+    sys.exit(1 if fails or ua.returncode else 0)
 
 
 if __name__ == '__main__':

@@ -3,6 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # python3 -I drops the script dir
 import pytest
 
 from price_ceiling_forge import forge_move
@@ -30,3 +31,7 @@ def test_forge_move_in_unregistered_v51_runner(tmp_path, mode, args, expected):
     assert result['ok'] is expected, result
     if expected and mode == 'call':
         assert result['result']['verdict'] == 'skip'
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main(["-q", "-p", "no:cacheprovider", __file__]))
