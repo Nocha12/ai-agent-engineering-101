@@ -139,5 +139,104 @@ class FoodCandidatesAreAllFood(unittest.TestCase):
         self.assertNotIn('p <= 3000', src)
 
 
+class StaleSalesDataDoesNotStopAllowedBuys(unittest.TestCase):
+    """감독 11/27 16:00 ax-purchase-guard-recurrence: with old or missing sales data, a buy the owner's list allows (food,
+    break-even, 4 a SKU) must still be offered and must still pass buy_food_lot. Old data may only leave refill empty;
+    it never removes an asked item, changes its qty, or makes buy_food_lot refuse."""
+    H = 3600
+
+    def food_candidates(self, sales_path):
+        from runpy import run_path
+        g = run_path(str(HERE / 'tools_src/food_candidates/logic.py'))
+        now = g['_clock']()
+        cat = [{'sku': 'G-ramen', 'kind': 'food', 'name': '농심 신라면 120g 5개입', 'category': '식품>면>라면',
+                'list_price': 4500, 'shelf_hours': 400},
+               {'sku': 'G-egg', 'kind': 'food', 'name': '무항생제 계란 20구', 'category': '식품>계란',
+                'list_price': 12000, 'shelf_hours': 168}]
+        inv = {'balance': 2900000, 'restock': {'open': True}, 'units': [{'unit': 'u1', 'sku': 'G-egg'}]}
+        lost = [{'ts': now - 600, 'customer': 'a', 'item': '라면', 'reason': '재고없음', 'grade_stock': '재고 0'},
+                {'ts': now - 300, 'customer': 'b', 'item': '라면', 'reason': '재고없음', 'grade_stock': '재고 0'}]
+        g['fetch'] = lambda base, token: (cat, {'surge': []}, inv)
+        g['read_lost'] = lambda path=None: lost
+        g['market_sold'] = lambda path=None: {}                        # market sales cache missing too
+        real = g['_own_sold_real']
+        g['own_sold'] = lambda path=None, now=None: real(sales_path, now)
+
+        class K:
+            market, testing = 'https://market.example', True
+            def token(self, role): return 'offline'
+        return g['run']({}, K()), now
+
+    def check_asked_still_offered(self, r):
+        asked = r['customer_asked_out_of_stock']
+        self.assertIsInstance(asked, list, asked)
+        ramen = [e for e in asked if 'G-ramen' in [o.get('sku') for o in e.get('buy_options') or []]]
+        self.assertEqual(len(ramen), 1, asked)
+        self.assertEqual(ramen[0].get('customers'), 2, ramen[0])                    # 2 customers -> 2, as with fresh data
+        self.assertEqual(r['refill'], [])                                        # nothing to refill from: not a stop
+        self.assertIn('표시는 매입을 막지 않는다', r['note'])
+        self.assertTrue({'G-ramen', 'G-egg'} <= {x['sku'] for x in r['candidates']}, r['candidates'])
+        for s in ('stale', '판매 자료', '오래', '갱신 전'):
+            self.assertNotIn(s, r['note'])
+
+    def test_old_sales_file_keeps_asked_buys(self):
+        import tempfile, os
+        fd, path = tempfile.mkstemp(suffix='.jsonl')
+        try:
+            now = __import__('time').time()
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:                   # last sale 30 h ago: older than the window
+                for i in range(5):
+                    f.write(json.dumps({'ts': now - 30 * self.H - i, 'sku': 'G-egg', 'unit': 'old%d' % i}) + '\n')
+            r, _ = self.food_candidates(path)
+            self.check_asked_still_offered(r)
+        finally:
+            os.unlink(path)
+
+    def test_missing_sales_file_keeps_asked_buys(self):
+        r, _ = self.food_candidates(str(HERE / 'no-such-sales.jsonl'))
+        self.check_asked_still_offered(r)
+
+    def test_buy_food_lot_ceiling_ignores_stale_demand(self):
+        """buy_food_lot asks price_ceiling with unsold=0, so a missing or expired demand cache (price_demand) is never
+        read: the break-even ceiling stays and no '갱신 전 거래 금지' refusal comes back."""
+        import os, time
+        from runpy import run_path
+        cwd = os.getcwd()
+        os.chdir(HERE.parent)                                    # buy_food_lot reads ops/price_ceiling.py from the round dir
+        try:
+            g = run_path(str(HERE / 'tools_src/buy_food_lot/logic.py'))
+            real_run_path = g['run_path']
+            calls = []
+
+            def stale_demand():
+                calls.append(1)
+                raise OSError('demand cache expired')
+
+            def run_path_stale(path, *a, **k):
+                mod = real_run_path(path, *a, **k)
+                if path.endswith('price_ceiling.py'):
+                    mod['_demand_module'] = stale_demand
+                return mod
+            g['run_path'] = run_path_stale
+            pc = real_run_path(str(HERE / 'price_ceiling.py'))
+            sku, item = next((s, v) for s, v in sorted(pc['DATA']['items'].items())
+                             if v[1] == 'food' and v[5] and v[3] and v[3] > 48)
+            now = time.time()
+            goods = int(item[5] * 0.3) * 2                       # 2 units at 30% of the median paid price
+            quote = {'goods': goods, 'storage': 0, 'forum_fees': 0,
+                     'units': [{'expires_at': now + 40 * self.H}, {'expires_at': now + 40 * self.H}]}
+            ceiling, source = g['break_even'](sku, 2, quote, item[2], now)
+            self.assertEqual(source, 'price_ceiling')
+            self.assertGreater(ceiling, goods)
+            self.assertEqual(calls, [])                          # the demand cache was never consulted
+        finally:
+            os.chdir(cwd)
+
+    def test_goal_says_stale_is_not_a_stop(self):
+        g = goal()
+        self.assertIn('best_sellers의 stale·live_error·buy_qty는 매입을 멈추는 이유로 쓰지 않는다', g)
+        self.assertIn('재고 총개수와 라운드 종료 시각은 판단 조건이 아니다', g)
+
+
 if __name__ == '__main__':
     unittest.main()
