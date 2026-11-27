@@ -8,6 +8,7 @@ HOLD_SECONDS = 300   # Same as the existing private_checkout unit reservation.
 DEADLINE = 600
 REPLY_MAX = 4000
 VISIBLE = 2000       # the customer tool reads only agent_says = said[:2000] (Q00/agent-market house/customer.py)
+PER_REPLY = 1        # checkouts in one reply (operator 11/27: one, the rest in the customer's next message)
 JWT = re.compile(r'(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+)?(?![A-Za-z0-9_-])')
 
 
@@ -37,8 +38,8 @@ def clean_reply(text):
 
 
 def compose(text, issued, cancelled, now):
-    """Keep prose, rebuild all order/token pairs from trusted issuance metadata. The signed originals open the reply
-    so every one of them is inside the VISIBLE characters the customer reads; prose follows, grade notes last."""
+    """Keep prose, rebuild the order/token pair from trusted issuance metadata. The signed original opens the reply so
+    it is inside the VISIBLE characters the customer reads (PER_REPLY: one a reply); prose follows, the grade note last."""
     active = {c.digest: c for c in issued if c.order not in cancelled and 0 <= now - c.at < HOLD_SECONDS}
     if len({c.order for c in active.values()}) != len(active):
         raise ValueError('duplicate checkout order ids')
@@ -46,19 +47,15 @@ def compose(text, issued, cancelled, now):
     if not active:
         return body[:REPLY_MAX], ()
     lines = [f'checkout_jwt ({c.order}): {c.token}' for c in active.values()]
-    head = '\n\n'.join(lines)
-    if len(head) > VISIBLE:
-        fit, used = 0, 0
-        for x in lines:
-            used += len(x) + (2 if fit else 0)
-            if used > VISIBLE:
-                break
-            fit += 1
-        orders = [c.order for c in active.values()]
-        raise ValueError(f'결제서 {len(lines)}장은 손님 도구가 읽는 답장 앞 2,000자를 넘습니다. 이 답장에는 {max(fit, 1)}장만 남기고 '
-                         f'나머지 order는 checkout_cancel 목록으로 빼세요(예: {orders[max(fit, 1):]}). 이 답장의 state는 '
+    orders = [c.order for c in active.values()]
+    if len(lines) > PER_REPLY:                  # one checkout a reply (operator 11/27): the rest in the next message
+        raise ValueError(f'한 답장에는 결제서를 {PER_REPLY}장만 넣습니다(지금 {len(lines)}장). 손님이 먼저 원한 1장만 남기고 '
+                         f'나머지 order는 checkout_cancel 목록으로 빼세요(예: {orders[PER_REPLY:]}). 이 답장의 state는 '
                          f'input_required로 두고, 손님께 나머지는 다음 메시지를 주시면 이어서 결제서를 드린다고 쓰세요(같은 대화로 '
                          f'이어 와야 빼 둔 unit을 바로 다시 낼 수 있습니다)')
+    head = lines[0]
+    if len(head) > VISIBLE:
+        raise ValueError('결제서 줄이 손님 도구가 읽는 답장 앞 2,000자보다 깁니다. 이 결제서는 checkout_cancel로 빼고 손님께 사실대로 말하세요')
     notes = '\n'.join(c.note for c in active.values() if c.note)
     rest = REPLY_MAX - len(head) - 2
     if notes and len(body) + 2 + len(notes) <= rest:   # grade notes give way to prose, prose to the originals
@@ -82,16 +79,14 @@ def grade_note(order, ev, now):
         if not (isinstance(unit, str) and UNIT.fullmatch(unit) and claim in ('A', 'B', 'C')
                 and all(type(x) in (int, float) and 1e9 < x < 1e11 for x in (sa, ea)) and sa < ea):
             return ''
-        day = lambda t: datetime.fromtimestamp(t, KST).strftime('%m-%d %H:%M KST')
-        sold, ends, left = day(sa), day(ea), max(0, int((ea - now) // 3600))
+        day = lambda t: datetime.fromtimestamp(t, KST).strftime('%m/%d %H:%M')
+        sold, ends, hours = day(sa), day(ea), max(0, int((ea - now) // 3600))
     except Exception:                                # a note never stops the checkout itself
         return ''
-    return (f'등급 근거 ({order}, {unit}): 결제서 안 cert는 시장이 서명한 원본이라 가게가 고칠 수 없고, 이 cert의 grade 칸은 '
-            f'null입니다. 시장 규칙(market.ourolabs.ai/rules, Round 4에 이어지는 food 규칙: "The shelf life left is the grade: '
-            f'A plenty, B some, C near its date")상 식품 등급은 남은 소비기한이고, 같은 cert에 시장 서명으로 입고 {sold}, '
-            f'소비기한 {ends}(지금부터 약 {left}시간)이 들어 있습니다. claim={claim}는 가게가 서명한 등급입니다. 입고 기록은 '
-            f'GET /api/ledger?after=<seq> supply 행의 data.units에 {unit}이 있는지로, 정산 뒤 봉인된 판매 내용은 거래 당사자(손님 '
-            f'계정)로 /api/ledger/sealed?order={order}에서 확인할 수 있습니다.')
+    left = f'약 {hours // 24}일' if hours >= 48 else f'약 {hours}시간'
+    # short and plain (operator 11/27): the customer reads only the first 2,000 characters; no 'null', no rules text
+    return (f'등급 근거: 시장 규칙상 식품 등급은 남은 소비기한입니다. 이 결제서에 든 시장 서명 인증서에 입고 {sold}, '
+            f'소비기한 {ends}까지({left} 남음)가 적혀 있고, 가게가 밝힌 등급은 {claim}등급입니다.')
 
 
 def key(row, digest_field='digest_hex'):

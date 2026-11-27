@@ -414,13 +414,13 @@ def install(ak, logs, checkout=False):
             "only for replies and threads, not for stock or price lists. Make a checkout only when the customer wants it and the agreed conditions "
             "are met. The actual reply text includes the matching signed originals automatically; do not copy "
             "or invent tokens. The signed originals open the reply because the customer reads only its first 2,000 characters, "
-            "so one reply carries at most 2 checkouts; for more, cancel the rest with checkout_cancel, answer with state input_required "
-            "and issue the rest in the customer's next message. Put only customer-facing prose in an issuing reply (no tool data or dumps). On explicit customer refusal or your explicit decision to cancel issuance, "
+            "so one reply carries one checkout (operator 11/27); when the customer wants more, issue the one they asked for first, "
+            "answer with state input_required and issue the next in the customer's next message. Put only customer-facing prose in an issuing reply (no tool data or dumps). On explicit customer refusal or your explicit decision to cancel issuance, "
             "pass checkout_cancel: true (all) or a list of order ids (only those) in reply. "
             "A reply state alone or a sentence about payment does not cancel issuance. "
             "When private_checkout answers grade_evidence: attached, the reply normally also carries a fixed grade-evidence "
-            "line (the market-signed food certificate has grade null; food grade is the shelf life left, which that "
-            "certificate states; a very long reply drops the line). Point to that line; do not claim the market verified the grade."
+            "line (food grade is the shelf life left, and the market-signed certificate states the supply and expiry time; a very "
+            "long reply drops the line). Point to that line when asked; do not claim the market verified the grade."
         )
 
         BaseUpdater = a2a_tasks.TaskUpdater
