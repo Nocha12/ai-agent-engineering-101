@@ -26,6 +26,7 @@ answer carries quote so the next offer uses the shown price.
 No wallet transfer here: the buyer pays, the kit only signs the checkout.
 """
 import base64
+import fcntl
 import hashlib
 import json
 import math
@@ -546,6 +547,35 @@ def create(args, kit):
                 **({'duplicate_of': str(dup.get('order'))} if dup else {}))
 
 
+SETTLE_LOCK_WAIT = 30         # seconds settle waits while a refund_send holds logs/refunds.jsonl, then asks to retry
+
+
+def refunds_hold(kit, args):
+    """refund owed review r3 (W-20261124-2007): a shared flock on logs/refunds.jsonl from the refund check to the
+    recorded outcome. refund_send pays under the exclusive lock, so a refund cannot pass its last check while a settle
+    is at the market, and a settle never starts while a refund is paying; settles do not wait for each other.
+    Read-only open (this tool may not write refunds.jsonl). No file yet: no refund was ever recorded, nothing to hold.
+    'busy' when a refund keeps the lock past the wait; None when the file system has no flock (settle goes on)."""
+    try:
+        f = open(_p(kit, 'logs/refunds.jsonl'), encoding='utf-8')
+    except FileNotFoundError:
+        return None
+    wait = args.get('_lock_wait', SETTLE_LOCK_WAIT) if kit.testing else SETTLE_LOCK_WAIT
+    end = time.time() + wait
+    while True:
+        try:
+            fcntl.flock(f.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
+            return f
+        except BlockingIOError:
+            if time.time() >= end:
+                f.close()
+                return 'busy'
+            time.sleep(0.1)
+        except OSError:
+            f.close()
+            return None
+
+
 def settle(args, kit):
     order, jwt = str(args.get('order') or ''), args.get('checkout_jwt')
     cm, pm = args.get('checkout_mandate'), args.get('payment_mandate')
@@ -559,8 +589,23 @@ def settle(args, kit):
         return {'ok': False, 'error': '이 결제서는 다른 주문 번호로 발급했습니다', 'order': issued['order']}
     pmm = pm.get('mandate') if isinstance(pm.get('mandate'), dict) else {}
     tx_hash = pmm.get('tx_hash')
+    hold = refunds_hold(kit, args)
+    if hold == 'busy':
+        return {'ok': False, 'error': '가게의 환불 송금이 진행 중이라 정산을 잠시 미뤘습니다. 기록하지 않았습니다. 잠시 뒤 같은 인자로 다시 settle합니다',
+                'retry': True}
+    try:
+        return settle_held(args, kit, order, jwt, cm, pm, hx, issued, tx_hash)
+    finally:
+        if hold:
+            fcntl.flock(hold.fileno(), fcntl.LOCK_UN)
+            hold.close()
+
+
+def settle_held(args, kit, order, jwt, cm, pm, hx, issued, tx_hash):
+    """settle after the refunds lock is held (refunds_hold): the refund check, the market calls, the record."""
     for r in _lines(_p(kit, 'logs/refunds.jsonl')) + _lines(_p(kit, 'logs/sends.jsonl')):
-        if r.get('purpose') == 'refund' and (str(r.get('order')) == order or (tx_hash and r.get('paid_tx') == tx_hash)):
+        if r.get('purpose') == 'refund' and (str(r.get('order')) == order or
+                                             (tx_hash and str(r.get('paid_tx') or '').lower() == str(tx_hash).lower())):
             return {'ok': False, 'error': '이 주문(결제)은 이미 환불했거나 환불 중입니다. 정산하지 않습니다'}
     base = {'ts': int(time.time()), 'order': order, 'unit': issued.get('unit'), 'digest_hex': hx,
             'price': issued.get('price'), 'tx_hash': tx_hash}

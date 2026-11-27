@@ -7,8 +7,10 @@ Before paying it reads the payment transaction again and pays its sender only. T
 the stage-2 amount, never more than what reached our wallet (permission.pay_limit is a fixed ceiling on top).
 Writes an intent line (with the nonce) before kit.pay and the tx_hash line after, in logs/sends.jsonl and
 logs/refunds.jsonl.
-Review r3 (48b2d94a): the last checks and the intent line run under an exclusive lock on logs/refunds.jsonl, so two
-calls at once cannot both pay one payment: the second reads the first one's intent and refuses. Under that lock, just
+Review r3 (48b2d94a): the last checks, the intent line, the transfer and the tx line run under an exclusive lock on
+logs/refunds.jsonl, so two calls at once cannot both pay one payment: the second reads the first one's intent and
+refuses. private_checkout settle holds the same lock shared from its refund check to its record, so a refund never
+passes its last check while a settle of that payment is at the market. Under that lock, just
 before paying, it reads the refund lines and (for an unsettled or owed plan) sales.jsonl and checkouts.jsonl's
 'settled' events again, matching every order id of the plan (the order asked, our checkout order, the market order)
 and the payment tx without case.
@@ -23,7 +25,8 @@ PLANS = 'logs/refund-plans.jsonl'
 FRESH = 1800
 PAY_CAP = 200000            # = permission.pay_limit in ops/install_tools.py; above it the kit refuses the transfer
 WEI = 10 ** 15
-LOCK_WAIT = 20              # seconds to wait for another refund_send holding the lock, then refuse (nothing sent)
+LOCK_WAIT = 60              # seconds to wait for another refund_send or a settle at the market (private_checkout holds
+                            # the lock shared through its market calls, POST up to 40 s), then refuse (nothing sent)
 
 
 def _p(kit, path):
@@ -105,6 +108,9 @@ def _lock(kit, args):
                 f.close()
                 return None
             time.sleep(0.1)
+        except OSError:                         # no flock on this file system: never pay without the lock
+            f.close()
+            return None
 
 
 def recheck(kit, args, order, p1):

@@ -74,6 +74,34 @@ def test(run, kit):
             g['rpc'] = rpc0
         assert '불확실' in r.get('error', ''), r
         os.remove(FILES[2])
+        # the first call holds the lock while it pays; the second waits, gets the lock, reads that intent and refuses
+        import threading
+        got = threading.Event()
+
+        def first():
+            with open(FILES[1], 'a') as h:
+                fcntl.flock(h, fcntl.LOCK_EX)
+                got.set()
+                time.sleep(0.4)
+                with open(FILES[2], 'a') as f:
+                    f.write(json.dumps({'purpose': 'refund', 'order': 't-o6', 'paid_tx': otx, 'nonce': 8}) + '\n')
+        th = threading.Thread(target=first)
+        th.start()
+        got.wait(2)
+        r = run(dict(a, _payments=[owed], _lock_wait=5), kit)
+        th.join()
+        assert '불확실' in r.get('error', ''), r
+        os.remove(FILES[2])
+        # asked by the market order id: a refund line under the checkout order is the same order
+        with open(FILES[0], 'a') as f:
+            f.write(json.dumps({'stage': 1, 'order': 'o-m8', 'ts': now, 'kind': 'owed', 'tx_hash': '0x' + 'e' * 64, 'amount': 9690,
+                                'payer': payer, 'checkout_order': 't-o8', 'market_order': 'o-m8'}) + '\n')
+            f.write(json.dumps({'stage': 2, 'order': 'o-m8', 'ts': now, 'kind': 'owed', 'tx_hash': '0x' + 'e' * 64, 'to': payer,
+                                'amount': 9690, 'value_credits': 9690}) + '\n')
+        with open(FILES[1], 'w') as f:
+            f.write(json.dumps({'purpose': 'refund', 'order': 't-o8', 'tx_hash': '0x9'}) + '\n')
+        assert '이미' in run({'order': 'o-m8', '_rpc': {'eth_getTransactionByHash': paid}}, kit).get('error', '')
+        os.remove(FILES[1])
         # review r3 I: a refund line under the other order id (market order) or the tx in other case is the same payment
         for line in ({'purpose': 'refund', 'order': 'o-m6', 'tx_hash': '0x9'},
                      {'purpose': 'refund', 'order': 'x', 'paid_tx': '0x' + 'C' * 64, 'tx_hash': '0x9'}):

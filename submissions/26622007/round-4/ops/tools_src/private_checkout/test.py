@@ -196,6 +196,38 @@ def test(run, kit):
             f.write('{"purpose":"refund","order":"o-x","paid_tx":"0x%s","tx_hash":"0x1"}\n' % ('a' * 64))
         rr = run(s, kit); assert '환불' in rr['error'], rr
         os.remove('logs/refunds.test.jsonl')
+        # refund owed review r3 (W-20261124-2007): the refund line's paid_tx in other case is the same payment
+        with open('logs/refunds.test.jsonl', 'w') as f:
+            f.write('{"purpose":"refund","order":"o-x","paid_tx":"0x%s","nonce":4}\n' % ('A' * 64))
+        rr = run(s, kit); assert '이미 환불' in rr.get('error', ''), rr
+        os.remove('logs/refunds.test.jsonl')
+        # a refund_send holds the refunds lock: settle waits, then asks again later, writing nothing
+        import fcntl
+        with open('logs/refunds.test.jsonl', 'a') as held:
+            fcntl.flock(held, fcntl.LOCK_EX)
+            rl = run(dict(s, _lock_wait=0.3), kit)
+        assert rl.get('retry') is True and '환불' in rl.get('error', ''), rl
+        with open(FILES[0]) as f:
+            assert '"unsettled"' not in f.read()
+        # settle keeps a shared hold on the lock through its market calls, so refund_send cannot pay in between
+        g0 = run.__globals__['sealed_settle']
+        probe = []
+
+        def sealed_probe(kit_, args_, order_):
+            with open('logs/refunds.test.jsonl', 'a') as other:
+                try:
+                    fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    probe.append('free')
+                except BlockingIOError:
+                    probe.append('held')
+            return g0(kit_, args_, order_)
+        run.__globals__['sealed_settle'] = sealed_probe
+        try:
+            run(dict(s, _tx_down=True), kit)
+        finally:
+            run.__globals__['sealed_settle'] = g0
+        assert probe == ['held'], probe
+        os.remove('logs/refunds.test.jsonl')
         d = run(dict(s, _tx_down=True), kit)
         assert d.get('retry') is True, d                                        # chain down: no record, ask again
         with open(FILES[0]) as f:
