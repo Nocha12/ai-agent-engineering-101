@@ -548,6 +548,32 @@ def _test_held(g, K, now):
     assert len(e) == 1 and e[0]['held_not_fit'][0]['why'] == 'other_size' and not r['asked_but_held'], r
     r = ask(M[:1], units(('G-silk', 1, False)), ONE)                  # the 300 g ask alone: moved
     assert find(r['asked_but_held'], 'G-silk') and not find(r['customer_asked_out_of_stock'], 'G-silk'), r
+    # 5b) review 3 I1: a brand / modifier / part of a name word is not the item: listed, held_maybe
+    for ask_item, held_name in (('유기농 쌀', '유기농 현미 4kg'), ('서울우유 체다치즈', '서울우유 흰우유 1L'),
+                                ('국산콩 두부', '국산콩 두유 190ml 16팩'), ('매운 라면', '청양 매운 고추 500g'), ('우유', '우유식빵 400g')):
+        one = [f('G-h', held_name)]
+        r = ask([row('h1', ask_item, ask_item + ' 있나요')], [], one)
+        assert find(r['customer_asked_out_of_stock'], 'G-h'), (ask_item, r)
+        r = ask([row('h1', ask_item, ask_item + ' 있나요')], units(('G-h', 1, False)), one)
+        e = find(r['customer_asked_out_of_stock'], 'G-h')
+        assert len(e) == 1 and e[0]['held_maybe'] and not r['asked_but_held'], (ask_item, r)
+    #    the item word last in a name word, a one-letter staple too: moved (review 3 M1)
+    #    (a one-letter staple whose name only ends with it is 'near' and stays held_maybe: 햅쌀 for 쌀)
+    for ask_item, held_name in (('쌀', '2026년 백미 쌀 5kg'), ('파', '국내산 손질 파 1kg'), ('우유', '서울우유 흰우유 1L'),
+                                ('흰우유', '서울우유 흰우유 1L')):
+        one = [f('G-h', held_name)]
+        r = ask([row('h2', ask_item, ask_item + ' 있나요')], units(('G-h', 1, False)), one)
+        assert find(r['asked_but_held'], 'G-h') and not find(r['customer_asked_out_of_stock'], 'G-h'), (ask_item, r)
+    #    '계란 10개' asked, '계란 30구' held: one count family, other size (review 3 M2)
+    one = [f('G-egg', '무항생제 계란 30구')]
+    r = ask([row('h3', '계란 10개', '계란 10개 있나요')], units(('G-egg', 1, False)), one)
+    e = find(r['customer_asked_out_of_stock'], 'G-egg')
+    assert len(e) == 1 and e[0]['held_not_fit'][0]['why'] == 'other_size' and not r['asked_but_held'], r
+    r = ask([row('h3', '계란 30개', '계란 30개 있나요')], units(('G-egg', 1, False)), one)
+    assert find(r['asked_but_held'], 'G-egg'), r
+    #    a catalog SKU asked in other words ('생선' for G-flat): the SKU itself, moved (review 3 M3)
+    r = ask([row('h4', '생선', '생선 있나요', sku='G-flat')], units(('G-flat', 1, False)))
+    assert find(r['asked_but_held'], 'G-flat') and not find(r['customer_asked_out_of_stock'], 'G-flat'), r
     # 6) a catalog SKU asked and held (the old first-option case): moved, was dropped before
     r = ask([row('e', '국내산 손질 두절 가자미 4미 1팩', '있나요', sku='G-flat')], units(('G-flat', 1, False)))
     assert find(r['asked_but_held'], 'G-flat') and not find(r['customer_asked_out_of_stock'], 'G-flat'), r

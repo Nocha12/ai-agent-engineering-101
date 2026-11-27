@@ -44,6 +44,7 @@ DISH = ('장아찌', '볶음', '김치', '무침', '조림', '찌개', '칼국�
 # name before one with the item ('보통 두부': 떡볶이(보통맛) after 연두부, 11/27 07:43), only among names with it ('중간
 # 계란': 중간 크기 계란 first, review I1). Order only, nothing is left out for it
 MOD = {'보통', '작은', '중간', '소형', '중형', '대형'}
+PIECES = ('개', '구', '입', '개입')    # counts of the same pieces when a held pack is compared with an ask
 SMALL_G = 1000                       # a small pack: the whole pack at most this many g / ml ...
 SMALL_N = 4                          # ... or at most this many pieces; an unknown size is not small (it stays listed)
 SMALL = re.compile(r'소량|소포장|작은|조금|혼자|(?<!\d)1\s?인|한\s?봉지|소용량|적당한\s?양')
@@ -495,14 +496,21 @@ def asked_out_of_stock(lost, foods, held, now, sold=None, want_held=False):
 
 
 def _ask_words(g):
-    """The customer's own item words (2+ letters, no size words such as 보통 / 소량): what the held name must carry."""
-    return {w for it in g['items'] for w in _item_words(it) if len(w) > 1 and w not in MOD and not SMALL.search(w)}
+    """The thing itself of each ask: its last word without size / amount words (보통, 소량): '유기농 쌀' 쌀, '서울우유
+    체다치즈' 체다치즈, '흰우유 한 통 또는 소량 포장' 흰우유 (review 3 I1: a brand or a modifier is not the item)."""
+    out = set()
+    for it in g['items']:
+        ws = [w for w in _item_words(it) if w not in MOD and not SMALL.search(w)]
+        if ws:
+            out.add(ws[-1])
+    return out
 
 
-def _names_item(name, words):
-    """True when a word the customer wrote is in the name outside [..] / (..) ('흰우유' in 'GT 흰우유 200mL')."""
-    joined = ''.join(_words(name))
-    return any(w in joined for w in words)
+def _names_item(name, heads):
+    """True when a name word (outside [..] / (..)) is the item or ends with it: Korean puts the thing last ('흰우유' for
+    우유, '햅쌀' for 쌀, '대파' for 파); '우유식빵', '두유', '현미', '청양 매운 고추' are not 우유 / 두부 / 쌀 / 라면."""
+    ws = re.findall(r'[가-힣]+|[A-Za-z]{2,}', _clean(re.sub(r'\[[^\]]*\]|\([^)]*\)', ' ', str(name)[:160])))
+    return any(w == h or w.endswith(h) for h in heads for w in ws)
 
 
 def small_pack(name):
@@ -525,8 +533,11 @@ def held_fit(e, by_sku, asked_sizes):
         on_name = pack_of(name)[2] | {_norm(t[2], t[3]) for t in sizes(name) if t[3] not in _MULT}
         # weights / volumes / pack kinds; a count ('2개', '1팩') only when the held name counts in that unit too:
         # '우유 2개' fits '우유 1L', '두부 300g 1팩' does not fit '300g×5팩' (review 1 M3, review 2 M1)
+        # one count family: '계란 10개' and '30구' / '24개입' count the same things (review 3 M2)
+        fam = lambda k: (k[0], '개') if k[1] in PIECES else k
+        on_name = {fam(k) for k in on_name}
         units = {u for _, u in on_name}
-        want = {k for k in asked_sizes if k[1] in ('g', 'ml') or k[1] in _KIND or k[1] in units}
+        want = {fam(k) for k in asked_sizes if k[1] in ('g', 'ml') or k[1] in _KIND or fam(k)[1] in units}
         if want and not want <= on_name:
             why = 'other_size'
         elif e.get('small_pack_asked') and not small_pack(name):
