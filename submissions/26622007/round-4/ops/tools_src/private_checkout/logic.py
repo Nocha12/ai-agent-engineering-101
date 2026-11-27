@@ -634,12 +634,13 @@ def settle_held(args, kit, order, jwt, cm, pm, hx, issued, tx_hash):
         if not any(str(s.get('order')) == order for s in _lines(_p(kit, 'logs/sales.jsonl'))):
             _record_sale(kit, done, done.get('seq'), base)
         return {'ok': True, 'settled': True, 'note': '이미 정산된 주문입니다', 'sale': {k: done.get(k) for k in ('order', 'amount', 'tx_hash')}}
-    if sent_open(kit, order, tx_hash):
-        # review r7 I1: an earlier POST of this order and payment has no answer yet; the market may still settle it
-        # (then the unit is gone from our stock), so no unit_gone row here: ask again until the sealed ledger shows it
-        return {'ok': False, 'error': '이 결제의 앞선 정산 요청 결과가 아직 없습니다. 기록하지 않았습니다. 몇 분 뒤 같은 인자로 다시 호출합니다',
-                'retry': True}
     if not unit_now(inventory(kit, args), issued.get('unit')):
+        if sent_open(kit, order, tx_hash):
+            # review r7 I1: an earlier POST of this order and payment has no answer and the unit is gone: the market may
+            # still be settling it, so no unit_gone row: ask again until the sealed ledger shows it (unit still held =
+            # the POST below is sent again as before)
+            return {'ok': False, 'error': '이 결제의 앞선 정산 요청 결과가 아직 없습니다. 기록하지 않았습니다. 몇 분 뒤 같은 인자로 다시 호출합니다',
+                    'retry': True}
         paid = paid_us(kit, args, tx_hash, hx) if tx_hash else False
         if paid is None:
             return {'ok': False, 'error': '체인 조회가 지금 안 됩니다. 기록하지 않았습니다. 몇 분 뒤 같은 인자로 다시 호출합니다', 'retry': True}

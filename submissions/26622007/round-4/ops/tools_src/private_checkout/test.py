@@ -247,6 +247,11 @@ def test(run, kit):
         again = run(s, kit)
         assert again.get('retry') is True and '앞선 정산 요청' in again.get('error', ''), again
         assert sum(1 for _ in open(FILES[0])) == n0
+        # the unit still held: the retry sends the POST again (a new settle_sent row, then the lost answer again)
+        held = run(dict(s, _inventory={'wallet': shop, 'units': [{'unit': 'u-t1'}]}), kit)
+        assert held.get('status') == 0, held
+        with open(FILES[0]) as f:
+            assert sum(1 for l in f if '"settle_sent"' in l) == 2
         return 'ok'
     finally:
         for f in FILES:
