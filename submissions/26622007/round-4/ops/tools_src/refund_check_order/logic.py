@@ -134,7 +134,7 @@ def owed_plan(kit, args, order, log):
     we issued (amount = price - shop fee, a payer address). Stage 2 reads the chain for the digest, sender and value."""
     pay = _lines('logs/payments.jsonl') if not kit.testing else args.get('_payments') or []
     owed = [e for e in pay if e.get('kind') == 'paid_unsettled' and str(e.get('id') or '').startswith('owed-')
-            and order in (str(e.get('checkout_order')), str(e.get('order')))]
+            and order in {str(k) for k in (e.get('checkout_order'), e.get('order')) if k}]
     if not owed:
         return None, '이 주문의 정산 기록도, 결제 후 정산 실패 기록도, 장부의 미정산 입금(owed) 줄도 없습니다'
     if len(owed) != 1:
@@ -175,7 +175,7 @@ def owed_plan(kit, args, order, log):
                                 for r in log if r.get('event') in ('unsettled', 'settled', 'issued')):
         return None, '이 결제서나 결제가 다른 주문 번호에도 기록되어 있습니다. 사람이 확인해야 합니다'
     price, fee, amount = _num(c.get('price')), _num(c.get('shop_fee')), _num(e.get('amount'))
-    if price is not None and fee is None:
+    if price is not None and fee is None and math.isfinite(price):
         fee = int(price) // 100 + 210              # the market's shop fee, as for a settle without shop_fee
     if any(v is not None and not math.isfinite(v) for v in (price, fee, amount)):
         return None, '장부 미정산 입금 금액이나 결제서 금액이 숫자가 아닙니다'

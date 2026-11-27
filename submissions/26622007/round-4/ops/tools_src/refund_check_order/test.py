@@ -72,6 +72,9 @@ def test(run, kit):
         # review r1 M3: a non-finite amount is a refusal, not a crash
         assert '금액' in run(dict(base, order='ck-1', _payments=[dict(owed, amount=float('nan'))]), kit)['error']
         assert '금액' in run(dict(base, order='ck-1', _payments=[dict(owed, amount=float('inf'))]), kit)['error']
+        for bad in (float('nan'), float('inf')):                                                 # review r2 m1
+            assert '금액' in run(dict(base, order='ck-1', _checkouts=[dict(issued, price=bad)]), kit)['error']
+        assert '없습니다' in run(dict(base, order='None', _payments=[dict(owed, order=None)]), kit)['error']   # review r2 m3
         # review r1 M1: refunds.jsonl paid_tx compared without case
         with open('logs/refunds.test.jsonl', 'w') as f:
             f.write('{"purpose":"refund","order":"other","paid_tx":"%s"}\n' % otx.upper().replace('0X', '0x'))
