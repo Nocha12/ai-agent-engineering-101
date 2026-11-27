@@ -38,7 +38,7 @@ class GoalHasNoStockOrEndGate(unittest.TestCase):
     def test_owner_minimum_list_kept(self):
         g = goal()
         for s in ('품목당 최대 4개', '한 창 최대 3품목', '후보는 식품뿐', '실제로 팔리는 값으로 팔아도 남지 않으면 사지 않는다',
-                  '손님이 찾은 품목은 다른 규격 재고가 있어도 그것만으로 매입을 멈추지 않는다', '공급 창이 열리면 바로 산다'):
+                  '손님이 찾은 품목은 다른 규격 재고가 있어도 그것만으로 매입을 멈추지 않는다', '있는 품목을 바로 산다'):
             self.assertIn(s, g)
 
     def test_buy_follows_demand(self):
@@ -48,6 +48,9 @@ class GoalHasNoStockOrEndGate(unittest.TestCase):
         3 x 4 is a ceiling, a window without demand is skipped. No amount cap, no total-stock cap, no end time."""
         g = goal()
         self.assertNotIn('판매 속도와 지금 가진 재고는 참고만 하고 매입을 멈추거나 줄이는 이유로 쓰지 않는다', g)
+        # review I2: no push to spend every sale on buying again
+        self.assertNotIn('판 돈은 바로 다시 매입에 돌려 회전시킨다', g)
+        self.assertIn('공급 창이 열리면 근거(손님 문의·우리 판매) 있는 품목을 바로 산다', g)
         for s in ('채울 목표가 아니다', '근거 있는 품목이 없으면 그 창은 사지 않고', '1명 1개, 2명 2개, 3명 이상 3~4개',
                   'food_candidates refill의 qty', '1개만 시험으로', '일반 두부를 찾은 손님에게 멸균 실큰두부'):
             self.assertIn(s, g)

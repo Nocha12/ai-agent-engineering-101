@@ -97,7 +97,7 @@ def own_sold(path=OWN, now=None, hours=LOOKBACK_H):
     11/27 17:30 (대표님 #13855): 16:06~17:30 we bought 12 lots for 203,438 while selling 15,516; eggs 35 bought / 14 sold,
     tofu 30 / 14 kept being bought. The amount to buy again follows what we sold, per SKU (not a total-stock cap)."""
     now = _clock() if now is None else now
-    out = {}
+    out, seen = {}, set()
     try:
         lines = open(path, encoding='utf-8', errors='replace').read().splitlines()[-5000:]
     except OSError:
@@ -112,8 +112,14 @@ def own_sold(path=OWN, now=None, hours=LOOKBACK_H):
         ts, sku = r.get('ts'), r.get('sku')
         if type(ts) not in (int, float) or not math.isfinite(ts) or not isinstance(sku, str) or not sku:
             continue
-        if now - hours * 3600 <= ts <= now + 60:
-            out[sku] = out.get(sku, 0) + 1
+        if not now - hours * 3600 <= ts <= now + 60:
+            continue
+        key = r.get('unit') or r.get('order')            # review M1: a unit logged twice is one sale
+        if key:
+            if key in seen:
+                continue
+            seen.add(key)
+        out[sku] = out.get(sku, 0) + 1
     return out
 
 
@@ -618,13 +624,16 @@ def run(args, kit):
         mine = own_sold(now=_clock())
     except Exception:                                   # refill is advice; a bad file never hides the rest
         mine = {}
-    refill = sorted(({'sku': k, 'name': str(names.get(k) or '')[:30], 'sold_24h': n, 'held': held.get(k, 0),
-                      'qty': max(0, min(4, n - held.get(k, 0)))} for k, n in mine.items() if n > 0),
-                    key=lambda x: (-x['qty'], -x['sold_24h']))[:REFILL_MAX]
     try:
         asked = asked_out_of_stock(read_lost(), foods, held, _clock(), market_sold())
     except Exception as e:                              # a bad log line must not hide the catalog
         asked = {'error': type(e).__name__ + ': ' + str(e)[:120]}
+    # refill (review M2): food SKUs of the catalog only, and not a SKU an asked item already lists (bought once there)
+    in_asked = {o.get('sku') for e in (asked if isinstance(asked, list) else []) for o in (e.get('buy_options') or [])}
+    refill = sorted(({'sku': k, 'name': str(names[k] or '')[:30], 'sold_24h': n, 'held': held.get(k, 0),
+                      'qty': max(0, min(4, n - held.get(k, 0)))} for k, n in mine.items()
+                     if n > 0 and k in names and k not in in_asked),
+                    key=lambda x: (-x['qty'], -x['sold_24h']))[:REFILL_MAX]
     return fit({'balance': inv.get('balance'), 'restock': inv.get('restock'), 'surge_skus': sorted(surge),
             'inventory_ok': isinstance(inv.get('units'), list),
             'note': ('customer_asked_out_of_stock: 최근 %dh 손님이 찾았는데 재고 0이었던 식품. 공급 창이 열리면 항목마다 '
@@ -632,13 +641,13 @@ def run(args, kit):
                      'small_pack_asked: true이면 pack/pack_size가 작은 것(크기를 아는 소포장)을 고른다. '
                      'buy_options가 빈 항목(substitutes_refused: 손님이 대체품 거부)은 사지 않는다. '
                      'near: true는 손님이 쓴 한 글자로 끝나는 다른 이름(양파 등)이니 이름을 보고 같은 것일 때만 산다. '
-                     '수량은 찾은 손님 수: customers 1명 1개, 2명 2개, 3명+ 3~4개. held: 찾은 식품·규격 보유(먼저 판다, 다르면 산다), held_maybe: 다른 식품일 수 있는 보유(다르면 산다), '
+                     '수량은 찾은 손님 수: customers 1명 1개, 2명 2개, 3명+ 3~4개(customers 0이면 1개). held: 찾은 식품·규격 보유(먼저 판다, 다르면 산다), held_maybe: 다른 식품일 수 있는 보유(다르면 산다), '
                      'held_not_fit: 다른 규격 보유(그 규격은 재고 0, 맞는 SKU가 없으면 같은 SKU도 산다). 표시는 매입을 막지 않는다. '
                      'refill: 그 밖의 품목은 우리 가게 24h 판매(sold_24h) − 보유(held) = qty만큼만 다시 채우고, qty 0이면 그 품목은 이번 창에 건너뛰고 가진 것을 먼저 판다. '
                      'candidates는 카탈로그일 뿐 매입 근거가 아니다(우리 판매·손님 문의가 없는 품목은 1개만 시험). '
                      '한 창 3품목·품목당 4개는 최대치이지 채울 목표가 아니다: 근거 있는 품목이 없으면 그 창은 건너뛴다.') % LOOKBACK_H,
-            'refill': refill,
             'customer_asked_out_of_stock': asked,
+            'refill': refill,
             'candidates': out[:80], 'food_skus': n_food})
 
 
@@ -651,6 +660,8 @@ def fit(res, limit=FIT):
     while size() > limit and res.get('candidates'):
         res['candidates'] = res['candidates'][:len(res['candidates']) * 2 // 3]
         res['more_candidates'] = True
+    if size() > limit and isinstance(res.get('refill'), list) and len(res['refill']) > 3:
+        res['refill'] = res['refill'][:3]               # review I1: refill gives room before any asked item
     asked = res.get('customer_asked_out_of_stock')
     while size() > limit and isinstance(asked, list) and asked:
         asked.pop()
