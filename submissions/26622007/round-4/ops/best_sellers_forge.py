@@ -193,6 +193,12 @@ def forge_move(data_path):
         kept = {(r[0], r[2]) for r in keep}
         only = {h: v for h, v in (data.get('chain_only_tx') or {}).items() if tuple(v) in kept}
         data = dict(data, sales=keep, chain_only_tx=only, trimmed=data.get('trimmed', 0) + len(data['sales']) - len(keep))
+    for k in ('url_names', 'chain'):            # 11/27: still too big with no sales (url_names ~38k, chain ~36k). In the kit
+        if len(logic) < MAX_LOGIC:                # the forged tool reads the live ops/ cache (load_cache), never this copy
+            break
+        data = dict(data)
+        data.pop(k, None)
+        logic = f'DATA = {data!r}\n\n{kernel}\n{RUN}'
     if len(logic) >= MAX_LOGIC:
         raise ValueError(f'tool logic is {len(logic)} chars even with no sales; shrink the catalog part of the data')
     compile(logic, 'logic.py', 'exec')
@@ -202,7 +208,7 @@ def forge_move(data_path):
                                      'horizon_hours(기본 3), own_stock {sku: 개수}, kind(all|food|goods), min_tx(기본 1), '
                                      'live(기본 true: 공개 장부 새 행을 GET으로 읽고, 장부가 실패하거나 비면 Maroo 체인 최근 블록을 읽기 전용으로 읽음). '
                                      'source(ledger|chain|built)는 최신 행의 출처, ledger_down은 장부 실패 표시. buy_qty는 참고값이며 0이거나 stale이어도 매입을 막지 않는다. 출력 items[sku, name, per_hour, tx, '
-                                     'tx_on_chain, shops, repeat_buyers, price[최저,중앙,최고], price_vs_list, buy_qty, '
+                                     'tx_on_chain, shops, repeat_buyers, price[최저,중앙,최고], price_vs_list, buy_qty(참고값), buy_qty_basis(stock|no_stock_data), '
                                      'price_ceiling_args]. 거래·송금을 하지 않는다.'),
                      'permission': {'network': ['market.ourolabs.ai', 'rpc-testnet.maroo.io'], 'timeout': 30},
                      'logic': logic, 'test': TEST}}

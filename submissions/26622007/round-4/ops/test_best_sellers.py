@@ -469,7 +469,8 @@ class Forge(unittest.TestCase):
 
     def test_a_catalog_too_big_even_with_few_sales_fails_instead_of_looping(self):
         data = bs.build_data(ledger(), CATALOG, now=NOW)
-        data['url_names'] = {'https://s%d.example' % i: 'n' * 40 for i in range(1000)}
+        # 11/27: url_names and chain are dropped when too big (the kit reads the live cache), so pad the catalog
+        data['items'].update({'x%d' % i: ['n' * 40, 'food', 1000] for i in range(1000)})
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / 'data.json'
             out.write_text(json.dumps(data), encoding='utf-8')

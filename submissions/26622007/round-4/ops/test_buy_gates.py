@@ -2,7 +2,7 @@
 11/26 09:35 "라운드 종료시간은 고려하지마"); audit review/W-20261124-1650-AXRound4준비/purchase-gate-audit-1127.md D-1..D-5.
 Allowed: class kit limits, food only, expected sale > cost + fees, 3 items a window / 4 each, same-quote re-confirm.
 Market facts (supply window closed, 429, balance) are not gates.
-Run from ops/: ~/ax-round4-venv/bin/python -m pytest -q test_buy_gates.py"""
+Run from ops/: ~/ax-round4-venv/bin/python -m unittest -q test_buy_gates"""
 import json
 import sys
 import unittest
@@ -44,7 +44,6 @@ class GoalHasNoStockOrEndGate(unittest.TestCase):
         self.assertIn('판매 속도와 지금 가진 재고는 참고만 하고 매입을 멈추거나 줄이는 이유로 쓰지 않는다', goal())
 
 
-
 class BestSellersDoesNotStopBuying(unittest.TestCase):
     """D-1: best_sellers buy_qty was 0 whenever data was stale and its note said 0이면 사지 않음."""
 
@@ -84,6 +83,15 @@ class BestSellersDoesNotStopBuying(unittest.TestCase):
         water = self.bs.rank({'horizon_hours': 4, 'own_stock': {'water': 1}}, self.data, now=self.NOW)['items'][0]
         self.assertEqual(water['buy_qty'], 1)                         # same as test_best_sellers
         self.assertEqual(water['buy_qty_basis'], 'stock')
+
+    def test_real_cache_forges_under_the_size_limit(self):
+        import runpy
+        move = runpy.run_path(str(HERE / 'best_sellers_forge.py'))['forge_move'](str(HERE / 'best_sellers_data.json'))
+        logic = move['args']['logic']
+        self.assertLess(len(logic), 40_000)
+        self.assertNotIn('0이면 사지', logic + move['args']['description'])
+        compile(logic, 'logic.py', 'exec')
+
 
 if __name__ == '__main__':
     unittest.main()

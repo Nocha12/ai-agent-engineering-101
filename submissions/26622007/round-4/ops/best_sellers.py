@@ -175,11 +175,12 @@ def rank(args, data, now):
         buyers = {}
         for r in rows:
             buyers[r[3]] = buyers.get(r[3], 0) + 1
-        _, sellers, have = (0, 0, 0) if stale else shared['stock_counts'](data, sku)
-        have = max(have, own.get(sku, 0)) if type(own.get(sku, 0)) is int else have
         confirmed = 'stock_unconfirmed' in data and sku not in data['stock_unconfirmed']
+        _, sellers, have = (0, 0, 0) if stale or not confirmed else shared['stock_counts'](data, sku)
+        have = max(have, own.get(sku, 0)) if type(own.get(sku, 0)) is int else have
         # 11/27 (대표님 11/26 "가드 넣지 말라고"): a reference number only. Stale or unconfirmed stock no longer forces 0;
-        # the shares then use only what we know (own stock), and buy_qty_basis says so.
+        # the shares then use only what we know (own stock), and buy_qty_basis says so (a live tail cut short in
+        # best_sellers_forge RUN also marks no_stock_data: its stock may be behind).
         qty = shared['buy_limit'](v, wide, sellers, have, horizon)
         items.append(dict(sku=sku, name=name, kind=k, per_hour=round(v, 2), tx=len(rows),
                           tx_on_chain=sum(1 for r in rows if r[4] > 0), tx_6h=wide, shops=len({r[2] for r in rows}),
@@ -293,12 +294,12 @@ def main():
                 print(f'warning: stock not merged ({e}); built without public stock', file=sys.stderr)
             else:
                 # a chain-only sale after the shop snapshot took a unit the snapshot still counts: that SKU's stock
-                # is not confirmed (buy_qty 0 here, price_demand refuses it) until the next snapshot
+                # is not confirmed (buy_qty_basis no_stock_data here, price_demand refuses it) until the next snapshot
                 late = {r[1] for r in data['sales'] if r[5] == CHAIN_ONLY and r[0] > data['stock_as_of']}
                 data['stock_unconfirmed'] = sorted(set(data['stock_unconfirmed']) | late)
         else:
             print('warning: no ledger rows or no snapshots/*.json; built without public stock', file=sys.stderr)
-        if data is None:    # paid sales (ledger and chain) only, no stock observation, so every buy_qty is 0
+        if data is None:    # paid sales (ledger and chain) only, no stock observation, so every buy_qty_basis is no_stock_data
             data = build_data(ledger, load('catalog.json', []), time.time(), a.keep_hours, load('txs.json', {}),
                               chain)
         out = Path(a.output)
