@@ -592,9 +592,25 @@ def fixed(name, sku=None):
     return sku in FIXED_SKU or any(w in str(name or '') for w in FIXED_PRICE)
 
 
+CASH_HOURS = 48        # cash-out (현금화, 11/27): a food grade whose soonest unit has this many hours or less left
+
+
+def soonest(inv, sku, grade, now):
+    """Hours left of the soonest dated food unit of this SKU and grade we hold, or None."""
+    left = [(float(u['expires_at']) - now) / 3600 for u in inv.get('units') or []
+            if isinstance(u, dict) and u.get('sku') == sku and str(u.get('grade') or '?') == grade
+            and u.get('kind') in (None, 'food') and isinstance(u.get('expires_at'), (int, float))
+            and not isinstance(u.get('expires_at'), bool) and float(u['expires_at']) > now]
+    return min(left) if left else None
+
+
 def requote_plan(qb, inv, quotes, settles, now):
-    """{sku: {grade: new price}} for the grades we hold whose quote is missing or above max(floor, 24 h median)."""
+    """{sku: {grade: new price}} for the grades we hold whose quote is missing or above max(floor, 24 h median).
+    Cash-out (11/27): when that grade's soonest unit has CASH_HOURS or less left and the 24 h median is under the
+    floor, the entry is {'price': median, 'floor': median} instead (a cash-out quote, below cost: a unit that expires
+    is 0 credits), never under the quote block's CASHOUT_MIN and never for water."""
     plan, work = {}, dict(quotes)                # work: the quotes as they will be once the plan is written
+    cmin = qb.get('CASHOUT_MIN')
     for sku in sorted({u.get('sku') for u in inv.get('units') or [] if isinstance(u, dict) and u.get('sku')}):
         st = qb['stock'](inv, sku, now)
         if not st or fixed(st['name'], sku):
@@ -603,8 +619,18 @@ def requote_plan(qb, inv, quotes, settles, now):
             med = settles.median(sku, g)
             if med is None:
                 continue
-            target = max(int(st['floors'][g]), med)
             have = qb['quote_get'](quotes, sku, g, now)
+            left = soonest(inv, sku, g, now)
+            if cmin is not None and med < int(st['floors'][g]) and left is not None and left <= CASH_HOURS:
+                target = max(int(cmin), med)
+                if have is not None and have <= target and qb['quote_floor'](quotes, sku, g, now) is not None \
+                        and qb['quote_floor'](quotes, sku, g, now) <= target:
+                    continue                         # already a cash-out quote at or under the median
+                fit = qb['quote_fit'](work, sku, g, target, target, now)
+                plan.setdefault(sku, {})[g] = {'price': target, 'floor': target}
+                work[f'{sku}|{g}'] = {'price': fit, 'ts': now, 'by': qb['CASHOUT_BY'], 'floor': target}
+                continue
+            target = max(int(st['floors'][g]), med)
             if have is not None and have <= target:
                 continue
             # No quote yet: the menu sets max(floor, market median) and, as quote_set keeps the first quote, that is
@@ -636,7 +662,17 @@ def apply_plan(qb, path, inv, plan, now):
             continue
         for g in sorted(prices, key=lambda g: rank.index(g) if g in rank else -1):
             have = qb['quote_get'](q, sku, g, now)
-            p = qb['quote_fit'](q, sku, g, int(prices[g]), int(st['floors'].get(g, 0)), now)
+            v = prices[g]
+            if isinstance(v, dict):                # cash-out entry (requote_plan): its own floor, under cost
+                cf = int(v['floor'])
+                p = qb['quote_fit'](q, sku, g, int(v['price']), cf, now)
+                old = qb['quote_floor'](q, sku, g, now)
+                if have is not None and p >= have and old is not None and old <= cf:
+                    continue
+                q[f'{sku}|{g}'] = {'price': p, 'ts': now, 'by': qb['CASHOUT_BY'], 'floor': cf}
+                out.setdefault(sku, {})[g] = p
+                continue
+            p = qb['quote_fit'](q, sku, g, int(v), int(st['floors'].get(g, 0)), now)
             if have is not None and p >= have:     # a tool re-quoted it meanwhile, or the fit would not lower it
                 continue
             q[f'{sku}|{g}'] = {'price': p, 'ts': now, 'by': 'forum_menu'}
