@@ -21,8 +21,9 @@ class GoalHasNoStockOrEndGate(unittest.TestCase):
 
     def test_no_stock_cap_sentences(self):
         g = goal()
-        for s in ('재고만 쌓아 두거나', '유통기한 안에 팔 수 있는 양만 산다', '지금 가진 그 품목 재고를 뺀다',
-                  '유통기한 안에 팔 수 있는 양까지'):
+        # 11/27 17:30 (#13855): the per-SKU refill (sold 24 h - held of that SKU) is back as a judgment; a total-stock cap stays out
+        for s in ('재고만 쌓아 두거나', '유통기한 안에 팔 수 있는 양만 산다', '유통기한 안에 팔 수 있는 양까지', '재고 총개수가',
+                  '총재고'):
             self.assertNotIn(s, g)
 
     def test_no_end_time_rules(self):
@@ -37,11 +38,22 @@ class GoalHasNoStockOrEndGate(unittest.TestCase):
     def test_owner_minimum_list_kept(self):
         g = goal()
         for s in ('품목당 최대 4개', '한 창 최대 3품목', '후보는 식품뿐', '실제로 팔리는 값으로 팔아도 남지 않으면 사지 않는다',
-                  '이미 가진 재고가 있어도 그것만으로 매입을 멈추지 않는다', '공급 창이 열리면 바로 산다'):
+                  '손님이 찾은 품목은 다른 규격 재고가 있어도 그것만으로 매입을 멈추지 않는다', '공급 창이 열리면 바로 산다'):
             self.assertIn(s, g)
 
-    def test_stock_and_speed_are_reference_only(self):
-        self.assertIn('판매 속도와 지금 가진 재고는 참고만 하고 매입을 멈추거나 줄이는 이유로 쓰지 않는다', goal())
+    def test_buy_follows_demand(self):
+        """11/27 17:30 대표님 #13855 '제대로 해 파산하겠다': 16:06~17:30 매입 203,438 vs 판매 15,516. The goal told the shop
+        to ignore sales speed and stock and to fill 3 items a window; it bought for one ask 2~4 lots and market best
+        sellers it already held. Now: one unit per customer who asked, refill = our 24 h sales - held per SKU, the
+        3 x 4 is a ceiling, a window without demand is skipped. No amount cap, no total-stock cap, no end time."""
+        g = goal()
+        self.assertNotIn('판매 속도와 지금 가진 재고는 참고만 하고 매입을 멈추거나 줄이는 이유로 쓰지 않는다', g)
+        for s in ('채울 목표가 아니다', '근거 있는 품목이 없으면 그 창은 사지 않고', '1명 1개, 2명 2개, 3명 이상 3~4개',
+                  'food_candidates refill의 qty', '1개만 시험으로', '일반 두부를 찾은 손님에게 멸균 실큰두부'):
+            self.assertIn(s, g)
+        self.assertNotIn('객단가 1만 이상(우유 묶음, 쌀, 계란 30구 이상 등)을 우선한다', g)
+        for s in ('50만', '500,000', '현금 하한', '일일 상한'):
+            self.assertNotIn(s, g)
 
 
 class BestSellersDoesNotStopBuying(unittest.TestCase):

@@ -26,7 +26,8 @@ def test(run, kit):
         {'ts': float('nan'), 'customer': 'j', 'item': '커피', 'reason': '재고없음', 'grade_stock': '재고 0'},   # bad row: skipped
         {'ts': now - 20, 'customer': '', 'item': '두절 가자미 4미', 'reason': '재고없음', 'grade_stock': '재고 0'},  # same SKU as G-flat
     ]
-    saved = {k: g[k] for k in ('fetch', 'read_lost', 'market_sold')}
+    saved = {k: g[k] for k in ('fetch', 'read_lost', 'market_sold', 'own_sold')}
+    g['own_sold'] = lambda path=None, now=None: {}
     try:
         g['fetch'] = lambda base, token: (CAT, {'surge': [{'sku': 'G-ramen2'}]}, INV)
         g['read_lost'] = lambda path=None: LOST
@@ -505,6 +506,7 @@ def _test_held(g, K, now):
         g['fetch'] = lambda base, tk: (c, {'surge': []}, {'balance': 1, 'units': inv_units})
         g['read_lost'] = lambda path=None: rows
         g['market_sold'] = lambda path=None: {}
+        g['own_sold'] = lambda path=None, now=None: {}
         return g['run']({}, K())
 
     def find(lst, sku):
@@ -634,8 +636,12 @@ def _test_held(g, K, now):
     r = ask([row('e', '국내산 손질 두절 가자미 4미 1팩', '있나요', sku='G-flat')], units(('G-flat', 1, False)))
     assert held_e(r, 'G-flat'), r
     # 7) the amount by asks, inside the operator's 2~4 (buy_food_lot keeps its own 1~4)
-    assert 'asks 1→2개, 2→3개, 3+→4개' in r['note'] and '표시는 매입을 막지 않는다' in r['note'], r['note']
-    assert '같은 SKU도 산다' in r['note'] and len(r['note']) <= 368 + 175, len(r['note'])   # prod 368: room for asks (review 6 I1)
+    #    11/27 17:30 (대표님 #13855 "제대로 해 파산하겠다"): one customer who asked once is one unit, not 2~4;
+    #    the max 3 items x 4 is a ceiling, not a target; the catalog is not a reason to buy
+    assert 'customers 1명 1개, 2명 2개, 3명+ 3~4개' in r['note'] and '표시는 매입을 막지 않는다' in r['note'], r['note']
+    assert 'asks 1→2개' not in r['note'] and 'qty 2~4' not in r['note'], r['note']
+    assert '채울 목표가 아니다' in r['note'] and 'refill' in r['note'], r['note']
+    assert '같은 SKU도 산다' in r['note'] and len(r['note']) <= 820, len(r['note'])
     #    every mark says to buy when the held one is not what was asked; '사지 않' only for refused substitutes (review 7)
     nt = r['note']
     for mark, tail in (('held:', '다르면 산다'), ('held_maybe:', '다르면 산다'), ('held_not_fit:', '같은 SKU도 산다')):
@@ -680,5 +686,28 @@ def _test_held(g, K, now):
     a6 = g['asked_out_of_stock'](lost2, cat2, {'G-q%d' % i: 1 for i in range(5)}, now, {})
     assert [x['buy_options'][0]['sku'] for x in a6] == base and base[:5] == ['G-q%d' % i for i in range(5)], (base, a6)
     assert all(x['held_not_fit'][0]['why'] == 'other_size' for x in a6[:5]) and not any(x.get('held') for x in a6), a6
+    # 9) refill (11/27 17:30): our own sales in 24 h minus what we hold, per SKU, 0..4; a SKU we hold more of than we
+    #    sold shows qty 0 (sell first); computed from logs/sales.jsonl rows of the last 24 h only
+    g['own_sold'] = lambda path=None, now=None: {'G-silk': 3, 'G-tofu': 6, 'G-flat': 1}
+    g['fetch'] = lambda base, tk: (CAT, {'surge': []}, {'balance': 1, 'units': units(('G-silk', 5, False), ('G-tofu', 1, False))})
+    g['read_lost'] = lambda path=None: []
+    r9 = g['run']({}, K())
+    rf = {x['sku']: x for x in r9['refill']}
+    assert rf['G-silk']['sold_24h'] == 3 and rf['G-silk']['held'] == 5 and rf['G-silk']['qty'] == 0, rf
+    assert rf['G-tofu']['qty'] == 4 and rf['G-flat']['qty'] == 1 and rf['G-flat']['held'] == 0, rf
+    assert [x['sku'] for x in r9['refill']][:2] == ['G-tofu', 'G-flat'], r9['refill']
+    assert list(r9).index('refill') < list(r9).index('customer_asked_out_of_stock'), list(r9)
+    rows = [{'ts': now - 3600, 'sku': 'A'}, {'ts': now - 25 * 3600, 'sku': 'A'}, {'ts': now - 60, 'sku': 'B'},
+            {'ts': 'x', 'sku': 'B'}, {'sku': 'C'}, 7]
+    import json as _j, os as _o, tempfile as _t
+    fd, tmp = _t.mkstemp(suffix='.jsonl')
+    with _o.fdopen(fd, 'w') as fh:
+        fh.write('\n'.join(_j.dumps(x) for x in rows) + '\nnot json\n')
+    try:
+        assert g['_own_sold_real'](tmp, now) == {'A': 1, 'B': 1}, g['_own_sold_real'](tmp, now)
+        assert g['_own_sold_real'](tmp + '.none', now) == {}
+    finally:
+        _o.remove(tmp)
+    g['own_sold'] = lambda path=None, now=None: {}
     # 8) the result has no separate held list to cut
     assert 'asked_but_held' not in r and 'more_held' not in r, list(r)

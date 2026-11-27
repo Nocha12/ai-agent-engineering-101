@@ -18,6 +18,8 @@ MATCH_SECS = 4                       # matching time budget inside the tool's 20
 HTTP_SECS = 4
 LOST = 'logs/lost_deals.jsonl'
 SOLD = 'ops/best_sellers_data.json'   # market-wide sales (ledger), refreshed by the operator's cron
+OWN = 'logs/sales.jsonl'            # our own settled sales (payment_ledger cron): refill = sold 24 h - held
+REFILL_MAX = 8
 OUT_OF_STOCK = ('재고없음', '재고 없음', '품절')
 STOP = {'국내산', '국산', '수입산', '손질', '두절', '특대', '대용량', '소용량', '소포장', '포장', '내외', '또는', '오늘',
         '등급', '상품', '일반', '신선', '구이용', '찌개용', '팩', '개입', '세트'}
@@ -88,6 +90,34 @@ def market_sold(path=SOLD):
         if isinstance(r, list) and len(r) > 1 and isinstance(r[1], str):
             out[r[1]] = out.get(r[1], 0) + 1
     return out
+
+
+def own_sold(path=OWN, now=None, hours=LOOKBACK_H):
+    """{sku: our own sales in the last `hours`} from logs/sales.jsonl; {} when missing or unreadable (refill only).
+    11/27 17:30 (대표님 #13855): 16:06~17:30 we bought 12 lots for 203,438 while selling 15,516; eggs 35 bought / 14 sold,
+    tofu 30 / 14 kept being bought. The amount to buy again follows what we sold, per SKU (not a total-stock cap)."""
+    now = _clock() if now is None else now
+    out = {}
+    try:
+        lines = open(path, encoding='utf-8', errors='replace').read().splitlines()[-5000:]
+    except OSError:
+        return out
+    for line in lines:
+        try:
+            r = json.loads(line)
+        except (ValueError, RecursionError):
+            continue
+        if not isinstance(r, dict):
+            continue
+        ts, sku = r.get('ts'), r.get('sku')
+        if type(ts) not in (int, float) or not math.isfinite(ts) or not isinstance(sku, str) or not sku:
+            continue
+        if now - hours * 3600 <= ts <= now + 60:
+            out[sku] = out.get(sku, 0) + 1
+    return out
+
+
+_own_sold_real = own_sold
 
 
 def out_of_stock(r):
@@ -582,19 +612,32 @@ def run(args, kit):
     for x in out:
         del x['_main']
     inv = inv if isinstance(inv, dict) else {}
+    held = held_by_sku(inv, _clock())
+    names = {x.get('sku'): x.get('name') for x in foods}
     try:
-        asked = asked_out_of_stock(read_lost(), foods, held_by_sku(inv, _clock()), _clock(), market_sold())
+        mine = own_sold(now=_clock())
+    except Exception:                                   # refill is advice; a bad file never hides the rest
+        mine = {}
+    refill = sorted(({'sku': k, 'name': str(names.get(k) or '')[:30], 'sold_24h': n, 'held': held.get(k, 0),
+                      'qty': max(0, min(4, n - held.get(k, 0)))} for k, n in mine.items() if n > 0),
+                    key=lambda x: (-x['qty'], -x['sold_24h']))[:REFILL_MAX]
+    try:
+        asked = asked_out_of_stock(read_lost(), foods, held, _clock(), market_sold())
     except Exception as e:                              # a bad log line must not hide the catalog
         asked = {'error': type(e).__name__ + ': ' + str(e)[:120]}
     return fit({'balance': inv.get('balance'), 'restock': inv.get('restock'), 'surge_skus': sorted(surge),
             'inventory_ok': isinstance(inv.get('units'), list),
             'note': ('customer_asked_out_of_stock: 최근 %dh 손님이 찾았는데 재고 0이었던 식품. 공급 창이 열리면 항목마다 '
-                     'buy_options 1~3번째에서 손님이 쓴 것과 같은 식품(포장이 달라도 같은 식품, 쇼콜라≠콜라)을 골라 buy_food_lot {sku, qty 2~4}로 먼저 산다(셋 다 다르면 건너뜀). '
+                     'buy_options 1~3번째에서 손님이 쓴 것과 같은 식품·규격(포장이 달라도 같은 식품, 쇼콜라≠콜라, 일반 두부≠멸균 실큰두부, 닭고기≠죽 묶음)을 골라 buy_food_lot {sku, qty}로 먼저 산다(셋 다 다르면 건너뜀). '
                      'small_pack_asked: true이면 pack/pack_size가 작은 것(크기를 아는 소포장)을 고른다. '
                      'buy_options가 빈 항목(substitutes_refused: 손님이 대체품 거부)은 사지 않는다. '
                      'near: true는 손님이 쓴 한 글자로 끝나는 다른 이름(양파 등)이니 이름을 보고 같은 것일 때만 산다. '
-                     '수량 asks 1→2개, 2→3개, 3+→4개. held: 찾은 식품·규격 보유(먼저 판다, 다르면 산다), held_maybe: 다른 식품일 수 있는 보유(다르면 산다), '
-                     'held_not_fit: 다른 규격 보유(그 규격은 재고 0, 맞는 SKU가 없으면 같은 SKU도 산다). 표시는 매입을 막지 않는다.') % LOOKBACK_H,
+                     '수량은 찾은 손님 수: customers 1명 1개, 2명 2개, 3명+ 3~4개. held: 찾은 식품·규격 보유(먼저 판다, 다르면 산다), held_maybe: 다른 식품일 수 있는 보유(다르면 산다), '
+                     'held_not_fit: 다른 규격 보유(그 규격은 재고 0, 맞는 SKU가 없으면 같은 SKU도 산다). 표시는 매입을 막지 않는다. '
+                     'refill: 그 밖의 품목은 우리 가게 24h 판매(sold_24h) − 보유(held) = qty만큼만 다시 채우고, qty 0이면 그 품목은 이번 창에 건너뛰고 가진 것을 먼저 판다. '
+                     'candidates는 카탈로그일 뿐 매입 근거가 아니다(우리 판매·손님 문의가 없는 품목은 1개만 시험). '
+                     '한 창 3품목·품목당 4개는 최대치이지 채울 목표가 아니다: 근거 있는 품목이 없으면 그 창은 건너뛴다.') % LOOKBACK_H,
+            'refill': refill,
             'customer_asked_out_of_stock': asked,
             'candidates': out[:80], 'food_skus': n_food})
 
