@@ -641,7 +641,7 @@ def _test_held(g, K, now):
     assert 'customers 1명 1개, 2명 2개, 3명+ 3~4개' in r['note'] and '표시는 매입을 막지 않는다' in r['note'], r['note']
     assert 'asks 1→2개' not in r['note'] and 'qty 2~4' not in r['note'], r['note']
     assert '채울 목표가 아니다' in r['note'] and 'refill' in r['note'], r['note']
-    assert '같은 SKU도 산다' in r['note'] and len(r['note']) <= 860, len(r['note'])
+    assert '같은 SKU도 산다' in r['note'] and len(r['note']) <= 900, len(r['note'])
     #    every mark says to buy when the held one is not what was asked; '사지 않' only for refused substitutes (review 7)
     nt = r['note']
     for mark, tail in (('held:', '다르면 산다'), ('held_maybe:', '다르면 산다'), ('held_not_fit:', '같은 SKU도 산다')):
@@ -698,12 +698,19 @@ def _test_held(g, K, now):
     assert [x['sku'] for x in r9['refill']][:2] == ['G-tofu', 'G-flat'], r9['refill']
     # review I1: asked items come first (the goal buys them first); refill after them
     assert list(r9).index('customer_asked_out_of_stock') < list(r9).index('refill'), list(r9)
-    # review M2: only food SKUs of the catalog; a SKU that is in an asked item's buy_options is left to that item
+    # review M2: only food SKUs of the catalog; re-review I-2: a sold SKU an asked item lists stays, marked asked
     g['own_sold'] = lambda path=None, now=None: {'N-goods': 5, 'G-flat': 2, 'G-tofu': 3}
     g['read_lost'] = lambda path=None: [row('m2', '가자미', '가자미 있나요', sku='G-flat')]
     g['fetch'] = lambda base, tk: (CAT, {'surge': []}, {'balance': 1, 'units': []})
     r9b = g['run']({}, K())
-    assert [x['sku'] for x in r9b['refill']] == ['G-tofu'], r9b['refill']
+    rb = {x['sku']: x for x in r9b['refill']}
+    assert set(rb) == {'G-tofu', 'G-flat'} and rb['G-flat'].get('asked') is True and 'asked' not in rb['G-tofu'], rb
+    assert 'asked: true' in r9b['note'], r9b['note']
+    # re-review M-1: an oversized answer cuts refill to 3 before any asked item goes
+    big = {'note': 'n', 'customer_asked_out_of_stock': [{'asked': ['a'], 'buy_options': [{'name': '가' * 1800}]}] * 3,
+           'refill': [{'sku': 'S%d' % i, 'name': '나' * 30} for i in range(8)], 'candidates': []}
+    cut = g['fit'](big)
+    assert len(cut['refill']) == 3 and len(cut['customer_asked_out_of_stock']) == 3, (len(cut['refill']), cut.get('more_asked'))
     assert find(r9b['customer_asked_out_of_stock'], 'G-flat'), r9b
     assert 'customers 0이면 1개' in r9b['note'], r9b['note']
     rows = [{'ts': now - 3600, 'sku': 'A'}, {'ts': now - 25 * 3600, 'sku': 'A'}, {'ts': now - 60, 'sku': 'B'},
