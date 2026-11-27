@@ -186,7 +186,7 @@ def held_longest():
         {'unit': 'u-c1', 'grade': 'C', 'floor': 2000, 'hours_left': 6.5},
         {'unit': 'u-b1', 'grade': 'B', 'floor': 3000, 'hours_left': 40.0},
         {'unit': 'u-b2', 'grade': 'B', 'floor': 3100, 'hours_left': 30.0}]})
-    assert r['held_until'] == until and r['held_until_kst'] == '11/27 17:30', r
+    assert r['held_until'] == until and r['held_until_kst'] == '11/27 17:30 KST', r
     assert r['longest']['unit'] == 'u-b1', r
     assert [x['unit'] for x in r['alternatives']] == ['u-c1', 'u-b1', 'u-b2']   # order unchanged
     assert 'held_until_kst' in r['error'] and 'longest' in r['error'] and 'RAW' not in str(r)
@@ -194,12 +194,27 @@ def held_longest():
         {'unit': 'u-b1', 'grade': 'B', 'floor': 3000, 'hours_left': 40.0},
         {'unit': 'u-n1', 'grade': 'B', 'floor': 3000, 'hours_left': None}]})
     assert undated['longest']['unit'] == 'u-n1'           # no date reads as the longest
+    # review C1/I1/M4: longest is never C or under LONG_MIN; a tie goes to A; up to the minute, never earlier
+    def longest(alts):
+        return rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': until, 'alternatives': alts})
+    cb = longest([{'unit': 'u-c1', 'grade': 'C', 'floor': 2000, 'hours_left': None},
+                  {'unit': 'u-b1', 'grade': 'B', 'floor': 3000, 'hours_left': 40.0}])
+    assert cb['longest']['unit'] == 'u-b1', cb
+    conly = longest([{'unit': 'u-c1', 'grade': 'C', 'floor': 2000, 'hours_left': 6.0}])   # 33647847
+    assert conly['longest'] is None and 'C·임박을 뺀 다른 단위는 없습니다' in conly['error'], conly
+    assert [x['unit'] for x in conly['alternatives']] == ['u-c1']                    # still offered when asked
+    short = longest([{'unit': 'u-b1', 'grade': 'B', 'floor': 3000, 'hours_left': 11.9}])
+    assert short['longest'] is None
+    tie = longest([{'unit': 'u-b1', 'grade': 'B', 'floor': 3000, 'hours_left': 30.0},
+                   {'unit': 'u-a1', 'grade': 'A', 'floor': 3500, 'hours_left': 30.0}])
+    assert tie['longest']['unit'] == 'u-a1'
+    assert rec.held_kst(until + 59) == '11/27 17:31 KST' and rec.held_kst(True) is None and rec.held_kst(None) is None
     none = rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': until, 'alternatives': []})
-    assert none['longest'] is None and none['held_until_kst'] == '11/27 17:30' and 'longest' not in none['error']
+    assert none['longest'] is None and none['held_until_kst'] == '11/27 17:30 KST' and 'longest' not in none['error']
     bad = rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': 'x', 'alternatives': []})
     assert bad['held_until'] is None and bad['held_until_kst'] is None
     rw = rec.held_result({'ok': False, 'code': 'reissue_wait', 'held_until': until})
-    assert rw['held_until_kst'] == '11/27 17:30'
+    assert rw['held_until_kst'] == '11/27 17:30 KST'
 
 
 def missed_messages():
