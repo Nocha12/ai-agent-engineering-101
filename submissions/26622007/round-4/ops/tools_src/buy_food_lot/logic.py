@@ -31,6 +31,8 @@ TX = re.compile(r'0x[0-9a-fA-F]{64}')
 RETRY_STATUS = (402, 429, 500, 502, 503, 504)
 OPEN = ('paying', 'unconfirmed')
 MAX_QTY = 4                                   # 대표님 11/25 02:25: 한 창 3품목·품목당 4개 (the market allows 20 per call)
+PAY_LIMIT = 5000000                           # 11/27: = permission.pay_limit, the 5,000,000 starting balance; the 500,000
+                                              # cap was ours, not a class hard limit (kit default 200,000, set by permission)
 GAS = 1000                                    # credits for gas: the balance must cover the lot and its gas
 SELL_HOURS = 24                               # the goal sizes qty to about a day of our sales
 NEAR_EXPIRY_QTY = 4                           # a lot that expires inside SELL_HOURS: at most this many
@@ -284,7 +286,7 @@ def run(args, kit):
             return {'ok': False, 'error': 'the balance does not cover this lot and its gas', 'balance': bal, 'total': total}
         if not quote.get('quote') or not pay.get('to') or not pay.get('wei') or not pay.get('data'): return {'ok': False, 'error': 'quote/payment fields incomplete'}
         wei = int(str(pay['wei']), 0) if isinstance(pay['wei'], str) else int(pay['wei'])
-        if wei <= 0 or wei > 500000 * 10 ** 15: return {'ok': False, 'error': 'payment exceeds the 500,000 tool limit: buy fewer', 'max_qty': int(500000 * qty // max(total, 1))}
+        if wei <= 0 or wei > PAY_LIMIT * 10 ** 15: return {'ok': False, 'error': 'payment is above the kit pay_limit (the starting balance)', 'total': total}
         qid = str(quote['quote'])
         seen = latest(pending_path(kit)).get(qid)
         if seen:                                # the market can hand the same quote out again: never pay a quote twice

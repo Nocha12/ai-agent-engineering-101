@@ -93,5 +93,27 @@ class BestSellersDoesNotStopBuying(unittest.TestCase):
         compile(logic, 'logic.py', 'exec')
 
 
+class BuyFoodLotHasNoOwnPayCap(unittest.TestCase):
+    """D-5: 1회 50만 was our own permission.pay_limit (class kit: DEFAULT_PAY_LIMIT 200,000 "unless permission.pay_limit
+    says otherwise"; Round 4 has no hard_limits file). It goes; the kit still needs a number, so it is the 5,000,000
+    starting balance and the balance check (a market fact) is what bounds a lot. The 1 h expiry refusal stays."""
+
+    def logic(self):
+        return (HERE / 'tools_src/buy_food_lot/logic.py').read_text(encoding='utf-8')
+
+    def test_no_500k_refusal(self):
+        self.assertNotIn('500000 * 10 ** 15', self.logic())
+        self.assertNotIn('500,000 tool limit', self.logic())
+
+    def test_permission_pay_limit_is_the_starting_balance(self):
+        import install_tools
+        self.assertEqual(install_tools.TOOLS['buy_food_lot'][1]['pay_limit'], 5000000)
+        self.assertIn('PAY_LIMIT = 5000000', self.logic())
+
+    def test_one_hour_expiry_refusal_kept(self):
+        self.assertIn('HOLD_HOURS = 1 ', self.logic())
+        self.assertIn('a unit expires within', self.logic())
+
+
 if __name__ == '__main__':
     unittest.main()

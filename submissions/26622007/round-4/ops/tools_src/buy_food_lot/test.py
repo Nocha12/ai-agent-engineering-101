@@ -64,6 +64,15 @@ def test(run, kit):
         assert r['ok'] and len(w.paid) == 1, r
         CAT.pop()
         clean()
+        # 11/27: no 500,000-a-call cap (not a class hard limit; the kit default is 200,000 and permission.pay_limit sets it)
+        CAT.append({'sku': 'beef', 'kind': 'food', 'name': '한우 세트', 'category': '정육', 'list_price': 435000})
+        big = dict(QUOTE, quote='q-big', total=1200000, goods=1200000, pay=dict(QUOTE['pay'], wei=str(1200000 * 10 ** 15)))
+        g['post'] = lambda c, url, obj, headers: (402, big) if 'sku' in obj else (200, {'units': ['u-1', 'u-2']})
+        w = Wallet()
+        r = run({'sku': 'beef', 'qty': 4}, w)
+        assert r['ok'] and len(w.paid) == 1 and w.paid[0][1] == 1200000 * 10 ** 15, r
+        CAT.pop()
+        clean()
         # non-food is never bought
         CAT.append({'sku': 'chair', 'kind': 'goods', 'name': '의자', 'category': '가구', 'list_price': 50000})
         w = Wallet()

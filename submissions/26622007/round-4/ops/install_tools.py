@@ -51,7 +51,7 @@ TOOLS = {
         '여러 번 시도하고, 끝내 확정이 안 되면 다시 송금하지 않고 기록합니다(그 뒤 새 매입은 거절). '
         '나중에 args {confirm: 견적 ID}(송금 결과를 모르면 tx_hash도)로 확정만 다시 합니다.',
         {'network': [MARKET, RPC], 'write': w('logs/sends.jsonl', 'logs/supply-pending.jsonl'),
-         'identity': ['shop'], 'wallet': ['pay'], 'pay_limit': 500000, 'timeout': 180}),
+         'identity': ['shop'], 'wallet': ['pay'], 'pay_limit': 5000000, 'timeout': 180}),
     'food_candidates': (
         '매입 후보 조회(읽기만). customer_asked_out_of_stock: 최근 24시간 손님이 찾았는데 재고 0이던 식품과 그에 맞는 카탈로그 SKU(buy_options, 시장 판매 많은 순). '
         'candidates: 생필품 식품 카탈로그. 공급 창이 열리면 customer_asked_out_of_stock의 SKU부터 buy_food_lot으로 삽니다. args 없음.',
