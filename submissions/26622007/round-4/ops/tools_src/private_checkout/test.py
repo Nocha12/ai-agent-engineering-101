@@ -196,6 +196,38 @@ def test(run, kit):
             f.write('{"purpose":"refund","order":"o-x","paid_tx":"0x%s","tx_hash":"0x1"}\n' % ('a' * 64))
         rr = run(s, kit); assert '환불' in rr['error'], rr
         os.remove('logs/refunds.test.jsonl')
+        # refund owed review r3 (W-20261124-2007): the refund line's paid_tx in other case is the same payment
+        with open('logs/refunds.test.jsonl', 'w') as f:
+            f.write('{"purpose":"refund","order":"o-x","paid_tx":"0x%s","nonce":4}\n' % ('A' * 64))
+        rr = run(s, kit); assert '이미 환불' in rr.get('error', ''), rr
+        os.remove('logs/refunds.test.jsonl')
+        # a refund_send holds the refunds lock: settle waits, then asks again later, writing nothing
+        import fcntl
+        with open('logs/refunds.test.jsonl', 'a') as held:
+            fcntl.flock(held, fcntl.LOCK_EX)
+            rl = run(dict(s, _lock_wait=0.3), kit)
+        assert rl.get('retry') is True and '환불' in rl.get('error', ''), rl
+        with open(FILES[0]) as f:
+            assert '"unsettled"' not in f.read()
+        # settle keeps a shared hold on the lock through its market calls, so refund_send cannot pay in between
+        g0 = run.__globals__['sealed_settle']
+        probe = []
+
+        def sealed_probe(kit_, args_, order_):
+            with open('logs/refunds.test.jsonl', 'a') as other:
+                try:
+                    fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    probe.append('free')
+                except BlockingIOError:
+                    probe.append('held')
+            return g0(kit_, args_, order_)
+        run.__globals__['sealed_settle'] = sealed_probe
+        try:
+            run(dict(s, _tx_down=True), kit)
+        finally:
+            run.__globals__['sealed_settle'] = g0
+        assert probe == ['held'], probe
+        os.remove('logs/refunds.test.jsonl')
         d = run(dict(s, _tx_down=True), kit)
         assert d.get('retry') is True, d                                        # chain down: no record, ask again
         with open(FILES[0]) as f:
@@ -204,6 +236,30 @@ def test(run, kit):
         assert g.get('refund') is True, g                                       # paid, unit gone: refund path
         with open(FILES[0]) as f:
             assert '"unsettled"' in f.read()
+        # refund owed review r6 I1: the unit is held, the POST answer is lost: a settle_sent row before it, no outcome row
+        lost = run(dict(s, _inventory={'wallet': shop, 'units': [{'unit': 'u-t1'}]}), kit)
+        assert lost.get('status') == 0 and not lost.get('ok'), lost
+        with open(FILES[0]) as f:
+            last = json.loads([l for l in f if l.strip()][-1])
+        assert last.get('event') == 'settle_sent' and last.get('order') == 'o-t1' and last.get('tx_hash') == '0x' + 'a' * 64, last
+        # review r7 I1: a retry while that POST has no answer and the unit is gone writes no unit_gone row
+        n0 = sum(1 for _ in open(FILES[0]))
+        again = run(s, kit)
+        assert again.get('retry') is True and '앞선 정산 요청' in again.get('error', ''), again
+        assert sum(1 for _ in open(FILES[0])) == n0
+        # the unit still held: the retry sends the POST again (a new settle_sent row, then the lost answer again)
+        held = run(dict(s, _inventory={'wallet': shop, 'units': [{'unit': 'u-t1'}]}), kit)
+        assert held.get('status') == 0, held
+        with open(FILES[0]) as f:
+            assert sum(1 for l in f if '"settle_sent"' in l) == 2
+        # review r9 I1: after SENT_OPEN the lost answer no longer blocks: the unit_gone way (refund) as before
+        g1 = run.__globals__['SENT_OPEN']
+        run.__globals__['SENT_OPEN'] = -5
+        try:
+            late = run(s, kit)
+        finally:
+            run.__globals__['SENT_OPEN'] = g1
+        assert late.get('refund') is True, late
         return 'ok'
     finally:
         for f in FILES:

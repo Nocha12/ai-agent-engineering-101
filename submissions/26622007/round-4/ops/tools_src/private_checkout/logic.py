@@ -26,6 +26,7 @@ answer carries quote so the next offer uses the shown price.
 No wallet transfer here: the buyer pays, the kit only signs the checkout.
 """
 import base64
+import fcntl
 import hashlib
 import json
 import math
@@ -546,6 +547,37 @@ def create(args, kit):
                 **({'duplicate_of': str(dup.get('order'))} if dup else {}))
 
 
+SETTLE_LOCK_WAIT = 30         # seconds settle waits while a refund_send holds logs/refunds.jsonl, then asks to retry
+
+
+def refunds_hold(kit, args):
+    """refund owed review r3 (W-20261124-2007): a shared flock on logs/refunds.jsonl from the refund check to the
+    recorded outcome. refund_send pays under the exclusive lock, so a refund cannot pass its last check while a settle
+    is at the market, and a settle never starts while a refund is paying; settles do not wait for each other.
+    Read-only open (this tool may not write refunds.jsonl). No file yet: no refund was ever recorded, nothing to hold.
+    'busy' when a refund keeps the lock past the wait; None when the file system has no flock (settle goes on)."""
+    try:
+        f = open(_p(kit, 'logs/refunds.jsonl'), encoding='utf-8')
+    except FileNotFoundError:       # no file: refund_send refuses to pay then (review r5 I1), settle goes on
+        return None
+    except OSError:                 # unreadable: cannot hold the lock, so retry later (review r6 M1)
+        return 'busy'
+    wait = args.get('_lock_wait', SETTLE_LOCK_WAIT) if kit.testing else SETTLE_LOCK_WAIT
+    end = time.time() + wait
+    while True:
+        try:
+            fcntl.flock(f.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
+            return f
+        except BlockingIOError:
+            if time.time() >= end:
+                f.close()
+                return 'busy'
+            time.sleep(0.1)
+        except OSError:
+            f.close()
+            return None
+
+
 def settle(args, kit):
     order, jwt = str(args.get('order') or ''), args.get('checkout_jwt')
     cm, pm = args.get('checkout_mandate'), args.get('payment_mandate')
@@ -559,8 +591,53 @@ def settle(args, kit):
         return {'ok': False, 'error': '이 결제서는 다른 주문 번호로 발급했습니다', 'order': issued['order']}
     pmm = pm.get('mandate') if isinstance(pm.get('mandate'), dict) else {}
     tx_hash = pmm.get('tx_hash')
+    hold = refunds_hold(kit, args)
+    if hold == 'busy':
+        return {'ok': False, 'error': '가게의 환불 송금이 진행 중이라 정산을 잠시 미뤘습니다. 기록하지 않았습니다. 잠시 뒤 같은 인자로 다시 settle합니다',
+                'retry': True}
+    try:
+        return settle_held(args, kit, order, jwt, cm, pm, hx, issued, tx_hash)
+    finally:
+        if hold:
+            fcntl.flock(hold.fileno(), fcntl.LOCK_UN)
+            hold.close()
+
+
+def _n(v):
+    return str(v or '').strip().lower()
+
+
+def closes(r):
+    """A market answer to a settle POST: settled, or a 400 (unsettled/refused, post=True) that does not say settled before
+    (settled_before is also set when the 400 has no checks or says the tx was used before, review r9 M1)."""
+    return r.get('event') == 'settled' or (r.get('event') in ('unsettled', 'refused') and r.get('post') is True
+                                                and not r.get('settled_before'))
+
+
+SENT_OPEN = 1800             # review r9: a settle_sent without a market answer counts as open for 30 min, then the sealed
+                             # ledger (read again by settle and, under the lock, by refund_send) decides alone
+
+
+def sent_open(kit, order, tx_hash):
+    """review r6-r9 I1: a settle_sent row of this order and payment from the last SENT_OPEN seconds with no later
+    closes() row for the same order and payment. Same rule as refund_send.settle_open."""
+    open_ = None
+    for r in _lines(_p(kit, LOG)):
+        if str(r.get('order')) != str(order) or _n(r.get('tx_hash')) != _n(tx_hash):
+            continue
+        if r.get('event') == 'settle_sent':
+            open_ = r
+        elif closes(r):
+            open_ = None
+    ts = open_.get('ts') if open_ else None
+    return bool(open_) and (type(ts) not in (int, float) or ts > time.time() - SENT_OPEN)
+
+
+def settle_held(args, kit, order, jwt, cm, pm, hx, issued, tx_hash):
+    """settle after the refunds lock is held (refunds_hold): the refund check, the market calls, the record."""
     for r in _lines(_p(kit, 'logs/refunds.jsonl')) + _lines(_p(kit, 'logs/sends.jsonl')):
-        if r.get('purpose') == 'refund' and (str(r.get('order')) == order or (tx_hash and r.get('paid_tx') == tx_hash)):
+        if r.get('purpose') == 'refund' and (str(r.get('order')) == order or
+                                             (tx_hash and str(r.get('paid_tx') or '').lower() == str(tx_hash).lower())):
             return {'ok': False, 'error': '이 주문(결제)은 이미 환불했거나 환불 중입니다. 정산하지 않습니다'}
     base = {'ts': int(time.time()), 'order': order, 'unit': issued.get('unit'), 'digest_hex': hx,
             'price': issued.get('price'), 'tx_hash': tx_hash}
@@ -570,6 +647,12 @@ def settle(args, kit):
             _record_sale(kit, done, done.get('seq'), base)
         return {'ok': True, 'settled': True, 'note': '이미 정산된 주문입니다', 'sale': {k: done.get(k) for k in ('order', 'amount', 'tx_hash')}}
     if not unit_now(inventory(kit, args), issued.get('unit')):
+        if sent_open(kit, order, tx_hash):
+            # review r7 I1: an earlier POST of this order and payment has no answer and the unit is gone: the market may
+            # still be settling it, so no unit_gone row for up to SENT_OPEN (30 min): ask again; after that the sealed
+            # ledger above decides (unit still held = the POST below is sent again as before)
+            return {'ok': False, 'error': '이 결제의 앞선 정산 요청 결과가 아직 없습니다. 기록하지 않았습니다. 몇 분 뒤 같은 인자로 다시 호출합니다(최대 30분)',
+                    'retry': True}
         paid = paid_us(kit, args, tx_hash, hx) if tx_hash else False
         if paid is None:
             return {'ok': False, 'error': '체인 조회가 지금 안 됩니다. 기록하지 않았습니다. 몇 분 뒤 같은 인자로 다시 호출합니다', 'retry': True}
@@ -579,6 +662,10 @@ def settle(args, kit):
                     'refund': True}
         _log(kit, dict(base, event='refused', reason='unit_gone'))
         return {'ok': False, 'error': '이 단위는 이미 재고에 없습니다. 결제하지 마시라고 안내합니다'}
+    # review r6 I1: a mark before the POST; a settle whose answer is lost (0, 5xx, timeout) leaves it without a later
+    # settled/unsettled/refused row, and refund_send refuses an unsettled or owed refund on that order or tx until a
+    # settle with the same args gives the outcome (the market may still settle after our POST timed out)
+    _log(kit, dict(base, event='settle_sent'))
     code, body = settle_call(kit, args, {'order': order, 'checkout_jwt': jwt, 'checkout_mandate': cm, 'payment_mandate': pm})
     if code == 200 and isinstance(body, dict) and body.get('settled'):
         sale = _record_sale(kit, body.get('mandate_receipt') or {}, body.get('ledger'), base)
@@ -586,12 +673,14 @@ def settle(args, kit):
     checks = (body or {}).get('checks') if isinstance(body, dict) else None
     if code == 400 and isinstance(checks, dict) and checks.get('paid_on_chain') is True \
             and checks.get('transaction_not_used_before') is not False and checks.get('not_settled_before') is not False:
-        _log(kit, dict(base, event='unsettled', reason=[k for k, v in checks.items() if v is False][:8],
+        _log(kit, dict(base, event='unsettled', post=True, reason=[k for k, v in checks.items() if v is False][:8],
                   shop_fee=(body or {}).get('shop_fee')))
         return {'ok': False, 'error': '결제는 체인에 왔지만 시장이 정산을 거절했습니다. 환불은 refund_check_order부터 합니다',
                 'checks': checks, 'refund': True}
-    if code == 400:
-        _log(kit, dict(base, event='refused'))
+    if code == 400:                 # post=True: the market answered this POST (review r8); settled_before: it says settled
+        _log(kit, dict(base, event='refused', post=True,
+                       settled_before=not isinstance(checks, dict) or checks.get('not_settled_before') is False
+                       or checks.get('transaction_not_used_before') is False))
     return {'ok': False, 'status': code, 'response': body,
             'note': '503이나 응답 없음이면 같은 결제로 잠시 뒤 다시 settle합니다(새 결제를 요구하지 않습니다)'}
 
