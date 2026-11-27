@@ -8,6 +8,8 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FILES = [os.path.join(HERE, 'tools_src', 'check_item_inventory', 'logic.py'),
+         os.path.join(HERE, 'tools_src', 'write_shop_card', 'logic.py'),
+         os.path.join(HERE, 'tools_src', 'refresh_full_card', 'logic.py'),
          os.path.join(HERE, 'tools_src', 'private_checkout', 'logic.py'),
          os.path.join(HERE, 'restock_shoutout', 'logic.py')]
 START, END = '# --- shared quote block', '# --- end shared quote block'

@@ -53,9 +53,10 @@ WAIT_MAX = 500               # entries kept in waitlist.json
 SENT_TTL = 30 * 86400        # how long "this customer was told about this item from the list" is remembered
 WAIT_PER_CUSTOMER = 5        # items one customer may wait for with a contact
 WAIT_PER_CONTACT = 5         # entries one contact may stand in (and only for one customer, unless it is their own name)
-# --- shared quote block (same text in check_item_inventory, restock_shoutout, private_checkout; ops/test_quote_block.py)
+# --- shared quote block (same text in check_item_inventory, restock_shoutout, private_checkout, write_shop_card,
+#     refresh_full_card; ops/test_quote_block.py)
 QUOTES, QUOTE_TTL, QUOTE_RANK = 'logs/quotes.json', 24 * 3600, ('C', 'B', 'A')
-CASHOUT_BY, CASHOUT_MIN = 'cashout', 420
+CASHOUT_BY, CASHOUT_MIN, CASH_HOURS = 'cashout', 420, 48
 
 
 def quotes_load(path):
@@ -77,14 +78,23 @@ def quote_get(q, sku, grade, now):
 
 
 def quote_floor(q, sku, grade, now):
-    """Cash-out (현금화, 11/27): a fresh quote stored by 'cashout' (ops/forum_menu.py, a food grade with 48 h or less left
+    """Cash-out (현금화, 11/27): a fresh quote stored by 'cashout' (ops/forum_menu.py, a food grade with CASH_HOURS or less left
     whose market median is under the goal (3) floor) carries its own floor, the market median, never under CASHOUT_MIN
     (more than the sale fee: a unit that would be thrown away still brings money). None for any other quote."""
-    r = q.get(f'{sku}|{grade}')
+    r = q.get(f'{sku}|{grade}') if grade in QUOTE_RANK else None       # A, B or C only (review M2)
     if isinstance(r, dict) and r.get('by') == CASHOUT_BY and type(r.get('floor')) is int and r['floor'] >= CASHOUT_MIN \
             and quote_get(q, sku, grade, now) is not None:
         return r['floor']
     return None
+
+
+def unit_cash(q, u, now):
+    """The cash-out floor for one unit: its SKU and grade's quote_floor, only when that unit itself has CASH_HOURS or
+    less left. A longer-dated unit of the same grade keeps the goal (3) floor (review I1). None otherwise."""
+    e = u.get('expires_at') if isinstance(u, dict) else None
+    if isinstance(e, bool) or not isinstance(e, (int, float)) or not 0 < e - now <= CASH_HOURS * 3600:
+        return None
+    return quote_floor(q, u.get('sku'), u.get('grade'), now)
 
 
 def quote_prices(q, sku, floors, now):
@@ -1014,7 +1024,9 @@ def _op(op, args, kit, s, now, w=None):
             return {'ok': False, 'error': '재고에 이 SKU가 없어 입고 안내를 하지 않습니다'}
         prices = grade_prices(args)
         given = dict(prices)
-        shown = {g: v for g, v in quote_prices(quotes_load(_quotes_path(kit)), sku, st['floors'], now).items() if v}
+        qs = quotes_load(_quotes_path(kit))
+        shown = {g: v for g, v in quote_prices(qs, sku, st['floors'], now).items() if v}
+        eff = {g: min(f, quote_floor(qs, sku, g, now) or f) for g, f in st['floors'].items()}   # cash-out grades (I3)
         pa = int(_num(args.get('price')))
         if shown:                                       # a grade with a shown price keeps it; the rest take what was given
             merged = {g: shown.get(g) or prices.get(g) or pa for g in st['grades']}
@@ -1022,9 +1034,9 @@ def _op(op, args, kit, s, now, w=None):
                 prices = merged
         price = pa or (max(prices.values()) if prices else 0)
         if prices and set(st['grades']) <= set(prices):  # every grade is shown at its own price: each clears its own floor
-            low = any(v < st['floors'].get(g, st['floor']) for g, v in prices.items())   # a grade not in stock: as before
+            low = any(v < eff.get(g, st['floor']) for g, v in prices.items())   # a grade not in stock: as before
         else:                                           # one '개당' price is shown for every grade: the highest floor
-            low = price < st['floor'] or any(v < st['floor'] for v in prices.values())
+            low = price < max(eff.values()) or any(v < max(eff.values()) for v in prices.values())
         if low:
             return {'ok': False, 'error': '가격이 하한보다 낮습니다', 'floor': st['floor'], 'floors': st['floors']}
         try:                                            # one shown price per grade: stored ones stay, new ones are kept

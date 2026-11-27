@@ -45,4 +45,18 @@ def test(run,kit):
   assert out['written'] and not alike(d) and 'GOLD1234' not in d, d
  finally:
   if os.path.exists('card.test.json'): os.remove('card.test.json')
+ # cash-out 11/27 (review I4): the card takes a cash-out price for a grade with a unit of 48 h or less left, not under it
+ gm={'sku':'GM','name':'서울우유 멸균우유 190ml 24팩','kind':'food','cost':12235}
+ inv={'units':[dict(gm,unit='c1',grade='C',expires_at=now+29*3600),dict(gm,unit='b1',grade='B',expires_at=now+200*3600)]}
+ os.makedirs('logs',exist_ok=True)
+ with open('logs/quotes.test.json','w',encoding='utf-8') as f:
+  json.dump({'GM|C':{'price':11787,'ts':now,'by':'cashout','floor':11787},'GM|B':{'price':11787,'ts':now,'by':'cashout','floor':11787}},f)
+ try:
+  out=run({'_inventory':inv,'_now':now,'stock':{'GM':{'C':11787}}},kit)
+  assert out['written'] and 'C11,787' in out['stock'], out
+  assert not run({'_inventory':inv,'_now':now,'stock':{'GM':{'C':11786}}},kit)['written']
+  assert not run({'_inventory':inv,'_now':now,'stock':{'GM':{'B':11787}}},kit)['written']   # B: only a 200 h unit
+ finally:
+  for f in ('card.test.json','logs/quotes.test.json'):
+   if os.path.exists(f): os.remove(f)
  return 'ok'
