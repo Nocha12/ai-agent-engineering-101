@@ -459,9 +459,12 @@ class Once(unittest.TestCase):
             self.assertTrue(r['ok'], r)
             self.assertEqual(len(m.posts), 1)
             self.assertIn('계란20구 B7,975', m.posts[0])   # 11/27 18:10: its B grade, not the cheaper C
+            floor_c = QB['stock'](INV, EGG, NOW)['floors']['C']
+            want_c = 5258 if 'CASHOUT_MIN' in QB else max(floor_c, 5258)   # 24 h left: the cash-out price (11/27)
             q = json.loads((Path(d) / 'logs' / 'quotes.json').read_text())
             self.assertEqual(q[f'{EGG}|B']['price'], 7975)
             self.assertEqual(q[f'{WATER}|A']['price'], 4830)       # water untouched
+            self.assertEqual(q[f'{EGG}|C']['price'], want_c)       # r1 M1: the C cash-out quote still written
             m.now += 100
             self.assertEqual(m.once(), {'skip': 'gap'})
             m.now += fm.POST_GAP
@@ -886,8 +889,8 @@ class Q8Exposure(unittest.TestCase):
              f'{RICE}|C': {'price': 4700, 'ts': NOW, 'by': 'x'}}
         text, skus = fm.build_text(QB, inv, q, settles(MARKET_SETTLES), NOW, 0)
         # 11/27 06:40: the first two lines with 10 h+ left lead (3 units, then the best seller); 11/27 18:10: the egg
-        # is a C line, so the C rice no longer follows it (one C·떨이 line a post)
-        self.assertEqual(skus, [TEA, EGG])
+        # C line does not lead (r1 I1) and one C·떨이 line a post: the sooner 5 h rice takes it
+        self.assertEqual(skus, [TEA, RICE])
         self.assertLessEqual(len(text), fm.VIEW)
 
     def test_soonest_reads_only_good_dated_units_of_that_grade(self):
@@ -1084,7 +1087,7 @@ class Lead(unittest.TestCase):
                 self.assertIn(f"{u['grade']}{fm.clearance(u, None, NOW)['price']:,}(~", text)
         self.assertLessEqual(len(text), fm.VIEW)
 
-    def test_clearance_only_unchanged(self):
+    def test_clearance_only_one_line(self):
         inv = {'units': self.clear_units()}
         text, skus = fm.build_text(QB, inv, {}, settles(MARKET_SETTLES), NOW, 0)
         self.assertEqual(skus, [self.CITR])                # soonest first; 11/27 18:10: one C·떨이 line a post
@@ -1158,6 +1161,36 @@ class AbMenu(unittest.TestCase):
         self.assertIn('둥굴레차60g B2,900', text)
         self.assertEqual(posted[0]['grade'], 'B')
         self.assertEqual(posted[0]['price'], 2900)            # prices unchanged: the B quote as it is
+
+
+class AbMenuR1(unittest.TestCase):
+    """r1 C1: a SKU with A·B stock and a unit on clearance keeps its A·B line when the 떨이 slot is taken; r1 I1: a
+    long C line not on clearance never takes the slot from the 떨이 line."""
+    CAT = {'category': '식품>계란/유제품>계란', 'list_price': 9900}
+
+    def test_sku_on_clearance_shows_its_ab_line_over_the_cap(self):
+        units, q = [], {}
+        for sku, n in (('GX0000001', '감귤 4.5kg'), ('GY0000001', '고등어 2미 800g')):
+            units.append(unit(f'{sku}b', sku, n, 'B', 4500, exp=NOW + 200 * 3600))
+            units.append(dict(unit(f'{sku}c', sku, n, 'C', 4500, exp=NOW + 15 * 3600), **self.CAT))
+            q[f'{sku}|B'] = {'price': 6000, 'ts': NOW, 'by': 'x'}
+        posted = []
+        text, skus = fm.build_text(QB, {'units': units}, q, settles([]), NOW, 0, posted=posted)
+        self.assertEqual(sorted(skus), ['GX0000001', 'GY0000001'])
+        self.assertEqual([p['sku'] for p in posted], skus)
+        grades = sorted((p['grade'], p['unit'] is None) for p in posted)
+        self.assertEqual(grades, [('B', True), ('C', False)])   # one 떨이 line, one B line at its B price
+        self.assertIn('B6,000', text)
+        self.assertLessEqual(len(text), fm.VIEW)
+
+    def test_long_c_line_does_not_take_the_slot(self):
+        units = [unit('t1', TEA, '동서 둥굴레차 50T 60g', 'B', 1800, exp=NOW + 300 * 3600),
+                 unit('e1', EGG, '한계란 난각번호 1번 계란 무항생제 유정란 20구', 'C', 5000, exp=NOW + 300 * 3600),
+                 dict(unit('m1', 'GMACK0001', '고등어2미,800g', 'C', 4500, exp=NOW + 20 * 3600), **self.CAT)]
+        q = {f'{TEA}|B': {'price': 2900, 'ts': NOW, 'by': 'x'}, f'{EGG}|C': {'price': 7000, 'ts': NOW, 'by': 'x'}}
+        text, skus = fm.build_text(QB, {'units': units}, q, settles(MARKET_SETTLES), NOW, 0)
+        self.assertEqual(skus, [TEA, 'GMACK0001'])
+        self.assertNotIn('C7,000', text)
 
 
 class ForumUnits(unittest.TestCase):

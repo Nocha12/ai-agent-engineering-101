@@ -780,7 +780,8 @@ posted (a list, optional; 11/27 05fcd1d5): one {'sku', 'grade', 'price', 'unit',
 order. unit and until only for a clearance line (it names one unit's time and price); a grade line's price is that
 grade's shown price for every unit of it, so it names no unit (unit, until None). The text and chosen do not change."""
     items = []
-    live = {}
+    alt = {}                                       # 11/27 18:10 r1 C1: the A·B line of a SKU on clearance, for when its
+    live = {}                                      # clearance line is over LOW_MAX
     for sku in {u.get('sku') for u in inv.get('units') or [] if isinstance(u, dict) and u.get('sku')}:
         st = qb['stock'](inv, sku, now)
         if st:
@@ -798,6 +799,12 @@ grade's shown price for every unit of it, so it names no unit (unit, until None)
             items.append(((-1, left), -st['count'], -settles.count(sku), sku,
                           f"{shown_name[sku]} {g}{cl['price']:,}(~{time.strftime('%H:%M', time.localtime(cl['until']))})",
                           shown_name[sku], left, g, {'price': cl['price'], 'unit': cl.get('unit'), 'until': cl['until']}))
+            ab = [k for k in shown if k in LEAD_GRADES]
+            if ab:
+                g = min(ab, key=lambda k: (shown[k], k))
+                left = soonest(inv, sku, g, now)
+                alt[sku] = ((1, 0), -st['count'], -settles.count(sku), sku, f"{shown_name[sku]} {g}{shown[g]:,}",
+                            shown_name[sku], left, g, {'price': shown[g], 'unit': None, 'until': None})
             continue
         if not shown:
             continue
@@ -824,8 +831,9 @@ grade's shown price for every unit of it, so it names no unit (unit, until None)
     order = [it for it in order if not short(it)] + [it for it in order if short(it)]
     long_ = lambda it: it[6] is None or it[6] >= LONG
     ab = lambda it: it[0][0] != -1 and it[7] in LEAD_GRADES and (it[6] is None or it[6] >= LEAD_AB)
+    plain_c = lambda it: it[0][0] != -1 and it[7] not in LEAD_GRADES   # r1 I1: never leads (the slot is the 떨이's)
     lead = []                                      # 11/27 06:40: the first LEAD_LONG long lines (one per name) go first
-    for pick in (ab, long_):                       # 11/27 12:40: A·B 24 h+ lines not on clearance first, then the rest
+    for pick in (ab, lambda it: long_(it) and not plain_c(it)):   # 11/27 12:40: A·B 24 h+ not on clearance first
         for it in order:
             if len(lead) < LEAD_LONG and pick(it) and all(x[5] != it[5] for x in lead):
                 lead.append(it)
@@ -835,8 +843,10 @@ grade's shown price for every unit of it, so it names no unit (unit, until None)
     for it in order:
         if it[5] in seen:                          # one line per name (r3 I2: by the shown name, never a cut of it)
             continue
-        if low(it) and lows >= LOW_MAX:            # 11/27 18:10: C·떨이 one line, the first in this order
-            continue
+        if low(it) and lows >= LOW_MAX:            # 11/27 18:10: C·떨이 one line, the first in this order; a SKU
+            it = alt.get(it[3]) if it[0][0] == -1 else None   # on clearance then shows its A·B line there (r1 C1)
+            if it is None:
+                continue
         add = (' ' if not chosen else ' · ') + it[4]
         if len(text) + len(add) + len(TAIL) > room:
             continue
