@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 
+TIMEOUT = 600
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROUND = os.path.dirname(HERE)
 NEEDS = [os.path.join(ROUND, 'agent.json'), os.path.join(ROUND, 'notes.md'),
@@ -26,9 +27,13 @@ def main():
     tests = sorted(glob.glob(os.path.join(HERE, 'test_*.py'))) + sorted(glob.glob(os.path.join(HERE, 'deploy', 'test_*.py')))
     bad = []
     for t in tests:
-        p = subprocess.run([sys.executable, '-I', '-B', t], cwd=ROUND, stdin=subprocess.DEVNULL,
-                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         name = os.path.relpath(t, ROUND)
+        try:                                            # one stuck test does not hold the rest (review A M2)
+            p = subprocess.run([sys.executable, '-I', '-B', t], cwd=ROUND, stdin=subprocess.DEVNULL, timeout=TIMEOUT,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        except subprocess.TimeoutExpired as e:
+            p = subprocess.CompletedProcess(e.cmd, 124, (e.stdout or b'').decode(errors='replace') if isinstance(e.stdout, bytes)
+                                            else (e.stdout or '') + f'\ntimed out after {TIMEOUT}s')
         print(('PASS ' if p.returncode == 0 else 'FAIL ') + name)
         if p.returncode:
             bad.append(name)
