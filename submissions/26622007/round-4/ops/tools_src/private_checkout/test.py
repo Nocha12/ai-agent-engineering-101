@@ -236,6 +236,12 @@ def test(run, kit):
         assert g.get('refund') is True, g                                       # paid, unit gone: refund path
         with open(FILES[0]) as f:
             assert '"unsettled"' in f.read()
+        # refund owed review r6 I1: the unit is held, the POST answer is lost: a settle_sent row before it, no outcome row
+        lost = run(dict(s, _inventory={'wallet': shop, 'units': [{'unit': 'u-t1'}]}), kit)
+        assert lost.get('status') == 0 and not lost.get('ok'), lost
+        with open(FILES[0]) as f:
+            last = json.loads([l for l in f if l.strip()][-1])
+        assert last.get('event') == 'settle_sent' and last.get('order') == 'o-t1' and last.get('tx_hash') == '0x' + 'a' * 64, last
         return 'ok'
     finally:
         for f in FILES:

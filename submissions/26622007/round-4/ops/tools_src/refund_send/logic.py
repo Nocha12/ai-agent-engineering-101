@@ -105,7 +105,8 @@ def settled_since(kit, args, keys, tx):
 
 def sealed_settle_now(kit, args, keys):
     """review r5 C1: True when the market's sealed ledger has a settle row under any order id of the plan, None when
-    any lookup is unreadable (refuse), False when none has one."""
+    any lookup is unreadable (refuse), False when none has one. 403 (not our sale) on every id = None (review r6 M2)."""
+    known = False
     for k in sorted(keys):
         if kit.testing:
             st, rows = (args.get('_sealed_now') or {}).get(k, (404, None))
@@ -119,13 +120,32 @@ def sealed_settle_now(kit, args, keys):
                 st, rows = e.code, None
             except (urllib.error.URLError, OSError, ValueError):
                 st, rows = 0, None
-        if st in (403, 404):
+        if st == 403:
+            continue
+        if st == 404:
+            known = True
             continue
         if st != 200 or not isinstance(rows, (list, type(None))):
             return None
         if any(isinstance(r, dict) and r.get('kind') == 'settle' for r in rows or []):
             return True
-    return False
+        known = True
+    return False if known else None
+
+
+def settle_open(kit, args, keys, tx):
+    """review r6 I1: a private_checkout 'settle_sent' row on any order id of the plan or the payment tx with no later
+    settled/unsettled/refused row for that order or tx (its answer was lost; the market may still settle it)."""
+    log = list(args.get('_checkouts') or []) if kit.testing else _lines('logs/checkouts.jsonl')
+    pending = {}
+    for r in log:
+        o, t = str(r.get('order')), _norm(r.get('tx_hash'))
+        if r.get('event') == 'settle_sent' and (o in keys or (tx and t == tx)):
+            pending[(o, t)] = r
+        elif r.get('event') in ('settled', 'unsettled', 'refused'):
+            for k in [k for k in pending if k[0] == o or (t and k[1] == t)]:
+                del pending[k]
+    return next(iter(pending.values()), None)
 
 
 def _lock(kit, args):
@@ -161,6 +181,8 @@ def recheck(kit, args, order, p1):
         return seen_error(seen)
     if p1.get('kind') != 'settled' and settled_since(kit, args, keys, tx):
         return {'ok': False, 'error': '1·2단계 뒤에 이 주문이 정산됐습니다(sales.jsonl·checkouts.jsonl). 미정산 환불은 하지 않습니다. 1단계부터 다시 합니다'}
+    if p1.get('kind') != 'settled' and settle_open(kit, args, keys, tx):
+        return {'ok': False, 'error': '이 주문의 정산 요청 결과가 아직 확정되지 않았습니다(settle 응답 없음). 환불하지 않습니다. 같은 인자로 settle을 다시 불러 결과를 확정한 뒤 1단계부터 다시 합니다'}
     if p1.get('kind') == 'owed' and owed_changed(kit, args, p1):
         return {'ok': False, 'error': '1·2단계 뒤에 장부가 바뀌었습니다(미정산 입금 줄이 없거나 판매·환불·송금 기록이 생김). 환불하지 않고 1단계부터 다시 합니다'}
     return None

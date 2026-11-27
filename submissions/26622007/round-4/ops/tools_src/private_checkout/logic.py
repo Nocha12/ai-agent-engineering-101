@@ -558,8 +558,10 @@ def refunds_hold(kit, args):
     'busy' when a refund keeps the lock past the wait; None when the file system has no flock (settle goes on)."""
     try:
         f = open(_p(kit, 'logs/refunds.jsonl'), encoding='utf-8')
-    except OSError:                 # no file (refund_send refuses then, review r5 I1) or unreadable: settle goes on
+    except FileNotFoundError:       # no file: refund_send refuses to pay then (review r5 I1), settle goes on
         return None
+    except OSError:                 # unreadable: cannot hold the lock, so retry later (review r6 M1)
+        return 'busy'
     wait = args.get('_lock_wait', SETTLE_LOCK_WAIT) if kit.testing else SETTLE_LOCK_WAIT
     end = time.time() + wait
     while True:
@@ -624,6 +626,10 @@ def settle_held(args, kit, order, jwt, cm, pm, hx, issued, tx_hash):
                     'refund': True}
         _log(kit, dict(base, event='refused', reason='unit_gone'))
         return {'ok': False, 'error': '이 단위는 이미 재고에 없습니다. 결제하지 마시라고 안내합니다'}
+    # review r6 I1: a mark before the POST; a settle whose answer is lost (0, 5xx, timeout) leaves it without a later
+    # settled/unsettled/refused row, and refund_send refuses an unsettled or owed refund on that order or tx until a
+    # settle with the same args gives the outcome (the market may still settle after our POST timed out)
+    _log(kit, dict(base, event='settle_sent'))
     code, body = settle_call(kit, args, {'order': order, 'checkout_jwt': jwt, 'checkout_mandate': cm, 'payment_mandate': pm})
     if code == 200 and isinstance(body, dict) and body.get('settled'):
         sale = _record_sale(kit, body.get('mandate_receipt') or {}, body.get('ledger'), base)

@@ -60,6 +60,18 @@ def test(run, kit):
         r = run(dict(a, _payments=[owed], _sealed_now={'t-o6': (403, None), 'o-m6': (200, [{'kind': 'broken'}])}), kit)
         assert r.get('would_send') == {'to': payer, 'amount': 9690}, r
         assert not os.path.exists(FILES[2])
+        r = run(dict(a, _payments=[owed], _sealed_now={k: (403, None) for k in ('t-o6', 'o-m6')}), kit)
+        assert '다시 읽지 못했습니다' in r.get('error', ''), r                                # review r6 M2: 403 on every id
+        # review r6 I1: a settle whose answer was lost (settle_sent, no outcome row) on an order id or the tx in other case
+        for sent in ({'event': 'settle_sent', 'order': 't-o6', 'tx_hash': None},
+                     {'event': 'settle_sent', 'order': 'x', 'tx_hash': otx.upper()}):
+            r = run(dict(a, _payments=[owed], _checkouts=[sent]), kit)
+            assert '확정되지 않았습니다' in r.get('error', ''), (sent, r)
+            for out in ('unsettled', 'refused'):                                            # the outcome came later
+                r = run(dict(a, _payments=[owed], _checkouts=[sent, {'event': out, 'order': sent['order'], 'tx_hash': sent['tx_hash']}]), kit)
+                assert r.get('would_send') == {'to': payer, 'amount': 9690}, (out, r)
+        later = [{'event': 'unsettled', 'order': 't-o6'}, {'event': 'settle_sent', 'order': 't-o6'}]  # a new try after it
+        assert '확정되지 않았습니다' in run(dict(a, _payments=[owed], _checkouts=later), kit).get('error', '')
         assert '장부' in run(dict(a, _payments=[]), kit)['error']                                   # the owed line is gone
         sold = {'kind': 'sale', 'id': 'sale-o-m6', 'tx_hash': otx}
         assert '장부' in run(dict(a, _payments=[owed, sold]), kit)['error']                         # settled later
