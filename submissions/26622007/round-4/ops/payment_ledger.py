@@ -662,7 +662,7 @@ def scan_inflows(d, market, name, chain, address, now, scan_blocks, from_ts):
         if c is not None:
             mine = sorted(o for o in orders.get(buyer, []) if o[0] <= ts + 5)
             still_open = [o for o in mine if isinstance(o[2], (int, float)) and now <= o[2]]
-            held = [o for t, o in unrecorded.get(buyer, []) if t >= ts - 5]      # settled at or after this payment
+            held = [o for t, o in unrecorded.get(buyer, []) if t >= ts - 30]     # recover_sealed reads to settle + 30 s
             if held and now - ts <= SEALED_WAIT:
                 waiting.append((p, f"{buyer} has a sealed sale at our shop ({held[-1]}) with no sale record yet"))
                 continue
@@ -675,6 +675,7 @@ def scan_inflows(d, market, name, chain, address, now, scan_blocks, from_ts):
             o = mine[-1] if mine else None
             out.append(dict(base, kind="paid_unsettled", id=f"owed-{tx}", counterparty=buyer or frm, item=c.get("sku"),
                             order=o[1] if o else None, checkout_order=c.get("order"), unit=c.get("unit"),
+                            held_order=held[-1] if held else None,
                             note="a customer paid our checkout and no settle names this payment: owed back or to be "
                                  "settled; this script sends nothing"
                                  + (f" (waited {SEALED_WAIT // 60} min on the unrecorded sealed sale {held[-1]}: if that "
@@ -790,7 +791,13 @@ def alerts(d, lines, new, rec, now=None, pending=()):
                         "text": f"sealed sale {p['order']} has no line in logs/sales.jsonl after {int((now - p['ts']) // 60)} min: "
                                 "the ledger cannot count it (expect a balance gap until the agent's sale tool records it)"})
     for e in new:
-        if e.get("kind") == "paid_unsettled":
+        if e.get("kind") == "paid_unsettled" and e.get("held_order"):
+            out.append({"kind": "paid_unsettled", "id": f"owed-{e['tx_hash']}",
+                        "text": f"{e.get('counterparty')} paid {e['amount']:g} on chain ({e['tx_hash']}) for our checkout "
+                                f"{e.get('checkout_order')} ({e.get('item')}) and no settle names it, but the same buyer's "
+                                f"sealed sale {e['held_order']} at our shop still has no sale record: this may be that "
+                                "sale's payment: do not refund until that sale is recorded or ruled out (an operator decides)"})
+        elif e.get("kind") == "paid_unsettled":
             out.append({"kind": "paid_unsettled", "id": f"owed-{e['tx_hash']}",
                         "text": f"{e.get('counterparty')} paid {e['amount']:g} on chain ({e['tx_hash']}) for our checkout "
                                 f"{e.get('checkout_order')} ({e.get('item')}), order {e.get('order')}, and the market never "

@@ -642,6 +642,11 @@ class InflowGap(unittest.TestCase):
         e = self.lines()[-1]
         self.assertEqual((e["kind"], e["tx_hash"]), ("paid_unsettled", "0x" + "f2" * 32))
         self.assertIn("o-other", e["note"])                                 # names the sealed sale it waited on
+        self.assertEqual(e["held_order"], "o-other")
+        alert = [x for x in rec["alerts"] if x["kind"] == "paid_unsettled"][0]
+        self.assertIn("o-other", alert["text"])                             # review3 I-C: may be that sale's payment
+        self.assertIn("do not refund", alert["text"])
+        self.assertNotIn("the unit is still ours", alert["text"])
 
     def test_unrecorded_sealed_sale_long_before_the_payment_does_not_hold_it(self):
         # review2 I-A: only a sealed sale settled at or after the payment can be the one the payment paid
@@ -652,6 +657,14 @@ class InflowGap(unittest.TestCase):
         _, bal = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
         rec = pl.reconcile(self.d, "m", "nocha12", C(bal + 13126 * W), SHOP, 1.0, now=1795512000)
         self.assertIn("owed-0x" + "f2" * 32, [e["id"] for e in self.lines()])
+
+    def test_payment_20s_after_an_unrecorded_sealed_settle_waits(self):
+        # review3: recover_sealed pairs a payment up to 30 s after the settle, so the hold covers 30 s too
+        pay = ("0x" + "f2" * 32, "0xkim", 13126 * W, "6c" * 32, True, 1795509580, 1500)      # settle at 1795509560
+        C = self._inflow_setup([pay], settles=["o-kim"])
+        _, bal = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
+        pl.reconcile(self.d, "m", "nocha12", C(bal + 13126 * W), SHOP, 1.0, now=1795512000)
+        self.assertNotIn("paid_unsettled", [e["kind"] for e in self.lines()])
 
     def test_receipt_unreadable_is_read_again_on_the_next_run(self):
         # review2 I-B: an inflow saved with ok=None is re-read (receipt_ok) and classified once the node has the receipt
