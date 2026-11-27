@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import time
 
 
 def logic_digest(jwt):
@@ -88,6 +89,28 @@ def test(run, kit):
         assert alts[0] == {'unit': 'u-t3', 'grade': 'C', 'floor': 30723, 'hours_left': None}, alts
         assert alts[1]['grade'] == 'B' and alts[1]['floor'] == 81228, alts
         assert x['cheapest'] == alts[0], x
+        # 11/27 21:40 (1cf95a03, 8c3ecf3f): the 6 cheapest were all C or 떨이 while a 66 h B was free, so held_result had no
+        # longest. A good unit (not C, not 떨이, 12 h or more or undated) past the 6th takes the 6th place; else as before.
+        fa, tn = run.__globals__['free_alternatives'], time.time()
+        held_u = dict(unit, unit='u-h0', sku='G7', grade='A', cert={'unit': 'u-h0', 'grade': 'A'})
+        cs = [dict(unit, unit=f'u-c{i}', sku='G7', grade='C', cost=1000 + 100 * i, cert={'unit': f'u-c{i}', 'grade': 'C'})
+              for i in range(7)]
+        b66 = dict(unit, unit='u-b66', sku='G7', cost=9000, expires_at=tn + 66 * 3600, cert={'unit': 'u-b66', 'grade': 'B'})
+        b30 = dict(b66, unit='u-b30', expires_at=tn + 30 * 3600, cert={'unit': 'u-b30', 'grade': 'B'})
+        b5 = dict(b66, unit='u-b5', cost=500, expires_at=tn + 5 * 3600, cert={'unit': 'u-b5', 'grade': 'B'})   # under 12 h
+        c9 = dict(cs[0], unit='u-c9', cost=99000, cert={'unit': 'u-c9', 'grade': 'C'})
+        def fx(units):
+            return [y['unit'] for y in fa(kit, {'units': [held_u] + units}, held_u, 'o-fa', tn, 'h-fa', False, [])]
+        assert fx(cs + [b30, b66]) == ['u-c0', 'u-c1', 'u-c2', 'u-c3', 'u-c4', 'u-b66'], fx(cs + [b30, b66])
+        assert fx(cs[:3] + [b66]) == ['u-c0', 'u-c1', 'u-c2', 'u-b66']          # 6 or fewer: as before
+        assert fx(cs[:5] + [b30, b66]) == ['u-c0', 'u-c1', 'u-c2', 'u-c3', 'u-c4', 'u-b30']   # a good one in the 6: as before
+        assert fx(cs + [b5]) == ['u-b5', 'u-c0', 'u-c1', 'u-c2', 'u-c3', 'u-c4']   # no good unit at all: as before
+        assert fx(cs + [c9]) == ['u-c0', 'u-c1', 'u-c2', 'u-c3', 'u-c4', 'u-c5']
+        assert fx(cs[:5] + [b5, b66]) == ['u-b5', 'u-c0', 'u-c1', 'u-c2', 'u-c3', 'u-b66']   # the 6th place, not appended
+        und = dict(b66, unit='u-bn', expires_at=None, cert={'unit': 'u-bn', 'grade': 'B'})
+        assert fx(cs + [b66, und])[-1] == 'u-bn'                                # undated reads as the longest (held_result)
+        big = fa(kit, {'units': [held_u] + cs + [b66]}, held_u, 'o-fa', tn, 'h-fa', False, [])
+        assert big[-1]['grade'] == 'B' and 'clearance' not in big[-1] and big[-1]['hours_left'] >= 65.9, big
         clock = run.__globals__['time']                                        # freeze the tool's clock below
         run.__globals__['time'] = type('T', (), {'time': staticmethod(lambda: 1795650000.0)})
         try:

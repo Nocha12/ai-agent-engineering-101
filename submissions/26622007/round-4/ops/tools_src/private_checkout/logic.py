@@ -446,7 +446,23 @@ def free_alternatives(kit, inv, u, order, now, holder, endgame, rows):
         if cl:                                       # offer it at its clearance price first (review M7)
             alt['clearance'] = {'price': cl['price'], 'floor': cl['floor']}
         out.append(alt)
-    return sorted(out, key=lambda y: ((y.get('clearance') or {}).get('price', y['floor']), y['unit'] or ''))[:6]
+    out = sorted(out, key=lambda y: ((y.get('clearance') or {}).get('price', y['floor']), y['unit'] or ''))
+    top = out[:6]
+    # 11/27 21:40 (1cf95a03, 8c3ecf3f): C and 떨이 units filled the 6 cheapest while a long-dated B was free, so the
+    # wrapper (agent_kit_records.held_result, LONG_MIN) found no longest. When none of the 6 is good (not C, not 떨이,
+    # GOOD_MIN h or more or undated), the longest good one past them takes the 6th place. Order, floors as before.
+    more = [y for y in out[6:] if _alt_good(y)]
+    if more and not any(_alt_good(y) for y in top):
+        top = top[:5] + [max(more, key=lambda y: (y['hours_left'] is None, y['hours_left'] or 0, y['grade'] == 'A'))]
+    return top
+
+
+GOOD_MIN = 12                # h: same as agent_kit_records.LONG_MIN (C·임박 and the 떨이 line's 12 h)
+
+
+def _alt_good(y):
+    h = y.get('hours_left')
+    return y.get('grade') != 'C' and not y.get('clearance') and (h is None or h >= GOOD_MIN)
 
 
 def grade_evidence(u, unit_id, grade):

@@ -175,7 +175,34 @@ def main():
     assert rec.held_result({'ok': False, 'code': 'no_quote', 'error': 'RAW TOOL OUTPUT'})['code'] == 'no_quote'
     assert 'RAW' not in str(rec.held_result({'ok': False, 'code': 'no_quote', 'error': 'RAW TOOL OUTPUT'}))
     held_longest()
+    held_chain()
     print('records tests ok')
+
+
+def held_chain():
+    """11/27 21:40 (1cf95a03 20:54, 8c3ecf3f 21:18): 7 C units were cheaper than a free 66 h B, the tool listed 6 C and
+    held_result said there was no unit without C·임박. The tool's alternatives now carry that B in the 6th place."""
+    import importlib.util
+    import time
+    src = Path(__file__).resolve().parent / 'tools_src' / 'private_checkout' / 'logic.py'
+    spec = importlib.util.spec_from_file_location('pc_logic_chain', src)
+    pc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pc)
+    assert pc.GOOD_MIN == rec.LONG_MIN                       # one 12 h rule for the tool and the wrapper
+    kit, now = types.SimpleNamespace(testing=True), time.time()
+    def u(i, g, cost, h):
+        return {'unit': i, 'sku': 'G7', 'name': '계란 20구', 'kind': 'food', 'cost': cost, 'grade': g,
+                'expires_at': None if h is None else now + h * 3600, 'cert': {'unit': i, 'grade': g}}
+    held = u('u-a0', 'A', 9000, 80)
+    inv = {'units': [held] + [u(f'u-c{i}', 'C', 1000 + i, 30) for i in range(7)] + [u('u-b66', 'B', 9000, 66)]}
+    alts = pc.free_alternatives(kit, inv, held, 'o-chain', now, 'h-chain', False, [])
+    r = rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': int(now) + 200, 'alternatives': alts}, now=now)
+    assert len(r['alternatives']) == 6 and r['longest'] and r['longest']['unit'] == 'u-b66', r
+    assert r['longest']['grade'] == 'B' and 'C·임박을 뺀 단위가 없습니다' not in r['error'], r
+    conly = {'units': [held] + [u(f'u-c{i}', 'C', 1000 + i, 30) for i in range(7)]}
+    r0 = rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': int(now) + 200,
+                          'alternatives': pc.free_alternatives(kit, conly, held, 'o-chain', now, 'h-chain', False, [])}, now=now)
+    assert r0['longest'] is None and [x['unit'] for x in r0['alternatives']] == [f'u-c{i}' for i in range(6)], r0
 
 
 def held_longest():
