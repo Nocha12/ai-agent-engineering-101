@@ -5,6 +5,7 @@ from hashlib import sha256
 import base64
 import json
 import re
+import time
 
 HOLD_SECONDS = 300   # Same as the existing private_checkout unit reservation.
 DEADLINE = 600
@@ -110,6 +111,13 @@ def _ungraded_food(payload):
     return None if cert.get('grade') in ('A', 'B', 'C') else cert
 
 
+def input_required(state):
+    return isinstance(state, str) and state.lower().replace('-', '_').removeprefix('task_state_') == 'input_required'
+
+
+FOLLOWUP = '이어서 결제서가 필요하면 이 대화에서 말씀해 주세요.'
+
+
 def grade_free_reply(issued, cancelled, now, item_names=None, continuation=False):
     """Use only issued terms and the catalog name if the certificate does not state a grade."""
     active = {c.digest: c for c in issued if c.order not in cancelled and 0 <= now - c.at < HOLD_SECONDS}
@@ -132,11 +140,11 @@ def grade_free_reply(issued, cancelled, now, item_names=None, continuation=False
         terms.append(f"소비기한 {datetime.fromtimestamp(end, KST):%m/%d %H:%M KST}까지")
     text = ' · '.join(terms) or '결제서를 발급했어요.'
     if continuation or cancelled:
-        text += '\n이어서 결제서가 필요하면 이 대화에서 말씀해 주세요.'
+        text += '\n' + FOLLOWUP
     return text
 
 
-def _fields(token):
+def _fields(token, now, continuation):
     """Item, price, unit and (only when applicable) grade label next to the unchanged token."""
     pl = _payload(token)
     keys = ('item', 'price', 'unit') if _ungraded_food(pl) is not None else ('item', 'price', 'claim', 'unit')
@@ -144,12 +152,14 @@ def _fields(token):
     cert = _ungraded_food(pl)
     if cert is not None:
         end = cert.get('expires_at')
-        if type(end) in (int, float) and 1e9 < end < 1e11:
+        if type(end) in (int, float) and 1e9 < end < 1e11 and end > now:
             fields['until'] = datetime.fromtimestamp(end, KST).strftime('%m/%d %H:%M KST')
+        if continuation:
+            fields['next_message'] = FOLLOWUP
     return fields
 
 
-def attach_data(result, attached, cancelled=()):
+def attach_data(result, attached, cancelled=(), now=None):
     """Also put each attached checkout in the task's artifacts as an A2A data part (11/27 06:40 check): the market's
     customer tool reads only the first 2,000 characters of a reply's text, so a second checkout after the first one's
     grade line never reached it, and a customer that copies an ~850-character token by hand can change it ("not
@@ -161,7 +171,10 @@ def attach_data(result, attached, cancelled=()):
     The same signed originals as in the text; nothing else changes. Returns the number of checkouts attached."""
     if not isinstance(result, dict):
         return 0
-    data = [dict(_fields(c.token), checkout_jwt=c.token, order=c.order) for c in attached]
+    now = time.time() if now is None else now
+    status = result.get('status')
+    continuation = bool(cancelled) or (isinstance(status, dict) and input_required(status.get('state')))
+    data = [dict(_fields(c.token, now, continuation), checkout_jwt=c.token, order=c.order) for c in attached]
     parts = [{'data': d} for d in data] or [{'data': {'checkouts': [], 'cancelled': sorted(str(o) for o in cancelled)}}]
     if result.get('kind') == 'task':                 # the v0.3 binding names each part's kind
         for p in parts:

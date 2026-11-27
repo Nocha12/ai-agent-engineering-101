@@ -436,7 +436,7 @@ def install(ak, logs, checkout=False):
         from a2a.server import request_handlers, tasks as a2a_tasks
         from a2a.helpers import get_message_text
         from a2a.types import Task
-        from checkout_delivery import Checkout, attach_data, clean_reply, compose, grade_free_reply, grade_note, _ungraded_food, tokens, JWT, SIGNED, ORDER, HOLD_SECONDS
+        from checkout_delivery import Checkout, attach_data, clean_reply, compose, grade_free_reply, grade_note, _ungraded_food, input_required, tokens, JWT, SIGNED, ORDER, HOLD_SECONDS
         http_request = ContextVar('checkout_http', default=None)
         inquiry = ContextVar('checkout_inquiry', default=None)
         a2a_event = ContextVar('checkout_a2a_event', default=None)
@@ -633,9 +633,10 @@ def install(ak, logs, checkout=False):
                                 # Both A2A JSON bindings use camelCase messageId and a text part.
                                 if (result['id'] == task and message['messageId'] == status_id
                                         and part.get('text') == baseline):
-                                    body, attached = compose(baseline, issued, cancelled, time.time(),
+                                    now = time.time()
+                                    body, attached = compose(baseline, issued, cancelled, now,
                                                              agent=shop.get('name'), item_names=NAMES,
-                                                             continuation=result['status'].get('state') in ('input_required', 'input-required'))
+                                                             continuation=input_required(result['status'].get('state')))
                                     part['text'] = body
                                     raw = json.dumps(response, ensure_ascii=False, separators=(',', ':')).encode()
                                     serialized = json.loads(raw)['result']
@@ -643,7 +644,7 @@ def install(ak, logs, checkout=False):
                                     emitted = tuple(c for c in attached if c.token in checks)
                                     waived = tuple(c for c in issued if c.order in cancelled)
                                     # 11/27: the same originals as the text also go whole as data parts (first artifact)
-                                    sent_data = attach_data(result, emitted, cancelled)
+                                    sent_data = attach_data(result, emitted, cancelled, now=now)
                                     raw = json.dumps(response, ensure_ascii=False, separators=(',', ':')).encode()
                                     headers = [(k, v) for k, v in header['headers']
                                                if k.lower() not in (b'content-length', b'cache-control', b'etag')]
@@ -841,7 +842,7 @@ def install(ak, logs, checkout=False):
                 return f'error: {e}'
             ev.checkout_plan = (issued, cancelled)
             canonical = grade_free_reply(issued, cancelled, time.time(), NAMES,
-                                         args.get('state') in ('input_required', 'input-required'))
+                                         input_required(args.get('state', 'input_required')))
             if canonical is not None:
                 args = dict(args, text=canonical)
         if checkout and ev is not None and ev.kind == 'a2a':
