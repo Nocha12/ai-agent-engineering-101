@@ -234,11 +234,25 @@ def test(run, kit):
         row = g['latest'](files[0])['q1']
         assert row['state'] == 'failed' and row['foreign_tx'] == FOREIGN and 'tx_hash' not in row, row
         assert row['note'] == 'rpc returned a foreign tx; no credits moved' and row['nonce'] == n0['pending'], row
+        assert row['nonce_now'] == row['nonce_later'] == [n0['pending']] * 2, row        # read twice, 10 s apart
         assert g['unconfirmed'](files[0]) == {}
         sends = [json.loads(x) for x in open(files[1], encoding='utf-8')]  # the foreign hash is not written as our send
         assert [x.get('nonce') for x in sends] == [n0['pending']] and not any('tx_hash' in x for x in sends), sends
         again = run({'sku': 'egg', 'qty': 2}, w)                         # the same quote again: refused, not paid
         assert not again['ok'] and 'no credits moved' in again['error'] and len(w.paid) == 1, again
+        # the operator can still confirm a foreign 'failed' row with our own tx; the foreign hash itself is refused,
+        # and a tx the market refuses keeps the row failed (it does not start blocking buys)
+        refused = run({'confirm': 'q1', 'tx_hash': FOREIGN}, w)
+        assert not refused['ok'] and 'foreign tx' in refused['error'] and confirms == [], refused
+        g['post'] = market([(402, {'error': 'the payer is not the order\'s buyer'})])
+        assert not run({'confirm': 'q1', 'tx_hash': '0x' + '11' * 32}, w)['ok']
+        assert g['latest'](files[0])['q1']['state'] == 'failed' and g['unconfirmed'](files[0]) == {}
+        del confirms[:]
+        g['post'] = market([(200, {'units': ['u-1', 'u-2']})])
+        r = run({'confirm': 'q1', 'tx_hash': '0x' + 'cd' * 32}, w)
+        assert r['ok'] and confirms == [{'quote': 'q1', 'tx_hash': '0x' + 'cd' * 32}] and len(w.paid) == 1, r
+        assert g['latest'](files[0])['q1']['state'] == 'confirmed'
+        del confirms[:]
         q2 = dict(QUOTE, quote='q2', pay=dict(QUOTE['pay'], to='0x' + 'CD' * 20))       # the next quote is bought
         g['post'] = lambda c, url, obj, headers: (402, q2) if 'sku' in obj else (confirms.append(dict(obj)) or (200, {'units': ['u-1']}))
         w2 = Wallet()
@@ -248,6 +262,25 @@ def test(run, kit):
         clean()
         # 10b. not ours and our nonce moved (a tx of ours may be out): outcome uncertain, the paying row blocks, no confirm
         g['post'] = market([(200, {'units': ['u-1', 'u-2']})])
+        # 10a'. a node behind: the first nonce read is unmoved, the second (10 s later) shows ours -> not 'failed'
+        reads = []
+
+        def lagging(m, p, timeout=None):
+            if m == 'eth_getTransactionCount':
+                reads.append(p[1])
+                if len(reads) == 4: nonce['pending'] += 1           # after the first pair
+            return fake_rpc(m, p)
+        g['rpc'], g['post'] = lagging, market([(200, {'units': ['u-1', 'u-2']})])
+        n1 = dict(nonce)
+        w = Wallet(gives=FOREIGN)
+        r = run({'sku': 'egg', 'qty': 2}, w)
+        assert not r['ok'] and 'uncertain' in r['error'] and confirms == [], r
+        row = g['latest'](files[0])['q1']
+        assert row['state'] == 'paying' and row['nonce_now'] == [n1['pending']] * 2, row
+        assert row['nonce_later'] == [n1['pending'], n1['pending'] + 1] and len(reads) == 5, (row, reads)
+        g['rpc'] = fake_rpc
+        nonce.update(n1)
+        clean()
         for moved in ({'latest': nonce['latest'], 'pending': nonce['pending'] + 1},       # ours waits in the pool
                       {'latest': nonce['latest'] + 1, 'pending': nonce['pending'] + 1},   # ours is mined
                       {'latest': nonce['latest'], 'pending': OSError('rpc down')}):       # the nonce cannot be read
@@ -287,6 +320,33 @@ def test(run, kit):
         r = run({'sku': 'egg', 'qty': 2}, w)
         assert not r['ok'] and 'uncertain' in r['error'] and confirms == [] and list(g['unconfirmed'](files[0])) == ['q1'], r
         clean()
+        # 10c'. from our wallet, same payee and amount, other data (an old payment of ours): not this payment
+        STALE = '0x' + '5a' * 32
+        chain[STALE] = {'hash': STALE, 'from': ME, 'to': '0x' + 'cd' * 20, 'value': hex(9000 * 10 ** 15), 'input': '0x' + 'ff' * 32}
+        g['post'] = market([(200, {'units': ['u-1', 'u-2']})])
+        w = Wallet(gives=STALE)
+        r = run({'sku': 'egg', 'qty': 2}, w)
+        assert not r['ok'] and 'uncertain' in r['error'] and confirms == [], r
+        assert g['latest'](files[0])['q1']['who'] == 'other' and 'tx_hash' not in g['latest'](files[0])['q1']
+        clean()
+        # 10c''. the input in another case and without 0x is the same payment
+        SAME = '0x' + '5b' * 32
+        chain[SAME] = {'hash': SAME, 'from': ME, 'to': '0x' + 'cd' * 20, 'value': hex(9000 * 10 ** 15), 'input': '0x' + 'EE' * 32}
+        w = Wallet(gives=SAME)
+        assert run({'sku': 'egg', 'qty': 2}, w)['ok'] and confirms == [{'quote': 'q1', 'tx_hash': SAME}]
+        clean()
+        # time: no second lookup or nonce re-read that would eat the confirm's time or pass the kit's 180 s
+        calls = []
+        g['rpc'] = lambda m, p, timeout=None: calls.append(m) or fake_rpc(m, p)
+        chain['0x' + '0f' * 32] = None
+        assert g['whose_tx'](Wallet(), '0x' + '0f' * 32, '0x' + 'cd' * 20, 1, '0x', g['_clock']() + 20) is None
+        assert calls == ['eth_getTransactionByHash'], calls
+        del calls[:]
+        late = g['not_ours'](Wallet(), 'q-late', FOREIGN, nonce['pending'], 'foreign', g['_clock']())
+        assert 'uncertain' in late['error'] and g['latest'](files[0])['q-late']['nonce_later'] is None, late
+        assert calls == ['eth_getTransactionCount'] * 2, calls
+        g['rpc'] = fake_rpc
+        clean()
         # 10d. the chain cannot say (lookup fails or no tx yet): the flow as before - the market checks the tx itself
         for lost in (None, OSError('rpc down')):
             GONE = '0x' + '0e' * 32
@@ -297,7 +357,7 @@ def test(run, kit):
             assert r['ok'] and confirms == [{'quote': 'q1', 'tx_hash': GONE}], (lost, r)
             clean()
         # 10e. a revert naming a foreign hash: failed (no credits moved) only while our nonce did not move
-        w = Wallet(fail=RuntimeError('transfer ' + FOREIGN + ' failed on chain'), gives=None)
+        w = Wallet()
         w.pay = lambda to, wei, data, role: (_ for _ in ()).throw(RuntimeError('transfer ' + FOREIGN + ' failed on chain'))
         r = run({'sku': 'egg', 'qty': 2}, w)
         assert not r['ok'] and g['latest'](files[0])['q1']['state'] == 'failed' and g['unconfirmed'](files[0]) == {}, r

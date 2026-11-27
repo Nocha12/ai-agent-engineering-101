@@ -14,8 +14,9 @@ logs/supply-pending.jsonl, written before the step it covers, latest row per quo
                ours (foreign_tx) while our nonce stayed the intent's (latest = pending): nothing of ours went out
   resolved     written by the operator after checking the chain by hand
 The tx kit.pay gives is read on chain (11/28 02:42: the RPC gave another wallet's tx and the quote stayed open):
-from = the shop wallet, to = pay.to, value = wei. Not ours and our nonce moved or cannot be read: the row stays
-'paying' (foreign_tx noted, no tx_hash) - outcome uncertain, the operator checks. The chain cannot say: as before.
+from = the shop wallet, to = pay.to, value = wei, input = pay.data. 'failed' needs another sender and our nonce
+unmoved on two reads 10 s apart; else the row stays 'paying' (foreign_tx noted, no tx_hash) - outcome uncertain, the
+operator checks. The chain cannot say: as before. {confirm, tx_hash} also reopens a foreign 'failed' row.
 When the wallet gave no tx (outcome unknown), {confirm: <quote>, tx_hash: <0x...>} confirms with the tx the operator
 found (agent-kit.log '[maroo] buy_food_lot sent ... tx/0x...'); the market itself checks that tx pays the quote.
 A quote in 'paying' or 'unconfirmed' blocks every new purchase until args {confirm: <quote>} confirms it (the market
@@ -90,16 +91,21 @@ def rpc(method, params, timeout=20):
 FOREIGN_NOTE = 'rpc returned a foreign tx; no credits moved'
 
 
-def whose_tx(kit, txid, to, wei):
-    """'ours' (from the shop wallet to pay.to for wei), 'foreign' (another sender), 'other' (from us, not this
-    payment) or None when the chain cannot say (lookup failed twice or no such tx yet)."""
+def _hex(s):
+    s = str(s or '').lower()
+    return s[2:] if s.startswith('0x') else s
+
+
+def whose_tx(kit, txid, to, wei, data, deadline):
+    """'ours' (from the shop wallet to pay.to for wei with pay.data, as the market checks it), 'foreign' (another
+    sender), 'other' (from us, not this payment) or None when the chain cannot say (lookup failed or no such tx)."""
     tx = None
     for i in range(2):
         try:
             tx = rpc('eth_getTransactionByHash', [txid], 10)
         except Exception:
             tx = None
-        if isinstance(tx, dict) or i: break
+        if isinstance(tx, dict) or i or _clock() + 12 > deadline - CONFIRM_TIMEOUT: break   # keep the confirm's time
         _sleep(2)
     if not isinstance(tx, dict) or not tx.get('from'): return None
     if str(tx['from']).lower() != str(kit.address('shop')).lower(): return 'foreign'
@@ -107,23 +113,37 @@ def whose_tx(kit, txid, to, wei):
         value = int(str(tx.get('value') or '0x0'), 16)
     except ValueError:
         return 'other'
-    return 'ours' if str(tx.get('to') or '').lower() == str(to).lower() and value == wei else 'other'
+    same = str(tx.get('to') or '').lower() == str(to).lower() and value == wei
+    return 'ours' if same and _hex(tx.get('input') or tx.get('data')) == _hex(data) else 'other'
 
 
-def not_ours(kit, qid, txid, nonce, who):
-    """kit.pay gave a tx that is not this payment. Our nonce still the intent's (latest = pending): nothing of ours
-    went out, 'failed'. Else (moved, unreadable, or a tx of ours to someone else): the 'paying' row stays open."""
+NONCE_RECHECK = 10                            # s: a node behind may not show our tx yet; ask again before 'failed'
+
+
+def _nonces(kit):
     try:
-        now = [int(rpc('eth_getTransactionCount', [kit.address('shop'), t], 10), 16) for t in ('latest', 'pending')]
+        return [int(rpc('eth_getTransactionCount', [kit.address('shop'), t], 10), 16) for t in ('latest', 'pending')]
     except Exception:
-        now = None
-    row = {'quote': qid, 'foreign_tx': txid, 'nonce': nonce, 'nonce_now': now}
-    if who == 'foreign' and now == [nonce, nonce]:
+        return None
+
+
+def not_ours(kit, qid, txid, nonce, who, deadline):
+    """kit.pay gave a tx that is not this payment. Our nonce still the intent's (latest = pending) now and again
+    NONCE_RECHECK s later: nothing of ours went out, 'failed'. Else (moved, unreadable, no time for the second read,
+    or a tx of ours that is not this payment): the 'paying' row stays open (outcome uncertain)."""
+    now = _nonces(kit)
+    later = None
+    if who == 'foreign' and now == [nonce, nonce] and _clock() + NONCE_RECHECK + 25 <= deadline + 20:
+        _sleep(NONCE_RECHECK)
+        later = _nonces(kit)
+    row = {'quote': qid, 'foreign_tx': txid, 'who': who, 'nonce': nonce, 'nonce_now': now, 'nonce_later': later}
+    if who == 'foreign' and now == later == [nonce, nonce]:
         row.update(state='failed', note=FOREIGN_NOTE)
         out = {'ok': False, 'quote': qid, 'foreign_tx': txid, 'error': 'the wallet RPC gave a tx that is not ours and our '
                'nonce did not move: no credits moved. Nothing to confirm; ask for a new quote and buy again'}
     else:
-        row.update(state='paying', note='rpc gave a tx that is not this payment; our nonce moved or is unreadable')
+        row.update(state='paying', note='rpc gave a foreign tx; our nonce moved, is unreadable or was not read twice'
+                   if who == 'foreign' else 'rpc gave a tx of ours that is not this payment (payee, amount or data)')
         print('WARNING buy_food_lot: payment outcome uncertain for quote', qid, '(the wallet gave a tx that is not ours)')
         out = {'ok': False, 'quote': qid, 'foreign_tx': txid, 'error': 'payment outcome uncertain: the wallet gave a tx '
                'that is not this payment and our nonce moved or cannot be read; new purchases are blocked until checked'}
@@ -250,7 +270,7 @@ def delivered(c, headers, units, tx_hash, deadline=None):
     return False
 
 
-def settle_confirm(c, headers, kit, row, deadline, given=None):
+def settle_confirm(c, headers, kit, row, deadline, given=None, fail_state='unconfirmed'):
     """Confirm one open row; writes the outcome row. Returns the confirm result (with 'confirmed').
     given: a tx the operator supplied - kept as tx_hash only once the market confirms it (a typo must not stick), and
     not used for the ledger lookup after a 404 (only our own unit IDs and our own payment's tx count there)."""
@@ -270,7 +290,7 @@ def settle_confirm(c, headers, kit, row, deadline, given=None):
         append(path, {'quote': quote, 'tx_hash': tx, 'state': 'confirmed', 'status': res['status'], 'attempts': res['attempts']})
     else:
         append(path, dict({'tried_tx': tx} if given else {'tx_hash': tx},
-                          quote=quote, state='unconfirmed', status=res['status'], error=res['error']))
+                          quote=quote, state=fail_state, status=res['status'], error=res['error']))
         print('WARNING buy_food_lot: paid quote', quote, 'is not confirmed (status', res['status'], ')')
     return res
 
@@ -278,17 +298,25 @@ def settle_confirm(c, headers, kit, row, deadline, given=None):
 def _confirm_only(args, kit, deadline):
     quote = str(args.get('confirm'))
     row = unconfirmed(pending_path(kit)).get(quote)
+    given = args.get('tx_hash')
+    fail_state = 'unconfirmed'
+    if not row and given is not None:           # a foreign-tx 'failed' row: the operator found our own tx after all
+        old = latest(pending_path(kit)).get(quote) or {}
+        if old.get('state') == 'failed' and old.get('foreign_tx'):
+            row, fail_state = old, 'failed'     # a wrong tx keeps it failed (it does not start blocking buys)
     if not row:
         return {'ok': False, 'error': 'no unconfirmed paid lot with that quote in ' + pending_path(kit)}
-    given = args.get('tx_hash')
     if given is not None:                       # the operator found the tx (outcome was unknown); the market verifies it
         if not isinstance(given, str) or not TX.fullmatch(given):
             return {'ok': False, 'error': 'tx_hash must be 0x and 64 hex digits'}
         if row.get('tx_hash') and row['tx_hash'].lower() != given.lower():
             return {'ok': False, 'error': 'this quote already has another tx_hash', 'tx_hash': row['tx_hash']}
+        if given.lower() == str(row.get('foreign_tx') or '').lower():
+            return {'ok': False, 'error': 'that is the foreign tx the RPC gave (not from our wallet); find our own tx '
+                    '(shop wallet nonce %s)' % row.get('nonce'), 'foreign_tx': row['foreign_tx']}
     headers = {'authorization': 'Bearer ' + kit.token('shop')}
     with httpx.Client(timeout=25) as c:
-        res = settle_confirm(c, headers, kit, row, deadline, given=given)
+        res = settle_confirm(c, headers, kit, row, deadline, given=given, fail_state=fail_state)
     if res['confirmed']:
         return {'ok': True, 'confirmed': quote, 'result': res['result'], 'note': res.get('note')}
     return {'ok': False, 'paid_unconfirmed': True, 'quote': quote, 'status': res['status'], 'response': res['result'],
@@ -357,9 +385,9 @@ def run(args, kit):
         except Exception as e:
             found = TX.findall(str(e))
             if found and 'failed on chain' in str(e):     # reverted: no credits moved, nothing to confirm
-                who = whose_tx(kit, found[0], pay['to'], wei)
+                who = whose_tx(kit, found[0], pay['to'], wei, pay['data'], deadline)
                 if who in ('foreign', 'other'):
-                    return not_ours(kit, qid, found[0], nonce, who)
+                    return not_ours(kit, qid, found[0], nonce, who, deadline)
                 append(pending_path(kit), {'quote': qid, 'tx_hash': found[0], 'state': 'failed'})
                 return {'ok': False, 'error': 'the transfer was reverted on chain; no credits moved', 'tx_hash': found[0], 'quote': qid}
             if not found:                       # the paying row stays open: no new purchase until it is sorted out
@@ -368,9 +396,9 @@ def run(args, kit):
                         'detail': str(e)[:200], 'quote': qid}
             tx = found[0]
         txid = tx if isinstance(tx, str) else str(tx)
-        who = whose_tx(kit, txid, pay['to'], wei)
+        who = whose_tx(kit, txid, pay['to'], wei, pay['data'], deadline)
         if who in ('foreign', 'other'):         # not our payment: never recorded as ours, never confirmed
-            return not_ours(kit, qid, txid, nonce, who)
+            return not_ours(kit, qid, txid, nonce, who, deadline)
         for path, row in ((pending_path(kit), {'quote': qid, 'tx_hash': txid, 'state': 'unconfirmed'}),
                           (sends_path(kit), {'purpose': 'supply', 'order': qid, 'to': pay['to'], 'amount': total, 'tx_hash': txid})):
             try:
