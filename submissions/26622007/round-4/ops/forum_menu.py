@@ -55,6 +55,8 @@ LEAD_LONG = 2                 # check: of 880 market settles only 8 had under 10
 LEAD_AB = 24                  # hours: the lead is first filled with lines not on clearance, of a LEAD_GRADES grade, with
 LEAD_GRADES = ('A', 'B')      # this long left or no date (11/27 12:40 check: 20/20 posts led by 10-24 h clearance lines,
                               # 86% of market settles had 24 h+ left); too few: the LONG rule fills the rest. Order only
+LOW_MAX = 1                   # lines on clearance or of a grade outside LEAD_GRADES: at most this many per post (메인
+                              # 11/27 18:10 check: 17/17 posts B2·C3, 51/85 lines C, 3/29 sales C, 24 asks without C·임박)
 WINDOW_SPAN = 900             # an entry this long before the window's last open tick belongs to it
 SETTLE_TTL = 48 * 3600      # settles kept: 48 h for the cash-out fallback median (메인 11/27 15:2x)
 SETTLE_SPAN = 24 * 3600     # the medians and the popularity order read the last 24 h of them
@@ -763,7 +765,8 @@ def apply_plan(qb, path, inv, plan, now):
 
 
 def build_text(qb, inv, quotes, settles, now, turn, name='노차네 구멍가게(nocha12)', failed=None, posted=None):
-    """(text, [sku]) — the cheapest shown grade of each item we hold: what expires within EXPIRING hours first
+    """(text, [sku]) — the cheapest shown grade of each item we hold, among its A·B (LEAD_GRADES) grades when it has
+    one (11/27 18:10), and at most LOW_MAX (1) line per post on clearance or of another grade: what expires within EXPIRING hours first
     (soonest first), then the most units we hold, then the most-sold SKUs on the market; the first two stay, the rest
     rotate with turn so successive posts show different stock. None when nothing has a price. Clearance (떨이, 11/26
 19:05): SKUs with a unit on clearance (shared clearance block) come before all of these, soonest first, at the clearance
@@ -798,7 +801,8 @@ grade's shown price for every unit of it, so it names no unit (unit, until None)
             continue
         if not shown:
             continue
-        g = min(shown, key=lambda k: (shown[k], k))
+        ab = [k for k in shown if k in LEAD_GRADES]   # 11/27 18:10: an A·B grade when we hold one, its cheapest
+        g = min(ab or shown, key=lambda k: (shown[k], k))
         left = soonest(inv, sku, g, now)
         urgent = left is not None and left <= EXPIRING
         items.append(((0, left) if urgent else (1, 0), -st['count'], -settles.count(sku), sku,
@@ -826,8 +830,12 @@ grade's shown price for every unit of it, so it names no unit (unit, until None)
             if len(lead) < LEAD_LONG and pick(it) and all(x[5] != it[5] for x in lead):
                 lead.append(it)
     order = lead + [it for it in order if all(it is not x for x in lead)]
+    low = lambda it: it[0][0] == -1 or it[7] not in LEAD_GRADES
+    lows = 0
     for it in order:
         if it[5] in seen:                          # one line per name (r3 I2: by the shown name, never a cut of it)
+            continue
+        if low(it) and lows >= LOW_MAX:            # 11/27 18:10: C·떨이 one line, the first in this order
             continue
         add = (' ' if not chosen else ' · ') + it[4]
         if len(text) + len(add) + len(TAIL) > room:
@@ -835,6 +843,7 @@ grade's shown price for every unit of it, so it names no unit (unit, until None)
         text += add
         chosen.append(it[3])
         seen.add(it[5])
+        lows += low(it)
         if isinstance(posted, list):
             posted.append(dict(it[8], sku=it[3], grade=it[7]))
     if not chosen:

@@ -313,17 +313,17 @@ class Text(unittest.TestCase):
         text, skus = fm.build_text(QB, INV, self.QUOTES, settles(MARKET_SETTLES), NOW, 0)
         self.assertLessEqual(len(text), 160)
         self.assertTrue(text.endswith(fm.TAIL))
-        # 11/27 12:40: A·B lines with 24 h+ left lead (tea B, water A, in the old order: the tea's 4 settles, then
-        # the water's 3); the egg (6 settles, but its cheapest shown grade is C) follows them
-        self.assertEqual(skus[:3], [TEA, WATER, EGG])
-        self.assertIn('계란20구 C7,000', text)               # cheapest shown grade of the egg
+        # 11/27 18:10: the egg holds a B unit, so it shows B (not its cheaper C) and, 24 h left, leads with the tea
+        self.assertEqual(skus[:3], [EGG, TEA, WATER])
+        self.assertIn('계란20구 B7,975', text)
+        self.assertNotIn('C7,000', text)
 
     def test_display_rule_failures_written_and_still_shown(self):
         # 대표님 11/27 01:26: the display rules run before each post. Two eggs that would read alike get their own names
         # (review I5: the SKU tail at the latest); a rule break is written down (failed) and the item still goes up —
         # the check never hides stock (review I4).
-        two = {'units': INV['units'] + [unit('u7', 'GEGG2', '한계란 난각번호 1번 계란 무항생제 유정란 20구', 'C', 6361)]}
-        q = dict(self.QUOTES, **{'GEGG2|C': {'price': 7100, 'ts': NOW, 'by': 'x'}})
+        two = {'units': INV['units'] + [unit('u7', 'GEGG2', '한계란 난각번호 1번 계란 무항생제 유정란 20구', 'B', 6361)]}
+        q = dict(self.QUOTES, **{'GEGG2|B': {'price': 7100, 'ts': NOW, 'by': 'x'}})
         failed = {}
         text, skus = fm.build_text(QB, two, q, settles(MARKET_SETTLES), NOW, 0, failed=failed)
         self.assertIn(EGG, skus)
@@ -340,7 +340,7 @@ class Text(unittest.TestCase):
             fm.display_check = real
         self.assertEqual(failed[EGG]['why'], ['용량·묶음 빠짐 20구'])
         self.assertIn(EGG, skus)                           # written down, still shown
-        self.assertIn('계란20구 C7,000', text)
+        self.assertIn('계란20구 B7,975', text)
 
     def test_names_alike_up_to_a_comma_both_posted(self):
         # 동원135g×2, 150g / 동원135g×2, 100g: one line per shown name, never per its first word (r3 I2)
@@ -358,8 +358,8 @@ class Text(unittest.TestCase):
         inv = {'units': INV['units'] + [old]}
         failed = {}
         text, skus = fm.build_text(QB, inv, self.QUOTES, settles(MARKET_SETTLES), NOW, 0, failed=failed)
-        self.assertEqual(skus[:3], [TEA, WATER, EGG])      # 11/27 12:40: A·B 24 h+ lead, then the egg
-        self.assertIn('계란20구 C7,000', text)
+        self.assertEqual(skus[:3], [EGG, TEA, WATER])      # 11/27 18:10: the egg's B unit, 24 h left, leads
+        self.assertIn('계란20구 B7,975', text)
         self.assertNotIn('GEGG3', skus)
         self.assertEqual(failed, {})
 
@@ -458,9 +458,7 @@ class Once(unittest.TestCase):
             r = m.once()
             self.assertTrue(r['ok'], r)
             self.assertEqual(len(m.posts), 1)
-            floor_c = QB['stock'](INV, EGG, NOW)['floors']['C']
-            want_c = 5258 if 'CASHOUT_MIN' in QB else max(floor_c, 5258)   # 24 h left: the cash-out price (11/27)
-            self.assertIn(f'계란20구 C{want_c:,}', m.posts[0])   # the cheapest shown grade
+            self.assertIn('계란20구 B7,975', m.posts[0])   # 11/27 18:10: its B grade, not the cheaper C
             q = json.loads((Path(d) / 'logs' / 'quotes.json').read_text())
             self.assertEqual(q[f'{EGG}|B']['price'], 7975)
             self.assertEqual(q[f'{WATER}|A']['price'], 4830)       # water untouched
@@ -887,8 +885,9 @@ class Q8Exposure(unittest.TestCase):
         q = {f'{EGG}|C': {'price': 7000, 'ts': NOW, 'by': 'x'}, f'{TEA}|B': {'price': 2900, 'ts': NOW, 'by': 'x'},
              f'{RICE}|C': {'price': 4700, 'ts': NOW, 'by': 'x'}}
         text, skus = fm.build_text(QB, inv, q, settles(MARKET_SETTLES), NOW, 0)
-        # 11/27 06:40: the first two lines with 10 h+ left lead (3 units, then the best seller); 5 h rice follows
-        self.assertEqual(skus[:3], [TEA, EGG, RICE])
+        # 11/27 06:40: the first two lines with 10 h+ left lead (3 units, then the best seller); 11/27 18:10: the egg
+        # is a C line, so the C rice no longer follows it (one C·떨이 line a post)
+        self.assertEqual(skus, [TEA, EGG])
         self.assertLessEqual(len(text), fm.VIEW)
 
     def test_soonest_reads_only_good_dated_units_of_that_grade(self):
@@ -959,13 +958,13 @@ class Clearance(unittest.TestCase):
         q = {f'{EGG}|B': {'price': 7975, 'ts': NOW, 'by': 'x'}, f'{TEA}|B': {'price': 2900, 'ts': NOW, 'by': 'x'},
              f'{WATER}|C': {'price': 4830, 'ts': NOW, 'by': 'x'}}
         text, skus = fm.build_text(QB, inv, q, settles(MARKET_SETTLES), NOW, 0)
-        # 메인 11/27 03:5x: 2 h (egg) and 1 h (water) are under SHORT: both after tea, in the old order among themselves
-        self.assertEqual(skus, [TEA, EGG, WATER])
+        # 메인 11/27 03:5x: 2 h (egg) and 1 h (water) are under SHORT: both after tea, in the old order among themselves;
+        # 11/27 18:10: one C·떨이 line a post, so the C water (the second of them) is left out
+        self.assertEqual(skus, [TEA, EGG])
         until = time.strftime('%H:%M', time.localtime(NOW + 2 * 3600))
         self.assertTrue(text.startswith('[노차네 구멍가게(nocha12) 지금 재고]'), text)   # 11/27 12:40: tea B leads
         self.assertIn(f' · 계란20구 C4,190(~{until})', text)
-        self.assertIn('생수', text)                        # water is listed at its own price, not on clearance
-        self.assertNotIn('생수2L C4,', text.split('·')[0])
+        self.assertNotIn('생수', text)
         self.assertLessEqual(len(text), fm.VIEW)
 
     def test_three_hours_or_more_first_short_last_in_the_same_post(self):
@@ -977,8 +976,8 @@ class Clearance(unittest.TestCase):
                          unit('t1', TEA, '동서 둥굴레차 50T 60g', 'B', 1800, exp=NOW + 300 * 3600)]}
         q = {f'{TEA}|B': {'price': 2900, 'ts': NOW, 'by': 'x'}}
         text, skus = fm.build_text(QB, inv, q, settles(MARKET_SETTLES), NOW, 0)
-        self.assertEqual(skus, [TEA, 'G5c96ee78', EGG])    # 11/27 06:40: 300 h tea leads, then 5 h clearance, 1 h egg last
-        for u in inv['units'][:2]:                         # each line keeps its unit's own clearance price
+        self.assertEqual(skus, [TEA, 'G5c96ee78'])         # 11/27 06:40: 300 h tea leads, then 5 h clearance; 18:10:
+        for u in inv['units'][1:2]:                        # the 1 h egg is a second C·떨이 line: left out. Own price kept
             cl = fm.clearance(u, None, NOW)
             self.assertIsNotNone(cl)
             self.assertIn(f"C{cl['price']:,}(~", text)
@@ -1088,16 +1087,16 @@ class Lead(unittest.TestCase):
     def test_clearance_only_unchanged(self):
         inv = {'units': self.clear_units()}
         text, skus = fm.build_text(QB, inv, {}, settles(MARKET_SETTLES), NOW, 0)
-        self.assertEqual(skus, [self.CITR, self.MACK, self.YOG])   # soonest first, as before (no A·B line to lead)
+        self.assertEqual(skus, [self.CITR])                # soonest first; 11/27 18:10: one C·떨이 line a post
         until = time.strftime('%H:%M', time.localtime(NOW + 15 * 3600))
         price = fm.clearance(inv['units'][1], None, NOW)['price']
-        self.assertTrue(text.startswith(f'[노차네 구멍가게(nocha12) 떨이·기한 임박] 감귤4.5kg C{price:,}(~{until}) · '), text)
+        self.assertEqual(text, f'[노차네 구멍가게(nocha12) 떨이·기한 임박] 감귤4.5kg C{price:,}(~{until})' + fm.TAIL)
 
     def test_one_ab_line_then_the_long_rule(self):
         inv = {'units': self.clear_units() + [unit('t1', TEA, '동서 둥굴레차 50T 60g', 'B', 1800, exp=NOW + 300 * 3600)]}
         q = {f'{TEA}|B': {'price': 2900, 'ts': NOW, 'by': 'x'}}
         text, skus = fm.build_text(QB, inv, q, settles(MARKET_SETTLES), NOW, 0)
-        self.assertEqual(skus[:3], [TEA, self.CITR, self.MACK])   # tea, then the 06:40 rule's first long line
+        self.assertEqual(skus, [TEA, self.CITR])           # tea, then the 06:40 rule's first long line (one C·떨이)
         self.assertTrue(text.startswith('[노차네 구멍가게(nocha12) 지금 재고] 둥굴레차60g B2,900 · 감귤4.5kg C'), text)
 
     def test_c_or_under_24_h_does_not_take_the_ab_lead(self):
@@ -1107,7 +1106,9 @@ class Lead(unittest.TestCase):
         q = {f'{RICE}|B': {'price': 4700, 'ts': NOW, 'by': 'x'}, f'{EGG}|C': {'price': 7000, 'ts': NOW, 'by': 'x'}}
         text, skus = fm.build_text(QB, inv, q, settles(MARKET_SETTLES), NOW, 0)
         # no A·B 24 h+ line: the 06:40 rule as before (clearance 15 h and 20 h first), header as before
-        self.assertEqual(skus[:2], [self.CITR, self.MACK])
+        self.assertEqual(skus[:2], [self.CITR, RICE])      # 11/27 18:10: one C·떨이 line (citrus), then the B rice
+        self.assertNotIn(self.MACK, skus)
+        self.assertNotIn(EGG, skus)
         self.assertTrue(text.startswith('[노차네 구멍가게(nocha12) 떨이·기한 임박]'), text)
 
     def test_undated_ab_line_leads(self):
@@ -1116,6 +1117,47 @@ class Lead(unittest.TestCase):
         text, skus = fm.build_text(QB, inv, q, settles(MARKET_SETTLES), NOW, 0)
         self.assertEqual(skus[0], TEA)                     # no date reads as long, as in the 06:40 rule
         self.assertTrue(text.startswith('[노차네 구멍가게(nocha12) 지금 재고]'), text)
+
+
+class AbMenu(unittest.TestCase):
+    """메인 11/27 18:10 check: 17/17 posts B2·C3 (51/85 lines C), 3/29 sales C, 24 asks without C·임박. A SKU shows
+    its cheapest A·B grade when it holds one; a post has at most one line on clearance or of another grade."""
+    EGGCAT = {'category': '식품>계란/유제품>계란', 'list_price': 9900}
+
+    def test_b_over_cheaper_c_and_one_low_line(self):
+        names = ['계란 무항생제 20구', '동서 둥굴레차 60g', '햅쌀 백미 2kg', '꿀호떡 1kg', '방울토마토 500g', '감귤 4.5kg']
+        units, q = [], {}
+        for i, n in enumerate(names):
+            sku = f'GAB{i:06d}'
+            units.append(unit(f'b{i}', sku, n, 'B', 1000, exp=NOW + 100 * 3600))
+            units.append(unit(f'c{i}', sku, n, 'C', 1000, exp=NOW + 100 * 3600))
+            q[f'{sku}|B'] = {'price': 3000 + i, 'ts': NOW, 'by': 'x'}
+            q[f'{sku}|C'] = {'price': 2000 + i, 'ts': NOW, 'by': 'x'}
+        for i in range(3):                                    # C only, one of them on clearance
+            sku = f'GCC{i:06d}'
+            units.append(dict(unit(f'x{i}', sku, f'요거트{i}호 450g', 'C', 4500, exp=NOW + (15 + i) * 3600), **self.EGGCAT))
+        text, skus = fm.build_text(QB, {'units': units}, q, settles([]), NOW, 0)
+        lines = text.split('] ', 1)[1][:-len(fm.TAIL)].split(' · ')
+        self.assertTrue(all(' C' not in x for x in lines if not x.endswith(')')), lines)   # A·B SKUs show B
+        low = [x for x in lines if ' C' in x]
+        self.assertEqual(len(low), 1, lines)                  # one C·떨이 line
+        self.assertTrue(low[0].endswith(')'), low)            # the clearance one (soonest), at its clearance price
+        self.assertTrue(text.startswith('[노차네 구멍가게(nocha12) 지금 재고] '), text)
+        self.assertLessEqual(len(text), fm.VIEW)
+        for t in range(4):                                    # rotation keeps the rule
+            text, _ = fm.build_text(QB, {'units': units}, q, settles([]), NOW, t)
+            self.assertLessEqual(sum(' C' in x for x in text.split('] ', 1)[1].split(' · ')), 1, text)
+
+    def test_cheapest_among_a_and_b(self):
+        units = [unit('a', TEA, '동서 둥굴레차 50T 60g', 'A', 1800), unit('b', TEA, '동서 둥굴레차 50T 60g', 'B', 1800),
+                 unit('c', TEA, '동서 둥굴레차 50T 60g', 'C', 1800)]
+        q = {f'{TEA}|A': {'price': 3300, 'ts': NOW, 'by': 'x'}, f'{TEA}|B': {'price': 2900, 'ts': NOW, 'by': 'x'},
+             f'{TEA}|C': {'price': 2000, 'ts': NOW, 'by': 'x'}}
+        posted = []
+        text, _ = fm.build_text(QB, {'units': units}, q, settles([]), NOW, 0, posted=posted)
+        self.assertIn('둥굴레차60g B2,900', text)
+        self.assertEqual(posted[0]['grade'], 'B')
+        self.assertEqual(posted[0]['price'], 2900)            # prices unchanged: the B quote as it is
 
 
 class ForumUnits(unittest.TestCase):
