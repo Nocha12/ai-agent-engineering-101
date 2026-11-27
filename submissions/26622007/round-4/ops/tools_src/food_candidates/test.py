@@ -686,7 +686,7 @@ def _test_held(g, K, now):
     a6 = g['asked_out_of_stock'](lost2, cat2, {'G-q%d' % i: 1 for i in range(5)}, now, {})
     assert [x['buy_options'][0]['sku'] for x in a6] == base and base[:5] == ['G-q%d' % i for i in range(5)], (base, a6)
     assert all(x['held_not_fit'][0]['why'] == 'other_size' for x in a6[:5]) and not any(x.get('held') for x in a6), a6
-    # 9) refill (11/27 17:30): our own sales in 24 h minus what we hold, per SKU, 0..4; a SKU we hold more of than we
+    # 9) refill (11/27 17:30, 19:0x cover): our sales of the next COVER_H h (24 h sales x 6/24, up) minus what we hold, per SKU, 0..4; a SKU we hold more of than we
     #    sold shows qty 0 (sell first); computed from logs/sales.jsonl rows of the last 24 h only
     g['own_sold'] = lambda path=None, now=None: {'G-silk': 3, 'G-tofu': 6, 'G-flat': 1}
     g['fetch'] = lambda base, tk: (CAT, {'surge': []}, {'balance': 1, 'units': units(('G-silk', 5, False), ('G-tofu', 1, False))})
@@ -694,7 +694,19 @@ def _test_held(g, K, now):
     r9 = g['run']({}, K())
     rf = {x['sku']: x for x in r9['refill']}
     assert rf['G-silk']['sold_24h'] == 3 and rf['G-silk']['held'] == 5 and rf['G-silk']['qty'] == 0, rf
-    assert rf['G-tofu']['qty'] == 4 and rf['G-flat']['qty'] == 1 and rf['G-flat']['held'] == 0, rf
+    assert rf['G-tofu']['qty'] == 1 and rf['G-flat']['qty'] == 1 and rf['G-flat']['held'] == 0, rf
+    # 11/27 19:0x: refill fills the next COVER_H hours of our sales, not a whole day (tofu sold 22 / held 11 was told
+    #    qty 4 twice in one window and 8 more were bought; windows open every ~20 min, C units expire in hours)
+    assert rf['G-tofu']['cover'] == 2 and rf['G-silk']['cover'] == 1, rf
+    g['own_sold'] = lambda path=None, now=None: {'G-silk': 22, 'G-tofu': 9}
+    g['fetch'] = lambda base, tk: (CAT, {'surge': []}, {'balance': 1, 'units': units(('G-silk', 11, False), ('G-tofu', 3, False))})
+    rc = {x['sku']: x for x in g['run']({}, K())['refill']}
+    assert rc['G-silk']['qty'] == 0 and rc['G-tofu']['qty'] == 0, rc
+    g['fetch'] = lambda base, tk: (CAT, {'surge': []}, {'balance': 1, 'units': units(('G-silk', 2, False))})
+    rc = {x['sku']: x for x in g['run']({}, K())['refill']}
+    assert rc['G-silk']['qty'] == 4 and rc['G-silk']['cover'] == 6 and rc['G-tofu']['qty'] == 3, rc
+    g['own_sold'] = lambda path=None, now=None: {'G-silk': 3, 'G-tofu': 6, 'G-flat': 1}
+    g['fetch'] = lambda base, tk: (CAT, {'surge': []}, {'balance': 1, 'units': units(('G-silk', 5, False), ('G-tofu', 1, False))})
     assert [x['sku'] for x in r9['refill']][:2] == ['G-tofu', 'G-flat'], r9['refill']
     # review I1: asked items come first (the goal buys them first); refill after them
     assert list(r9).index('customer_asked_out_of_stock') < list(r9).index('refill'), list(r9)
