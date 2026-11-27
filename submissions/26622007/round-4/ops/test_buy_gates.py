@@ -4,10 +4,12 @@ Allowed: class kit limits, food only, expected sale > cost + fees, 3 items a win
 Market facts (supply window closed, 429, balance) are not gates.
 Run from ops/: ~/ax-round4-venv/bin/python -m pytest -q test_buy_gates.py"""
 import json
+import sys
 import unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
 
 
 def goal():
@@ -41,6 +43,47 @@ class GoalHasNoStockOrEndGate(unittest.TestCase):
     def test_stock_and_speed_are_reference_only(self):
         self.assertIn('판매 속도와 지금 가진 재고는 참고만 하고 매입을 멈추거나 줄이는 이유로 쓰지 않는다', goal())
 
+
+
+class BestSellersDoesNotStopBuying(unittest.TestCase):
+    """D-1: best_sellers buy_qty was 0 whenever data was stale and its note said 0이면 사지 않음."""
+
+    def setUp(self):
+        import best_sellers as bs
+        from test_best_sellers import ledger, CATALOG, NOW, H
+        self.bs, self.NOW, self.H = bs, NOW, H
+        self.data = bs.build_data(ledger(), CATALOG, now=NOW, keep_hours=24)
+        self.data.update(stock_as_of=NOW, ledger_as_of=NOW, sku_stock={'water': [3, 2, 0]}, stock_unconfirmed=[])
+
+    def test_note_and_description_do_not_say_zero_means_no_buy(self):
+        out = self.bs.rank({}, self.data, now=self.NOW)
+        self.assertNotIn('사지 않', out['note'])
+        self.assertIn('참고', out['note'])
+        self.assertIn('매입을 막는 이유가 아니', out['note'])
+        forge_src = (HERE / 'best_sellers_forge.py').read_text(encoding='utf-8')
+        self.assertNotIn('0이면 사지', forge_src)
+        self.assertNotIn('0이면 사지', (HERE / 'best_sellers.py').read_text(encoding='utf-8'))
+
+    def test_stale_data_still_gives_a_reference_quantity(self):
+        stale = dict(self.data, stock_as_of=self.NOW - 30 * self.H)      # old stock snapshot: stale
+        out = self.bs.rank({}, stale, now=self.NOW)
+        self.assertTrue(out['stale'])
+        water = out['items'][0]
+        self.assertEqual(water['sku'], 'water')
+        self.assertGreater(water['buy_qty'], 0)                      # not forced to 0
+        self.assertLessEqual(water['buy_qty'], 4)
+        self.assertEqual(water['buy_qty_basis'], 'no_stock_data')
+
+    def test_unconfirmed_stock_still_gives_a_reference_quantity(self):
+        data = dict(self.data, stock_unconfirmed=['water'])
+        water = self.bs.rank({}, data, now=self.NOW)['items'][0]
+        self.assertGreater(water['buy_qty'], 0)
+        self.assertEqual(water['buy_qty_basis'], 'no_stock_data')
+
+    def test_fresh_data_quantity_unchanged(self):
+        water = self.bs.rank({'horizon_hours': 4, 'own_stock': {'water': 1}}, self.data, now=self.NOW)['items'][0]
+        self.assertEqual(water['buy_qty'], 1)                         # same as test_best_sellers
+        self.assertEqual(water['buy_qty_basis'], 'stock')
 
 if __name__ == '__main__':
     unittest.main()

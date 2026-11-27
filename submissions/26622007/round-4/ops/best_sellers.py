@@ -178,20 +178,23 @@ def rank(args, data, now):
         _, sellers, have = (0, 0, 0) if stale else shared['stock_counts'](data, sku)
         have = max(have, own.get(sku, 0)) if type(own.get(sku, 0)) is int else have
         confirmed = 'stock_unconfirmed' in data and sku not in data['stock_unconfirmed']
-        qty = shared['buy_limit'](v, wide, sellers, have, horizon) if confirmed and not stale else 0
+        # 11/27 (대표님 11/26 "가드 넣지 말라고"): a reference number only. Stale or unconfirmed stock no longer forces 0;
+        # the shares then use only what we know (own stock), and buy_qty_basis says so.
+        qty = shared['buy_limit'](v, wide, sellers, have, horizon)
         items.append(dict(sku=sku, name=name, kind=k, per_hour=round(v, 2), tx=len(rows),
                           tx_on_chain=sum(1 for r in rows if r[4] > 0), tx_6h=wide, shops=len({r[2] for r in rows}),
                           tx_sku_guessed=sum(1 for r in rows if r[4] == CHAIN_ONLY),
                           repeat_buyers=sum(1 for n in buyers.values() if n > 1),
                           price=[min(prices), round(med), max(prices)],
                           price_vs_list=round(med / listed, 2) if listed else None, buy_qty=qty,
+                          buy_qty_basis='stock' if confirmed and not stale else 'no_stock_data',
                           price_ceiling_args=dict(sku=sku, sell=round(med), qty=max(qty, 1), hold_hours=horizon)))
     items.sort(key=lambda x: (-x['per_hour'], -x['tx'], x['sku']))
     age = int((now - data['as_of']) // 60)
     return dict(as_of=data['as_of'], data_age_min=age, stale=stale, window_h=data['keep_hours'],
                 items=items[:top],
-                note=('실제 결제된 판매만 집계. buy_qty는 권장 상한(0이면 사지 않음)이며 price_ceiling verdict가 buy일 '
-                      '때만 매입. price_ceiling_args.qty는 계산용으로 최소 1.'))
+                note=('실제 결제된 판매만 집계. buy_qty는 판매 속도로 본 참고값이고, 0이거나 stale이어도 매입을 막는 이유가 '
+                      '아니다(매입은 buy_food_lot이 손익분기·품목당 4개로 확인). price_ceiling_args.qty는 계산용으로 최소 1.'))
 # END FORGE KERNEL
 
 

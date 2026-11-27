@@ -110,7 +110,7 @@ class Rank(unittest.TestCase):
         out = bs.rank({}, self.data, now=NOW + 5 * H)
         self.assertEqual(out['data_age_min'], 300)
         self.assertTrue(out['stale'])
-        self.assertTrue(all(item['buy_qty'] == 0 for item in out['items']))
+        self.assertTrue(all(item['buy_qty_basis'] == 'no_stock_data' for item in out['items']))   # 11/27: reference qty, not 0
 
     def test_ledger_refresh_does_not_refresh_inventory(self):
         later = NOW + 2 * H
@@ -324,7 +324,7 @@ class Live(unittest.TestCase):
         out = self.ns['run']({}, FakeKit())
         self.assertTrue(out['live_truncated'])
         self.assertTrue(out['stale'])
-        self.assertTrue(all(item['buy_qty'] == 0 for item in out['items']))
+        self.assertTrue(all(item['buy_qty_basis'] == 'no_stock_data' for item in out['items']))   # 11/27: reference qty, not 0
         self.assertEqual(out['as_of'], int(NOW + 60))
         self.assertEqual(out['items'][0]['tx'], 5)
 
@@ -443,7 +443,7 @@ class Live(unittest.TestCase):
             with self.subTest(kind=kind), patch('time.time', return_value=NOW):
                 out = self.ns['run']({}, FakeKit())
                 self.assertTrue(out['stale'])
-                self.assertTrue(all(item['buy_qty'] == 0 for item in out['items']))
+                self.assertTrue(all(item['buy_qty_basis'] == 'no_stock_data' for item in out['items']))   # 11/27: reference qty, not 0
 
 
     def test_chain_fallback_sales_hold_quantity_until_inventory_refresh(self):
@@ -456,7 +456,7 @@ class Live(unittest.TestCase):
                 self.assertEqual(out['source'], 'chain')
                 self.assertEqual(out['stale'], held)
                 if held:
-                    self.assertTrue(all(item['buy_qty'] == 0 for item in out['items']))
+                    self.assertTrue(all(item['buy_qty_basis'] == 'no_stock_data' for item in out['items']))   # 11/27: reference qty, not 0
 
 
 class Forge(unittest.TestCase):

@@ -4,7 +4,7 @@ ops/price_ceiling_forge.py). Run on the market host while the kit is stopped:
     ~/ax-round4-venv/bin/python -I ops/install_market_tools.py --kit ~/ax-round4/scripts/round4 --data <best_sellers cache>
 --data is required: best_sellers_forge.py would otherwise embed ops/best_sellers_data.json, whatever is there.
 In the kit both tools read the ops/ caches at call time (pushed by the analytics host): a missing cache is an error,
-a stale one answers stale:true / buy_qty 0 (best_sellers) or verdict skip (price_ceiling). The data embedded at forge
+a stale one answers stale:true / buy_qty_basis no_stock_data with a reference buy_qty (best_sellers) or verdict skip (price_ceiling). The data embedded at forge
 time is not used there. --print only prints the two forge_tool moves. An earlier version moves to tools/.deprecated/<name>@<ver>."""
 import argparse
 import json
