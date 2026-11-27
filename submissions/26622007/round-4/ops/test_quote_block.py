@@ -51,6 +51,20 @@ def main():
         open(p, 'w').write('not json')
         assert ns['quotes_load'](p) == {}
         assert ns['quote_set'](p, 'G3', {'B': 100}, {'B': 500}, 't', T) == {'B': 500}                # never under floor
+        # cash-out (11/27): only a fresh quote stored by 'cashout' carries a floor under the goal (3) floor
+        cq = {'G4|C': {'price': 11790, 'ts': T, 'by': 'cashout', 'floor': 11790},
+              'G4|B': {'price': 11790, 'ts': T, 'by': 'forum_menu', 'floor': 11790},
+              'G5|C': {'price': 300, 'ts': T, 'by': 'cashout', 'floor': 300},
+              'G6|C': {'price': 5000, 'ts': T, 'by': 'cashout', 'floor': '5000'}}
+        assert ns['quote_floor'](cq, 'G4', 'C', T) == 11790 and ns['quote_floor'](cq, 'G4', 'B', T) is None
+        assert ns['quote_prices'](cq, 'G4', {'C': 12778, 'B': 12778}, T) == {'C': 11790, 'B': 12778}
+        assert ns['quote_floor'](cq, 'G5', 'C', T) is None                                            # under 420: no
+        assert ns['quote_prices'](cq, 'G5', {'C': 900}, T) == {'C': 900}
+        assert ns['quote_floor'](cq, 'G6', 'C', T) is None                                            # odd floor: no
+        assert ns['quote_floor'](cq, 'G4', 'C', T + 24 * 3600 + 1) is None                            # a day old
+        assert ns['quote_prices'](cq, 'G4', {'C': 10000}, T) == {'C': 11790}                          # floor lower: price
+        ns['quote_set'](p, 'G7', {'C': 9000}, {'C': 9500}, 't', T)                                    # quote_set never
+        assert ns['quote_floor'](ns['quotes_load'](p), 'G7', 'C', T) is None                          # writes cashout
     print('quote block ok')
 
 

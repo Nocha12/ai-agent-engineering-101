@@ -72,6 +72,59 @@ class Label(unittest.TestCase):
         self.assertEqual(fm.label('한계란 무항생제 유정란 30구'), '계란30구')
 
 
+class CashOut(unittest.TestCase):
+    """현금화 11/27: a food grade with 48 h or less left whose 24 h median is under the goal (3) floor gets a cash-out
+    quote at the median (its own floor, under cost); other grades, water and long-dated stock keep the old rule."""
+    QB = fm.load_quote_block(HERE / 'restock_shoutout' / 'logic.py')     # the source the deploy forges
+    MILK = 'G0011e806'
+    INV = {'units': [
+        unit('m1', 'G0011e806', '서울우유 멸균우유 190ml 24팩', 'C', 12235, exp=NOW + 29 * 3600),
+        unit('m2', 'G0011e806', '서울우유 멸균우유 190ml 24팩', 'B', 12235, exp=NOW + 60 * 3600),
+        unit('w1', WATER, '[본사공식] 몽베스트 무라벨 생수 2L', 'C', 2500, exp=NOW + 10 * 3600),
+        unit('t1', TEA, '동서 둥굴레차 50T 60g', 'B', 1800, exp=NOW + 30 * 3600),
+    ]}
+    S = [('G0011e806', 'C', 11787)] * 5 + [('G0011e806', 'B', 11000)] * 3 + [(WATER, 'C', 500)] * 3 + [(TEA, 'B', 2813)] * 4
+
+    def test_plan(self):
+        qb = self.QB
+        plan = fm.requote_plan(qb, self.INV, {}, settles(self.S), NOW)
+        self.assertEqual(plan[self.MILK]['C'], {'price': 11787, 'floor': 11787})   # 29 h left, median under 12,778
+        self.assertEqual(plan[self.MILK]['B'], 12778)    # 60 h left: the old rule, max(floor, median)
+        self.assertNotIn(WATER, plan)                     # water never
+        self.assertEqual(plan[TEA]['B'], 2813)            # median over the floor: the old rule
+
+    def test_apply_and_shown(self):
+        qb = self.QB
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / 'quotes.json'
+            p.write_text(json.dumps({f'{self.MILK}|C': {'price': 15900, 'ts': NOW - 10, 'by': 'forum_menu'}}))
+            plan = fm.requote_plan(qb, self.INV, json.loads(p.read_text()), settles(self.S), NOW)
+            out = fm.apply_plan(qb, p, self.INV, plan, NOW)
+            self.assertEqual(out[self.MILK]['C'], 11787)
+            q = json.loads(p.read_text())
+            self.assertEqual(q[f'{self.MILK}|C'], {'price': 11787, 'ts': NOW, 'by': 'cashout', 'floor': 11787})
+            floors = qb['stock'](self.INV, self.MILK, NOW)['floors']
+            self.assertEqual(qb['quote_prices'](q, self.MILK, floors, NOW)['C'], 11787)
+            self.assertEqual(qb['quote_floor'](q, self.MILK, 'C', NOW), 11787)
+            again = fm.requote_plan(qb, self.INV, q, settles(self.S), NOW + 60)
+            self.assertNotIn('C', again.get(self.MILK, {}))   # already a cash-out quote at the median: no rewrite
+            self.assertIsNone(qb['quote_floor'](q, self.MILK, 'C', NOW + 24 * 3600 + 1))   # a day old: gone
+
+    def test_menu_text_shows_cash_price(self):
+        qb = self.QB
+        q = {f'{self.MILK}|C': {'price': 11787, 'ts': NOW - 10, 'by': 'cashout', 'floor': 11787}}
+        floors = qb['stock'](self.INV, self.MILK, NOW)['floors']
+        self.assertEqual(qb['quote_prices'](q, self.MILK, floors, NOW)['C'], 11787)
+        q2 = {f'{self.MILK}|C': {'price': 11787, 'ts': NOW - 10, 'by': 'forum_menu', 'floor': 11787}}
+        self.assertEqual(qb['quote_prices'](q2, self.MILK, floors, NOW)['C'], 12778)   # floor key alone: ignored
+
+    def test_old_block_has_no_cash_out(self):
+        qb = dict(self.QB)
+        qb.pop('CASHOUT_MIN')                               # a stale forged block: nothing goes under the floor
+        plan = fm.requote_plan(qb, self.INV, {}, settles(self.S), NOW)
+        self.assertEqual(plan[self.MILK]['C'], 12778)
+
+
 class Requote(unittest.TestCase):
     def test_plan_follows_median_above_floor_and_skips_water(self):
         q = {f'{EGG}|B': {'price': 9675, 'ts': NOW - 10, 'by': 'x'}, f'{EGG}|C': {'price': 9675, 'ts': NOW - 10, 'by': 'x'},

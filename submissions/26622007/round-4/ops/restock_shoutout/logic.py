@@ -55,6 +55,7 @@ WAIT_PER_CUSTOMER = 5        # items one customer may wait for with a contact
 WAIT_PER_CONTACT = 5         # entries one contact may stand in (and only for one customer, unless it is their own name)
 # --- shared quote block (same text in check_item_inventory, restock_shoutout, private_checkout; ops/test_quote_block.py)
 QUOTES, QUOTE_TTL, QUOTE_RANK = 'logs/quotes.json', 24 * 3600, ('C', 'B', 'A')
+CASHOUT_BY, CASHOUT_MIN = 'cashout', 420
 
 
 def quotes_load(path):
@@ -75,13 +76,24 @@ def quote_get(q, sku, grade, now):
     return None
 
 
+def quote_floor(q, sku, grade, now):
+    """Cash-out (현금화, 11/27): a fresh quote stored by 'cashout' (ops/forum_menu.py, a food grade with 48 h or less left
+    whose market median is under the goal (3) floor) carries its own floor, the market median, never under CASHOUT_MIN
+    (more than the sale fee: a unit that would be thrown away still brings money). None for any other quote."""
+    r = q.get(f'{sku}|{grade}')
+    if isinstance(r, dict) and r.get('by') == CASHOUT_BY and type(r.get('floor')) is int and r['floor'] >= CASHOUT_MIN \
+            and quote_get(q, sku, grade, now) is not None:
+        return r['floor']
+    return None
+
+
 def quote_prices(q, sku, floors, now):
-    """{grade: shown price or None} for the grades in floors: the stored quote raised to that grade's floor, and a
-    higher grade never below a lower one (C <= B <= A)."""
+    """{grade: shown price or None} for the grades in floors: the stored quote raised to that grade's floor (a cash-out
+    quote's own floor when lower), and a higher grade never below a lower one (C <= B <= A)."""
     out, low = {}, 0
     for g in sorted(floors, key=lambda g: QUOTE_RANK.index(g) if g in QUOTE_RANK else -1):
-        p = quote_get(q, sku, g, now)
-        out[g] = None if p is None else max(p, floors[g], low)
+        p, f = quote_get(q, sku, g, now), quote_floor(q, sku, g, now)
+        out[g] = None if p is None else max(p, floors[g] if f is None else min(floors[g], f), low)
         low = max(low, out[g] or 0)
     return out
 

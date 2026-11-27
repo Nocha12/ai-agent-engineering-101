@@ -19,6 +19,8 @@ Clearance (떨이, 대표님 11/26 19:05): a food unit whose time left is half o
 clearance (shared clearance block): create without price issues its clearance price, and the floor for it drops with
 the time left (below cost in the last quarter; never below 420, more than the sale fee). The answer carries clearance;
 a clearance price never becomes the shown price of its SKU and grade. Water is never on clearance.
+Cash-out (11/27): a cash-out quote (by 'cashout', see quote_floor) lowers the floor for its SKU and grade to the
+market median it was set at, under cost when that is lower (goal (2) gives way for these, as for clearance).
 Shown price (operator 11/26 12:40): one price per SKU and grade lives in logs/quotes.json (the shared quote block,
 also in check_item_inventory and restock_shoutout). create without price uses it; the first price a create uses
 for an SKU and grade becomes it when there is none; a different agreed price is still issued (no refusal) and the
@@ -47,6 +49,7 @@ LOG = 'logs/checkouts.jsonl'
 
 # --- shared quote block (same text in check_item_inventory, restock_shoutout, private_checkout; ops/test_quote_block.py)
 QUOTES, QUOTE_TTL, QUOTE_RANK = 'logs/quotes.json', 24 * 3600, ('C', 'B', 'A')
+CASHOUT_BY, CASHOUT_MIN = 'cashout', 420
 
 
 def quotes_load(path):
@@ -67,13 +70,24 @@ def quote_get(q, sku, grade, now):
     return None
 
 
+def quote_floor(q, sku, grade, now):
+    """Cash-out (현금화, 11/27): a fresh quote stored by 'cashout' (ops/forum_menu.py, a food grade with 48 h or less left
+    whose market median is under the goal (3) floor) carries its own floor, the market median, never under CASHOUT_MIN
+    (more than the sale fee: a unit that would be thrown away still brings money). None for any other quote."""
+    r = q.get(f'{sku}|{grade}')
+    if isinstance(r, dict) and r.get('by') == CASHOUT_BY and type(r.get('floor')) is int and r['floor'] >= CASHOUT_MIN \
+            and quote_get(q, sku, grade, now) is not None:
+        return r['floor']
+    return None
+
+
 def quote_prices(q, sku, floors, now):
-    """{grade: shown price or None} for the grades in floors: the stored quote raised to that grade's floor, and a
-    higher grade never below a lower one (C <= B <= A)."""
+    """{grade: shown price or None} for the grades in floors: the stored quote raised to that grade's floor (a cash-out
+    quote's own floor when lower), and a higher grade never below a lower one (C <= B <= A)."""
     out, low = {}, 0
     for g in sorted(floors, key=lambda g: QUOTE_RANK.index(g) if g in QUOTE_RANK else -1):
-        p = quote_get(q, sku, g, now)
-        out[g] = None if p is None else max(p, floors[g], low)
+        p, f = quote_get(q, sku, g, now), quote_floor(q, sku, g, now)
+        out[g] = None if p is None else max(p, floors[g] if f is None else min(floors[g], f), low)
         low = max(low, out[g] or 0)
     return out
 
@@ -322,9 +336,12 @@ def floor_price(cost, endgame):
     return math.ceil(((0 if endgame else cost) + GAS + FEE) / 0.99)
 
 
-def unit_floor(x, endgame, now, base=None):
-    """The lowest price for this unit: the goal (3) floor (or the endgame floor), or its clearance floor when lower."""
+def unit_floor(x, endgame, now, base=None, cash=None):
+    """The lowest price for this unit: the goal (3) floor (or the endgame floor), or its clearance floor or the cash-out
+    floor of its SKU and grade (cash, quote_floor) when lower."""
     low = floor_price(_cost(x.get('cost')), endgame)
+    if cash is not None:
+        low = min(low, cash)
     try:                                             # the clearance note is extra: a bad unit field never stops a checkout
         cl = clearance(x, base, now)
     except Exception:
@@ -454,7 +471,9 @@ def create(args, kit):
             g = str(x.get('grade'))
             gfloors[g] = max(gfloors.get(g, 0), floor_price(_cost(x.get('cost')), False))
     gfloors.setdefault(grade, floor_price(_cost(u.get('cost')), False))
-    shown = quote_prices(quotes_load(_quotes_path(kit)), sku, gfloors, now).get(grade)
+    qs = quotes_load(_quotes_path(kit))
+    shown = quote_prices(qs, sku, gfloors, now).get(grade)
+    cash = quote_floor(qs, sku, grade, now)          # cash-out (11/27): the SKU and grade's own floor, under cost
     try:
         cl = clearance(u, shown, now)
     except Exception:
@@ -471,6 +490,8 @@ def create(args, kit):
     low = floor_price(float(u.get('cost') or 0), bool(args.get('endgame')))
     if cl:
         low = min(low, cl['floor'])
+    if cash is not None:
+        low = min(low, cash)
     if price < low:
         return {'ok': False, 'error': '가격이 하한보다 낮습니다', 'floor': low}
     holder, rows = (str(holder) if holder else None), _lines(_p(kit, LOG))
@@ -495,7 +516,7 @@ def create(args, kit):
         alt = next((x for x in inv.get('units') or [] if isinstance(x, dict) and x.get('unit') != unit_id
                     and unit_now(inv, x.get('unit')) and x.get('sku') == u.get('sku') and x.get('grade') == grade
                     and (cert_grade(x.get('cert')) in (None, grade))
-                    and price >= unit_floor(x, bool(args.get('endgame')), now, shown)
+                    and price >= unit_floor(x, bool(args.get('endgame')), now, shown, cash)
                     and not open_hold(kit, x.get('unit'), order, now, holder, rows)), None)
         if not alt:
             alts = free_alternatives(kit, inv, u, order, now, holder, bool(args.get('endgame')), rows)
@@ -528,6 +549,8 @@ def create(args, kit):
     if not same:                                     # logged first: a failed create never sets the shown price (r2 M-6)
         _log(kit, {'event': 'issued', 'ts': int(now), 'order': order, 'unit': unit_id, 'sku': u.get('sku'), 'price': price,
               'grade': grade, 'warranty_hours': warranty, 'digest_hex': hx, 'holder': holder})
+    if cash is not None and not cl:
+        evidence['cashout'] = {'floor': cash, 'note': '기한 안에 팔리도록 시세에 맞춘 가격입니다(원가보다 낮을 수 있음)'}
     if cl:
         evidence['clearance'] = dict(cl, note=f"떨이·기한 임박({cl['hours_left']}시간 남음): {price:,}크레딧. 기한이 지나면 버리게 되어 값을 낮췄습니다")
     if shown is None and not args.get('endgame') and not cl and not cl0 and not auto_clear:

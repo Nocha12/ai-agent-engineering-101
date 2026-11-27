@@ -34,6 +34,7 @@ CLEAR_LIST = 12               # clearance lines in the whole-shop answer
 
 # --- shared quote block (same text in check_item_inventory, restock_shoutout, private_checkout; ops/test_quote_block.py)
 QUOTES, QUOTE_TTL, QUOTE_RANK = 'logs/quotes.json', 24 * 3600, ('C', 'B', 'A')
+CASHOUT_BY, CASHOUT_MIN = 'cashout', 420
 
 
 def quotes_load(path):
@@ -54,13 +55,24 @@ def quote_get(q, sku, grade, now):
     return None
 
 
+def quote_floor(q, sku, grade, now):
+    """Cash-out (현금화, 11/27): a fresh quote stored by 'cashout' (ops/forum_menu.py, a food grade with 48 h or less left
+    whose market median is under the goal (3) floor) carries its own floor, the market median, never under CASHOUT_MIN
+    (more than the sale fee: a unit that would be thrown away still brings money). None for any other quote."""
+    r = q.get(f'{sku}|{grade}')
+    if isinstance(r, dict) and r.get('by') == CASHOUT_BY and type(r.get('floor')) is int and r['floor'] >= CASHOUT_MIN \
+            and quote_get(q, sku, grade, now) is not None:
+        return r['floor']
+    return None
+
+
 def quote_prices(q, sku, floors, now):
-    """{grade: shown price or None} for the grades in floors: the stored quote raised to that grade's floor, and a
-    higher grade never below a lower one (C <= B <= A)."""
+    """{grade: shown price or None} for the grades in floors: the stored quote raised to that grade's floor (a cash-out
+    quote's own floor when lower), and a higher grade never below a lower one (C <= B <= A)."""
     out, low = {}, 0
     for g in sorted(floors, key=lambda g: QUOTE_RANK.index(g) if g in QUOTE_RANK else -1):
-        p = quote_get(q, sku, g, now)
-        out[g] = None if p is None else max(p, floors[g], low)
+        p, f = quote_get(q, sku, g, now), quote_floor(q, sku, g, now)
+        out[g] = None if p is None else max(p, floors[g] if f is None else min(floors[g], f), low)
         low = max(low, out[g] or 0)
     return out
 
@@ -836,6 +848,9 @@ def answer(args, kit):
         on_clear = False
         for it, u in zip(items, mine):
             it['price'] = shown.get((it['sku'], it['grade']))
+            cash = quote_floor(q, it['sku'], it['grade'], now)
+            if cash is not None and it['floor'] is not None:      # cash-out: the floor of its quote (11/27)
+                it['floor'] = min(it['floor'], cash)
             cl = clear_safe(u, it['price'], now)
             if cl:
                 it['clearance'] = {'price': cl['price'], 'floor': cl['floor']}
@@ -876,7 +891,9 @@ def answer(args, kit):
             shown = quote_prices(q, s['sku'], {g: floor(v['cost']) for g, v in s['grades'].items()}, now)
             for g, v in s['grades'].items():
                 left = [h for h in (hours_left(u, now) for u in v['left']) if h is not None]
-                s['grades'][g] = {'n': v['n'], 'floor': floor(v['cost']), 'hours_left': min(left) if left else None}
+                cash = quote_floor(q, s['sku'], g, now)
+                fl = floor(v['cost']) if cash is None else min(floor(v['cost']), cash)   # cash-out quote's floor (11/27)
+                s['grades'][g] = {'n': v['n'], 'floor': fl, 'hours_left': min(left) if left else None}
                 if shown.get(g):                        # only when set: 60 nulls would push SKUs out of the answer
                     s['grades'][g]['price'] = shown[g]
             if not with_names:
