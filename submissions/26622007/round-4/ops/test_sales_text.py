@@ -150,9 +150,12 @@ class Until(unittest.TestCase):
         self.assertEqual(lg.until({'expires_at': ea}), '11/27 18:27 KST')
         self.assertEqual(lg.until({'expires_at': float(ea)}), '11/27 18:27 KST')
         cert = {'unit': 'u-1', 'cert': {'unit': 'u-1', 'kind': 'food', 'grade': None, 'expires_at': ea}}
-        self.assertEqual(lg.until({'unit': 'u-1', 'expires_at': ea + 3600, 'cert': cert}), '11/27 18:27 KST')   # signed one first
+        self.assertEqual(lg.until({'unit': 'u-1', 'expires_at': ea + 3600, 'cert': cert}, ea - 3600), '11/27 18:27 KST')   # signed one first
+        # review 2 N2: the signed expiry already past while the inventory date is not -> no until (not a past time)
+        self.assertIsNone(lg.until({'unit': 'u-1', 'expires_at': ea + 3600, 'cert': cert}, ea))
+        self.assertIsNone(lg.until({'unit': 'u-1', 'expires_at': ea + 3600, 'cert': cert}, ea + 60))
         other = {'cert': {'unit': 'u-9', 'expires_at': ea}}
-        self.assertEqual(lg.until({'unit': 'u-1', 'expires_at': ea + 3600, 'cert': other}), '11/27 19:27 KST')  # not this unit's
+        self.assertEqual(lg.until({'unit': 'u-1', 'expires_at': ea + 3600, 'cert': other}, ea + 60), '11/27 19:27 KST')  # not this unit's
         for u in ({}, {'expires_at': 0}, {'expires_at': True}, {'expires_at': '1795771679'}):
             self.assertIsNone(lg.until(u))
         import checkout_delivery as cd                               # the same minute the signed data line shows

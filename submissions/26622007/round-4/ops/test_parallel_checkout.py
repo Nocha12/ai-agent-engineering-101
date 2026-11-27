@@ -100,9 +100,11 @@ class Tools(ak.Toolbox):
         tok = 'eyJ' + base64.urlsafe_b64encode(json.dumps({'o': args.get('order')}).encode()).decode().rstrip('=') + '.eyJx.c2ln'
         dg = hashlib.sha256(tok.encode()).digest()
         dup = {'duplicate_of': holder} if str(args.get('order')).endswith('-2') else {}
+        # 't-badcert': a certificate grade_note turns down (claim not A/B/C), so the data part has no certificate line
+        claim = '?' if args.get('order') == 't-badcert' else 'A'
         return {'ok': True, 'result': {'ok': True, 'order': args.get('order'), 'checkout_jwt': tok, **dup,
                                        'payload': {'iat': int(time.time()), 'price': 5000}, 'quote': 5000,
-                                       **({} if dup else {'grade_evidence': {'unit': 'u-f5a2635c268b', 'claim': 'A', 'supplied_at':
+                                       **({} if dup else {'grade_evidence': {'unit': 'u-f5a2635c268b', 'claim': claim, 'supplied_at':
                                            int(time.time()) - 3600, 'expires_at': int(time.time()) + 30 * 3600}}),
                                        'checkout_hash': base64.urlsafe_b64encode(dg).decode().rstrip('=')}}
 
@@ -183,6 +185,13 @@ def main():
         assert '"duplicate_of": "t-dup"' in got[1] and 'checkout_cancel' in got[1] and 't-dup-2' in got[1], got[1]
         # review 1 M1: no certificate line in the data part (no grade_evidence) -> the price only, no signed expiry
         assert '"price": 5000' in got[1] and '"until"' not in got[1] and '소비기한' not in got[1].split('reply_note')[-1][:60], got[1]
+        # review 2 N1: grade_evidence is there but grade_note turns it down (no certificate line in the data part) ->
+        # the price only; without the kept.note check (4a62cf8e) the signed expiry would be named
+        o5 = {}
+        ask(mind, 'unit U7 주세요 task t-badcert', 't-badcert', o5)
+        got = SEEN['t-badcert']
+        assert '"order": "t-badcert"' in got[0] and '"price": 5000' in got[0], got[0]
+        assert '"until"' not in got[0] and '소비기한' not in got[0].split('reply_note')[-1][:60], got[0]
         print('parallel checkout ok', out['t-a'][1], '/', out['t-b'][1])
 
 
