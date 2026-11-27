@@ -189,7 +189,8 @@ def held_longest():
     assert r['held_until'] == until and r['held_until_kst'] == '11/27 17:30 KST', r
     assert r['longest']['unit'] == 'u-b1', r
     assert [x['unit'] for x in r['alternatives']] == ['u-c1', 'u-b1', 'u-b2']   # order unchanged
-    assert 'held_until_kst' in r['error'] and 'longest' in r['error'] and 'RAW' not in str(r)
+    assert '11/27 17:30 KST까지 예약돼' in r['error'] and 'longest' in r['error'] and 'RAW' not in str(r)
+    assert 'held_until_kst' not in r['error'] and '다른 손님 이야기는 하지 않음' in r['error']
     undated = rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': until, 'alternatives': [
         {'unit': 'u-b1', 'grade': 'B', 'floor': 3000, 'hours_left': 40.0},
         {'unit': 'u-n1', 'grade': 'B', 'floor': 3000, 'hours_left': None}]})
@@ -209,10 +210,28 @@ def held_longest():
                    {'unit': 'u-a1', 'grade': 'A', 'floor': 3500, 'hours_left': 30.0}])
     assert tie['longest']['unit'] == 'u-a1'
     assert rec.held_kst(until + 59) == '11/27 17:31 KST' and rec.held_kst(True) is None and rec.held_kst(None) is None
+    # r2 C1: a unit on clearance (떨이, up to 24 h left) is never longest; the flag and the expiry reach the model
+    now = 1795767000.0                                   # 11/27 17:10 KST
+    cl = rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': until, 'alternatives': [
+        {'unit': 'u-b1', 'grade': 'B', 'floor': 2500, 'hours_left': 18.0, 'clearance': {'price': 2600, 'floor': 2500}},
+        {'unit': 'u-b2', 'grade': 'B', 'floor': 3000, 'hours_left': 14.0}]}, now=now)
+    assert cl['longest']['unit'] == 'u-b2', cl
+    assert cl['alternatives'][0]['clearance'] is True and cl['alternatives'][1]['clearance'] is False
+    assert cl['alternatives'][0]['until_kst'] == '11/28 11:10 KST'
+    only_cl = rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': until, 'alternatives': [
+        {'unit': 'u-b1', 'grade': 'B', 'floor': 2500, 'hours_left': 18.0, 'clearance': {'price': 2600}}]}, now=now)
+    assert only_cl['longest'] is None and '떨이 단위(clearance true)' in only_cl['error']
+    # r2 M3: an expired or odd hours_left has no until_kst; alternatives keep their order for every customer
+    odd = rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': until, 'alternatives': [
+        {'unit': 'u-c1', 'grade': 'C', 'floor': 2000, 'hours_left': -1.0},
+        {'unit': 'u-b1', 'grade': 'B', 'floor': 3000, 'hours_left': 40.0}]}, now=now)
+    assert odd['alternatives'][0]['until_kst'] is None and [x['unit'] for x in odd['alternatives']] == ['u-c1', 'u-b1']
+    assert odd['alternatives'][1]['until_kst'] == '11/29 09:10 KST'
     none = rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': until, 'alternatives': []})
     assert none['longest'] is None and none['held_until_kst'] == '11/27 17:30 KST' and 'longest' not in none['error']
     bad = rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': 'x', 'alternatives': []})
     assert bad['held_until'] is None and bad['held_until_kst'] is None
+    assert '예약돼' not in bad['error'] and 'None' not in bad['error']   # r2 I1: no time, no time sentence
     rw = rec.held_result({'ok': False, 'code': 'reissue_wait', 'held_until': until})
     assert rw['held_until_kst'] == '11/27 17:30 KST'
 
