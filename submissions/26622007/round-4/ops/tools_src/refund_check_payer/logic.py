@@ -5,6 +5,7 @@ transaction on the Maroo chain and writes one stage-2 line: the refund goes to t
 address someone names. Checks: the transaction succeeded, it paid our shop wallet, and
   settled   the value is exactly the stage-1 net amount (the buyer pays the shop price - shop fee on chain)
   unsettled its data is the checkout hash we issued for this order; the refund is the value that reached us
+  owed      as unsettled, and the sender and the value are the ledger's owed-<tx> line (balance-diff-rca-1127)
 """
 import json
 import time
@@ -73,6 +74,11 @@ def run(args, kit):
         data = str(tx.get('input') or tx.get('data') or '').lower()
         if data != '0x' + str(p1['digest_hex']).lower():
             return {'ok': False, 'error': '이 결제는 우리가 이 주문에 낸 결제서를 가리키지 않습니다'}
+        if p1['kind'] == 'owed' and payer.lower() != str(p1.get('payer') or '').lower():
+            return {'ok': False, 'error': '체인 결제의 보낸 주소가 장부 미정산 입금 줄의 주소와 다릅니다'}
+        if p1['kind'] == 'owed' and value != (p1.get('amount') or 0) * WEI:
+            return {'ok': False, 'error': '체인 결제 금액이 장부 미정산 입금 금액과 다릅니다', 'chain': value // WEI,
+                    'ledger': p1.get('amount')}
         amount = value // WEI
     if amount <= 0:
         return {'ok': False, 'error': '환불할 금액이 없습니다'}

@@ -31,6 +31,19 @@ def test(run, kit):
         assert r['ok'] and r['plan']['amount'] == 9690, r                  # unsettled: what reached us
         wrong = dict(paid, input='0x' + 'cd' * 32)
         assert '결제서' in run({'order': 't-o2', '_rpc': {'eth_getTransactionByHash': wrong, 'eth_getTransactionReceipt': ok}}, kit)['error']
+        # owed (balance-diff-rca-1127): the chain sender and value must be the ledger's owed line
+        with open(PLANS, 'a') as f:
+            f.write(json.dumps({'stage': 1, 'order': 't-o3', 'ts': int(time.time()), 'kind': 'owed', 'basis': 'net',
+                                'tx_hash': tx, 'digest_hex': 'ab' * 32, 'amount': 9690, 'payer': payer}) + '\n')
+        r = run({'order': 't-o3', '_rpc': {'eth_getTransactionByHash': paid, 'eth_getTransactionReceipt': ok}}, kit)
+        assert r['ok'] and r['plan']['amount'] == 9690 and r['plan']['to'] == payer and r['plan']['kind'] == 'owed', r
+        other_payer = dict(paid, **{'from': '0x' + '3' * 40})
+        assert '주소' in run({'order': 't-o3', '_rpc': {'eth_getTransactionByHash': other_payer, 'eth_getTransactionReceipt': ok}}, kit)['error']
+        less = dict(paid, value=hex(9000 * 10 ** 15))
+        assert '금액' in run({'order': 't-o3', '_rpc': {'eth_getTransactionByHash': less, 'eth_getTransactionReceipt': ok}}, kit)['error']
+        assert '결제서' in run({'order': 't-o3', '_rpc': {'eth_getTransactionByHash': wrong, 'eth_getTransactionReceipt': ok}}, kit)['error']
+        r = run({'order': 't-o2', '_rpc': {'eth_getTransactionByHash': other_payer, 'eth_getTransactionReceipt': ok}}, kit)
+        assert r['ok'], r                                                  # unsettled: no ledger payer to compare
         return 'ok'
     finally:
         if os.path.exists(PLANS):
