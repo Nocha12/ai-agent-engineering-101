@@ -58,7 +58,7 @@ def complete(self, messages, max_tokens=4000, timeout=180):
     other = re.search(r'other (m[0-9a-f]+)', ctx)
     done = sum(1 for m in messages if m['role'] == 'assistant')
     if done:
-        SEEN.setdefault(task, []).append(messages[-1]['content'][:300])
+        SEEN.setdefault(task, []).append(messages[-1]['content'][:2000])   # 2000: the whole issue result with its reply_note (check-0340)
     plan = []
     if other:                                               # a run that tries what a customer's run must not do
         plan = [('buy_food_lot', {'sku': 'G1', 'qty': 1}), ('forum_post', {'text': 'x'}), ('forge_tool', {'name': 'x'}),
@@ -209,6 +209,9 @@ def main():
         assert '가격 5,000크레딧' in said and '소비기한' in said and 'A등급(가게 서명)' in said, said
         assert said.count(cd.CERT_GRADE_LINE) == 1 and said.index(cd.CERT_GRADE_LINE) < said.index(body), said
         assert 'grade_evidence' not in SEEN['t-null'][0] and '"until"' in SEEN['t-null'][0], SEEN['t-null']
+        # check-0340 후보 1: the issue result tells the model the one grade answer (signed line, empty cert, expiry)
+        assert "'A등급(가게 서명)'" in SEEN['t-null'][0], SEEN['t-null'][0]
+        assert '설계상 식품 등급(grade)을 비워 두고 소비기한(' in SEEN['t-null'][0], SEEN['t-null'][0]
         # The SDK signals the waiter before the wrapper writes the outbound log.
         log = root / 'logs' / 'messages.jsonl'
         until = time.monotonic() + 2

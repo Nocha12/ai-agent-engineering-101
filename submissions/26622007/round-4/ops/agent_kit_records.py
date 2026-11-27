@@ -469,6 +469,28 @@ def issued_terms(payload, ev, now):
     return out
 
 
+def food_reply_note(claim, cert, until):
+    """reply_note for a food checkout whose certificate has no grade (check-0340 후보 1, 11/28 00:25~03:40: asked whether
+    the certificate shows the grade, the model said 'the certificate shows it' (b6fd1f23, false), 'cannot confirm it'
+    (9f705afc) or cancelled its checkout (05f2657d), all unpaid; b2b628e8 and 707973ea said the signed line and the
+    expiry on the certificate and paid). Says what ops/checkout_delivery.grade_free_reply really puts in front: the
+    'X등급(가게 서명)' line only for claim A/B/C, the expiry only when until is given (review 0010 M3), and the one answer
+    to give. cert = _ungraded_food(payload): a dict, {} when the certificate is another unit's."""
+    graded = claim in ('A', 'B', 'C')
+    head = '가격' + ('·소비기한' if until else '')
+    out = [f'이 식품 결제서 답장 앞에는 {head}' + ('과 가게가 서명한 등급 줄이' if graded else ' 줄이') + ' 자동으로 붙습니다.']
+    empty = ('시장 인증서는 설계상 식품 등급(grade)을 비워 두고 소비기한(' + until[:-4] + '까지)을 적습니다'
+             if until and cert else '시장 인증서는 설계상 식품 등급(grade)을 비워 둡니다')
+    if graded:
+        out.append(f"손님이 등급이나 인증서의 등급을 물으면 이렇게 답합니다: 결제서 맨 앞 줄의 '{claim}등급(가게 서명)'이 "
+                   f'가게가 이 결제서에 서명한 등급이고, {empty}.')
+    else:
+        out.append(f'이 결제서에는 가게가 서명한 등급이 없어 답장에 등급을 쓰지 않습니다. 손님이 물으면 {empty}.')
+    out.append("'인증서에서 등급을 확인할 수 있다'·'확인해 드릴 수 없다'고 쓰지 않고, 인증서에 등급이 없다는 이유로 "
+               '결제서를 취소하지 않습니다. 답장 본문에는 그와 다른 가격·등급을 쓰지 않습니다.')
+    return ' '.join(out)
+
+
 def install(ak, logs, checkout=False):
     """Wrap ak.Mind.deliver/reply and ak.Toolbox.call; lift ak.mk.LOG_MAX. Returns the names that were wrapped."""
     logs.mkdir(parents=True, exist_ok=True)
@@ -522,14 +544,19 @@ def install(ak, logs, checkout=False):
             "A reply state alone or a sentence about payment does not cancel issuance. "
             "When private_checkout answers grade_evidence: attached, the reply normally also carries a fixed grade-evidence "
             "line (food grade is the shelf life left, and the market-signed certificate states the supply and expiry time; a very "
-            "long reply drops the line). Point to that line when asked; do not claim the market verified the grade. A food checkout with no certificate grade lists only the item, signed price and expiry. If the buyer requires an independently certified grade, explain it is unavailable and wait for agreement rather than sending a checkout."
+            "long reply drops the line). Point to that line when asked; do not claim the market verified the grade. A food checkout (its certificate has no grade) opens with the item, the grade the shop signed ('B등급(가게 서명)'), the signed price and expiry, and a line saying the market certificate leaves the food grade empty by design."
             "\nCustomer replies (operator 11/27): say what you can do first. Leave out disclaimer lines nobody asked about "
             "(결제서는 발급하지 않겠습니다, 검증한다는 뜻은 아닙니다, 취소되지 않았으니 유의). When you must say no (a price below what you "
             "can take, the refund rules, a fact no tool gives you), say it in one sentence and add what you can offer instead; "
             "never make up a fact. Never write null, 하한가, 하한, 떨이가, floor or clearance to a customer, nor 안내가 meaning a "
             "price (say 가격 or 할인 가격); a price null in a tool answer only means no price is set yet: set one at or above the "
             "floor, never tell the customer the price is undecided. Do not bring up certificate grade or settlement state unless asked; if asked "
-            "about grade, one sentence: 시장 규칙상 식품 등급은 남은 소비기한이고 소비기한은 시장 서명 인증서에 있습니다, then keep selling. "
+            "about grade or whether the certificate shows it, give the same facts every time in one or two sentences: the "
+            "food checkout's first line 'X등급(가게 서명)' is the grade the shop signs into that checkout, and the market "
+            "certificate leaves the food grade empty by design and states the expiry (before issuing: the checkout will carry "
+            "that line). Never say the grade can be read in the certificate, never say "
+            "you cannot confirm the grade, and never cancel a checkout because the certificate has no grade (cancel only on the "
+            "customer's refusal); then keep selling. "
             "When no unit matches exactly (size, pack, grade or item), offer the one closest unit you hold (same food first) "
             "with its name, grade, expiry and price and ask if they want it (not when they refused substitutes). Say expiry as "
             "a date and time from the tool's until as written (e.g. 11/29 03:27까지, 약 2일), not as hours alone and not cut to the "
@@ -1119,7 +1146,8 @@ def install(ak, logs, checkout=False):
             res.update(issued_terms(payload, no_grade if no_grade is not None else
                                     (r.get('grade_evidence') if kept.note else None), now))
             if no_grade is not None:
-                res['reply_note'] = (res.get('reply_note', '') + ' 이 식품 결제서 답장 앞에는 가격·소비기한과 가게가 서명한 등급(claim이 A·B·C일 때) 줄이 자동으로 붙습니다. 답장 본문에는 그와 다른 가격·등급을 쓰지 않습니다.').strip()
+                res['reply_note'] = (res.get('reply_note', '') + ' '
+                                     + food_reply_note(payload.get('claim'), no_grade, res.get('until'))).strip()
             return {'ok': True, 'result': res}
         out = call(self, name, args)
         if name == 'check_item_inventory':

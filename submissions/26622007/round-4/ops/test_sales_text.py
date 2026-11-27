@@ -221,5 +221,65 @@ class IssuedTerms(unittest.TestCase):
         self.assertNotIn('소비기한', only['reply_note'])
 
 
+class GradeAnswer(unittest.TestCase):
+    """check-0340 후보 1 (11/28 00:25~03:40): asked whether the certificate shows the grade, the model said three
+    different things: b6fd1f23 'the signed certificate shows the grade' (false, food cert grade is empty by design),
+    9f705afc 'cannot confirm it with this checkout', 05f2657d cancelled its own checkout for lack of grade proof; all
+    unpaid. b2b628e8/707973ea said the signed grade line + expiry on the certificate and were paid. One answer now."""
+
+    def cert(self, **kw):
+        return {'kind': 'food', 'unit': 'u-000000000001', 'grade': None, 'supplied_at': 1795700000,
+                'expires_at': 1795900000, **kw}
+
+    def test_format_says_one_answer(self):
+        text = kit_format()
+        self.assertIn("'X등급(가게 서명)'", text)
+        self.assertIn('the grade the shop signs into that checkout', text)
+        self.assertIn('leaves the food grade empty by design and states the expiry', text)
+        self.assertIn('Never say the grade can be read in the certificate', text)
+        self.assertIn('never say you cannot confirm the grade', text)
+        self.assertIn('never cancel a checkout because the certificate has no grade', text)
+        # the two sources of the split answers are gone
+        self.assertNotIn('소비기한은 시장 서명 인증서에 있습니다', text)
+        self.assertNotIn('independently certified grade, explain it is unavailable', text)
+        self.assertNotIn('lists only the item, signed price and expiry', text)   # stale since 8b8de83b
+
+    def test_note_names_the_signed_grade_and_the_empty_cert(self):
+        import agent_kit_records as rec
+        note = rec.food_reply_note('B', self.cert(), '01/15 18:00 KST')
+        self.assertIn("'B등급(가게 서명)'", note)
+        self.assertIn('가게가 이 결제서에 서명한 등급', note)
+        self.assertIn('시장 인증서는 설계상 식품 등급(grade)을 비워 두고 소비기한(01/15 18:00까지)을 적습니다', note)
+        self.assertIn('가격·소비기한과 가게가 서명한 등급 줄이 자동으로 붙습니다', note)
+        for bad in ('인증서에서 등급을 확인할 수 있다', '확인해 드릴 수 없다', '결제서를 취소하지 않습니다'):
+            self.assertIn(bad, note)            # named as what not to say / do
+        self.assertIn('그와 다른 가격·등급을 쓰지 않습니다', note)
+
+    def test_no_expiry_no_expiry_claim(self):              # review 0010 M3: no until -> no 소비기한 promised
+        import agent_kit_records as rec
+        for cert in (self.cert(), {}):                     # past expiry / another unit's certificate
+            note = rec.food_reply_note('A', cert, None)
+            self.assertNotIn('소비기한', note, note)
+            self.assertIn("'A등급(가게 서명)'", note)
+            self.assertIn('가격과 가게가 서명한 등급 줄이 자동으로 붙습니다', note)
+            self.assertIn('시장 인증서는 설계상 식품 등급(grade)을 비워 둡니다', note)
+
+    def test_no_claim_no_grade_line(self):
+        import agent_kit_records as rec
+        for claim in (None, 'D', '', 3):
+            note = rec.food_reply_note(claim, self.cert(), '01/15 18:00 KST')
+            self.assertNotIn('등급(가게 서명)', note, note)
+            self.assertIn('가격·소비기한 줄이 자동으로 붙습니다', note)
+            self.assertIn('답장에 등급을 쓰지 않습니다', note)
+            self.assertIn('시장 인증서는 설계상 식품 등급(grade)을 비워 두고 소비기한(01/15 18:00까지)을 적습니다', note)
+
+    def test_note_matches_the_composed_lines(self):        # the note describes what compose really puts in front
+        import agent_kit_records as rec
+        import checkout_delivery as cd
+        self.assertIn('비워 둡니다', cd.CERT_GRADE_LINE)
+        self.assertIn('가게가 이 결제서에 서명한 값', cd.CERT_GRADE_LINE)
+        self.assertEqual(rec.food_reply_note('C', self.cert(), '01/15 18:00 KST').count('C등급(가게 서명)'), 1)
+
+
 if __name__ == '__main__':
     unittest.main()
