@@ -485,9 +485,11 @@ def food_reply_note(claim, cert, until):
         out.append(f"손님이 등급이나 인증서의 등급을 물으면 이렇게 답합니다: 결제서 맨 앞 줄의 '{claim}등급(가게 서명)'이 "
                    f'가게가 이 결제서에 서명한 등급이고, {empty}.')
     else:
-        out.append(f'이 결제서에는 가게가 서명한 등급이 없어 답장에 등급을 쓰지 않습니다. 손님이 물으면 {empty}.')
+        out.append(f'이 결제서에는 가게가 서명한 등급이 없어 답장에 등급을 쓰지 않습니다. 손님이 등급을 물으면 이렇게 답합니다: '
+                   f'이 결제서에는 가게가 서명한 등급이 없고, {empty}.')
     out.append("'인증서에서 등급을 확인할 수 있다'·'확인해 드릴 수 없다'고 쓰지 않고, 인증서에 등급이 없다는 이유로 "
-               '결제서를 취소하지 않습니다. 답장 본문에는 그와 다른 가격·등급을 쓰지 않습니다.')
+               '결제서를 취소하지 않습니다(손님이 가게 서명이 아닌 시장이 인증한 등급이 꼭 있어야 산다고 했으면 위 사실을 한 문장으로 '
+               '말하고 그래도 괜찮은지 손님 답을 기다립니다). 답장 본문에는 그와 다른 가격·등급을 쓰지 않습니다.')
     return ' '.join(out)
 
 
@@ -544,7 +546,7 @@ def install(ak, logs, checkout=False):
             "A reply state alone or a sentence about payment does not cancel issuance. "
             "When private_checkout answers grade_evidence: attached, the reply normally also carries a fixed grade-evidence "
             "line (food grade is the shelf life left, and the market-signed certificate states the supply and expiry time; a very "
-            "long reply drops the line). Point to that line when asked; do not claim the market verified the grade. A food checkout (its certificate has no grade) opens with the item, the grade the shop signed ('B등급(가게 서명)'), the signed price and expiry, and a line saying the market certificate leaves the food grade empty by design."
+            "long reply drops the line). Point to that line when asked; do not claim the market verified the grade. A food checkout (its certificate has no grade) opens with the item, the grade the shop signed ('B등급(가게 서명)', when the claim is A, B or C), the signed price, the expiry when the certificate gives it, and then a line saying the market certificate leaves the food grade empty by design; the issue result's reply_note says which of these this checkout has."
             "\nCustomer replies (operator 11/27): say what you can do first. Leave out disclaimer lines nobody asked about "
             "(결제서는 발급하지 않겠습니다, 검증한다는 뜻은 아닙니다, 취소되지 않았으니 유의). When you must say no (a price below what you "
             "can take, the refund rules, a fact no tool gives you), say it in one sentence and add what you can offer instead; "
@@ -555,8 +557,10 @@ def install(ak, logs, checkout=False):
             "food checkout's first line 'X등급(가게 서명)' is the grade the shop signs into that checkout, and the market "
             "certificate leaves the food grade empty by design and states the expiry (before issuing: the checkout will carry "
             "that line). Never say the grade can be read in the certificate, never say "
-            "you cannot confirm the grade, and never cancel a checkout because the certificate has no grade (cancel only on the "
-            "customer's refusal); then keep selling. "
+            "you cannot confirm the grade, and never cancel a checkout because the certificate has no grade (the missing "
+            "certificate grade is never a reason to cancel). Only when the customer says a grade certified by the market (not "
+            "the shop's signed grade) is a must for buying: say these facts in one sentence, ask if the shop-signed grade is "
+            "fine, and issue the checkout once they agree (one already issued stays); then keep selling. "
             "When no unit matches exactly (size, pack, grade or item), offer the one closest unit you hold (same food first) "
             "with its name, grade, expiry and price and ask if they want it (not when they refused substitutes). Say expiry as "
             "a date and time from the tool's until as written (e.g. 11/29 03:27까지, 약 2일), not as hours alone and not cut to the "

@@ -239,6 +239,11 @@ class GradeAnswer(unittest.TestCase):
         self.assertIn('Never say the grade can be read in the certificate', text)
         self.assertIn('never say you cannot confirm the grade', text)
         self.assertIn('never cancel a checkout because the certificate has no grade', text)
+        self.assertIn('the missing certificate grade is never a reason to cancel', text)          # r1 M1
+        self.assertNotIn("cancel only on the customer's refusal", text)
+        self.assertIn('Only when the customer says a grade certified by the market', text)        # r1 I1 (notes 21/27)
+        self.assertIn('ask if the shop-signed grade is fine', text)
+        self.assertIn("the issue result's reply_note says which of these this checkout has", text)   # r1 M2
         # the two sources of the split answers are gone
         self.assertNotIn('소비기한은 시장 서명 인증서에 있습니다', text)
         self.assertNotIn('independently certified grade, explain it is unavailable', text)
@@ -254,6 +259,7 @@ class GradeAnswer(unittest.TestCase):
         for bad in ('인증서에서 등급을 확인할 수 있다', '확인해 드릴 수 없다', '결제서를 취소하지 않습니다'):
             self.assertIn(bad, note)            # named as what not to say / do
         self.assertIn('그와 다른 가격·등급을 쓰지 않습니다', note)
+        self.assertIn('시장이 인증한 등급이 꼭 있어야 산다고 했으면 위 사실을 한 문장으로 말하고', note)   # r1 I1
 
     def test_no_expiry_no_expiry_claim(self):              # review 0010 M3: no until -> no 소비기한 promised
         import agent_kit_records as rec
@@ -271,14 +277,37 @@ class GradeAnswer(unittest.TestCase):
             self.assertNotIn('등급(가게 서명)', note, note)
             self.assertIn('가격·소비기한 줄이 자동으로 붙습니다', note)
             self.assertIn('답장에 등급을 쓰지 않습니다', note)
+            self.assertIn('손님이 등급을 물으면 이렇게 답합니다: 이 결제서에는 가게가 서명한 등급이 없고, ', note)   # r1 M4
             self.assertIn('시장 인증서는 설계상 식품 등급(grade)을 비워 두고 소비기한(01/15 18:00까지)을 적습니다', note)
 
-    def test_note_matches_the_composed_lines(self):        # the note describes what compose really puts in front
+    def test_note_matches_the_composed_lines(self):        # r1 M3: the note says what compose really puts in front
+        import base64
         import agent_kit_records as rec
         import checkout_delivery as cd
-        self.assertIn('비워 둡니다', cd.CERT_GRADE_LINE)
-        self.assertIn('가게가 이 결제서에 서명한 값', cd.CERT_GRADE_LINE)
-        self.assertEqual(rec.food_reply_note('C', self.cert(), '01/15 18:00 KST').count('C등급(가게 서명)'), 1)
+        now, unit = 1_800_000_000.0, 'u-e1fa9c84e002'
+        cases = 0
+        for claim in ('B', None, 'Z'):
+            for cert_unit in (unit, 'u-000000000000'):            # this unit's certificate / another unit's
+                for ends in (now + 3600, now - 60):               # expiry ahead / already past
+                    cert = {'kind': 'food', 'unit': cert_unit, 'grade': None, 'expires_at': ends}
+                    payload = {'unit': unit, 'price': 4441, 'cert': {'cert': cert}}
+                    if claim is not None:
+                        payload['claim'] = claim
+                    enc = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
+                    c = cd.Checkout('task-1', f'eyJhbGciOiJFZERTQSJ9.{enc}.c2ln', now - 10)
+                    text, _ = cd.compose('', [c], set(), now)
+                    no_grade = cd._ungraded_food(payload)
+                    note = rec.food_reply_note(payload.get('claim'), no_grade,
+                                               rec.issued_terms(payload, no_grade, now - 10).get('until'))
+                    with self.subTest(claim=claim, cert_unit=cert_unit, ends=ends):
+                        self.assertEqual('등급(가게 서명)' in text, "등급(가게 서명)'" in note, (text, note))
+                        self.assertEqual('소비기한 ' in text, '소비기한(' in note, (text, note))   # the signed term vs the note (CERT_GRADE_LINE says 소비기한이)
+                        self.assertEqual('소비기한 ' in text, '가격·소비기한' in note, (text, note))
+                        if claim == 'B':
+                            self.assertEqual(text.count('B등급(가게 서명)'), 1)
+                            self.assertEqual(note.count('B등급(가게 서명)'), 1)
+                    cases += 1
+        self.assertEqual(cases, 12)
 
 
 if __name__ == '__main__':
