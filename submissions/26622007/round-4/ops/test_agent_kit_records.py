@@ -224,12 +224,24 @@ def held_longest():
     only_cl = rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': until, 'alternatives': [
         {'unit': 'u-b1', 'grade': 'B', 'floor': 2500, 'hours_left': 18.0, 'clearance': {'price': 2600}}]}, now=now)
     assert only_cl['longest'] is None and '떨이 단위(clearance true)' in only_cl['error']
-    assert 'check_item_inventory {sku}로 다른 단위가 있는지 확인' in only_cl['error']   # r3 I2: the 6 are the cheapest
+    assert 'check_item_inventory {sku}의 until' in only_cl['error']   # r3 I2: the 6 are the cheapest
     six = rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': until, 'alternatives': [
         {'unit': f'u-c{i}', 'grade': 'C', 'floor': 2000 + i, 'hours_left': 5.0} for i in range(6)] + [
         {'unit': 'u-a1', 'grade': 'A', 'floor': 4000, 'hours_left': 100.0}]}, now=now)
     assert len(six['alternatives']) == 6 and six['longest'] is None          # the A unit past the 6th is not listed:
-    assert 'check_item_inventory {sku}로 다른 단위가 있는지 확인' in six['error']   # the model looks before saying none
+    assert 'check_item_inventory {sku}의 until' in six['error']   # the model looks before saying none
+    # r4 I-A/I-C: longest among the 6 cheapest: the look-up sentence and the 떨이 price rule come with HELD_LONG too
+    past = rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': until, 'alternatives': [
+        {'unit': f'u-l{i}', 'grade': 'B', 'floor': 2000 + i, 'hours_left': 15.0, 'clearance': {'price': 2500}}
+        for i in range(5)] + [{'unit': 'u-b9', 'grade': 'B', 'floor': 3000, 'hours_left': 20.0},
+                              {'unit': 'u-a1', 'grade': 'A', 'floor': 4000, 'hours_left': 100.0}]}, now=now)
+    assert past['longest']['unit'] == 'u-b9' and 'longest보다 긴 단위' in past['error']
+    assert '떨이 단위(clearance true)는 clearance_price' in past['error']
+    plain = rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': until, 'alternatives': [
+        {'unit': 'u-b1', 'grade': 'B', 'floor': 3000, 'hours_left': 40.0}]}, now=now)
+    assert '떨이 단위' not in plain['error']
+    # r4 I-B: an expiry on the hour (11/29 10:00) reads one hour early in until_kst (a reference); the text names the until minute
+    assert rec.alt_until(40.0, 1795770000.0) == '11/29 09시 KST' and '분 단위 값' in plain['error']
     # r2 M3: an expired or odd hours_left has no until_kst; alternatives keep their order for every customer
     odd = rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': until, 'alternatives': [
         {'unit': 'u-c1', 'grade': 'C', 'floor': 2000, 'hours_left': -1.0},

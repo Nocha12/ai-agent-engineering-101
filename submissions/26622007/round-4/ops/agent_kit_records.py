@@ -197,9 +197,11 @@ LONG_MIN = 12                   # h: a free unit shorter than this (or of grade 
 HELD_LONG = ('손님이 C등급이나 기한 임박(12시간 미만이거나 떨이)을 빼 달라고 했으면 C·임박 단위를 먼저 내밀지 말고 longest'
              '(C도 떨이도 아니고 남은 기한이 가장 긴 단위)부터 안내합니다. ')
 HELD_NO_LONG = ('alternatives(같은 품목의 빈 단위, 싼 순 최대 6개)에는 C·임박을 뺀 단위가 없습니다. C·임박을 빼 달라고 한 손님이면 '
-                'check_item_inventory {sku}로 다른 단위가 있는지 확인한 뒤, 없으면 그렇다고 솔직히 알리고 원하면 alternatives의 '
-                '등급·기한(until_kst)·가격을 안내합니다. 가격은 하한가(floor) 이상이고, 떨이 단위(clearance true)는 clearance_price를 '
-                '가격으로 말하고 price 없이 냅니다. ')
+                '아래 조회로 다른 단위가 있는지 확인한 뒤, 없으면 그렇다고 솔직히 알리고 원하면 C·임박 단위의 등급·기한·가격을 '
+                '안내합니다. ')
+HELD_LOOK = ('기한을 말하거나 longest보다 긴 단위를 찾을 때는 check_item_inventory {sku}의 until(인증서와 같은 분 단위 값)로 '
+             '확인합니다(alternatives는 싼 순 최대 6개라 더 긴 단위가 그 조회에만 있을 수 있고, until_kst는 시 단위 참고값). ')
+HELD_CLEAR = '떨이 단위(clearance true)는 clearance_price를 가격으로 말하고 price 없이 냅니다. '
 KST = timezone(timedelta(hours=9))
 
 
@@ -212,7 +214,8 @@ def held_kst(until):
 
 def alt_until(hours, now):
     """'MM/DD HH시 KST' of a unit's expiry from its hours left (rounded to 0.1 h by the tool, so 0.05 h is taken off and
-    only the hour is shown, as with_until does: never later than the real one, no made-up minutes), else None."""
+    only the hour is shown, as with_until's fallback: never later than the real one, no made-up minutes; a reference
+    only, the minute to say is check_item_inventory's until), else None."""
     if type(hours) not in (int, float) or not 0.05 < hours < 1e5:
         return None
     return datetime.fromtimestamp(now + (hours - 0.05) * 3600, KST).strftime('%m/%d %H시 KST')
@@ -272,7 +275,9 @@ def held_result(r, now=None):
     longest = max(good, key=lambda x: (x['hours_left'] is None, x['hours_left'] or 0, x['grade'] == 'A')) if good else None
     return {'ok': False, 'code': 'unit_held', 'held_until': until if type(until) is int else None,
             'held_until_kst': held_kst(until), 'alternatives': alts, 'longest': longest,
-            'error': HELD_TEXT + (HELD_TIME.format(t=held_kst(until)) if held_kst(until) else '') + ((HELD_LONG if longest else HELD_NO_LONG) if alts else '') + ('손님이 원하면 alternatives의 단위를 그 하한가(floor) 이상으로 다시 제안하고, 손님이 받아들이면 그 단위로 '
+            'error': HELD_TEXT + (HELD_TIME.format(t=held_kst(until)) if held_kst(until) else '')
+            + ((HELD_LONG if longest else HELD_NO_LONG) + HELD_LOOK if alts else '')
+            + (HELD_CLEAR if any(x['clearance'] for x in alts) else '') + ('손님이 원하면 alternatives의 단위를 그 하한가(floor) 이상으로 다시 제안하고, 손님이 받아들이면 그 단위로 '
                                   '결제서를 냅니다.' if alts else '같은 품목의 다른 재고는 없습니다. held_until 뒤에 다시 확인합니다.')}
 
 
