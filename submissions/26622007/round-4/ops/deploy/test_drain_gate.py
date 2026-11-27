@@ -32,7 +32,7 @@ class Gate(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.d = Path(self.tmp.name)
         (self.d / "logs").mkdir()
-        for n in ("messages", "checkouts"):
+        for n in ("messages", "checkouts", "react"):
             (self.d / "logs" / f"{n}.jsonl").write_text("")
 
     def log(self, name, *rows):
@@ -45,13 +45,13 @@ class Gate(unittest.TestCase):
         if t_out is not None:
             self.log("messages.jsonl", {"dir": "out", "id": mid, "kind": "a2a", "task": "t-" + mid, "ts": t_out})
 
-    def run_gate(self, cmd, clock=None, **env):
+    def run_gate(self, cmd, clock=None, extra=(), **env):
         clock = clock or Clock()
         env = dict({"AXD_GATE_QUIET_MAX": "900", "AXD_GATE_SLEEP": "20", "AXD_GATE_DRAIN_MAX": "900",
                     "AXD_GATE_DRAIN_SLEEP": "5"}, **env)
         out = io.StringIO()
         with redirect_stdout(out):
-            rc = g.main([cmd, "--dir", str(self.d)], env=env, clock=clock, sleep=clock.sleep)
+            rc = g.main([cmd, "--dir", str(self.d)] + list(extra), env=env, clock=clock, sleep=clock.sleep)
         return rc, out.getvalue(), clock
 
     # --- phase 1: the activity.py rule
@@ -126,6 +126,75 @@ class Gate(unittest.TestCase):
         (self.d / "logs" / "messages.jsonl").unlink()
         self.assertEqual(self.run_gate("drain")[0], 1)
         self.assertEqual(self.run_gate("quiet")[0], 1)
+
+    # --- review r2
+    def test_I1_a_supply_buy_paying_or_unconfirmed_blocks_drain_until_confirmed(self):
+        q = "q-1"
+        self.log("supply-pending.jsonl", {"ts": NOW - 100, "quote": q, "state": "paying", "sku": "G1", "qty": 2,
+                                          "total": 9000, "units": ["u-1", "u-2"]})
+        rc, out, _ = self.run_gate("drain")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("supply buy", out)
+        self.log("supply-pending.jsonl", {"ts": NOW - 98, "quote": q, "tx_hash": "0x" + "cd" * 32, "state": "unconfirmed"})
+        rc, out, _ = self.run_gate("drain")
+        self.assertEqual(rc, 1, out)
+        self.log("supply-pending.jsonl", {"ts": NOW - 97, "quote": q, "tx_hash": "0x" + "cd" * 32, "state": "confirmed",
+                                          "status": 200, "attempts": 1})
+        rc, out, _ = self.run_gate("drain")
+        self.assertEqual(rc, 0, out)
+
+    def test_I1_a_supply_buy_open_beyond_the_lookback_does_not_block(self):
+        self.log("supply-pending.jsonl", {"ts": NOW - 700, "quote": "q-old", "state": "paying"})
+        rc, out, _ = self.run_gate("drain", AXD_GATE_LOOKBACK="600")
+        self.assertEqual(rc, 0, out)
+
+    def test_I2_phase1_needs_the_drain_rule_too(self):
+        self.msg("m1", NOW - 50, NOW - 40)                     # quiet by the old rule
+        self.log("react.jsonl", {"thought": "x", "action": "write_shop_card", "args": {}, "ts": NOW - 10})
+        self.assertEqual(self.run_gate("quiet")[0], 0)
+        rc, out, clock = self.run_gate("wait")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("phase 1", out)
+        self.assertGreaterEqual(clock.t - NOW, 45 - 10)        # waited until the step was no longer in flight
+        self.assertLess(clock.t - NOW, 900)
+
+    def test_I2_drain_for_retries_until_drained(self):
+        self.log("react.jsonl", {"thought": "x", "action": "check_item_inventory", "args": {}, "ts": NOW - 10})
+        rc, out, clock = self.run_gate("drain", extra=["--for", "60"])
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(set(clock.slept), {5.0})
+        self.assertGreaterEqual(clock.t - NOW, 35)
+
+    def test_I2_drain_for_gives_up_after_its_time(self):
+        self.msg("m-busy", NOW - 5)
+        rc, out, clock = self.run_gate("drain", extra=["--for", "60"])
+        self.assertEqual(rc, 1, out)
+        self.assertGreaterEqual(clock.t - NOW, 60)
+        self.assertLess(clock.t - NOW, 60 + 6)
+
+    def test_M1_missing_react_log_is_busy(self):
+        (self.d / "logs" / "react.jsonl").unlink()
+        rc, out, _ = self.run_gate("drain")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("unreadable", out)
+
+    def test_M1_an_unparseable_messages_line_is_busy(self):
+        self.msg("m1", NOW - 50, NOW - 40)
+        with open(self.d / "logs" / "messages.jsonl", "a") as f:
+            f.write('{"dir": "in", "id": "m2", "ts": ')      # a line being written
+        rc, out, _ = self.run_gate("drain")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("unreadable", out)
+
+    def test_M2_the_newest_react_step_is_the_last_row_not_the_largest_ts(self):
+        self.log("react.jsonl", {"thought": "x", "action": "check_item_inventory", "args": {}, "ts": NOW - 10},
+                 {"thought": "x", "action": "sleep", "args": {"seconds": 600}, "ts": NOW - 12})
+        rc, out, _ = self.run_gate("drain")
+        self.assertEqual(rc, 0, out)
+        self.log("react.jsonl", {"thought": "x", "action": "sleep", "args": {}, "ts": NOW - 5},
+                 {"thought": "x", "action": "write_shop_card", "args": {}, "ts": NOW - 20})
+        rc, out, _ = self.run_gate("drain")
+        self.assertEqual(rc, 1, out)
 
 
 if __name__ == "__main__":

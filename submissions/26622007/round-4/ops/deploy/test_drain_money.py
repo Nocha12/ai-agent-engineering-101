@@ -69,6 +69,7 @@ class RestartDuringOpenCheckout(unittest.TestCase):
         tpl.kit_log(self.d, [])
         logs = self.d / "logs"
         (logs / "checkouts.jsonl").write_text(json.dumps(ISSUED) + "\n")
+        (logs / "react.jsonl").write_text("")
         (logs / "messages.jsonl").write_text(
             json.dumps({"dir": "in", "id": "m9", "task": "t-9", "ts": T_ISSUE - 20}) + "\n"
             + json.dumps({"dir": "out", "id": "m9", "task": "t-9", "ts": T_ISSUE + 2}) + "\n")   # checkout delivered

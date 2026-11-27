@@ -2,9 +2,11 @@
 # deploy-drain template (11/27, branch ax-r4-deploy-drain-1127, 대표님 11/26-27: restarts have no count limit, reviewed fixes
 #   go live right away): copy of ~/.ax-fu-stage/stage-deploy.sh where only the quiet-window loop and the check right
 #   before the stop call ~/.ax-deploy-common/drain_gate.py instead of ~/.ax-v6-51422de9/activity.py: wait = phase 1
-#   the activity.py rule for QUIET_TRIES x QUIET_SLEEP s, then phase 2 drain (no message unanswered in 10 min, no turn
-#   or wallet send in flight; issued unpaid checkouts do not block, see drain_gate.py) up to AXD_GATE_DRAIN_MAX s,
-#   else exit 24 with nothing changed; right before the stop = one drain check. Future stages copy this file and
+#   the activity.py rule AND the drain rule for QUIET_TRIES x QUIET_SLEEP s, then phase 2 drain (no message unanswered
+#   in 10 min, no turn, wallet send or supply buy in flight; issued unpaid checkouts do not block, see drain_gate.py) up
+#   to DRAIN_MAX s, else exit 24 with nothing changed; right before the stop = the drain check, retried every 5 s for
+#   up to PRESTOP_MAX s. The gate runs in the background + wait, so TERM before the stop is handled at once (r2,
+#   review 1127 I2/M4); the lock line's observe-until = now + gate max + 60 min. Future stages copy this file and
 #   change only the stage parts (header, files, INPUTS_SHA, lock line, TOOLS4, forge/notes steps).
 # forum-unit v1 (11/27 more-rca A-2 #15 05fcd1d5, 업무 W-20261124-1650-AXRound4준비): copied from ~/.ax-cotext-stage/stage-deploy.sh,
 #   only these changed: files = the 5 in SHA256SUMS from commit 4c3c4ee8 (branch ax-r4-forum-unit-1127, base origin/prod
@@ -93,6 +95,10 @@ LOCK="$HOME/.ax-runtime.lock"
 APP_URL="${AXD_APP_URL:-http://127.0.0.1:8800/}"
 QUIET_TRIES="${AXD_QUIET_TRIES:-45}"     # activity re-check every QUIET_SLEEP s (default 15 min) before giving up
 QUIET_SLEEP="${AXD_QUIET_SLEEP:-20}"
+DRAIN_MAX="${AXD_GATE_DRAIN_MAX:-900}"   # gate phase 2 cap, s
+PRESTOP_MAX="${AXD_PRESTOP_MAX:-60}"     # pre-stop drain retries (every 5 s) for up to this many s
+GATE_MAX=$((QUIET_TRIES * QUIET_SLEEP + DRAIN_MAX + PRESTOP_MAX))
+GP=""
 READY_TRIES="${AXD_READY_TRIES:-48}"     # x5 s (kit start->app up was 81-89 s in 12 restarts)
 PIDFILE_TRIES="${AXD_PIDFILE_TRIES:-20}" # x1 s for a launched run_round4.sh to write its pid file
 TOOLS4="check_item_inventory"
@@ -109,7 +115,7 @@ FILES="$(awk '{print $2}' SHA256SUMS)" || early 'no file list' 12
 [ -n "$FILES" ] || early 'empty file list' 12
 cd "$R" || early 'no round dir' 13
 
-line="W-20261124-1650-AXRound4준비 forum-unit $(date '+%F %T') pid=$$ session=${AXD_SESSION:-unknown} observe-until=$(date -v+60M '+%F %T' 2>/dev/null)"
+line="W-20261124-1650-AXRound4준비 forum-unit $(date '+%F %T') pid=$$ session=${AXD_SESSION:-unknown} observe-until=$(date -v+$((GATE_MAX + 3600))S '+%F %T' 2>/dev/null)"
 mkdir "$LOCK" 2>/dev/null || early "lock busy: $(cat "$LOCK/owner" 2>/dev/null)" 20
 release() {
   local rc=$?
@@ -125,7 +131,7 @@ trap release EXIT
 printf '%s\n' "$line" >"$LOCK/owner" || exit 20
 exec >>"$W/deploy.log" 2>&1
 echo "=== $line"
-trap 'echo "signal before the stop: nothing changed"; exit 30' HUP INT TERM
+trap 'echo "signal before the stop: nothing changed"; [ -n "$GP" ] && kill "$GP" 2>/dev/null; exit 30' HUP INT TERM
 
 sha() { [ -f "$1" ] || { echo missing; return 0; }; shasum -a 256 "$1" | cut -d' ' -f1; }
 baseline() {   # 0 only if every pinned path matches; prints each mismatch
@@ -251,8 +257,10 @@ OLDKID="$(kids "$OLDPID")"
 [ "$(echo "$OLDKID" | grep -c '^[0-9]')" = 1 ] || { echo 'kit child count != 1'; exit 23; }
 [ "$(kitprocs)" = "$OLDKID" ] || { echo "round kits ($(kitprocs | tr '\n' ' ')) != the old wrapper's child $OLDKID"; exit 23; }
 
-AXD_GATE_QUIET_MAX=$((QUIET_TRIES * QUIET_SLEEP)) AXD_GATE_SLEEP="$QUIET_SLEEP" "$PY" -I "$GATE" wait ||
-  { echo "no quiet window and no drain (gate exit $?)"; exit 24; }
+AXD_GATE_QUIET_MAX=$((QUIET_TRIES * QUIET_SLEEP)) AXD_GATE_SLEEP="$QUIET_SLEEP" AXD_GATE_DRAIN_MAX="$DRAIN_MAX" \
+  "$PY" -I "$GATE" wait & GP=$!
+wait $GP || { echo "no quiet window and no drain (gate exit $?)"; exit 24; }
+GP=""
 [ "$(cat .kit/run_round4.pid 2>/dev/null)" = "$OLDPID" ] || { echo 'wrapper changed'; exit 24; }
 ( cd "$W" && shasum -a 256 -c INPUTS.SHA256 >/dev/null && shasum -a 256 -c SHA256SUMS >/dev/null ) || { echo 'inputs drift after wait'; exit 11; }
 baseline || { echo 'baseline drift after wait'; exit 21; }
@@ -264,7 +272,9 @@ for f in $FILES; do [ -e "$f" ] && { existing="$existing $f"; echo "$f" >>"$W/ba
 tar cf "$W/backup/src.tar" $existing || exit 13
 for t in $TOOLS4; do cp -Rp "tools/$t" "$W/backup/tool-$t" || exit 13; done
 cp -p notes.md "$W/backup/notes.md.untouched" 2>/dev/null
-"$PY" -I "$GATE" drain || { echo 'not drained right before the stop (files unchanged)'; exit 24; }
+AXD_GATE_DRAIN_SLEEP=5 "$PY" -I "$GATE" drain --for "$PRESTOP_MAX" & GP=$!
+wait $GP || { echo 'not drained right before the stop (files unchanged)'; exit 24; }
+GP=""
 
 trap '' HUP INT TERM PIPE
 date '+stop %F %T'
