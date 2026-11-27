@@ -40,7 +40,7 @@ POST_GAP = 305              # the market allows one shop post per 5 minutes
 ANNOUNCE_WAIT = 600         # a restocked window whose post names customers keeps the menu quiet this long (q8: every
                             # restock post seen on 11/26 went up within 5 s of its 'restocked' entry, or never)
 ANNOUNCE_GRACE = 300        # ... and one that names nobody: its post is the agent's to make first, then the menu's
-BACKFILL = 8000             # ledger rows read once at start (about a day), 500 a page, 1.1 s apart
+BACKFILL = 16000            # ledger rows read once at start (about two days), 500 a page, 1.1 s apart
 SKIP_LOG = 600              # the same skip reason is logged again after this long
 TICK = 30                   # how often the thread looks
 AFTER_WINDOW = 90
@@ -56,7 +56,8 @@ LEAD_AB = 24                  # hours: the lead is first filled with lines not o
 LEAD_GRADES = ('A', 'B')      # this long left or no date (11/27 12:40 check: 20/20 posts led by 10-24 h clearance lines,
                               # 86% of market settles had 24 h+ left); too few: the LONG rule fills the rest. Order only
 WINDOW_SPAN = 900             # an entry this long before the window's last open tick belongs to it
-SETTLE_TTL = 24 * 3600      # settles kept for the medians and the popularity order
+SETTLE_TTL = 48 * 3600      # settles kept: 48 h for the cash-out fallback median (메인 11/27 15:2x)
+SETTLE_SPAN = 24 * 3600     # the medians and the popularity order read the last 24 h of them
 MIN_SETTLES = 3             # settles of one SKU and grade before its median counts
 VIEW = 160                  # a customer sees the first 160 characters of a shop post
 UNITS_FILE = 'forum-menu-units.json'   # logs/: the lines of our recent posts, read by check_item_inventory (11/27 05fcd1d5)
@@ -474,7 +475,7 @@ class Settles:
     """Recent settles from the public ledger: sku -> grade -> [(ts, amount)], plus counts per SKU."""
 
     def __init__(self):
-        self.rows, self.last = {}, None           # seq -> (ts, sku, grade, amount or None)
+        self.rows, self.last, self.at = {}, None, None   # seq -> (ts, sku, grade, amount or None); at: last add's now
 
     def add(self, rows, now):
         for r in rows or []:
@@ -490,12 +491,18 @@ class Settles:
                 except (TypeError, ValueError):
                     continue                       # one odd row is skipped, not the menu
         self.rows = {k: v for k, v in self.rows.items() if now - v[0] < SETTLE_TTL}   # rows newer than now stay
+        self.at = now
+
+    def _recent(self, span):
+        return [v for v in self.rows.values() if self.at is None or self.at - v[0] < span]
 
     def count(self, sku):
-        return sum(1 for v in self.rows.values() if v[1] == sku)
+        return sum(1 for v in self._recent(SETTLE_SPAN) if v[1] == sku)
 
-    def median(self, sku, grade):
-        a = [v[3] for v in self.rows.values() if v[1] == sku and v[2] == grade and v[3]]
+    def median(self, sku, grade, span=SETTLE_SPAN):
+        """Median settle amount of this SKU and grade over the last span seconds (at most SETTLE_TTL kept), None
+        under MIN_SETTLES settles."""
+        a = [v[3] for v in self._recent(span) if v[1] == sku and v[2] == grade and v[3]]
         return int(statistics.median(a)) if len(a) >= MIN_SETTLES else None
 
 
@@ -600,7 +607,18 @@ def fixed(name, sku=None):
     return sku in FIXED_SKU or any(w in str(name or '') for w in FIXED_PRICE)
 
 
-CASH_SHARE = 0.7       # cash-out (현금화, 11/27): the median has to be at least this share of the floor
+CASH_SHARE = 0.4       # cash-out (현금화, 11/27; 0.7 -> 0.4 메인 15:2x): the median has to be at least this share of the floor
+CASH_SPAN2 = 48 * 3600  # no 24 h median: the same grade's 48 h median (MIN_SETTLES or more) stands in (cash-out only)
+CASH_STEPS = ((24, 0.95), (12, 0.90), (6, 0.80))   # hours left over h: median x m (cashout-price-1127.md 권고가)
+CASH_LOW3 = (3, 0.60)  # 3 to 6 h left (3 included); under 3 h: CASH_LAST
+CASH_LAST = 0.45
+
+
+def cash_price(med, left, cmin):
+    """The cash-out price for a median and the soonest unit's hours left: median x the step for those hours
+    (over 24 h 0.95, 12-24 h 0.90, 6-12 h 0.80, 3-6 h 0.60, under 3 h 0.45), down to 10 credits, never under cmin."""
+    m = next((x for h, x in CASH_STEPS if left > h), CASH_LOW3[1] if left >= CASH_LOW3[0] else CASH_LAST)
+    return max(int(cmin), int(med * m) // 10 * 10)
 CASH_OFF = 'logs/cashout.off'    # this file in the round folder turns cash-out off: the next post takes it all back
 
 
@@ -612,11 +630,12 @@ def cash_on(qb, off=None):
 
 def requote_plan(qb, inv, quotes, settles, now, on=True):
     """{sku: {grade: new price}} for the grades we hold whose quote is missing or above max(floor, 24 h median).
-    Cash-out (11/27): when that grade's soonest unit has CASH_HOURS or less left and the 24 h median is under the
-    floor but at least CASH_SHARE of it, the entry is {'price': p, 'floor': p} with p the median (a cash-out quote,
-    below cost: a unit that expires is 0 credits), never under the quote block's CASHOUT_MIN or a lower grade's
-    quote (review M1), never for water. It is rewritten when the median moves either way, and taken back to the old
-    rule ({'price': max(floor, median), 'revoke': True}) once its condition is gone or cash-out is off (review I2).
+    Cash-out (11/27): when that grade's soonest unit has CASH_HOURS or less left and the 24 h median (none: the
+    CASH_SPAN2 one) is under the floor but at least CASH_SHARE of it, the entry is {'price': p, 'floor': p} with p
+    cash_price (the median times a step by those hours left; a cash-out quote, below cost: a unit that expires is 0
+    credits), never under the quote block's CASHOUT_MIN or a lower grade's quote (review M1), never for water. It is
+    rewritten when the median or the step moves either way, and taken back to the old rule ({'price': max(floor,
+    24 h median), 'revoke': True}) once its condition is gone or cash-out is off (review I2).
     Only the units with CASH_HOURS or less left sell at it (the quote block's unit_cash; review I1)."""
     plan, work = {}, dict(quotes)                # work: the quotes as they will be once the plan is written
     cmin = qb['CASHOUT_MIN'] if cash_on(qb) and on else None
@@ -627,10 +646,11 @@ def requote_plan(qb, inv, quotes, settles, now, on=True):
             continue
         for g in sorted(st['floors'], key=lambda g: qb['QUOTE_RANK'].index(g) if g in qb['QUOTE_RANK'] else -1):
             med = settles.median(sku, g)
+            cmed = med if med is not None or cmin is None else settles.median(sku, g, CASH_SPAN2)   # 48 h stand-in
             have = qb['quote_get'](quotes, sku, g, now)
             fl = int(st['floors'][g])
             old = qb['quote_floor'](quotes, sku, g, now) if 'quote_floor' in qb else None
-            if med is None:
+            if med is None and cmed is None:
                 if old is not None:                  # a cash-out quote with no median behind it any more: taken back
                     plan.setdefault(sku, {})[g] = {'price': fl, 'revoke': True}
                     work[f'{sku}|{g}'] = {'price': qb['quote_fit'](work, sku, g, fl, fl, now), 'ts': now, 'by': 'forum_menu'}
@@ -638,9 +658,9 @@ def requote_plan(qb, inv, quotes, settles, now, on=True):
             left = soonest(inv, sku, g, now)
             lower = [qb['quote_get'](work, sku, x, now) for x in rank[:rank.index(g)]] if g in rank else []
             target = None
-            if cmin is not None and g in rank and CASH_SHARE * fl <= med < fl and left is not None \
+            if cmin is not None and g in rank and CASH_SHARE * fl <= cmed < fl and left is not None \
                     and left <= qb['CASH_HOURS']:
-                target = max(int(cmin), med, *[p for p in lower if p])
+                target = max([cash_price(cmed, left, cmin)] + [p for p in lower if p])
                 if target >= fl:                     # a lower grade is already at the floor or over it: no cash-out
                     target = None
             if target is not None:
@@ -651,9 +671,11 @@ def requote_plan(qb, inv, quotes, settles, now, on=True):
                 work[f'{sku}|{g}'] = {'price': fit, 'ts': now, 'by': qb['CASHOUT_BY'], 'floor': target}
                 continue
             if old is not None:                      # its condition is gone (sold, longer-dated only, median up, off)
-                tgt = max(fl, med)
+                tgt = fl if med is None else max(fl, med)
                 plan.setdefault(sku, {})[g] = {'price': tgt, 'revoke': True}
                 work[f'{sku}|{g}'] = {'price': qb['quote_fit'](work, sku, g, tgt, fl, now), 'ts': now, 'by': 'forum_menu'}
+                continue
+            if med is None:                          # only a 48 h median: the old rule reads the 24 h one alone
                 continue
             target = max(int(st['floors'][g]), med)
             if have is not None and have <= target:

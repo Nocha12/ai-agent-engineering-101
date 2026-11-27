@@ -89,7 +89,7 @@ class CashOut(unittest.TestCase):
     def test_plan(self):
         qb = self.QB
         plan = fm.requote_plan(qb, self.INV, {}, settles(self.S), NOW)
-        self.assertEqual(plan[self.MILK]['C'], {'price': 11787, 'floor': 11787})   # 29 h left, median under 12,778
+        self.assertEqual(plan[self.MILK]['C'], {'price': 11190, 'floor': 11190})   # 29 h left: median 11,787 x 0.95
         self.assertEqual(plan[self.MILK]['B'], 12778)    # 60 h left: the old rule, max(floor, median)
         self.assertNotIn(WATER, plan)                     # water never
         self.assertEqual(plan[TEA]['B'], 2813)            # median over the floor: the old rule
@@ -101,14 +101,14 @@ class CashOut(unittest.TestCase):
             p.write_text(json.dumps({f'{self.MILK}|C': {'price': 15900, 'ts': NOW - 10, 'by': 'forum_menu'}}))
             plan = fm.requote_plan(qb, self.INV, json.loads(p.read_text()), settles(self.S), NOW)
             out = fm.apply_plan(qb, p, self.INV, plan, NOW)
-            self.assertEqual(out[self.MILK]['C'], 11787)
+            self.assertEqual(out[self.MILK]['C'], 11190)
             q = json.loads(p.read_text())
-            self.assertEqual(q[f'{self.MILK}|C'], {'price': 11787, 'ts': NOW, 'by': 'cashout', 'floor': 11787})
+            self.assertEqual(q[f'{self.MILK}|C'], {'price': 11190, 'ts': NOW, 'by': 'cashout', 'floor': 11190})
             floors = qb['stock'](self.INV, self.MILK, NOW)['floors']
-            self.assertEqual(qb['quote_prices'](q, self.MILK, floors, NOW)['C'], 11787)
-            self.assertEqual(qb['quote_floor'](q, self.MILK, 'C', NOW), 11787)
+            self.assertEqual(qb['quote_prices'](q, self.MILK, floors, NOW)['C'], 11190)
+            self.assertEqual(qb['quote_floor'](q, self.MILK, 'C', NOW), 11190)
             again = fm.requote_plan(qb, self.INV, q, settles(self.S), NOW + 60)
-            self.assertNotIn('C', again.get(self.MILK, {}))   # already a cash-out quote at the median: no rewrite
+            self.assertNotIn('C', again.get(self.MILK, {}))   # already this cash-out quote: no rewrite
             self.assertIsNone(qb['quote_floor'](q, self.MILK, 'C', NOW + 24 * 3600 + 1))   # a day old: gone
 
     def test_menu_text_shows_cash_price(self):
@@ -120,7 +120,7 @@ class CashOut(unittest.TestCase):
         self.assertEqual(qb['quote_prices'](q2, self.MILK, floors, NOW)['C'], 12778)   # floor key alone: ignored
 
     def test_stray_low_median_moves_nothing(self):
-        plan = fm.requote_plan(self.QB, self.INV, {}, settles([(self.MILK, 'C', 8000)] * 5), NOW)   # 0.63 x 12,778
+        plan = fm.requote_plan(self.QB, self.INV, {}, settles([(self.MILK, 'C', 5000)] * 5), NOW)   # 0.39 x 12,778
         self.assertEqual(plan[self.MILK]['C'], 12778)   # the old rule: max(floor, median)
 
     def test_taken_back_when_gone(self):                 # review I2: sold, longer-dated only, median up, off
@@ -146,13 +146,13 @@ class CashOut(unittest.TestCase):
     def test_follows_median_both_ways(self):
         qb = self.QB
         q = {f'{self.MILK}|C': {'price': 11000, 'ts': NOW - 10, 'by': 'cashout', 'floor': 11000}}
-        plan = fm.requote_plan(qb, self.INV, q, settles(self.S), NOW)     # median 11,787 now: raised to it
-        self.assertEqual(plan[self.MILK]['C'], {'price': 11787, 'floor': 11787})
+        plan = fm.requote_plan(qb, self.INV, q, settles(self.S), NOW)     # median 11,787 x 0.95 now: raised to it
+        self.assertEqual(plan[self.MILK]['C'], {'price': 11190, 'floor': 11190})
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / 'quotes.json'
             p.write_text(json.dumps(q))
-            self.assertEqual(fm.apply_plan(qb, p, self.INV, plan, NOW)[self.MILK]['C'], 11787)
-            self.assertEqual(qb['quote_floor'](json.loads(p.read_text()), self.MILK, 'C', NOW), 11787)
+            self.assertEqual(fm.apply_plan(qb, p, self.INV, plan, NOW)[self.MILK]['C'], 11190)
+            self.assertEqual(qb['quote_floor'](json.loads(p.read_text()), self.MILK, 'C', NOW), 11190)
 
     def test_not_under_lower_grade(self):                # review M1: a B cash-out never under the C quote
         qb = self.QB
@@ -161,7 +161,46 @@ class CashOut(unittest.TestCase):
         q = {f'{self.MILK}|C': {'price': 12000, 'ts': NOW - 10, 'by': 'cashout', 'floor': 12000}}
         s = [(self.MILK, 'C', 12000)] * 5 + [(self.MILK, 'B', 11000)] * 5
         plan = fm.requote_plan(qb, inv, q, settles(s), NOW)
-        self.assertEqual(plan[self.MILK]['B'], {'price': 12000, 'floor': 12000})
+        self.assertEqual(plan[self.MILK]['C'], {'price': 11400, 'floor': 11400})   # 12,000 x 0.95
+        self.assertEqual(plan[self.MILK]['B'], {'price': 11400, 'floor': 11400})   # B 10,450 raised to C
+
+    def test_steps_by_hours_left(self):                  # 메인 11/27 15:2x: median x step, 420 at least
+        qb = self.QB
+        for h, want in ((40, 11190), (24.5, 11190), (24, 10600), (12.5, 10600), (12, 9420), (6.5, 9420),
+                        (6, 7070), (3, 7070), (2.9, 5300), (0.5, 5300)):
+            inv = {'units': [unit('m1', self.MILK, '서울우유 멸균우유 190ml 24팩', 'C', 12235, exp=NOW + h * 3600)]}
+            got = fm.requote_plan(qb, inv, {}, settles(self.S), NOW)[self.MILK]['C']
+            self.assertEqual(got, {'price': want, 'floor': want}, h)
+        self.assertEqual(fm.cash_price(800, 1, 420), 420)                 # 360: the minimum
+        self.assertEqual(fm.cash_price(11787, 30, 420), 11190)            # down to 10 credits
+
+    def test_share_04(self):                             # 메인 11/27 15:2x: CASH_SHARE 0.7 -> 0.4
+        self.assertEqual(fm.CASH_SHARE, 0.4)
+        plan = fm.requote_plan(self.QB, self.INV, {}, settles([(self.MILK, 'C', 5200)] * 5), NOW)   # 0.41 x 12,778
+        self.assertEqual(plan[self.MILK]['C'], {'price': 4940, 'floor': 4940})
+
+    def test_48h_median_stands_in_for_cash_out_only(self):
+        qb = self.QB
+        s = fm.Settles()
+        s.add([{'seq': i + 1, 'ts': NOW - 30 * 3600 - 60 * i, 'kind': 'settle',
+                'data': {'sku': self.MILK, 'grade': g, 'amount': a}}
+               for i, (g, a) in enumerate([('C', 11787)] * 3 + [('B', 13500)] * 3 + [('A', 9000)] * 2)], NOW)
+        self.assertIsNone(s.median(self.MILK, 'C'))       # nothing in 24 h
+        self.assertEqual(s.median(self.MILK, 'C', fm.CASH_SPAN2), 11787)
+        self.assertEqual(s.count(self.MILK), 0)            # the popularity order still reads 24 h
+        inv = {'units': [unit('m1', self.MILK, '서울우유 멸균우유 190ml 24팩', 'C', 12235, exp=NOW + 29 * 3600),
+                         unit('m2', self.MILK, '서울우유 멸균우유 190ml 24팩', 'B', 12235, exp=NOW + 30 * 3600),
+                         unit('m3', self.MILK, '서울우유 멸균우유 190ml 24팩', 'A', 12235, exp=NOW + 31 * 3600)]}
+        plan = fm.requote_plan(qb, inv, {}, s, NOW)
+        self.assertEqual(plan[self.MILK]['C'], {'price': 11190, 'floor': 11190})   # 48 h median x 0.95
+        self.assertNotIn('B', plan[self.MILK])            # 48 h median over the floor: the old rule reads 24 h only
+        self.assertNotIn('A', plan[self.MILK])            # 2 settles: under MIN_SETTLES
+        self.assertNotIn(self.MILK, fm.requote_plan(qb, inv, {}, s, NOW, on=False))   # off: no 48 h stand-in
+        q = {f'{self.MILK}|C': {'price': 11190, 'ts': NOW - 10, 'by': 'cashout', 'floor': 11190}}
+        self.assertNotIn('C', fm.requote_plan(qb, inv, q, s, NOW).get(self.MILK, {}))   # kept on the 48 h median
+        old = fm.Settles()
+        old.add([{'seq': 1, 'ts': NOW - 49 * 3600, 'kind': 'settle', 'data': {'sku': self.MILK, 'grade': 'C', 'amount': 1}}], NOW)
+        self.assertEqual(old.rows, {})                     # over 48 h: dropped
 
     def test_clearance_not_over_cash_price(self):         # review r2 I-N1
         qb = self.QB
@@ -534,21 +573,22 @@ class Guards(unittest.TestCase):
             self.assertEqual(plan, {})
 
     def test_backfill_then_new_rows_only(self):
+        N = fm.BACKFILL + 1000
         rows = [{'seq': i, 'ts': NOW - 10, 'kind': 'settle', 'data': {'sku': TEA, 'grade': 'B', 'amount': 2813}}
-                for i in range(1, 9001)]
+                for i in range(1, N + 1)]
         with tempfile.TemporaryDirectory() as d:
             shop(d)
             m = FakeMenu(d, ledger=rows)
             m.refresh_settles(NOW)
             self.assertEqual(m.afters[0], -1)
-            self.assertEqual(m.afters[1], 9000 - fm.BACKFILL)
-            self.assertEqual(m.settles.last, 9000)
+            self.assertEqual(m.afters[1], N - fm.BACKFILL)
+            self.assertEqual(m.settles.last, N)
             self.assertEqual(len(m.settles.rows), fm.BACKFILL)
-            rows.append({'seq': 9001, 'ts': NOW, 'kind': 'settle', 'data': {'sku': TEA, 'grade': 'B', 'amount': 2900}})
+            rows.append({'seq': N + 1, 'ts': NOW, 'kind': 'settle', 'data': {'sku': TEA, 'grade': 'B', 'amount': 2900}})
             m.afters.clear()
             m.refresh_settles(NOW)
-            self.assertEqual(m.afters, [9000])
-            self.assertEqual(m.settles.last, 9001)
+            self.assertEqual(m.afters, [N])
+            self.assertEqual(m.settles.last, N + 1)
 
     def test_skip_logged_once_per_reason(self):
         with tempfile.TemporaryDirectory() as d:
