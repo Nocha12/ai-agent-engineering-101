@@ -202,7 +202,8 @@ def main():
         ask(mind, 'unit U8 주세요 task t-null', 't-null', o6)
         ok, body, _ = o6['t-null']
         assert ok and '가격 5,000크레딧' in body and '소비기한' in body, body
-        assert 'A등급' not in body, body
+        # check-0010: the grade the shop signed (claim) is said, with why the market certificate has none
+        assert 'A등급(가게 서명)' in body and '시장 인증서는 식품의 grade 칸을 비워 둡니다' in body, body
         assert 'grade_evidence' not in SEEN['t-null'][0] and '"until"' in SEEN['t-null'][0], SEEN['t-null']
         # The SDK signals the waiter before the wrapper writes the outbound log.
         log = root / 'logs' / 'messages.jsonl'
