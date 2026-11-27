@@ -17,6 +17,7 @@ sys.path.insert(0, str(HERE))
 KIT = HERE.parents[3] / 'scripts' / 'round4'
 sys.path.insert(0, str(KIT if (KIT / 'agent_kit.py').exists() else Path.home() / 'ax-round4' / 'scripts' / 'round4'))
 import agent_kit as ak                                      # noqa: E402
+import checkout_delivery as cd                              # noqa: E402
 import agent_kit_records as rec                             # noqa: E402
 
 WINDOW = 8.0
@@ -200,10 +201,13 @@ def main():
         assert '"until"' not in got[0] and '소비기한' not in got[0].split('reply_note')[-1][:60], got[0]
         o6 = {}
         ask(mind, 'unit U8 주세요 task t-null', 't-null', o6)
-        ok, body, _ = o6['t-null']
-        assert ok and '가격 5,000크레딧' in body and '소비기한' in body, body
-        # check-0010: the grade the shop signed (claim) is said, with why the market certificate has none
-        assert 'A등급(가게 서명)' in body and '시장 인증서는 식품의 grade 칸을 비워 둡니다' in body, body
+        ok, body, ev6 = o6['t-null']
+        # check-0010 review C1: the wrapper keeps the model's prose; the HTTP answer's compose() puts the signed terms,
+        # the claim grade and the certificate line in front of it once (end to end in test_checkout_customer_flow)
+        assert ok and body == 'U8 A등급 결제서예요', body
+        said, _ = cd.compose(body, ev6.checkout_issued, set(), time.time(), agent='nocha12')
+        assert '가격 5,000크레딧' in said and '소비기한' in said and 'A등급(가게 서명)' in said, said
+        assert said.count(cd.CERT_GRADE_LINE) == 1 and said.index(cd.CERT_GRADE_LINE) < said.index(body), said
         assert 'grade_evidence' not in SEEN['t-null'][0] and '"until"' in SEEN['t-null'][0], SEEN['t-null']
         # The SDK signals the waiter before the wrapper writes the outbound log.
         log = root / 'logs' / 'messages.jsonl'
