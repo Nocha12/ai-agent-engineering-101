@@ -67,13 +67,28 @@ def quote_floor(q, sku, grade, now):
     return None
 
 
+def cash_step(left):
+    """The share of the market median a cash-out unit sells at, by its own hours left (메인 11/27 15:2x): over 24 h
+    0.95, over 12 h 0.90, over 6 h 0.80, 3 h or more 0.60, under 3 h 0.45."""
+    for h, m in ((24, 0.95), (12, 0.90), (6, 0.80)):
+        if left > h:
+            return m
+    return 0.60 if left >= 3 else 0.45
+
+
 def unit_cash(q, u, now):
     """The cash-out floor for one unit: its SKU and grade's quote_floor, only when that unit itself has CASH_HOURS or
-    less left. A longer-dated unit of the same grade keeps the goal (3) floor (review I1). None otherwise."""
+    less left. A longer-dated unit of the same grade keeps the goal (3) floor (review I1). None otherwise. When the
+    quote keeps the median it was set from (base), the floor is that median x cash_step of this unit's own hours left
+    (down to 10 credits, never under CASHOUT_MIN, never over the stored floor; review r4-price I-1)."""
     e = u.get('expires_at') if isinstance(u, dict) else None
     if isinstance(e, bool) or not isinstance(e, (int, float)) or not 0 < e - now <= CASH_HOURS * 3600:
         return None
-    return quote_floor(q, u.get('sku'), u.get('grade'), now)
+    f = quote_floor(q, u.get('sku'), u.get('grade'), now)
+    b = (q.get(f"{u.get('sku')}|{u.get('grade')}") or {}).get('base') if f is not None else None
+    if type(b) is not int or b < f:
+        return f
+    return max(CASHOUT_MIN, min(f, int(b * cash_step((e - now) / 3600)) // 10 * 10))
 
 
 def cash_clear(cl, shown, cash):

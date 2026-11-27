@@ -609,22 +609,31 @@ def fixed(name, sku=None):
 
 CASH_SHARE = 0.4       # cash-out (현금화, 11/27; 0.7 -> 0.4 메인 15:2x): the median has to be at least this share of the floor
 CASH_SPAN2 = 48 * 3600  # no 24 h median: the same grade's 48 h median (MIN_SETTLES or more) stands in (cash-out only)
-CASH_STEPS = ((24, 0.95), (12, 0.90), (6, 0.80))   # hours left over h: median x m (cashout-price-1127.md 권고가)
-CASH_LOW3 = (3, 0.60)  # 3 to 6 h left (3 included); under 3 h: CASH_LAST
-CASH_LAST = 0.45
 
 
-def cash_price(med, left, cmin):
-    """The cash-out price for a median and the soonest unit's hours left: median x the step for those hours
-    (over 24 h 0.95, 12-24 h 0.90, 6-12 h 0.80, 3-6 h 0.60, under 3 h 0.45), down to 10 credits, never under cmin."""
-    m = next((x for h, x in CASH_STEPS if left > h), CASH_LOW3[1] if left >= CASH_LOW3[0] else CASH_LAST)
-    return max(int(cmin), int(med * m) // 10 * 10)
+def cash_price(qb, med, left, cmin):
+    """The cash-out price for a median and hours left: median x the quote block's cash_step for those hours (over 24 h
+    0.95, 12-24 h 0.90, 6-12 h 0.80, 3-6 h 0.60, under 3 h 0.45), down to 10 credits, never under cmin."""
+    return max(int(cmin), int(med * qb['cash_step'](left)) // 10 * 10)
+
+
+def latest_cash(inv, sku, grade, now, hours):
+    """Exact hours left of this SKU and grade's longest-dated unit with 0 < left <= hours, None when none: the grade's
+    cash-out quote is priced for it (the dearest one), each shorter unit gets its own lower floor from unit_cash
+    (review r4-price I-1)."""
+    best = None
+    for u in inv.get('units') or []:
+        if isinstance(u, dict) and u.get('sku') == sku and str(u.get('grade') or '?') == grade:
+            e = u.get('expires_at')
+            if isinstance(e, (int, float)) and not isinstance(e, bool) and 0 < e - now <= hours * 3600:
+                best = max(best or 0, (e - now) / 3600)
+    return best
 CASH_OFF = 'logs/cashout.off'    # this file in the round folder turns cash-out off: the next post takes it all back
 
 
 def cash_on(qb, off=None):
     """The quote block has every cash-out name (a stale forged block has none; review M5) and the off file is absent."""
-    names = all(k in qb for k in ('CASHOUT_MIN', 'CASHOUT_BY', 'CASH_HOURS', 'quote_floor', 'unit_cash'))
+    names = all(k in qb for k in ('CASHOUT_MIN', 'CASHOUT_BY', 'CASH_HOURS', 'quote_floor', 'unit_cash', 'cash_step'))
     return names and not (off and os.path.exists(off))
 
 
@@ -632,8 +641,9 @@ def requote_plan(qb, inv, quotes, settles, now, on=True):
     """{sku: {grade: new price}} for the grades we hold whose quote is missing or above max(floor, 24 h median).
     Cash-out (11/27): when that grade's soonest unit has CASH_HOURS or less left and the 24 h median (none: the
     CASH_SPAN2 one) is under the floor but at least CASH_SHARE of it, the entry is {'price': p, 'floor': p} with p
-    cash_price (the median times a step by those hours left; a cash-out quote, below cost: a unit that expires is 0
-    credits), never under the quote block's CASHOUT_MIN or a lower grade's quote (review M1), never for water. It is
+    cash_price (the median times the step for the hours left of the grade's longest-dated unit with CASH_HOURS or less,
+    and base the median, so each shorter unit's own step lowers its floor in unit_cash; a cash-out quote, below cost:
+    a unit that expires is 0 credits), never under the quote block's CASHOUT_MIN or a lower grade's quote (review M1), never for water. It is
     rewritten when the median or the step moves either way, and taken back to the old rule ({'price': max(floor,
     24 h median), 'revoke': True}) once its condition is gone or cash-out is off (review I2).
     Only the units with CASH_HOURS or less left sell at it (the quote block's unit_cash; review I1)."""
@@ -660,15 +670,17 @@ def requote_plan(qb, inv, quotes, settles, now, on=True):
             target = None
             if cmin is not None and g in rank and CASH_SHARE * fl <= cmed < fl and left is not None \
                     and left <= qb['CASH_HOURS']:
-                target = max([cash_price(cmed, left, cmin)] + [p for p in lower if p])
+                top = latest_cash(inv, sku, g, now, qb['CASH_HOURS'])
+                target = max([cash_price(qb, cmed, top, cmin)] + [p for p in lower if p])
                 if target >= fl:                     # a lower grade is already at the floor or over it: no cash-out
                     target = None
             if target is not None:
-                if old == target and have == qb['quote_fit'](work, sku, g, target, target, now):
+                base = (quotes.get(f'{sku}|{g}') or {}).get('base') if old is not None else None
+                if old == target and base == cmed and have == qb['quote_fit'](work, sku, g, target, target, now):
                     continue                         # already this cash-out quote
                 fit = qb['quote_fit'](work, sku, g, target, target, now)
-                plan.setdefault(sku, {})[g] = {'price': target, 'floor': target}
-                work[f'{sku}|{g}'] = {'price': fit, 'ts': now, 'by': qb['CASHOUT_BY'], 'floor': target}
+                plan.setdefault(sku, {})[g] = {'price': target, 'floor': target, 'base': int(cmed)}
+                work[f'{sku}|{g}'] = {'price': fit, 'ts': now, 'by': qb['CASHOUT_BY'], 'floor': target, 'base': int(cmed)}
                 continue
             if old is not None:                      # its condition is gone (sold, longer-dated only, median up, off)
                 tgt = fl if med is None else max(fl, med)
@@ -723,9 +735,12 @@ def apply_plan(qb, path, inv, plan, now):
                 old = qb['quote_floor'](q, sku, g, now)
                 if have is not None and old is None and p >= have:
                     continue                       # a tool's quote is already at the median or under it
-                if old == cf and have == p:
+                base = int(v['base']) if type(v.get('base')) is int else None
+                if old == cf and have == p and q[f'{sku}|{g}'].get('base') == base:
                     continue
                 q[f'{sku}|{g}'] = {'price': p, 'ts': now, 'by': qb['CASHOUT_BY'], 'floor': cf}
+                if base is not None:
+                    q[f'{sku}|{g}']['base'] = base
                 out.setdefault(sku, {})[g] = p
                 continue
             p = qb['quote_fit'](q, sku, g, int(v), int(st['floors'].get(g, 0)), now)
