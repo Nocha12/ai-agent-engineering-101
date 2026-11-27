@@ -268,7 +268,7 @@ def test(run, kit):
         def lagging(m, p, timeout=None):
             if m == 'eth_getTransactionCount':
                 reads.append(p[1])
-                if len(reads) == 4: nonce['pending'] += 1           # after the first pair
+                if len(reads) == 4: nonce['pending'] += 1           # read 1 = intent, 2-3 = first pair: bump before the re-check
             return fake_rpc(m, p)
         g['rpc'], g['post'] = lagging, market([(200, {'units': ['u-1', 'u-2']})])
         n1 = dict(nonce)
@@ -328,10 +328,16 @@ def test(run, kit):
         r = run({'sku': 'egg', 'qty': 2}, w)
         assert not r['ok'] and 'uncertain' in r['error'] and confirms == [], r
         assert g['latest'](files[0])['q1']['who'] == 'other' and 'tx_hash' not in g['latest'](files[0])['q1']
+        assert 'not this payment' in r['error'] and 'nonce' not in r['error'], r
+        # the operator may confirm an 'other' row with that hash (it is ours; the market decides)
+        g['post'] = market([(402, {'error': 'that transfer does not pay this quote'})])
+        assert 'foreign tx' not in str(run({'confirm': 'q1', 'tx_hash': STALE}, w).get('error'))
+        assert confirms and confirms[-1] == {'quote': 'q1', 'tx_hash': STALE}
         clean()
         # 10c''. the input in another case and without 0x is the same payment
         SAME = '0x' + '5b' * 32
         chain[SAME] = {'hash': SAME, 'from': ME, 'to': '0x' + 'cd' * 20, 'value': hex(9000 * 10 ** 15), 'input': '0x' + 'EE' * 32}
+        g['post'] = market([(200, {'units': ['u-1', 'u-2']})])
         w = Wallet(gives=SAME)
         assert run({'sku': 'egg', 'qty': 2}, w)['ok'] and confirms == [{'quote': 'q1', 'tx_hash': SAME}]
         clean()
@@ -348,6 +354,13 @@ def test(run, kit):
         g['rpc'] = fake_rpc
         clean()
         # 10d. the chain cannot say (lookup fails or no tx yet): the flow as before - the market checks the tx itself
+        # 10d'. a mixed-up reply: the lookup for one hash answers another tx (here the foreign one) -> cannot say
+        MIXED = '0x' + '6c' * 32
+        chain[MIXED] = dict(chain[FOREIGN])
+        g['post'] = market([(200, {'units': ['u-1', 'u-2']})])
+        r = run({'sku': 'egg', 'qty': 2}, Wallet(gives=MIXED))
+        assert r['ok'] and confirms == [{'quote': 'q1', 'tx_hash': MIXED}], r
+        clean()
         for lost in (None, OSError('rpc down')):
             GONE = '0x' + '0e' * 32
             chain[GONE] = lost

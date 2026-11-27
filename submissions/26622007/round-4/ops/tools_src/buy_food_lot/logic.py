@@ -98,8 +98,10 @@ def _hex(s):
 
 def whose_tx(kit, txid, to, wei, data, deadline):
     """'ours' (from the shop wallet to pay.to for wei with pay.data, as the market checks it), 'foreign' (another
-    sender), 'other' (from us, not this payment) or None when the chain cannot say (lookup failed or no such tx)."""
+    sender), 'other' (from us, not this payment) or None when the chain cannot say (lookup failed, no such tx, an
+    answer for another hash (a mixed-up RPC reply), or no time left before the deadline: then the old flow runs)."""
     tx = None
+    if _clock() + 10 > deadline: return None
     for i in range(2):
         try:
             tx = rpc('eth_getTransactionByHash', [txid], 10)
@@ -108,6 +110,7 @@ def whose_tx(kit, txid, to, wei, data, deadline):
         if isinstance(tx, dict) or i or _clock() + 12 > deadline - CONFIRM_TIMEOUT: break   # keep the confirm's time
         _sleep(2)
     if not isinstance(tx, dict) or not tx.get('from'): return None
+    if str(tx.get('hash') or '').lower() != str(txid).lower(): return None
     if str(tx['from']).lower() != str(kit.address('shop')).lower(): return 'foreign'
     try:
         value = int(str(tx.get('value') or '0x0'), 16)
@@ -130,10 +133,11 @@ def _nonces(kit):
 def not_ours(kit, qid, txid, nonce, who, deadline):
     """kit.pay gave a tx that is not this payment. Our nonce still the intent's (latest = pending) now and again
     NONCE_RECHECK s later: nothing of ours went out, 'failed'. Else (moved, unreadable, no time for the second read,
-    or a tx of ours that is not this payment): the 'paying' row stays open (outcome uncertain)."""
+    or a tx of ours that is not this payment): the 'paying' row stays open (outcome uncertain). The re-read starts
+    only 15 s or more before DEADLINE; it may use up to ~15 s of the kit's 30 s slack past DEADLINE."""
     now = _nonces(kit)
     later = None
-    if who == 'foreign' and now == [nonce, nonce] and _clock() + NONCE_RECHECK + 25 <= deadline + 20:
+    if who == 'foreign' and now == [nonce, nonce] and deadline - _clock() >= 15:
         _sleep(NONCE_RECHECK)
         later = _nonces(kit)
     row = {'quote': qid, 'foreign_tx': txid, 'who': who, 'nonce': nonce, 'nonce_now': now, 'nonce_later': later}
@@ -142,11 +146,18 @@ def not_ours(kit, qid, txid, nonce, who, deadline):
         out = {'ok': False, 'quote': qid, 'foreign_tx': txid, 'error': 'the wallet RPC gave a tx that is not ours and our '
                'nonce did not move: no credits moved. Nothing to confirm; ask for a new quote and buy again'}
     else:
-        row.update(state='paying', note='rpc gave a foreign tx; our nonce moved, is unreadable or was not read twice'
-                   if who == 'foreign' else 'rpc gave a tx of ours that is not this payment (payee, amount or data)')
-        print('WARNING buy_food_lot: payment outcome uncertain for quote', qid, '(the wallet gave a tx that is not ours)')
-        out = {'ok': False, 'quote': qid, 'foreign_tx': txid, 'error': 'payment outcome uncertain: the wallet gave a tx '
-               'that is not this payment and our nonce moved or cannot be read; new purchases are blocked until checked'}
+        if who != 'foreign':
+            why = 'the wallet gave a tx of ours that is not this payment (payee, amount or data)'
+        elif now is None:
+            why = 'the wallet gave a foreign tx and our nonce could not be read'
+        elif now == [nonce, nonce] and later is None:
+            why = 'the wallet gave a foreign tx and our nonce could not be read again in time'
+        else:
+            why = 'the wallet gave a foreign tx and our nonce moved'
+        row.update(state='paying', note=why)
+        print('WARNING buy_food_lot: payment outcome uncertain for quote', qid, '(' + why + ')')
+        out = {'ok': False, 'quote': qid, 'foreign_tx': txid,
+               'error': 'payment outcome uncertain: ' + why + '; new purchases are blocked until checked'}
     try:
         append(pending_path(kit), row)
     except Exception as e:                      # no row: the paying row stays open, which blocks (safe side)
@@ -311,9 +322,9 @@ def _confirm_only(args, kit, deadline):
             return {'ok': False, 'error': 'tx_hash must be 0x and 64 hex digits'}
         if row.get('tx_hash') and row['tx_hash'].lower() != given.lower():
             return {'ok': False, 'error': 'this quote already has another tx_hash', 'tx_hash': row['tx_hash']}
-        if given.lower() == str(row.get('foreign_tx') or '').lower():
-            return {'ok': False, 'error': 'that is the foreign tx the RPC gave (not from our wallet); find our own tx '
-                    '(shop wallet nonce %s)' % row.get('nonce'), 'foreign_tx': row['foreign_tx']}
+        if row.get('who', 'foreign') == 'foreign' and given.lower() == str(row.get('foreign_tx') or '').lower():
+            return {'ok': False, 'error': 'that is the foreign tx the RPC gave (another sender on chain); find our own '
+                    'tx (shop wallet nonce %s)' % row.get('nonce'), 'foreign_tx': row['foreign_tx']}
     headers = {'authorization': 'Bearer ' + kit.token('shop')}
     with httpx.Client(timeout=25) as c:
         res = settle_confirm(c, headers, kit, row, deadline, given=given, fail_state=fail_state)
