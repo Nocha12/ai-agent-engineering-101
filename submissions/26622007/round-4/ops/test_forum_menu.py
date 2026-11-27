@@ -165,7 +165,8 @@ class CashOut(unittest.TestCase):
 
     def test_clearance_not_over_cash_price(self):         # review r2 I-N1
         qb = self.QB
-        inv = {'units': [unit('m7', self.MILK, '서울우유 멸균우유 190ml 24팩', 'C', 12235, exp=NOW + 20 * 3600)]}
+        inv = {'units': [dict(unit('m7', self.MILK, '서울우유 멸균우유 190ml 24팩', 'C', 12235, exp=NOW + 20 * 3600),
+                              category='식품>계란/유제품>우유/두유')]}
         q = {f'{self.MILK}|C': {'price': 11787, 'ts': NOW - 10, 'by': 'cashout', 'floor': 11787}}
         shown = {g: p for g, p in qb['quote_prices'](q, self.MILK, qb['stock'](inv, self.MILK, NOW)['floors'], NOW).items() if p}
         plain = fm.clear_item(inv, self.MILK, shown, NOW)
@@ -952,7 +953,7 @@ class Clearance(unittest.TestCase):
         q = {f'{RICE}|B': {'price': 4700, 'ts': NOW, 'by': 'x'}, f'{TEA}|B': {'price': 2900, 'ts': NOW, 'by': 'x'},
              f'{EGG}|B': {'price': 7975, 'ts': NOW, 'by': 'x'}}
         real = fm.clear_item
-        fm.clear_item = lambda inv_, sku, shown, now: real(inv_, sku, shown, now) if sku == 'G5c96ee78' else None
+        fm.clear_item = lambda inv_, sku, shown, now, *r: real(inv_, sku, shown, now, *r) if sku == 'G5c96ee78' else None
         try:
             text, skus = fm.build_text(QB, inv, q, settles(MARKET_SETTLES), NOW, 0)
         finally:
