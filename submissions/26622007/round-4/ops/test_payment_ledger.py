@@ -417,6 +417,27 @@ class Ledger(unittest.TestCase):
         self.assertEqual((r["order"], r["said_order"]), ("o-1", "o-9"))
         self.assertIn("refund_order_disagrees", [a["kind"] for a in rec["alerts"]])
 
+    def test_refund_line_with_only_market_order_names_it(self):
+        kit_log(self.d, [])
+        self.write_agent("refunds.jsonl", [{"purpose": "refund", "market_order": "o-3", "tx_hash": REFUND}])
+        c = FakeChain(0)
+        c.sender[TX[3]] = c.sender[TX[5]] = CUST.lower()
+        rec = pl.reconcile(self.d, "m", "nocha12", c, SHOP, 1e12)
+        r = [e for e in self.lines() if e["tx_hash"] == REFUND][0]
+        self.assertEqual((r["order"], r["said_order"]), ("o-3", None))
+        self.assertNotIn("refund_unmatched", [a["kind"] for a in rec["alerts"]])
+
+    def test_market_order_not_paid_but_order_paid_is_a_disagree_alert(self):
+        """Review M1: the stated market order is not dropped silently."""
+        kit_log(self.d, [])
+        self.write_agent("refunds.jsonl", [{"purpose": "refund", "order": "o-1", "market_order": "o-9", "tx_hash": REFUND}])
+        c = FakeChain(0)
+        c.sender[TX[3]] = c.sender[TX[5]] = CUST.lower()
+        rec = pl.reconcile(self.d, "m", "nocha12", c, SHOP, 1e12)
+        r = [e for e in self.lines() if e["tx_hash"] == REFUND][0]
+        self.assertEqual((r["order"], r["said_order"]), ("o-1", "o-9"))
+        self.assertIn("refund_order_disagrees", [a["kind"] for a in rec["alerts"]])
+
     def test_agent_order_that_the_payer_did_not_pay_is_an_alert(self):
         kit_log(self.d, [])
         self.write_agent("refunds.jsonl", [{"purpose": "refund", "order": "o-3", "tx_hash": REFUND}])
@@ -778,6 +799,28 @@ class InflowGap(unittest.TestCase):
         new, _ = pl.sync(self.d, "m", "nocha12", R(0), SHOP)
         self.assertEqual((new[-1]["kind"], new[-1]["order"]), ("refund", "o-kim"))
 
+
+    def test_refund_hint_with_only_the_checkout_id_names_its_owed_market_order(self):
+        """Review I1: the shop's refund_send writes order = checkout id and no market_order."""
+        pay = ("0x" + "f2" * 32, "0xkim", 13126 * W, "6c" * 32, True, 1795509501, 1500)
+        C = self._inflow_setup([pay])
+        _, bal = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
+        pl.reconcile(self.d, "m", "nocha12", C(bal + 13126 * W), SHOP, 1.0, now=1795512000)
+        back = "0x" + "bb" * 32
+
+        class R(C):
+            def transfer(self, tx):
+                if tx == back:
+                    return {"from": SHOP.lower(), "to": "0xkim", "value_wei": 13126 * W, "gas_wei": 0, "ok": True, "ts": 1795513000}
+                return super().transfer(tx)
+        Ledger.write_agent(self, "refunds.jsonl", [{"purpose": "refund", "order": "7c30", "tx_hash": back}])
+        new, _ = pl.sync(self.d, "m", "nocha12", R(0), SHOP)
+        self.assertEqual((new[-1]["kind"], new[-1]["order"], new[-1]["said_order"]), ("refund", "o-kim", None))
+        alerts = pl.alerts(self.d, pl.read_lines(self.d / "logs" / "payments.jsonl"), new,
+                           {"ok": True, "payments_tail": pl.GENESIS}, now=1795513100)
+        kinds = [a["kind"] for a in alerts]
+        self.assertNotIn("refund_order_disagrees", kinds)
+        self.assertNotIn("refund_over_amount", kinds)
 
     def _sale_record(self, order, tx):
         with open(self.d / "logs" / "sales.jsonl", "a") as f:

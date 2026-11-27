@@ -398,7 +398,8 @@ def agent_sends(d):
             if HEX_TX.match(tx):
                 # refund_send writes order = our checkout id and market_order = the market's order it refunds (11/28:
                 # one checkout, two market orders from one wallet); both are kept so the refund can name its order
-                txs[tx] = {"order": order, "market_order": r.get("market_order"), "purpose": purpose, "source": f"{name}:{n}"}
+                txs[tx] = {"order": order, "market_order": r.get("market_order") or r.get("market_order_id"), "purpose": purpose,
+                           "source": f"{name}:{n}"}
                 intents = [i for i in intents if i["key"] != key]
             elif any(k in r for k in ("nonce", "amount", "amount_wei", "wei")):
                 # no time on the line: the file's time (goal (9) asks for ts; a later append makes this one look newer)
@@ -519,6 +520,13 @@ def events(rows, name, sends, chain, address, seen=(), seen_tx=None, hints=None,
                        if e.get("payer") == addr and (e.get("kind") == "sale"
                                                       or (e.get("kind") == "paid_unsettled" and (e.get("order") or e.get("checkout_order"))))})
 
+    def owed_of_checkout(addr, checkout):
+        """The market orders of this wallet's paid_unsettled lines on our checkout id: the shop's refund_send names only the
+        checkout id (order), and one checkout can carry two market orders from one wallet (11/28 9,290 and 2,632)."""
+        found = list(seen_tx.values()) + out
+        return sorted({str(e["order"]) for e in found if e.get("kind") == "paid_unsettled" and e.get("payer") == addr
+                       and e.get("order") and str(e.get("checkout_order")) == checkout})
+
     queue = [(hhmmss, f"kit:{tool}", tx) for hhmmss, tool, tx in sends]
     queue += [(None, h["source"], tx) for tx, h in hints.items() if tx not in {q[2] for q in queue}]
     for hhmmss, source, tx in queue:
@@ -532,9 +540,12 @@ def events(rows, name, sends, chain, address, seen=(), seen_tx=None, hints=None,
         paid = orders_paid_by(t["to"])
         said_refund = "refund" in (hint.get("purpose") or "")
         refund = t["ok"] and bool(paid)              # only a transfer to a wallet that paid one of our sales
-        said = [o for o in (hint.get("market_order"), hint.get("order")) if o]      # market order first, then checkout id
+        said = [str(o) for o in (hint.get("market_order"), hint.get("order")) if o not in (None, "")]   # market order first
+        if said and said[0] not in paid and not hint.get("market_order"):
+            owed = owed_of_checkout(t["to"], said[0])     # a checkout id alone: its one owed market order of this wallet
+            said = owed[:1] + said if len(owed) == 1 else said
         order = next((o for o in said if o in paid), None) or (paid[0] if len(paid) == 1 else None)
-        disagrees = bool(said) and refund and order not in said
+        disagrees = bool(said) and refund and order != said[0]   # the most exact id the agent gave is not the order found
         add({"ts": t.get("ts"), "time": iso(t["ts"]) if t.get("ts") else hhmmss, "round": None, "source": source,
              "kind": "refund" if refund else "transfer_out", "id": f"{'refund' if refund else 'out'}-{tx}",
              "counterparty": who.get(t["to"], t["to"]), "item": None, "order": order,
