@@ -244,6 +244,7 @@ class GradeAnswer(unittest.TestCase):
         self.assertIn('Only when the customer says a grade certified by the market', text)        # r1 I1 (notes 21/27)
         self.assertIn('ask if the shop-signed grade is fine', text)
         self.assertIn("the issue result's reply_note says which of these this checkout has", text)   # r1 M2
+        self.assertIn("once issued, the issue result's reply_note gives the exact answer for that checkout", text)   # r2 M2
         # the two sources of the split answers are gone
         self.assertNotIn('소비기한은 시장 서명 인증서에 있습니다', text)
         self.assertNotIn('independently certified grade, explain it is unavailable', text)
