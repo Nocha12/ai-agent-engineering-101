@@ -665,12 +665,10 @@ def requote_plan(qb, inv, quotes, settles, now, on=True):
                     plan.setdefault(sku, {})[g] = {'price': fl, 'revoke': True}
                     work[f'{sku}|{g}'] = {'price': qb['quote_fit'](work, sku, g, fl, fl, now), 'ts': now, 'by': 'forum_menu'}
                 continue
-            left = soonest(inv, sku, g, now)
             lower = [qb['quote_get'](work, sku, x, now) for x in rank[:rank.index(g)]] if g in rank else []
             target = None
-            if cmin is not None and g in rank and CASH_SHARE * fl <= cmed < fl and left is not None \
-                    and left <= qb['CASH_HOURS']:
-                top = latest_cash(inv, sku, g, now, qb['CASH_HOURS'])
+            top = latest_cash(inv, sku, g, now, qb['CASH_HOURS']) if cmin is not None else None   # exact hours (r4-price2 I-1)
+            if cmin is not None and g in rank and CASH_SHARE * fl <= cmed < fl and top is not None:
                 target = max([cash_price(qb, cmed, top, cmin)] + [p for p in lower if p])
                 if target >= fl:                     # a lower grade is already at the floor or over it: no cash-out
                     target = None

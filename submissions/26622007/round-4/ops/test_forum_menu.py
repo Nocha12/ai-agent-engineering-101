@@ -176,6 +176,12 @@ class CashOut(unittest.TestCase):
         self.assertEqual(fm.cash_price(qb, 11787, 3.0, 420), 7070)        # exact hours, 3 h: 0.60 (not rounded)
         self.assertEqual(fm.cash_price(qb, 11787, 2.99, 420), 5300)
 
+    def test_entry_at_48h_exact(self):                   # review r4-price2 I-1: 48.03 h rounds to 48.0, no TypeError
+        qb = self.QB
+        for h, want in ((48.03, 12778), (48.06, 12778), (47.99, {'price': 11190, 'floor': 11190, 'base': 11787})):
+            inv = {'units': [unit('m1', self.MILK, '서울우유 멸균우유 190ml 24팩', 'C', 12235, exp=NOW + h * 3600)]}
+            self.assertEqual(fm.requote_plan(qb, inv, {}, settles(self.S), NOW)[self.MILK]['C'], want, h)
+
     def test_step_per_unit(self):                        # review r4-price I-1: each unit its own hours left
         qb = self.QB
         inv = {'units': [unit('s', self.MILK, '서울우유 멸균우유 190ml 24팩', 'C', 12235, exp=NOW + 2 * 3600),
