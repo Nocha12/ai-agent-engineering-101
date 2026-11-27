@@ -117,8 +117,9 @@ class Text(unittest.TestCase):
         text, skus = fm.build_text(QB, INV, self.QUOTES, settles(MARKET_SETTLES), NOW, 0)
         self.assertLessEqual(len(text), 160)
         self.assertTrue(text.endswith(fm.TAIL))
-        self.assertEqual(skus[0], EGG)                   # 6 settles on the market, then the tea's 4
-        self.assertEqual(skus[1], TEA)
+        # 11/27 12:40: A·B lines with 24 h+ left lead (tea B, water A, in the old order: the tea's 4 settles, then
+        # the water's 3); the egg (6 settles, but its cheapest shown grade is C) follows them
+        self.assertEqual(skus[:3], [TEA, WATER, EGG])
         self.assertIn('계란20구 C7,000', text)               # cheapest shown grade of the egg
 
     def test_display_rule_failures_written_and_still_shown(self):
@@ -161,7 +162,7 @@ class Text(unittest.TestCase):
         inv = {'units': INV['units'] + [old]}
         failed = {}
         text, skus = fm.build_text(QB, inv, self.QUOTES, settles(MARKET_SETTLES), NOW, 0, failed=failed)
-        self.assertEqual(skus[0], EGG)
+        self.assertEqual(skus[:3], [TEA, WATER, EGG])      # 11/27 12:40: A·B 24 h+ lead, then the egg
         self.assertIn('계란20구 C7,000', text)
         self.assertNotIn('GEGG3', skus)
         self.assertEqual(failed, {})
@@ -763,7 +764,7 @@ class Clearance(unittest.TestCase):
         # 메인 11/27 03:5x: 2 h (egg) and 1 h (water) are under SHORT: both after tea, in the old order among themselves
         self.assertEqual(skus, [TEA, EGG, WATER])
         until = time.strftime('%H:%M', time.localtime(NOW + 2 * 3600))
-        self.assertTrue(text.startswith('[노차네 구멍가게(nocha12) 떨이·기한 임박]'), text)
+        self.assertTrue(text.startswith('[노차네 구멍가게(nocha12) 지금 재고]'), text)   # 11/27 12:40: tea B leads
         self.assertIn(f' · 계란20구 C4,190(~{until})', text)
         self.assertIn('생수', text)                        # water is listed at its own price, not on clearance
         self.assertNotIn('생수2L C4,', text.split('·')[0])
@@ -783,7 +784,7 @@ class Clearance(unittest.TestCase):
             cl = fm.clearance(u, None, NOW)
             self.assertIsNotNone(cl)
             self.assertIn(f"C{cl['price']:,}(~", text)
-        self.assertTrue(text.startswith('[노차네 구멍가게(nocha12) 떨이·기한 임박]'), text)
+        self.assertTrue(text.startswith('[노차네 구멍가게(nocha12) 지금 재고]'), text)   # 11/27 12:40: tea B leads
         self.assertLessEqual(len(text), fm.VIEW)
 
     def test_only_short_lines_still_posted(self):
@@ -836,7 +837,7 @@ class Clearance(unittest.TestCase):
         self.assertEqual(skus[:2], [RICE, TEA])           # 30 h and 300 h first (in the old order between them)
         self.assertEqual(skus[2], 'G5c96ee78')             # the 4 h clearance line is still in the post, right after
         self.assertIn(EGG, skus)                           # the 9 h line is not long: it keeps its old place
-        self.assertTrue(text.startswith('[노차네 구멍가게(nocha12) 떨이·기한 임박]'), text)
+        self.assertTrue(text.startswith('[노차네 구멍가게(nocha12) 지금 재고]'), text)   # 11/27 12:40: rice B leads
         cl = fm.clearance(inv['units'][0], None, NOW)
         self.assertIn(f"C{cl['price']:,}(~", text)         # clearance price unchanged
         self.assertLessEqual(len(text), fm.VIEW)
@@ -851,6 +852,71 @@ class Clearance(unittest.TestCase):
 
     def test_no_clearance_keeps_the_old_header(self):
         text, _ = fm.build_text(QB, INV, Text.QUOTES, settles(MARKET_SETTLES), NOW, 0)
+        self.assertTrue(text.startswith('[노차네 구멍가게(nocha12) 지금 재고]'), text)
+
+
+class Lead(unittest.TestCase):
+    """11/27 12:40 check: 20/20 posts were led by 10-24 h clearance lines and read '떨이·기한 임박'. The lead is first
+    filled with A·B lines not on clearance with LEAD_AB (24) hours or more left; clearance lines stay right after."""
+    EGGCAT = {'category': '식품>계란/유제품>계란', 'list_price': 9900}
+    MACK, CITR, YOG = 'GMACK0001', 'GCITR0001', 'GYOGR0001'
+
+    def clr(self, u, sku, name, grade, hours):        # shelf 96 h -> 48: 10-24 h left is on clearance (r <= 0.5)
+        return dict(unit(u, sku, name, grade, 4500, exp=NOW + hours * 3600), **self.EGGCAT)
+
+    def clear_units(self):
+        return [self.clr('m1', self.MACK, '고등어2미,800g', 'C', 20),
+                self.clr('c1', self.CITR, '감귤4.5kg', 'C', 15),
+                self.clr('y1', self.YOG, '그릭요거트450g×2개', 'B', 22)]   # a B line on clearance is not an A·B lead
+
+    def test_ab_lines_lead_clearance_follows_header_now(self):
+        inv = {'units': self.clear_units() + [
+            unit('r1', RICE, '2026년 햅쌀 국산 백미 쌀 2kg', 'B', 3000, exp=NOW + 30 * 3600),
+            unit('t1', TEA, '동서 둥굴레차 50T 60g', 'B', 1800, exp=NOW + 300 * 3600),
+            unit('e1', EGG, '한계란 난각번호 1번 계란 무항생제 유정란 20구', 'C', 5000, exp=NOW + 300 * 3600)]}
+        q = {f'{RICE}|B': {'price': 4700, 'ts': NOW, 'by': 'x'}, f'{TEA}|B': {'price': 2900, 'ts': NOW, 'by': 'x'},
+             f'{EGG}|C': {'price': 7000, 'ts': NOW, 'by': 'x'}}
+        for u in self.clear_units():
+            self.assertIsNotNone(fm.clearance(u, None, NOW))
+        text, skus = fm.build_text(QB, inv, q, settles(MARKET_SETTLES), NOW, 0)
+        self.assertEqual(skus[:2], [RICE, TEA])            # A·B 24 h+, old order between them (30 h rice is urgent)
+        self.assertEqual(skus[2], self.CITR)               # clearance right after, soonest first, as before
+        self.assertTrue(text.startswith('[노차네 구멍가게(nocha12) 지금 재고] 쌀2kg B4,700 · 둥굴레차60g B2,900 · '), text)
+        for u in self.clear_units():                       # clearance lines that fit keep their unit's clearance price
+            if u['sku'] in skus:
+                self.assertIn(f"{u['grade']}{fm.clearance(u, None, NOW)['price']:,}(~", text)
+        self.assertLessEqual(len(text), fm.VIEW)
+
+    def test_clearance_only_unchanged(self):
+        inv = {'units': self.clear_units()}
+        text, skus = fm.build_text(QB, inv, {}, settles(MARKET_SETTLES), NOW, 0)
+        self.assertEqual(skus, [self.CITR, self.MACK, self.YOG])   # soonest first, as before (no A·B line to lead)
+        until = time.strftime('%H:%M', time.localtime(NOW + 15 * 3600))
+        price = fm.clearance(inv['units'][1], None, NOW)['price']
+        self.assertTrue(text.startswith(f'[노차네 구멍가게(nocha12) 떨이·기한 임박] 감귤4.5kg C{price:,}(~{until}) · '), text)
+
+    def test_one_ab_line_then_the_long_rule(self):
+        inv = {'units': self.clear_units() + [unit('t1', TEA, '동서 둥굴레차 50T 60g', 'B', 1800, exp=NOW + 300 * 3600)]}
+        q = {f'{TEA}|B': {'price': 2900, 'ts': NOW, 'by': 'x'}}
+        text, skus = fm.build_text(QB, inv, q, settles(MARKET_SETTLES), NOW, 0)
+        self.assertEqual(skus[:3], [TEA, self.CITR, self.MACK])   # tea, then the 06:40 rule's first long line
+        self.assertTrue(text.startswith('[노차네 구멍가게(nocha12) 지금 재고] 둥굴레차60g B2,900 · 감귤4.5kg C'), text)
+
+    def test_c_or_under_24_h_does_not_take_the_ab_lead(self):
+        inv = {'units': self.clear_units() + [
+            unit('r1', RICE, '2026년 햅쌀 국산 백미 쌀 2kg', 'B', 3000, exp=NOW + 20 * 3600),
+            unit('e1', EGG, '한계란 난각번호 1번 계란 무항생제 유정란 20구', 'C', 5000, exp=NOW + 300 * 3600)]}
+        q = {f'{RICE}|B': {'price': 4700, 'ts': NOW, 'by': 'x'}, f'{EGG}|C': {'price': 7000, 'ts': NOW, 'by': 'x'}}
+        text, skus = fm.build_text(QB, inv, q, settles(MARKET_SETTLES), NOW, 0)
+        # no A·B 24 h+ line: the 06:40 rule as before (clearance 15 h and 20 h first), header as before
+        self.assertEqual(skus[:2], [self.CITR, self.MACK])
+        self.assertTrue(text.startswith('[노차네 구멍가게(nocha12) 떨이·기한 임박]'), text)
+
+    def test_undated_ab_line_leads(self):
+        inv = {'units': self.clear_units() + [dict(unit('t1', TEA, '동서 둥굴레차 50T 60g', 'A', 1800), expires_at=None)]}
+        q = {f'{TEA}|A': {'price': 3100, 'ts': NOW, 'by': 'x'}}
+        text, skus = fm.build_text(QB, inv, q, settles(MARKET_SETTLES), NOW, 0)
+        self.assertEqual(skus[0], TEA)                     # no date reads as long, as in the 06:40 rule
         self.assertTrue(text.startswith('[노차네 구멍가게(nocha12) 지금 재고]'), text)
 
 

@@ -50,6 +50,9 @@ SHORT = 3                     # hours: a line with less left goes after every ot
 LONG = 10                     # hours: up to LEAD_LONG lines with this long left (or no date) lead the post (11/27 06:40
 LEAD_LONG = 2                 # check: of 880 market settles only 8 had under 10 h left, and two customers turned down the
                               # 3-5 h clearance lines; clearance lines still follow them; order only, prices unchanged)
+LEAD_AB = 24                  # hours: the lead is first filled with lines not on clearance, of a LEAD_GRADES grade, with
+LEAD_GRADES = ('A', 'B')      # this long left or no date (11/27 12:40 check: 20/20 posts led by 10-24 h clearance lines,
+                              # 86% of market settles had 24 h+ left); too few: the LONG rule fills the rest. Order only
 WINDOW_SPAN = 900             # an entry this long before the window's last open tick belongs to it
 SETTLE_TTL = 24 * 3600      # settles kept for the medians and the popularity order
 MIN_SETTLES = 3             # settles of one SKU and grade before its median counts
@@ -662,7 +665,9 @@ def build_text(qb, inv, quotes, settles, now, turn, name='노차네 구멍가게
 price of that unit with its hours left, and the post reads '떨이·기한 임박'; water never. A line with under SHORT hours
 left (메인 11/27 03:5x) goes after all the others, in the same order among themselves: still in the post, never hidden.
 Before all of that, the first LEAD_LONG lines (in that order) with LONG hours or more left, or no date, lead the post
-(11/27 06:40): the clearance lines come right after them."""
+(11/27 06:40): the clearance lines come right after them. Those lead lines are first taken from lines not on clearance
+whose grade is in LEAD_GRADES with LEAD_AB hours or more left, or no date (11/27 12:40); only when there are too few does
+the LONG rule fill the rest. The header reads '떨이·기한 임박' when the post's first line is on clearance, else '지금 재고'."""
     items = []
     live = {}
     for sku in {u.get('sku') for u in inv.get('units') or [] if isinstance(u, dict) and u.get('sku')}:
@@ -681,7 +686,7 @@ Before all of that, the first LEAD_LONG lines (in that order) with LONG hours or
             left, g, cl = clr
             items.append(((-1, left), -st['count'], -settles.count(sku), sku,
                           f"{shown_name[sku]} {g}{cl['price']:,}(~{time.strftime('%H:%M', time.localtime(cl['until']))})",
-                          shown_name[sku], left))
+                          shown_name[sku], left, g))
             continue
         if not shown:
             continue
@@ -689,7 +694,7 @@ Before all of that, the first LEAD_LONG lines (in that order) with LONG hours or
         left = soonest(inv, sku, g, now)
         urgent = left is not None and left <= EXPIRING
         items.append(((0, left) if urgent else (1, 0), -st['count'], -settles.count(sku), sku,
-                      f"{shown_name[sku]} {g}{shown[g]:,}", shown_name[sku], left))
+                      f"{shown_name[sku]} {g}{shown[g]:,}", shown_name[sku], left, g))
     if not items:
         return None, []
     items.sort()
@@ -705,10 +710,12 @@ Before all of that, the first LEAD_LONG lines (in that order) with LONG hours or
     order = clear + head + rest                    # 메인 11/27 03:5x: under SHORT hours left goes last, in the same order
     order = [it for it in order if not short(it)] + [it for it in order if short(it)]
     long_ = lambda it: it[6] is None or it[6] >= LONG
+    ab = lambda it: it[0][0] != -1 and it[7] in LEAD_GRADES and (it[6] is None or it[6] >= LEAD_AB)
     lead = []                                      # 11/27 06:40: the first LEAD_LONG long lines (one per name) go first
-    for it in order:
-        if len(lead) < LEAD_LONG and long_(it) and all(x[5] != it[5] for x in lead):
-            lead.append(it)
+    for pick in (ab, long_):                       # 11/27 12:40: A·B 24 h+ lines not on clearance first, then the rest
+        for it in order:
+            if len(lead) < LEAD_LONG and pick(it) and all(x[5] != it[5] for x in lead):
+                lead.append(it)
     order = lead + [it for it in order if all(it is not x for x in lead)]
     for it in order:
         if it[5] in seen:                          # one line per name (r3 I2: by the shown name, never a cut of it)
@@ -721,7 +728,8 @@ Before all of that, the first LEAD_LONG lines (in that order) with LONG hours or
         seen.add(it[5])
     if not chosen:
         return None, []
-    lead = '떨이·기한 임박' if any(it[0][0] == -1 and it[3] in chosen for it in clear) else '지금 재고'   # what fits (N3)
+    first = next(it for it in order if it[3] == chosen[0])   # 11/27 12:40: the header follows the first line (N3: what fits)
+    lead = '떨이·기한 임박' if first[0][0] == -1 else '지금 재고'
     return f'[{name} {lead}]' + text + TAIL, chosen
 
 
