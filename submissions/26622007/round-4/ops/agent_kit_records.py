@@ -190,7 +190,18 @@ def _writer(logs, contacts=None):
 
 HELD_UNIT = re.compile(r'u-[A-Za-z0-9_-]{1,40}')
 HELD_TEXT = ('이 단위는 다른 문의에 낸 결제서로 잠시(최대 5분) 잡혀 있고, 같은 품목·등급의 다른 단위는 이 가격으로 낼 수 없습니다. '
-             '손님께는 그 단위를 지금 낼 수 없다고만 알립니다. ')
+             '손님께는 그 단위를 지금 낼 수 없다고 알리고, 손님이 원한 단위면 그 결제서가 끝나는 시각(held_until_kst)을 함께 '
+             '말합니다(메인 11/27 18:10). ')
+HELD_LONG = ('손님이 C등급이나 기한 임박을 빼 달라고 했으면 C·임박 단위를 먼저 내밀지 말고 longest(남은 기한이 가장 긴 단위)부터 '
+             '안내합니다. ')
+KST = timezone(timedelta(hours=9))
+
+
+def held_kst(until):
+    """'MM/DD HH:MM' KST of an epoch-second held_until, else None."""
+    if type(until) is not int or not 1e9 < until < 1e11:
+        return None
+    return datetime.fromtimestamp(until, KST).strftime('%m/%d %H:%M')
 
 
 def _view(e):
@@ -219,6 +230,7 @@ def held_result(r):
     if isinstance(r, dict) and r.get('code') == 'reissue_wait':
         until = r.get('held_until')
         return {'ok': False, 'code': 'reissue_wait', 'held_until': until if type(until) is int else None,
+                'held_until_kst': held_kst(until),
                 'error': '이 문의에서 같은 단위를 15분 넘게 다시 발급해 잠시 멈췄습니다. 이미 보낸 결제서는 그대로 쓸 수 있습니다. '
                          'held_until 전에는 다시 발급하지 않습니다.'}
     if not isinstance(r, dict) or r.get('code') != 'unit_held' or not isinstance(r.get('alternatives'), list):
@@ -233,8 +245,12 @@ def held_result(r):
                 and (hours is None or (type(hours) in (int, float) and hours == hours and abs(hours) < 1e6))):
             alts.append({'unit': unit, 'grade': grade, 'floor': floor, 'hours_left': hours})
     until = r.get('held_until')
-    return {'ok': False, 'code': 'unit_held', 'held_until': until if type(until) is int else None, 'alternatives': alts,
-            'error': HELD_TEXT + ('손님이 원하면 alternatives의 단위를 그 하한가(floor) 이상으로 다시 제안하고, 손님이 받아들이면 그 단위로 '
+    # 메인 11/27 18:10 (7f2b4297, a57f3944, 33647847): a customer who leaves out C·임박 hears the longest-dated free unit
+    # first, and when the unit they wanted is held, when that checkout ends. Order and floors unchanged (no new guard).
+    longest = max(alts, key=lambda x: (x['hours_left'] is None, x['hours_left'] or 0, x['grade'] == 'A')) if alts else None
+    return {'ok': False, 'code': 'unit_held', 'held_until': until if type(until) is int else None,
+            'held_until_kst': held_kst(until), 'alternatives': alts, 'longest': longest,
+            'error': HELD_TEXT + (HELD_LONG if alts else '') + ('손님이 원하면 alternatives의 단위를 그 하한가(floor) 이상으로 다시 제안하고, 손님이 받아들이면 그 단위로 '
                                   '결제서를 냅니다.' if alts else '같은 품목의 다른 재고는 없습니다. held_until 뒤에 다시 확인합니다.')}
 
 

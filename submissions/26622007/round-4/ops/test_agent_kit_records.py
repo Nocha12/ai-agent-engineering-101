@@ -174,7 +174,32 @@ def main():
     missed_messages()
     assert rec.held_result({'ok': False, 'code': 'no_quote', 'error': 'RAW TOOL OUTPUT'})['code'] == 'no_quote'
     assert 'RAW' not in str(rec.held_result({'ok': False, 'code': 'no_quote', 'error': 'RAW TOOL OUTPUT'}))
+    held_longest()
     print('records tests ok')
+
+
+def held_longest():
+    """메인 11/27 18:10 (7f2b4297): A held, C offered, the customer left C out and was told only to ask again. unit_held
+    now names the unit with the most time left and when the held checkout ends (KST); alternatives as before."""
+    until = 1795768200                                   # 11/27 17:30 KST
+    r = rec.held_result({'ok': False, 'code': 'unit_held', 'error': 'RAW', 'held_until': until, 'alternatives': [
+        {'unit': 'u-c1', 'grade': 'C', 'floor': 2000, 'hours_left': 6.5},
+        {'unit': 'u-b1', 'grade': 'B', 'floor': 3000, 'hours_left': 40.0},
+        {'unit': 'u-b2', 'grade': 'B', 'floor': 3100, 'hours_left': 30.0}]})
+    assert r['held_until'] == until and r['held_until_kst'] == '11/27 17:30', r
+    assert r['longest']['unit'] == 'u-b1', r
+    assert [x['unit'] for x in r['alternatives']] == ['u-c1', 'u-b1', 'u-b2']   # order unchanged
+    assert 'held_until_kst' in r['error'] and 'longest' in r['error'] and 'RAW' not in str(r)
+    undated = rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': until, 'alternatives': [
+        {'unit': 'u-b1', 'grade': 'B', 'floor': 3000, 'hours_left': 40.0},
+        {'unit': 'u-n1', 'grade': 'B', 'floor': 3000, 'hours_left': None}]})
+    assert undated['longest']['unit'] == 'u-n1'           # no date reads as the longest
+    none = rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': until, 'alternatives': []})
+    assert none['longest'] is None and none['held_until_kst'] == '11/27 17:30' and 'longest' not in none['error']
+    bad = rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': 'x', 'alternatives': []})
+    assert bad['held_until'] is None and bad['held_until_kst'] is None
+    rw = rec.held_result({'ok': False, 'code': 'reissue_wait', 'held_until': until})
+    assert rw['held_until_kst'] == '11/27 17:30'
 
 
 def missed_messages():
