@@ -97,6 +97,7 @@ def test(run, kit):
         assert saved['market_sold']('ops/no-such-file.json') == {}
         _test_match_refuse_pack(g, K, now)
         _test_held(g, K, now)
+        _test_plain_tofu(g, K, now)
     finally:
         g.update(saved)
     return 'ok'
@@ -432,6 +433,38 @@ def _test_match_refuse_pack(g, K, now):
     assert e[0]['buy_options'][0]['sku'] == 'G-wm-l', e
     e = ask([row('a', '보통 라면', '보통 라면 있나요')])['customer_asked_out_of_stock']
     assert e[0]['buy_options'][0]['sku'] == 'G-rm-n', e
+
+
+def _test_plain_tofu(g, K, now):
+    """11/27 check-1510 6-3: '일반 두부', '찌개용 두부 300g 한 팩', '두부' (19 asks, 16 customers) got only 연두부 / 실큰두부
+    options because the market catalog (11/27 15:xx, 5,629 SKUs) has no plain tofu. Every food name is matched, so a
+    plain (부침 / 찌개용) tofu SKU, once the catalog has one, is the first option for those asks; 연두부 / 순두부 /
+    실큰두부 asks keep their own SKU first. The tofu names below are the live catalog's; G-pl1 / G-pl2 are not in it."""
+    f = lambda sku, name: {'sku': sku, 'kind': 'food', 'name': name, 'category': '식품', 'list_price': 9900, 'shelf_hours': 96}
+    LIVE = [f('Gd0204ca5', '[농협] 안동생명콩 국산콩 연두부 300g×5팩'),
+            f('G5c96ee78', '정식수입 사토노유키 실큰두부 300g 1팩 상온보관 멸균두부 연두부 순두부 단백질 식단관리'),
+            f('G013cad55', '정식수입 사토노유키 실큰두부 300g 8팩 상온보관 멸균두부 연두부 순두부 단백질 식단관리'),
+            f('Gfcbd5403', '[풀무원] 지구식단 한식교자400g 8개(표고야채6개+두부김치2개)'),
+            f('G146f9a0d', '[더싱싱]아몬드땅콩 두부과자 55gx5팩'), f('G1c9505dd', '다담 바지락순두부 찌개 양념 130g x10개')]
+    PLAIN = [f('G-pl1', '풀무원 국산콩 부침두부 300g'), f('G-pl2', '종가집 찌개두부 300g')]
+    row = lambda who, item: {'ts': now - 60, 'customer': who, 'item': item, 'sku': item, 'wanted': '1개', 'grade_stock': '재고 0',
+                             'last_message': item + ' 있나요', 'reason': '재고없음', 'by': 'restock_shoutout'}
+    ask = lambda rows, cat: g['asked_out_of_stock'](rows, cat, {}, now, {})
+    plain = [row('a', '일반 두부'), row('b', '찌개용 두부 300g 한 팩'), row('c', '두부')]
+    e = ask(plain, LIVE + PLAIN)
+    assert len(e) == 1 and e[0]['customers'] == 3, e
+    assert e[0]['buy_options'][0]['sku'] in ('G-pl1', 'G-pl2'), e
+    assert {'G-pl1', 'G-pl2'} & {o['sku'] for o in e[0]['buy_options'][1:]}, e    # the other plain tofu still offered
+    e = ask([row('d', '부침두부')], LIVE + PLAIN)
+    assert e[0]['buy_options'][0]['sku'] == 'G-pl1', e
+    e = ask(plain, LIVE)                                                  # today's catalog: 연두부 first, as before
+    assert e[0]['buy_options'][0]['sku'] == 'Gd0204ca5', e
+    for item, first in (('연두부', 'Gd0204ca5'), ('실큰두부 300g', 'G5c96ee78')):
+        e = ask([row('y', item)], LIVE + PLAIN)                           # the soft tofu asks keep their own SKU first
+        assert e[0]['buy_options'][0]['sku'] == first, (item, e)
+    e = ask([row('y', '순두부')], LIVE + PLAIN)
+    assert e[0]['buy_options'][0]['sku'] in ('G5c96ee78', 'G013cad55'), e
+    assert not any(o['sku'].startswith('G-pl') for o in e[0]['buy_options'][:1]), e
 
 
 def _test_held(g, K, now):

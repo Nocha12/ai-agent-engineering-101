@@ -58,6 +58,17 @@ def test(run, kit):
     near = run({'sku': '몽베스트 생수 2L 12병', '_inventory': water, '_now': now}, kit)
     assert near['count'] == 0 and near['similar'][0]['sku'] == 'G00b8acf0' and near['similar'][0]['count'] == 3, near
     assert '품절' in near['note'] and 'similar' in near['note'], near
+    # 11/27 aa298e19 15:04: the customer's '실크두부 300g' found nothing while 실큰두부 300g x 11 was in stock (check-1510 6-3)
+    tofu = {'units': [{'unit': 't%d' % i, 'sku': 'G5c96ee78', 'grade': 'A', 'cost': 2500,
+                       'name': '정식수입 사토노유키 실큰두부 300g 1팩 상온보관 멸균두부 연두부 순두부 단백질 식단관리'} for i in range(3)]
+            + [{'unit': 'k1', 'sku': 'GSILKY', 'grade': 'A', 'cost': 9000, 'name': '실크 스카프 1매'}]}
+    for ask in ('실크두부', '실크두부 300g', '실크 두부', '실큰두부', '실큰두부 300g'):
+        got = run({'sku': ask, '_inventory': tofu, '_now': now}, kit)
+        assert got['count'] == 3 and {i['sku'] for i in got['items']} == {'G5c96ee78'}, (ask, got)
+    silk = {'units': [{'unit': 's1', 'sku': 'GSILK2', 'grade': 'A', 'cost': 2500, 'name': '모리나가 실크두부 300g'}]}
+    assert run({'sku': '실큰두부', '_inventory': silk, '_now': now}, kit)['count'] == 1       # the other way round too
+    assert run({'sku': '실크 스카프', '_inventory': tofu, '_now': now}, kit)['count'] == 1    # unrelated names as before
+    assert run({'sku': '연두부', '_inventory': silk, '_now': now}, kit)['count'] == 0         # 연두부 is not 실크두부
     none = run({'sku': '샘표 쌀소면 400g x 3개', '_inventory': water, '_now': now}, kit)
     assert none['count'] == 0 and 'similar' not in none and 'args {}' in none['note'], none
     milk = run({'sku': '우유 190ml 24팩', '_inventory': water, '_now': now}, kit)     # words apart: offered, not matched
