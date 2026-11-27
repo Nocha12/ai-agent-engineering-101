@@ -1100,6 +1100,18 @@ class ForumUnits(unittest.TestCase):
             self.assertEqual(len(posts), fm.UNITS_MAX)
             self.assertEqual(posts[-1]['post'], 7)
 
+    def test_cash_out_clearance_line_keeps_its_cash_price(self):     # C-2 r2 rebase onto A-2 (77364a49)
+        qb, milk = CashOut.QB, CashOut.MILK
+        inv = {'units': [dict(unit('m7', milk, '서울우유 멸균우유 190ml 24팩', 'C', 12235, exp=NOW + 20 * 3600),
+                              category='식품>계란/유제품>우유/두유')], 'restock': INV['restock']}
+        q = {f'{milk}|C': {'price': 11787, 'ts': NOW - 10, 'by': 'cashout', 'floor': 11787}}
+        posted = []
+        text, skus = fm.build_text(qb, inv, q, settles(MARKET_SETTLES), NOW, 0, posted=posted)
+        line = {p['sku']: p for p in posted}[milk]
+        self.assertEqual((line['unit'], line['grade'], line['until']), ('m7', 'C', NOW + 20 * 3600))
+        self.assertLessEqual(line['price'], 11787)       # the price the post shows (cash_clear), not the cost floor
+        self.assertIn(f"C{line['price']:,}(~", text)
+
     def test_refused_post_or_bad_file_never_breaks_the_menu(self):
         with tempfile.TemporaryDirectory() as d:
             shop(d)
