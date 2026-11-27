@@ -125,7 +125,7 @@ FOLLOWUP = '이어서 결제서가 필요하면 이 대화에서 말씀해 주�
 # check-0010 (11/27 22:22~00:10): with no grade anywhere in the reply, 5/28 food checkouts drew "등급 null·안내 없음"
 # refusals (0 paid) against 6/118 while the reply still said the grade. Food certificates carry no grade by market design
 # (notes 21·27·51), so the reply names the grade the shop signed into the checkout (claim) and says why the cert is empty.
-CERT_GRADE_LINE = '시장 인증서는 식품의 grade 칸을 비워 둡니다(시장 규칙). 위 등급은 이 결제서에 가게가 서명한 값(claim)이에요.'
+CERT_GRADE_LINE = '시장 인증서는 설계상 식품 등급(grade)을 항상 비워 둡니다. 위 등급은 가게가 이 결제서에 서명한 값이고, 인증서에는 소비기한이 적혀 있어요.'
 GRADES = ('A', 'B', 'C')
 
 
@@ -154,7 +154,7 @@ def grade_free_reply(issued, cancelled, now, item_names=None, continuation=False
     if type(end) in (int, float) and 1e9 < end < 1e11 and end > now:
         terms.append(f"소비기한 {datetime.fromtimestamp(end, KST):%m/%d %H:%M KST}까지")
     text = ' · '.join(terms) or '결제서를 발급했어요.'
-    if claim in GRADES:
+    if claim in GRADES and cert:            # {} = the certificate is not this unit's (review M3): no line about it
         text += '\n' + CERT_GRADE_LINE
     if (isinstance(checkout.held_unit, str) and UNIT.fullmatch(checkout.held_unit) and checkout.held_unit != unit
             and type(checkout.held_until) is int and now < checkout.held_until < 1e11):
@@ -166,7 +166,7 @@ def grade_free_reply(issued, cancelled, now, item_names=None, continuation=False
 
 
 def _fields(token, now, continuation):
-    """Item, price, unit and (only when applicable) grade label next to the unchanged token."""
+    """Item, price, signed grade label (claim) and unit next to the unchanged token; for ungraded food also until."""
     pl = _payload(token)
     keys = ('item', 'price', 'claim', 'unit')       # check-0010: the signed claim stays in the data part for food too
     fields = {k: pl[k] for k in keys if k in pl and isinstance(pl[k], (str, int))}
@@ -185,7 +185,7 @@ def attach_data(result, attached, cancelled=(), now=None):
     customer tool reads only the first 2,000 characters of a reply's text, so a second checkout after the first one's
     grade line never reached it, and a customer that copies an ~850-character token by hand can change it ("not
     signed by this shop's wallet"); the data part is read whole and buy uses it when the customer names no token.
-    Each entry is {checkout_jwt, order} plus item, price and unit (and claim if the certificate is not ungraded food) from the same signed payload, so a
+    Each entry is {checkout_jwt, order} plus item, price and unit (and the signed claim) from the same signed payload, so a
     customer with several can tell them apart. A reply that attaches none (all cancelled or past their hold, or any
     other answer: agent_kit_records send_marked) carries {checkouts: [], cancelled: [...]} instead, so the customer's
     last data no longer holds an old token.

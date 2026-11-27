@@ -57,6 +57,8 @@ class Compose(unittest.TestCase):
                 self.assertIn(prose, text[:cd.VISIBLE])
                 self.assertLess(text.index(f'{price:,}크레딧'), text.index(prose))   # signed terms lead the prose
                 self.assertNotIn('가게가 밝힌 등급은', text)                          # the long grade note stays out
+                self.assertEqual(1, text.count(cd.CERT_GRADE_LINE))
+                self.assertEqual(1, text.count(cd.FOLLOWUP))
                 result = {}
                 cd.attach_data(result, attached)
                 fields = result['artifacts'][0]['parts'][0]['data']
@@ -79,6 +81,15 @@ class Compose(unittest.TestCase):
                 self.assertNotIn('등급(가게 서명)', text)
                 self.assertNotIn(cd.CERT_GRADE_LINE, text)
                 self.assertIn('4,441크레딧', text)
+
+    def test_cert_of_another_unit_gets_no_cert_line(self):         # review M3: _ungraded_food returns {}
+        cert = {'kind': 'food', 'unit': 'u-000000000000', 'grade': None, 'expires_at': NOW + 3600}
+        payload = {'unit': 'u-e1fa9c84e002', 'price': 4441, 'claim': 'B', 'cert': {'cert': cert}}
+        encoded = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
+        c = cd.Checkout('task-1', f'eyJhbGciOiJFZERTQSJ9.{encoded}.c2ln', NOW - 10)
+        text, _ = cd.compose('', [c], set(), NOW)
+        self.assertIn('B등급(가게 서명)', text)
+        self.assertNotIn(cd.CERT_GRADE_LINE, text)
 
     def test_long_prose_never_drops_signed_terms_or_buy_line(self):
         unit = 'u-e1fa9c84e002'

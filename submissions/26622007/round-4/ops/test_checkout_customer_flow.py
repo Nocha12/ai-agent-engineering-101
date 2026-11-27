@@ -202,7 +202,13 @@ class CustomerFlow(unittest.TestCase):
                 return await Customer(client).talk('nocha12', '배추김치 u-abcdefabcdef 결제서 주세요')
         out = run(go())
         self.assertIn(cd.FOLLOWUP, out['agent_says'])
-        self.assertIn('B등급(가게 서명)', out['agent_says'])
+        said = out['agent_says']
+        self.assertIn('B등급(가게 서명)', said)
+        # review C1: the model's own prose reaches the customer once, after one block of signed terms
+        self.assertIn('배추김치 2kg B등급 결제서예요.', said)
+        self.assertEqual(1, said.count(cd.CERT_GRADE_LINE))
+        self.assertEqual(1, said.count(cd.FOLLOWUP))
+        self.assertLess(said.index(cd.CERT_GRADE_LINE), said.index('배추김치 2kg B등급 결제서예요.'))
         data = out['data'][0]
         self.assertEqual(data['checkout_jwt'], ISSUED[-1])
         self.assertEqual(data['next_message'], cd.FOLLOWUP)

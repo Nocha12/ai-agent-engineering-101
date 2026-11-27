@@ -480,7 +480,7 @@ def install(ak, logs, checkout=False):
         from a2a.server import request_handlers, tasks as a2a_tasks
         from a2a.helpers import get_message_text
         from a2a.types import Task
-        from checkout_delivery import Checkout, attach_data, clean_reply, compose, grade_free_reply, grade_note, _ungraded_food, input_required, tokens, JWT, SIGNED, ORDER, HOLD_SECONDS
+        from checkout_delivery import Checkout, attach_data, clean_reply, compose, grade_note, _ungraded_food, input_required, tokens, JWT, SIGNED, ORDER, HOLD_SECONDS
         http_request = ContextVar('checkout_http', default=None)
         inquiry = ContextVar('checkout_inquiry', default=None)
         a2a_event = ContextVar('checkout_a2a_event', default=None)
@@ -885,10 +885,7 @@ def install(ak, logs, checkout=False):
             except ValueError as e:
                 return f'error: {e}'
             ev.checkout_plan = (issued, cancelled)
-            canonical = grade_free_reply(issued, cancelled, time.time(), NAMES,
-                                         input_required(args.get('state', 'input_required')))
-            if canonical is not None:
-                args = dict(args, text=canonical)
+            # check-0010 (review C1): the model's prose is kept here; compose() puts the signed terms in front of it once
         if checkout and ev is not None and ev.kind == 'a2a':
             body = str(args.get('text') or '')
             effective = dict(args, text=clean_reply(body) if issued else without_checkout(body),
@@ -1122,7 +1119,7 @@ def install(ak, logs, checkout=False):
             res.update(issued_terms(payload, no_grade if no_grade is not None else
                                     (r.get('grade_evidence') if kept.note else None), now))
             if no_grade is not None:
-                res['reply_note'] = (res.get('reply_note', '') + ' 이 식품 결제서 답장 앞에 가게 서명 등급(claim) 줄이 자동으로 붙습니다. 답장 본문에는 그와 다른 등급을 쓰지 않습니다.').strip()
+                res['reply_note'] = (res.get('reply_note', '') + ' 이 식품 결제서 답장 앞에는 가격·소비기한과 가게가 서명한 등급(claim이 A·B·C일 때) 줄이 자동으로 붙습니다. 답장 본문에는 그와 다른 가격·등급을 쓰지 않습니다.').strip()
             return {'ok': True, 'result': res}
         out = call(self, name, args)
         if name == 'check_item_inventory':
