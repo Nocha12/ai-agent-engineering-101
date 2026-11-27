@@ -63,7 +63,7 @@ class Live(unittest.TestCase):
         self.m.inv = {'units': [], 'restock': {'open': False}}
         r = self.call(op='want', customer='진주댁', sku='EGG', name='계란 20구', qty=2, last_message='계란 있어요?')
         self.assertTrue(r['ok'], r)
-        self.assertIn('들어오는 대로 먼저 알려 드릴게요', r['say'])
+        self.assertIn('들어오면 먼저 알려 드릴게요', r['say'])
         rows = [json.loads(l) for l in open('logs/lost_deals.test.jsonl' if self.kit.testing else 'logs/lost_deals.jsonl', encoding='utf-8')]
         self.assertEqual(rows[-1]['reason'], '재고없음')
         self.assertEqual(rows[-1]['sku'], 'EGG')
@@ -107,7 +107,7 @@ class Live(unittest.TestCase):
         r = self.call(op='want', customer='진주댁', sku='G0000000a', name='콩나물 500g')
         self.assertTrue(r['ok'], r)
         self.assertIn('포럼에서 쓰시는 이름', r['say'])
-        self.assertIn('들어오는 대로 먼저 알려 드릴게요', r['say'])
+        self.assertIn('들어오면 먼저 알려 드릴게요', r['say'])
         self.assertTrue(r['ask_contact'])
 
     def test_contact_is_saved_beside_the_ledger_and_never_echoed(self):

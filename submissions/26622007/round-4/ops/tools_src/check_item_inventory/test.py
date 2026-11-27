@@ -112,7 +112,7 @@ def test(run, kit):
         one = run({'sku': 'EG', '_inventory': cl, '_now': now}, kit)
         by = {i['unit']: i.get('clearance') for i in one['items']}
         assert by['e2'] == {'price': 4190, 'floor': 1261} and by['e1'] == {'price': 4840, 'floor': 2945}, by
-        assert by['e3'] is None and '떨이' in one['note_clearance'], one   # 47 h of 48: not on clearance
+        assert by['e3'] is None and '기한 임박 할인' in one['note_clearance'], one   # 47 h of 48: not on clearance
         whole = run({'_inventory': cl, '_now': now}, kit)
         assert whole['clearance'] == ['EG C 4190/1261 2.0h'], whole   # soonest unit per grade; no water
         assert list(whole)[:6] == ['ok', 'balance', 'restock', 'units', 'expired', 'clearance'], list(whole)

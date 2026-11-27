@@ -671,8 +671,8 @@ def named(asked, name):
     return bool(re.fullmatch('[가-힣]', q)) and any(t.endswith(q) for t in re.findall(r'[가-힣]+', str(name or '')))
 
 
-CLEAR_NOTE = ('떨이·기한 임박: clearance는 "SKU 등급 떨이가/떨이하한 남은시간"이고 그 price로 먼저 안내합니다(곧 버리게 되는 재고). private_checkout을 price 없이 내면 그 unit의 '
-              '떨이가로 나가고, 흥정은 floor(떨이 하한)까지만 내립니다. unit ID는 args {sku}로 봅니다')
+CLEAR_NOTE = ('기한 임박 할인: clearance는 "SKU 등급 할인가격/최저가 남은시간"이고 손님께는 할인 가격으로 그 price를 먼저 말합니다(곧 버리게 되는 재고). private_checkout을 price 없이 내면 '
+              '그 unit의 할인 가격으로 나가고, 흥정은 floor까지만 내립니다(floor·clearance라는 말은 손님께 쓰지 않음). unit ID는 args {sku}로 봅니다')
 
 
 def clear_safe(u, base, now):
@@ -775,7 +775,7 @@ def answer(args, kit):
                 it['clearance'] = {'price': cl['price'], 'floor': cl['floor']}
                 on_clear = True
         out = {'ok': True, 'sku': asked, 'count': len(mine), 'items': items, 'more': max(0, len(mine) - ITEMS),
-               'note_price': 'price: 이 품목·등급 안내가(손님께 이 값으로 안내). null이면 아직 없음 → args {sku, quote:{등급:가격}}로 정함'}
+               'note_price': 'price: 손님께 부를 이 품목·등급 가격. 비어 있으면 args {sku, quote:{등급:가격}}로 먼저 정함(손님께 미정이라고 말하지 않음)'}
         if on_clear:
             out['note_clearance'] = CLEAR_NOTE
         if set_note:
@@ -816,7 +816,7 @@ def answer(args, kit):
         if clear:
             out['clearance'], out['note_clearance'] = clear, CLEAR_NOTE
         out.update({'skus': skus,
-               'note': 'grades: 등급별 n(개수)·floor(하한가)·price(안내가, 없으면 아직 안 정함)·hours_left(가장 빨리 끝나는 소비기한까지 시간). unit ID는 args {sku}로 봅니다'})
+               'note': 'grades: 등급별 n(개수)·floor(최저가, 손님께 말하지 않음)·price(손님께 부를 가격, 비어 있으면 {sku, quote}로 먼저 정함)·hours_left(가장 빨리 끝나는 소비기한까지 시간). unit ID는 args {sku}로 봅니다'})
         if len(json.dumps(out, ensure_ascii=False)) <= LIMIT:
             break
     while len(json.dumps(out, ensure_ascii=False)) > LIMIT and out['skus']:      # still too long: cut, and say so

@@ -68,7 +68,9 @@ class NearExpiry(unittest.TestCase):
 class Replies(unittest.TestCase):
     def test_format_reply_rules(self):
         text = kit_format()
-        for s in ('say what you can do, not what you will not do', 'never write null, 하한가, 하한, 떨이가, 안내가',
+        for s in ('say what you can do first', 'Never write null, 하한가, 하한, 떨이가, floor or clearance',
+                  'nor 안내가 meaning a price', 'say it in one sentence and add what you can offer instead',
+                  'never make up a fact', 'look the item up with {sku} before you give its expiry',
                   'offer the one closest unit you hold', "a date and hour from the tool's until",
                   'once a conversation and only when it is the same item', '계란 20구 is 20 eggs',
                   'not when they refused substitutes'):
@@ -86,9 +88,25 @@ class Replies(unittest.TestCase):
         spec = importlib.util.spec_from_file_location('rs_logic', HERE / 'restock_shoutout' / 'logic.py')
         m = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(m)
-        self.assertTrue(m.ASK_CONTACT.startswith('지금은 이 물건이 없어요. 다음 입고 때 들여놓을게요.'))
+        self.assertTrue(m.ASK_CONTACT.startswith('지금은 이 물건이 없어요. 들어오면 먼저 알려 드릴게요.'))
+        src = (HERE / 'restock_shoutout' / 'logic.py').read_text(encoding='utf-8')
+        import re
+        says = re.findall(r"say='([^']*)'", src) + [m.ASK_CONTACT]
+        self.assertGreaterEqual(len(says), 3)
+        for say in says:                                     # review s3 I1/M7: no restock promise, one voice
+            for s in ('들여놓', '입고 때', '연락드릴게요', '재고가 없어요'):
+                self.assertNotIn(s, say)
         self.assertIn('포럼에서 쓰시는 이름', m.ASK_CONTACT)        # a market contact, as op contact accepts
         self.assertNotIn('연락처(', m.ASK_CONTACT)
+
+    def test_tool_notes_carry_no_banned_words(self):          # review s3 I3: tool text the model reads each call
+        src = (HERE / 'tools_src' / 'check_item_inventory' / 'logic.py').read_text(encoding='utf-8')
+        import re
+        notes = re.findall(r"CLEAR_NOTE = \('(.*?)'\)", src, re.S) + re.findall(r"'note(?:_price)?': '([^']*)'", src)
+        self.assertGreaterEqual(len(notes), 3)
+        for n in notes:
+            for w in ('떨이가', '안내가', '하한가', 'null'):
+                self.assertNotIn(w, n)
 
 
 class Until(unittest.TestCase):
@@ -100,10 +118,18 @@ class Until(unittest.TestCase):
             {'unit': 'u-1', 'hours_left': 41.5}, {'unit': 'u-2', 'hours_left': 0.2}, {'unit': 'u-3'}]}}
         rec.with_until(out, self.NOW)
         r = out['result']
-        self.assertEqual(r['now'], '11/27 09:40')
-        self.assertEqual(r['items'][0]['until'], '11/29 03:10')
-        self.assertEqual(r['items'][1]['until'], '11/27 09:52')
+        self.assertEqual(r['now'], '11/27 09시 KST')
+        self.assertEqual(r['items'][0]['until'], '11/29 03시 KST')
+        self.assertEqual(r['items'][1]['until'], '11/27 09시 KST')
         self.assertNotIn('until', r['items'][2])
+
+    def test_twenty_items_stay_short(self):                   # review s3 M4: per-item answer grows ~20 chars a unit
+        import json
+        import agent_kit_records as rec
+        out = {'ok': True, 'result': {'ok': True, 'items': [{'unit': f'u-{i:012x}', 'hours_left': 30.5} for i in range(20)]}}
+        before = len(json.dumps(out, ensure_ascii=False))
+        rec.with_until(out, self.NOW)
+        self.assertLess(len(json.dumps(out, ensure_ascii=False)) - before, 20 * 30 + 40)
 
     def test_whole_shop_and_odd_shapes_untouched(self):
         import copy
@@ -114,6 +140,7 @@ class Until(unittest.TestCase):
             got = rec.with_until(out, self.NOW)
             if isinstance(before, dict) and isinstance(before.get('result'), dict) and 'items' in before['result']:
                 self.assertEqual(got['result']['items'], [1, None])
+                self.assertIn('now', got['result'])            # an items list always gets 'now' (docstring says so)
             else:
                 self.assertEqual(got, before)
 

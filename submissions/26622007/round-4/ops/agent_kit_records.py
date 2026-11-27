@@ -370,16 +370,17 @@ def pinned_notes(text, tail):
 
 
 def with_until(out, now):
-    """check_item_inventory answer + the expiry date of each listed unit ('until', MM/DD HH:MM KST) and the time it was
-    read ('now'), so the model says a date instead of hours (operator 11/27). Only per-item units, so the whole-shop
-    answer the kit cuts at 5,000 characters does not grow; any odd shape is passed on untouched."""
+    """check_item_inventory {sku} answer + the expiry of each listed unit to the hour ('until', 'MM/DD HH시 KST':
+    hours_left is rounded to 0.1 h, so minutes would look more exact than they are) and the hour it was read ('now'),
+    so the model says a date instead of hours (operator 11/27). Only answers that carry an items list (the per-item
+    answer); a whole-shop answer or any other shape is passed on untouched."""
     try:
         res = out.get('result') if isinstance(out, dict) and out.get('ok') else None
         items = res.get('items') if isinstance(res, dict) else None
         if not isinstance(items, list):
             return out
         kst = timezone(timedelta(hours=9))
-        day = lambda h: datetime.fromtimestamp(now + h * 3600, kst).strftime('%m/%d %H:%M')
+        day = lambda h: datetime.fromtimestamp(now + h * 3600, kst).strftime('%m/%d %H시 KST')
         for i in items:
             h = i.get('hours_left') if isinstance(i, dict) else None
             if type(h) in (int, float) and 0 <= h < 24 * 400:
@@ -443,15 +444,17 @@ def install(ak, logs, checkout=False):
             "When private_checkout answers grade_evidence: attached, the reply normally also carries a fixed grade-evidence "
             "line (food grade is the shelf life left, and the market-signed certificate states the supply and expiry time; a very "
             "long reply drops the line). Point to that line when asked; do not claim the market verified the grade."
-            "\nCustomer replies (operator 11/27): say what you can do, not what you will not do. Do not write refusal or "
-            "disclaimer sentences (결제서는 발급하지 않겠습니다, 확인할 수 없습니다, 검증한다는 뜻은 아닙니다, 취소되지 않았으니 유의) unless "
-            "the customer asked exactly that; never write null, 하한가, 하한, 떨이가, 안내가, floor or clearance to a customer "
-            "(say 가격 or 할인 가격; a price null in a tool answer only means no quote is set yet: quote one at or above the floor, "
-            "never say the price is undecided). Do not bring up certificate grade or settlement state unless asked; if asked "
+            "\nCustomer replies (operator 11/27): say what you can do first. Leave out disclaimer lines nobody asked about "
+            "(결제서는 발급하지 않겠습니다, 검증한다는 뜻은 아닙니다, 취소되지 않았으니 유의). When you must say no (a price below what you "
+            "can take, the refund rules, a fact no tool gives you), say it in one sentence and add what you can offer instead; "
+            "never make up a fact. Never write null, 하한가, 하한, 떨이가, floor or clearance to a customer, nor 안내가 meaning a "
+            "price (say 가격 or 할인 가격); a price null in a tool answer only means no price is set yet: set one at or above the "
+            "floor, never tell the customer the price is undecided). Do not bring up certificate grade or settlement state unless asked; if asked "
             "about grade, one sentence: 시장 규칙상 식품 등급은 남은 소비기한이고 소비기한은 시장 서명 인증서에 있습니다, then keep selling. "
             "When no unit matches exactly (size, pack, grade or item), offer the one closest unit you hold (same food first) "
             "with its name, grade, expiry and price and ask if they want it (not when they refused substitutes). Say expiry as "
-            "a date and hour from the tool's until (e.g. 11/29 03시까지, 약 2일), not as hours alone. Only greet with an earlier "
+            "a date and hour from the tool's until (e.g. 11/29 03시까지, 약 2일), not as hours alone; the whole-shop answer has "
+            "hours only, so look the item up with {sku} before you give its expiry. Only greet with an earlier "
             "visit (지난번 …) once a conversation and only when it is the same item they ask for now; read the pack size from "
             "the item name (계란 20구 is 20 eggs)."
         )

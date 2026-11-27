@@ -532,7 +532,7 @@ NOT_A_NAME = ('admin', 'everyone', 'owner', 'operator', 'system', 'moderator', '
               'official', 'support', 'notice', 'coupon', 'event', 'sale')    # Latin handles that read like an order
 NOT_A_HANDLE = ('all', 'here', 'mod', 'bot', 'shop', 'null', 'none', 'true', 'false')
 TOKEN = re.compile(r'[가-힣]+|[a-z]+|[0-9]+')
-ASK_CONTACT = '지금은 이 물건이 없어요. 다음 입고 때 들여놓을게요. 포럼에서 쓰시는 이름을 알려 주시면 들어오는 대로 먼저 알려 드릴게요.'
+ASK_CONTACT = '지금은 이 물건이 없어요. 들어오면 먼저 알려 드릴게요. 포럼에서 쓰시는 이름을 알려 주시면 그 이름으로 알려 드릴게요.'
 RISKY = ('할인', '무료', '공짜', '환불', '승인', '지시', '운영자', '사장', '관리자', '반값', '세일', '쿠폰', '이벤트', '공지',
          '특가', '무상', '입고', '재고', '가게')
 
@@ -940,9 +940,9 @@ def _op(op, args, kit, s, now, w=None):
             pass
         out = {'ok': True, 'customer': key, 'want': sku, 'lost_deal_recorded': True}
         if w is None or c.get('opt_out') or _was_told(w, key, sku):
-            return dict(out, ask_contact=False, say='지금은 재고가 없어요. 입고되면 다음에 들르실 때 가장 먼저 알려드릴게요.')
+            return dict(out, ask_contact=False, say='지금은 이 물건이 없어요. 들어오면 다음에 들르실 때 먼저 알려 드릴게요.')
         if any(e.get('customer') == key and e.get('sku') == sku for e in w['entries']):
-            return dict(out, ask_contact=False, say='지금은 재고가 없어요. 입고되면 남겨 주신 연락처로 가장 먼저 연락드릴게요.')
+            return dict(out, ask_contact=False, say='지금은 이 물건이 없어요. 들어오면 남겨 주신 포럼 이름으로 먼저 알려 드릴게요.')
         return dict(out, ask_contact=True, say=ASK_CONTACT,
                     next='손님이 연락처를 주면 op contact {customer, sku, name, contact}로 저장합니다(손님이 준 것만)')
 
