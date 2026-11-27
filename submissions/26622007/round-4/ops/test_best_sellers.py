@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # python3 -I drops the script dir
 import best_sellers as bs
 
 OPS = Path(__file__).resolve().parent

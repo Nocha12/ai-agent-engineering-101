@@ -1,5 +1,8 @@
+import sys
 from fractions import Fraction
+from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # python3 -I drops the script dir
 import pytest
 
 import price_ceiling as prices
@@ -230,3 +233,7 @@ def test_floor_is_smallest_break_even_price(monkeypatch, basis, defect, carrying
 def test_invalid_input_rejects(inputs):
     with pytest.raises(ValueError):
         prices.quote(dict(sku='water', **inputs))
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main(["-q", "-p", "no:cacheprovider", __file__]))

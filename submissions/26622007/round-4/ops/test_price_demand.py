@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # python3 -I drops the script dir
 import price_demand
 from price_demand_cache import merge_observations
 
@@ -156,3 +157,7 @@ class PriceDemand(unittest.TestCase):
             merge_observations(paid, ledger, dict(snap, shops=dict(round=4, shops=shops[1:])))
         with self.assertRaises(ValueError):
             merge_observations(dict(paid, last_seq=9), ledger, snap)
+
+
+if __name__ == "__main__":
+    unittest.main()
