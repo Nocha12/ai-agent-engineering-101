@@ -30,6 +30,12 @@ def test(run, kit):
     one = run({'sku': '먹을거리 7번', '_inventory': big, '_now': now}, kit)
     assert one['count'] == 3 and {i['sku'] for i in one['items']} == {'G00000007'} and 'cert' not in one['items'][0], one
     assert one['items'][0]['floor'] == 3147 and one['items'][0]['hours_left'] == 5.0, one['items'][0]
+    # 11/27 0b2461b6: the minute of the signed certificate, not the hour (1_800_000_000 is 01/15 17:00 KST; + 5 h)
+    assert one['items'][0]['until'] == '01/15 22:00 KST', one['items'][0]
+    odd = run({'sku': 'EGG', '_inventory': {'units': [dict(inv['units'][0], expires_at=1_800_000_000 + 7 * 3600 + 27 * 60 + 59)]}, '_now': now}, kit)
+    assert odd['items'][0]['until'] == '01/16 00:27 KST' and odd['items'][0]['hours_left'] == 7.5, odd['items'][0]
+    undated = {'units': [{'unit': 'u1', 'sku': 'EGG', 'grade': 'B', 'cost': 6300, 'expires_at': 0}]}
+    assert 'until' not in run({'sku': 'EGG', '_inventory': undated, '_now': now}, kit)['items'][0]
     assert run({'sku': 'G00000000', '_inventory': big, '_now': now}, kit)['count'] == 3    # expired unit left out
     many = {'units': [{'unit': 'u%d' % i, 'sku': 'G%08x' % i, 'grade': 'A', 'cost': 1000} for i in range(300)]}
     r = run({'_inventory': many, '_now': now}, kit)                      # more SKUs than fit: cut, and said so

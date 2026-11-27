@@ -1,7 +1,8 @@
 """check_item_inventory: what the shop really holds, short enough for the agent to read whole.
 
 args {}            every SKU we hold: name, count, and per grade the count, the floor price and the hours left
-args {sku}         the units of one item: a SKU id, or words of its name ("콩나물")
+args {sku}         the units of one item: a SKU id, or words of its name ("콩나물"); a dated unit carries until
+                   (its expiry 'MM/DD HH:MM KST', the minute its signed certificate shows)
 The kit shows a tool result up to 6,000 characters. shop_snapshot returns the raw /api/inventory list (about 500
 characters a unit with its certificate), so past 10 units the rest was cut off and the agent answered "sold out" for
 stock we held (11/25 06:39: bean sprouts bought at 06:24). This reads the same signed-in /api/inventory and answers
@@ -217,6 +218,16 @@ def floor(cost):
 def hours_left(u, now):
     e = u.get('expires_at')                             # 0 or missing: the unit has no date
     return round((e - now) / 3600, 1) if isinstance(e, (int, float)) and not isinstance(e, bool) and e > 0 else None
+
+
+def until(u):
+    """The unit's expires_at as 'MM/DD HH:MM KST', the same minute the checkout's signed certificate line shows
+    (ops/checkout_delivery.grade_note: seconds dropped); None without a date. Customers compare the reply with that
+    signed line word for word (11/27 0b2461b6: '18시까지' against 18:27, no sale)."""
+    e = u.get('expires_at')
+    if not (isinstance(e, (int, float)) and not isinstance(e, bool) and 1e9 < e < 1e11):
+        return None
+    return time.strftime('%m/%d %H:%M KST', time.gmtime(int(e) + 9 * 3600))
 
 
 def window(inv):
@@ -739,6 +750,10 @@ def answer(args, kit):
         items = [{'unit': str(u.get('unit'))[:40], 'sku': str(u['sku'])[:20], 'name': names_shown[u['sku']],
                   'grade': str(u.get('grade') or '?')[:8], 'cost': num(u.get('cost')), 'floor': floor(u.get('cost')),
                   'hours_left': hours_left(u, now), 'list_price': num(u.get('list_price')) or None} for u in mine[:ITEMS]]
+        for it, u in zip(items, mine):
+            t = until(u)
+            if t:
+                it['until'] = t
         gf = {}
         for u in mine:
             k = (u['sku'], str(u.get('grade') or '?')[:8])

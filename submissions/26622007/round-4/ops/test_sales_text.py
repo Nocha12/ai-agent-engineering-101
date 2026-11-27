@@ -3,6 +3,7 @@ asked-for buys, read from the exact sources the kit loads (ak.FORMAT addition, n
 Run from ops/: PYTHONPATH=<a temp dir with pytest> ~/ax-round4-venv/bin/python -m pytest -q test_sales_text.py"""
 import ast
 import sys
+import json
 import unittest
 from pathlib import Path
 
@@ -26,7 +27,7 @@ class NearExpiry(unittest.TestCase):
         text = kit_format()
         self.assertIn('under 12 hours', text)
         self.assertIn('do not create its checkout first', text)
-        self.assertIn('the date and hour it expires', text)
+        self.assertIn('the date and time it expires', text)
         self.assertIn('if the customer already asked for a checkout or named that unit', text)   # review 1 I2
         self.assertIn('when a unit with 12 hours or more left also fits, issue with that one as usual', text)   # I3
         self.assertIn('A clearance unit is created without price', text)                      # I4
@@ -71,7 +72,8 @@ class Replies(unittest.TestCase):
         for s in ('say what you can do first', 'Never write null, 하한가, 하한, 떨이가, floor or clearance',
                   'nor 안내가 meaning a price', 'say it in one sentence and add what you can offer instead',
                   'never make up a fact', 'look the item up with {sku} before you give its expiry',
-                  'offer the one closest unit you hold', "a date and hour from the tool's until",
+                  'offer the one closest unit you hold', "a date and time from the tool's until as written",
+                  "say its result's price and until exactly as written", 'not cut to the hour',
                   'once a conversation and only when it is the same item', '계란 20구 is 20 eggs',
                   'not when they refused substitutes'):
             self.assertIn(s, text)
@@ -119,10 +121,41 @@ class Until(unittest.TestCase):
             {'unit': 'u-1', 'hours_left': 41.5}, {'unit': 'u-2', 'hours_left': 0.2}, {'unit': 'u-3'}]}}
         rec.with_until(out, self.NOW)
         r = out['result']
-        self.assertEqual(r['now'], '11/27 09시 KST')
-        self.assertEqual(r['items'][0]['until'], '11/29 03시 KST')
+        self.assertEqual(r['now'], '11/27 09:40 KST')                # the minute it was read
+        self.assertEqual(r['items'][0]['until'], '11/29 03시 KST')    # an older tool (no until): the hour, as before
         self.assertEqual(r['items'][1]['until'], '11/27 09시 KST')
         self.assertNotIn('until', r['items'][2])
+
+    def test_tool_until_kept_to_the_minute(self):             # 11/27 0b2461b6: '18시까지' against a signed 18:27
+        import agent_kit_records as rec
+        out = {'ok': True, 'result': {'ok': True, 'sku': '두부', 'count': 3, 'items': [
+            {'unit': 'u-1', 'hours_left': 7.4, 'until': '11/27 18:27 KST'},
+            {'unit': 'u-2', 'hours_left': 2.0, 'until': 'soon'},          # not the tool's form: the hour from hours_left
+            {'unit': 'u-3', 'until': None}]}}
+        rec.with_until(out, 1795745219.0)                            # 11:06:59 KST, the 0b2461b6 look-up
+        items = out['result']['items']
+        self.assertEqual(items[0]['until'], '11/27 18:27 KST')
+        self.assertNotIn('18시', json.dumps(items[0], ensure_ascii=False))
+        self.assertEqual(items[1]['until'], '11/27 13시 KST')
+        self.assertNotIn('until', items[2])
+        self.assertEqual(out['result']['now'], '11/27 11:06 KST')
+
+    @unittest.skipUnless(__import__('importlib.util').util.find_spec('httpx'), 'the tool imports httpx (market venv)')
+    def test_tool_gives_until_from_expires_at(self):           # the forged tool's own until, the certificate's minute
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('cii_logic', HERE / 'tools_src' / 'check_item_inventory' / 'logic.py')
+        lg = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(lg)
+        ea = 1795771679                                              # 11/27 18:27:59 KST
+        self.assertEqual(lg.until({'expires_at': ea}), '11/27 18:27 KST')
+        self.assertEqual(lg.until({'expires_at': float(ea)}), '11/27 18:27 KST')
+        for u in ({}, {'expires_at': 0}, {'expires_at': True}, {'expires_at': '1795771679'}):
+            self.assertIsNone(lg.until(u))
+        import checkout_delivery as cd                               # the same minute the signed data line shows
+        note = cd.grade_note('01daff51-0000-4000-8000-000000000000',
+                             {'unit': 'u-f5a2635c268b', 'claim': 'C', 'supplied_at': ea - 86400, 'expires_at': ea}, ea - 7 * 3600)
+        self.assertIn('소비기한 ' + lg.until({'expires_at': ea}) + '까지', note)
+
 
     def test_twenty_items_stay_short(self):                   # review s3 M4: per-item answer grows ~20 chars a unit
         import json
@@ -144,6 +177,41 @@ class Until(unittest.TestCase):
                 self.assertIn('now', got['result'])            # an items list always gets 'now' (docstring says so)
             else:
                 self.assertEqual(got, before)
+
+
+class IssuedTerms(unittest.TestCase):
+    ORDER = '01daff51-0000-4000-8000-000000000000'
+
+    def test_clearance_price_is_the_signed_one(self):          # 11/27 01daff51: '4,720' said, 4,710 signed
+        import agent_kit_records as rec
+        ea, now = 1795764420, 1795745977.0   # expiry 16:27, issued 11:19:37 KST
+        got = rec.issued_terms({'price': 4710, 'iat': int(now)}, {'expires_at': ea}, now)
+        self.assertEqual(got['price'], 4710)
+        self.assertEqual(got['until'], '11/27 16:27 KST')
+        self.assertIn('가격 4,710크레딧', got['reply_note'])
+        self.assertIn('소비기한 11/27 16:27까지', got['reply_note'])
+        self.assertNotIn('4,720', got['reply_note'])
+        self.assertNotIn('16시', got['reply_note'])
+
+    def test_until_matches_signed_data_line(self):            # 11/27 0b2461b6: '18시까지' against 18:27
+        import agent_kit_records as rec
+        import checkout_delivery as cd
+        ev = {'unit': 'u-f5a2635c268b', 'claim': 'C', 'supplied_at': 1795700000, 'expires_at': 1795771679}
+        now = 1795745239.0                                           # 11:07:19 KST
+        got = rec.issued_terms({'price': 2680}, ev, now)
+        self.assertEqual(got['until'], '11/27 18:27 KST')
+        self.assertIn('소비기한 ' + got['until'] + '까지', cd.grade_note(self.ORDER, ev, now))
+        self.assertIn('2,680크레딧', got['reply_note'])
+
+    def test_nothing_checkable_adds_nothing(self):
+        import agent_kit_records as rec
+        now = 1795740000.0
+        self.assertEqual(rec.issued_terms(None, None, now), {})
+        self.assertEqual(rec.issued_terms({'price': '4710'}, {'expires_at': 'x'}, now), {})
+        self.assertEqual(rec.issued_terms({'price': True}, {'expires_at': now - 1}, now), {})   # past expiry: no until
+        only = rec.issued_terms({'price': 5000}, None, now)
+        self.assertEqual(set(only), {'price', 'reply_note'})
+        self.assertNotIn('소비기한', only['reply_note'])
 
 
 if __name__ == '__main__':

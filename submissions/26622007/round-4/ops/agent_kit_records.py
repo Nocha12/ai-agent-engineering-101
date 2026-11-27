@@ -370,10 +370,13 @@ def pinned_notes(text, tail):
 
 
 def with_until(out, now):
-    """check_item_inventory {sku} answer + the expiry of each listed unit to the hour ('until', 'MM/DD HH시 KST':
-    hours_left is rounded to 0.1 h, so minutes would look more exact than they are) and the hour it was read ('now'),
-    so the model says a date instead of hours (operator 11/27). Only answers that carry an items list (the per-item
-    answer); a whole-shop answer or any other shape is passed on untouched."""
+    """check_item_inventory {sku} answer + the expiry of each listed unit ('until') and the minute it was read ('now'),
+    so the model says a date and time instead of hours (operator 11/27). The tool (v12+) gives each dated unit its
+    until from expires_at, 'MM/DD HH:MM KST', the same minute the checkout's signed certificate line shows; that one is
+    kept as it is (11/27 0b2461b6: '18시까지' was said against a signed 18:27 and the customer did not pay). An older
+    tool gives none: then the hour from hours_left ('MM/DD HH시 KST'; hours_left is rounded to 0.1 h, so minutes made
+    up from it would look more exact than they are). Only answers that carry an items list (the per-item answer); a
+    whole-shop answer or any other shape is passed on untouched."""
     try:
         res = out.get('result') if isinstance(out, dict) and out.get('ok') else None
         items = res.get('items') if isinstance(res, dict) else None
@@ -382,12 +385,43 @@ def with_until(out, now):
         kst = timezone(timedelta(hours=9))
         day = lambda h: datetime.fromtimestamp(now + h * 3600, kst).strftime('%m/%d %H시 KST')
         for i in items:
-            h = i.get('hours_left') if isinstance(i, dict) else None
+            if not isinstance(i, dict) or (isinstance(i.get('until'), str) and UNTIL.fullmatch(i['until'])):
+                continue
+            i.pop('until', None)
+            h = i.get('hours_left')
             if type(h) in (int, float) and 0 <= h < 24 * 400:
                 i['until'] = day(h)
-        res['now'] = day(0)
+        res['now'] = datetime.fromtimestamp(now, kst).strftime('%m/%d %H:%M KST')
     except Exception:
         pass
+    return out
+
+
+UNTIL = re.compile(r'\d\d/\d\d \d\d:\d\d KST')
+KST9 = timezone(timedelta(hours=9))
+
+
+def issued_terms(payload, ev, now):
+    """What the model may say of a checkout it just issued, read from what is signed (11/27 01daff51: '4,720' said
+    against a signed 4,710 clearance price, 0b2461b6: '18시' against 18:27; both customers did not pay): the
+    payload price and the certificate expiry in the minute ops/checkout_delivery.grade_note writes into the reply's
+    data. Returns {} for nothing checkable; never raises. Prices and the signed checkout are not changed here."""
+    out = {}
+    try:
+        p = payload.get('price') if isinstance(payload, dict) else None
+        if type(p) is int and 0 < p < 10 ** 9:
+            out['price'] = p
+        ea = ev.get('expires_at') if isinstance(ev, dict) else None
+        if type(ea) in (int, float) and 1e9 < ea < 1e11 and ea > now:
+            out['until'] = datetime.fromtimestamp(ea, KST9).strftime('%m/%d %H:%M KST')
+        if out:
+            said = ' · '.join(([f"가격 {out['price']:,}크레딧"] if 'price' in out else [])
+                              + ([f"소비기한 {out['until'][:-4]}까지"] if 'until' in out else []))
+            what = '·'.join((['가격'] if 'price' in out else []) + (['소비기한'] if 'until' in out else []))
+            out['reply_note'] = (f'답장의 {what}은 이 결제서에 서명된 값 그대로 씁니다: {said}. 앞서 재고 조회에서 본 값과 '
+                                 '달라도 이 값을 쓰고, 시각을 시 단위로 줄이지 않습니다(손님이 결제서 데이터와 글자 그대로 대조합니다)')
+    except Exception:
+        return {}
     return out
 
 
@@ -428,9 +462,9 @@ def install(ak, logs, checkout=False):
             "that one as usual and you may mention the near-expiry one at its lower price, unless the customer named the "
             "near-expiry or clearance unit (then that one). When only a unit with under 12 hours "
             "left (hours_left < 12, clearance units too) fits, do not create its checkout first: say the item, grade, the date "
-            "and hour it expires and the price, and create it once the customer says they want it; if the customer already "
+            "and time it expires and the price, and create it once the customer says they want it; if the customer already "
             "asked for a checkout or named that unit (for example from the forum menu's clearance line), create it in this same "
-            "reply and say its expiry date and hour there. A clearance unit is created without price (it goes out at its "
+            "reply and say its expiry date and time there. A clearance unit is created without price (it goes out at its "
             "clearance price, the one you quote), unless a lower price down to clearance.floor was agreed: then pass that "
             "price. Otherwise hold back only when the customer said not to issue yet, or no held unit meets a condition "
             "they stated. A stock menu is posted on the forum for you about every 5 minutes (ops/forum_menu.py); use forum_post "
@@ -453,7 +487,9 @@ def install(ak, logs, checkout=False):
             "about grade, one sentence: 시장 규칙상 식품 등급은 남은 소비기한이고 소비기한은 시장 서명 인증서에 있습니다, then keep selling. "
             "When no unit matches exactly (size, pack, grade or item), offer the one closest unit you hold (same food first) "
             "with its name, grade, expiry and price and ask if they want it (not when they refused substitutes). Say expiry as "
-            "a date and hour from the tool's until (e.g. 11/29 03시까지, 약 2일), not as hours alone; the whole-shop answer has "
+            "a date and time from the tool's until as written (e.g. 11/29 03:27까지, 약 2일), not as hours alone and not cut to the "
+            "hour; once private_checkout has issued, say its result's price and until exactly as written (they are what the "
+            "checkout signs, and customers compare the two word for word); the whole-shop answer has "
             "hours only, so look the item up with {sku} before you give its expiry. Only greet with an earlier "
             "visit (지난번 …) once a conversation and only when it is the same item they ask for now; read the pack size from "
             "the item name (계란 20구 is 20 eggs)."
@@ -1017,6 +1053,7 @@ def install(ak, logs, checkout=False):
                 if type(payload.get('price')) is int and payload['price'] != q:
                     res['quote_note'] = (f'이 품목·등급 안내가는 {q:,}입니다. 이번 결제서는 합의한 {payload["price"]:,}로 냈고, '
                                          f'다음 안내는 {q:,}로 합니다')
+            res.update(issued_terms(payload, r.get('grade_evidence'), now))   # last: the notes above keep their place
             return {'ok': True, 'result': res}
         out = call(self, name, args)
         if name == 'check_item_inventory':

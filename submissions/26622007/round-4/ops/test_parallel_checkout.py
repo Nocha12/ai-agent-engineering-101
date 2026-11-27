@@ -102,6 +102,8 @@ class Tools(ak.Toolbox):
         dup = {'duplicate_of': holder} if str(args.get('order')).endswith('-2') else {}
         return {'ok': True, 'result': {'ok': True, 'order': args.get('order'), 'checkout_jwt': tok, **dup,
                                        'payload': {'iat': int(time.time()), 'price': 5000}, 'quote': 5000,
+                                       'grade_evidence': {'unit': 'u-f5a2635c268b', 'claim': 'A', 'supplied_at': int(time.time()) - 3600,
+                                                          'expires_at': int(time.time()) + 30 * 3600},
                                        'checkout_hash': base64.urlsafe_b64encode(dg).decode().rstrip('=')}}
 
 
@@ -138,6 +140,11 @@ def main():
         assert order == holder and holder in ('t-a', 't-b'), tools.issued             # order = that inquiry's task
         loser = 't-b' if holder == 't-a' else 't-a'
         assert any('unit_held' in x for x in SEEN[loser]), SEEN[loser]
+        # 11/27 01daff51 / 0b2461b6: the issue result carries the signed price and expiry minute and says to use them
+        win = [x for x in SEEN[holder] if '"order"' in x and '"ok": true' in x]
+        assert win and '"price": 5000' in win[0] and '"until": "' in win[0] and '가격 5,000크레딧' in win[0], SEEN[holder]
+        assert re.search(r'"until": "\d\d/\d\d \d\d:\d\d KST"', win[0]) and '그대로' in win[0], win[0]
+        assert 'checkout_jwt' not in win[0] and 'expires_at' not in win[0], win[0]
         rows = [json.loads(x) for x in (root / 'logs' / 'checkouts.jsonl').read_text(encoding='utf-8').splitlines()]
         assert [r['task'] for r in rows if r.get('event') == 'delivery_bound'] == [holder], rows
         # a customer's run: no buying, posting or forging; no checkout or reply for another customer's message
