@@ -460,6 +460,7 @@ def install(ak, logs, checkout=False):
         )
 
         BaseUpdater = a2a_tasks.TaskUpdater
+        PAY_KEYS = ('checkout_jwt', 'receipt', 'sig_seller')
 
         def without_checkout(value):
             if isinstance(value, str):
@@ -468,6 +469,16 @@ def install(ak, logs, checkout=False):
                 return [without_checkout(x) for x in value]
             if isinstance(value, dict):
                 return {without_checkout(k): without_checkout(v) for k, v in value.items()}
+            return value
+
+        def model_data(value):
+            # 11/27 review I1: the kit stores the model's data as a task artifact that comes back on every later answer
+            # of the task, and the customer's buy({agent}) pays the first checkout_jwt / receipt / sig_seller it finds
+            # there. Only our own data part (send_response) may carry those keys; '[checkout]' left under one of them
+            # would fail exactly like a hand-copied token.
+            value = without_checkout(value)
+            if isinstance(value, dict):
+                return {k: v for k, v in value.items() if k not in PAY_KEYS}
             return value
 
         @dataclass
@@ -498,6 +509,8 @@ def install(ak, logs, checkout=False):
         class DeliveryHandler(request_handlers.DefaultRequestHandler):
             async def on_message_send(self, params, context):
                 http = http_request.get()
+                if http is not None:
+                    http['send'] = True         # this HTTP answer is a SendMessage one: send_response marks it
                 if http is None or params.configuration.return_immediately:
                     return await super().on_message_send(params, context)
                 req = Inquiry()
@@ -551,7 +564,7 @@ def install(ak, logs, checkout=False):
                                 header = dict(header, headers=headers)
                                 event = dict(event, body=raw)
                                 marked = (result['id'], result['status']['message'].get('messageId'))
-                        except (TypeError, ValueError, KeyError, AttributeError):
+                        except Exception:
                             marked = None       # the SDK answer as it was
                     await send(header)
                     await send(event)
@@ -561,7 +574,7 @@ def install(ak, logs, checkout=False):
                 async def send_response(event):
                     nonlocal start, planned
                     if (event['type'] == 'http.response.start' and event['status'] == 200
-                            and (http.get('answer') or json_body(event))):
+                            and (http.get('answer') or (http.get('send') and json_body(event)))):
                         # The pinned SDK returns a single JSONResponse, not a stream.
                         start, planned = event, bool(http.get('answer'))
                         return
@@ -571,7 +584,7 @@ def install(ak, logs, checkout=False):
                         return
                     if start is not None:
                         header, start = start, None
-                        emitted, waived, sent_data = (), (), 0
+                        emitted, waived, sent_data, rewritten, body = (), (), 0, False, ''
                         task, msg_id, status_id, baseline, issued, cancelled = http.pop('answer')
                         if event['type'] == 'http.response.body' and not event.get('more_body', False):
                             try:
@@ -585,23 +598,29 @@ def install(ak, logs, checkout=False):
                                         and part.get('text') == baseline):
                                     body, attached = compose(baseline, issued, cancelled, time.time())
                                     part['text'] = body
-                                    sent_data = attach_data(result, attached, cancelled)   # 11/27: same originals as data parts
                                     raw = json.dumps(response, ensure_ascii=False, separators=(',', ':')).encode()
                                     serialized = json.loads(raw)['result']
                                     checks = tokens(serialized.get('task', serialized)['status']['message']['parts'][0]['text'])
                                     emitted = tuple(c for c in attached if c.token in checks)
                                     waived = tuple(c for c in issued if c.order in cancelled)
+                                    # 11/27: the same originals as the text also go whole as data parts (first artifact)
+                                    sent_data = attach_data(result, emitted, cancelled)
+                                    raw = json.dumps(response, ensure_ascii=False, separators=(',', ':')).encode()
                                     headers = [(k, v) for k, v in header['headers']
                                                if k.lower() not in (b'content-length', b'cache-control', b'etag')]
                                     headers.extend([(b'content-length', str(len(raw)).encode()),
                                                     (b'cache-control', b'no-store')])
                                     header = dict(header, headers=headers)
                                     event = dict(event, body=raw)
-                            except (TypeError, ValueError, KeyError):
+                                    rewritten = True
+                            except Exception:
                                 # Preserve the SDK answer but do not record a delivery on shape mismatch.
-                                pass
-                        await send(header)
-                        await send(event)
+                                emitted, waived, sent_data = (), (), 0
+                        if rewritten:
+                            await send(header)
+                            await send(event)
+                        else:                           # review I2: the SDK answer as it was, plus the token-free marker
+                            await send_marked(header, event)
                         for c in emitted:               # the grade line as sent (operator 11/26 12:40), '' when dropped
                             write('checkout-sends.jsonl', {'kind': 'checkout_asgi_handoff', 'task': task, 'message_id': msg_id,
                                                            'order': c.order, 'checkout_hash': c.digest,
@@ -784,7 +803,7 @@ def install(ak, logs, checkout=False):
         if checkout and ev is not None and ev.kind == 'a2a':
             body = str(args.get('text') or '')
             effective = dict(args, text=clean_reply(body) if issued else without_checkout(body),
-                             data=None if issued else without_checkout(args.get('data')))
+                             data=None if issued else model_data(args.get('data')))
         out = reply(self, effective)
         if checkout and out != 'sent' and ev is not None:
             ev.checkout_plan = None

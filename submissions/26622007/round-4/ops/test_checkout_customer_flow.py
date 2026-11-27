@@ -23,6 +23,7 @@ sys.path.insert(0, str(HERE))
 KIT = HERE.parents[3] / 'scripts' / 'round4'
 sys.path.insert(0, str(KIT if (KIT / 'agent_kit.py').exists() else Path.home() / 'ax-round4' / 'scripts' / 'round4'))
 import agent_kit as ak                                      # noqa: E402
+import checkout_delivery as cd                              # noqa: E402
 import agent_kit_records as rec                             # noqa: E402
 import maroo                                                # noqa: E402
 import httpx                                                # noqa: E402
@@ -114,7 +115,11 @@ def complete(self, messages, max_tokens=4000, timeout=180):
     m = re.search(r'"id": "(m[0-9a-f]+)", "from": "(?:[^"\\]|\\.)*", "text": "((?:[^"\\]|\\.)*)"', ctx)
     mid, text = m.group(1), json.loads('"' + m.group(2) + '"')   # Event.view(): this message's own text
     done = sum(1 for m in messages if m['role'] == 'assistant')
-    if '결제서' in text:
+    if '데이터' in text:                                     # the model writes pay-looking keys in its own data
+        plan = [('reply', {'to': mid, 'text': '여기 정보예요.',
+                           'data': {'checkout_jwt': 'eyJhbGciOi.eyJmYWtl.c2ln', 'receipt': {'sig_seller': 'x'},
+                                    'sig_seller': 'y', 'note': '상품 정보'}})]
+    elif '결제서' in text:
         unit = (re.findall(r'u-[0-9a-f]{12}', text) or ['u-c654df1133b3'])[0]
         plan = [('private_checkout', {'op': 'create', 'unit': unit, 'reply_to': mid}),
                 ('reply', {'to': mid, 'text': '배추김치 2kg B 결제서예요.'})]
@@ -153,6 +158,18 @@ class Tools(ak.Toolbox):
                                        'checkout_hash': b64url(dg)}}
 
 
+FORCE = {'mismatch': False}
+_tokens = cd.tokens
+
+
+def tokens(text):                                           # a shape mismatch in the middleware, on demand
+    if FORCE['mismatch']:
+        raise ValueError('forced mismatch')
+    return _tokens(text)
+
+
+cd.tokens = tokens                                          # before install(): the middleware imports it there
+
 ROOT = Path(tempfile.mkdtemp())
 (ROOT / 'logs').mkdir()
 ak.Model.complete = complete
@@ -181,7 +198,9 @@ class CustomerFlow(unittest.TestCase):
                 cu = Customer(c)
                 out = await cu.talk('nocha12', '배추김치 2kg 결제서 주세요')
                 return cu, out
+        n0 = len(ISSUED)
         cu, out = run(go())
+        self.assertEqual(len(ISSUED), n0 + 1)
         tok = ISSUED[-1]
         self.assertIn(tok, out['agent_says'])                            # the text keeps the token (dual path)
         self.assertEqual([d.get('checkout_jwt') for d in out.get('data', [])], [tok])
@@ -198,20 +217,80 @@ class CustomerFlow(unittest.TestCase):
             async with self.client() as c:
                 cu = Customer(c)
                 await cu.talk('nocha12', '배추김치 2kg 결제서 주세요')
+                first = ISSUED[-1]
                 same = await cu.talk('nocha12', '고마워요, 잠깐 생각해 볼게요')
                 r1 = cu.buy({'agent': 'nocha12'})
                 await cu.talk('nocha12', '다른 단위 u-0000aaaa1111 결제서 주세요', new_conversation=True)   # a fresh one pays ...
                 r2 = cu.buy({'agent': 'nocha12'})
+                second = ISSUED[-1]
                 new = await cu.talk('nocha12', '안녕하세요, 뭐 파세요?', new_conversation=True)
                 r3 = cu.buy({'agent': 'nocha12'})                      # ... and a new conversation's plain reply clears it
-                return cu, same, new, r1, r2, r3
-        cu, same, new, r1, r2, r3 = run(go())
+                return cu, same, new, r1, r2, r3, first, second
+        cu, same, new, r1, r2, r3, first, second = run(go())
+        self.assertNotEqual(first, second)
         for out in (same, new):
             self.assertTrue(out.get('data'), out)                         # a marker replaces last_data ...
             self.assertFalse(any('checkout_jwt' in x for x in out['data']), out['data'])   # ... and holds no token
             self.assertNotRegex(out['agent_says'], r'eyJ')
         self.assertEqual((r1, r2, r3), ('nothing to pay', 'paid', 'nothing to pay'))
-        self.assertEqual(cu.paid, [ISSUED[-1]])
+        self.assertEqual(cu.paid, [second])
+
+    def test_model_data_never_pays_and_ours_comes_first(self):
+        """Review I1: the kit stores the model's data as a task artifact returned on every later answer; buy pays the
+        first checkout_jwt found and the customer's model sees data[:3] only."""
+        async def go():
+            async with self.client() as c:
+                cu = Customer(c)
+                o1 = await cu.talk('nocha12', '상품 데이터 보여 주세요')
+                r1 = cu.buy({'agent': 'nocha12'})
+                o2 = await cu.talk('nocha12', '그럼 결제서 주세요')
+                tok = ISSUED[-1]
+                r2 = cu.buy({'agent': 'nocha12'})
+                o3 = await cu.talk('nocha12', '고마워요')
+                r3 = cu.buy({'agent': 'nocha12'})
+                return cu, o1, o2, o3, r1, r2, r3, tok
+        cu, o1, o2, o3, r1, r2, r3, tok = run(go())
+        for out in (o1, o2, o3):
+            for x in out['data']:
+                if x.get('note') == '상품 정보':                        # the model's own data, still there ...
+                    self.assertFalse({'checkout_jwt', 'receipt', 'sig_seller'} & set(x), x)   # ... without pay keys
+        self.assertEqual(o2['data'][0].get('checkout_jwt'), tok)          # ours first, inside data[:3]
+        self.assertIn('checkouts', o3['data'][0])
+        self.assertEqual((r1, r2, r3), ('nothing to pay', 'paid', 'nothing to pay'))
+        self.assertEqual(cu.paid, [tok])
+
+    def test_shape_mismatch_falls_back_to_the_marker(self):
+        """Review I2: when the planned rewrite cannot run, the SDK answer goes as it was plus the marker, so an
+        earlier checkout in the customer's last_data is not paid."""
+        async def go():
+            async with self.client() as c:
+                cu = Customer(c)
+                await cu.talk('nocha12', '배추김치 결제서 주세요')
+                FORCE['mismatch'] = True
+                try:
+                    out = await cu.talk('nocha12', '다른 단위 u-0000aaaa2222 결제서 주세요', new_conversation=True)
+                finally:
+                    FORCE['mismatch'] = False
+                return cu, out, cu.buy({'agent': 'nocha12'})
+        cu, out, r = run(go())
+        self.assertEqual(out['data'], [{'checkouts': [], 'cancelled': []}])
+        self.assertNotRegex(out['agent_says'], r'eyJ')
+        self.assertEqual(r, 'nothing to pay')
+
+    def test_get_task_is_not_marked(self):
+        """Review M5: only SendMessage answers get the marker (no GetTask polls in checkout-sends.jsonl)."""
+        async def go():
+            async with self.client() as c:
+                cu = Customer(c)
+                await cu.talk('nocha12', '안녕하세요')
+                tid = cu.raw['result']['task']['id']
+                r = await c.post('/', json={'jsonrpc': '2.0', 'id': 2, 'method': 'GetTask', 'params': {'id': tid}},
+                                 headers={'A2A-Version': '1.0'})
+                return r.json()
+        res = run(go())
+        task = res.get('result', {}).get('task') or res.get('result', {})
+        self.assertTrue(task.get('id'), res)
+        self.assertFalse([a for a in task.get('artifacts') or [] if a.get('name') == 'checkout'], res)
 
     def test_v03_binding_parts_have_kind(self):
         async def go():

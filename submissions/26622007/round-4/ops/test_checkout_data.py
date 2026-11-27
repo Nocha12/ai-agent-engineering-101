@@ -59,8 +59,8 @@ class AttachData(unittest.TestCase):
         r = self.result('안녕하세요')
         r['artifacts'] = [{'artifactId': 'a', 'parts': [{'text': 'x'}]}]
         self.assertEqual(cd.attach_data(r, (cd.Checkout('o1', T1, NOW),)), 1)
-        self.assertEqual(r['artifacts'][0]['artifactId'], 'a')
-        self.assertEqual(r['artifacts'][1]['parts'], [{'data': dict(F1, checkout_jwt=T1, order='o1')}])
+        self.assertEqual(r['artifacts'][1]['artifactId'], 'a')        # kept, after ours (review I1: ours first)
+        self.assertEqual(r['artifacts'][0]['parts'], [{'data': dict(F1, checkout_jwt=T1, order='o1')}])
         self.assertEqual(cd.attach_data(None, (cd.Checkout('o1', T1, NOW),)), 0)
         r = self.result('x')
         r['artifacts'] = None

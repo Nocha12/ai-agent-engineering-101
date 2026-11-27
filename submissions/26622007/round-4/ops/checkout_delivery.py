@@ -101,7 +101,9 @@ def attach_data(result, attached, cancelled=()):
     arts = result.get('artifacts')
     if not isinstance(arts, list):
         arts = result['artifacts'] = []
-    arts.append({'artifactId': 'checkout-' + (data[0]['order'] if data else 'none'), 'name': 'checkout', 'parts': parts})
+    # First: buy({agent}) pays the first checkout_jwt in the reply's data and the customer's model sees data[:3] only;
+    # the task's stored artifacts (the kit's model data of earlier turns) come back on every answer (review I1).
+    arts.insert(0, {'artifactId': 'checkout-' + (str(data[0]['order']) if data else 'none'), 'name': 'checkout', 'parts': parts})
     return len(data)
 
 
