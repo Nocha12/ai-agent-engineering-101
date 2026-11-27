@@ -33,7 +33,8 @@ def rpc(kit, args, method, params):
     if kit.testing:
         return (args.get('_rpc') or {}).get(method)
     body = json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': method, 'params': params}).encode()
-    req = urllib.request.Request(RPC, data=body, headers={'content-type': 'application/json'})
+    # rpc-testnet.maroo.io answers urllib's default user-agent with 403 (11/27); the same value as private_checkout
+    req = urllib.request.Request(RPC, data=body, headers={'content-type': 'application/json', 'user-agent': 'ax-shop/1.0'})
     with urllib.request.urlopen(req, timeout=10) as r:
         out = json.loads(r.read().decode())
     if out.get('error'):
