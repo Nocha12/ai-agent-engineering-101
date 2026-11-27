@@ -39,9 +39,23 @@ def clean_reply(text):
     return JWT.sub('', LABEL_LINE.sub('', text)).strip()
 
 
-def compose(text, issued, cancelled, now):
+AGENT = re.compile(r'[A-Za-z0-9_.-]{1,64}')
+
+
+def buy_hint(agent):
+    """One line under the signed original (check-1510 6-1, 11/27 12:47-14:59: 7 customers copied the ~850-character
+    token into buy and were refused "not signed by this shop's wallet", 0/7 after a reissue): the customer tool's buy
+    pays the data part when no token is named (house/customer.py 347-352). '' without a plain agent name."""
+    if not isinstance(agent, str) or not AGENT.fullmatch(agent) or agent.startswith('eyJ'):
+        return ''
+    return f'결제는 buy에 agent: {agent}만 넣으면 됩니다. 토큰은 옮겨 적지 않아도 돼요'
+
+
+def compose(text, issued, cancelled, now, agent=None):
     """Keep prose, rebuild the order/token pair from trusted issuance metadata. The signed original opens the reply so
-    it is inside the VISIBLE characters the customer reads (PER_REPLY: one a reply); prose follows, the grade note last."""
+    it is inside the VISIBLE characters the customer reads (PER_REPLY: one a reply); then the buy line (buy_hint, only
+    when it and the prose both still fit in VISIBLE: it never pushes the prose's signed price and until out of view),
+    prose, the grade note last."""
     active = {c.digest: c for c in issued if c.order not in cancelled and 0 <= now - c.at < HOLD_SECONDS}
     if len({c.order for c in active.values()}) != len(active):
         raise ValueError('duplicate checkout order ids')
@@ -62,6 +76,9 @@ def compose(text, issued, cancelled, now):
     head = lines[0]
     if len(head) > VISIBLE:
         raise ValueError('결제서 줄이 손님 도구가 읽는 답장 앞 2,000자보다 깁니다. 이 결제서는 checkout_cancel로 빼고 손님께 사실대로 말하세요')
+    hint = buy_hint(agent)
+    if hint and len(head) + 2 + len(hint) + (2 + len(body) if body else 0) <= VISIBLE:
+        head += '\n\n' + hint
     notes = '\n'.join(c.note for c in active.values() if c.note)
     rest = REPLY_MAX - len(head) - 2
     if notes and len(body) + 2 + len(notes) <= rest:   # grade notes give way to prose, prose to the originals

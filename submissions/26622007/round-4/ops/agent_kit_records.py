@@ -441,6 +441,7 @@ def install(ak, logs, checkout=False):
         inquiry = ContextVar('checkout_inquiry', default=None)
         a2a_event = ContextVar('checkout_a2a_event', default=None)
         owners = {}
+        shop = {}                               # agent_app's name (--name): the buy line in a checkout reply (check-1510 6-1)
 
         run_once = ak.Mind.run_once
         def run_rec(self, events):
@@ -632,7 +633,8 @@ def install(ak, logs, checkout=False):
                                 # Both A2A JSON bindings use camelCase messageId and a text part.
                                 if (result['id'] == task and message['messageId'] == status_id
                                         and part.get('text') == baseline):
-                                    body, attached = compose(baseline, issued, cancelled, time.time())
+                                    body, attached = compose(baseline, issued, cancelled, time.time(),
+                                                             agent=shop.get('name'))
                                     part['text'] = body
                                     raw = json.dumps(response, ensure_ascii=False, separators=(',', ':')).encode()
                                     serialized = json.loads(raw)['result']
@@ -678,6 +680,7 @@ def install(ak, logs, checkout=False):
         agent_app = ak.agent_app
         def checkout_app(*args, **kwargs):
             updater, handler = a2a_tasks.TaskUpdater, request_handlers.DefaultRequestHandler
+            shop['name'] = args[1] if len(args) > 1 else kwargs.get('name')
             a2a_tasks.TaskUpdater, request_handlers.DefaultRequestHandler = DeliveryUpdater, DeliveryHandler
             try:
                 app = agent_app(*args, **kwargs)
@@ -832,7 +835,7 @@ def install(ak, logs, checkout=False):
             else:
                 return 'error: checkout_cancel must be true or a list of order ids issued for this message'
             try:
-                compose(str(args.get('text') or ''), issued, cancelled, time.time())
+                compose(str(args.get('text') or ''), issued, cancelled, time.time(), agent=shop.get('name'))
             except ValueError as e:
                 return f'error: {e}'
             ev.checkout_plan = (issued, cancelled)

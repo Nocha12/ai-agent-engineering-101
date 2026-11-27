@@ -113,6 +113,71 @@ class Compose(unittest.TestCase):
         self.assertEqual(attached, ())
         self.assertEqual(len(text), cd.REPLY_MAX)
 
+HINT = '결제는 buy에 agent: nocha12만 넣으면 됩니다. 토큰은 옮겨 적지 않아도 돼요'   # check-1510 §6-1, fixed text
+
+
+class BuyHint(unittest.TestCase):
+    """11/27 12:47-14:59: 7 customers copied the ~850-character token into buy and were refused ("not signed by this
+    shop's wallet"); buy({agent}) alone pays the data part. Every reply carrying a checkout says so in one line."""
+
+    def test_checkout_reply_says_buy_with_agent_only(self):
+        c = co(1)
+        text, attached = cd.compose('두부 1모 3,200원입니다.', [c], set(), NOW, agent='nocha12')
+        self.assertEqual(attached, (c,))
+        self.assertTrue(text.startswith(f'checkout_jwt (task-1): {c.token}\n\n{HINT}\n\n'), text[-200:])
+        self.assertEqual(text.count(HINT), 1)
+        self.assertIn(HINT, text[:cd.VISIBLE])
+        self.assertEqual(cd.tokens(text), {c.token})           # the hint adds no token
+        line = [ln for ln in text.splitlines() if 'buy' in ln]
+        self.assertEqual(line, [HINT])
+        self.assertNotIn('eyJ', HINT)
+
+    def test_only_the_hint_line_is_added(self):
+        c = co(1)
+        old, _ = cd.compose('두부 1모 3,200원입니다.', [c], set(), NOW)
+        new, _ = cd.compose('두부 1모 3,200원입니다.', [c], set(), NOW, agent='nocha12')
+        self.assertEqual(new.replace(HINT + '\n\n', '', 1), old)
+
+    def test_agent_name_is_the_one_passed(self):
+        text, _ = cd.compose('x', [co(1)], set(), NOW, agent='shop-7')
+        self.assertIn('결제는 buy에 agent: shop-7만 넣으면 됩니다.', text)
+        self.assertNotIn('nocha12', text)
+
+    def test_no_name_or_bad_name_no_hint(self):
+        for agent in (None, '', 'a b', 'x' * 65, 'eyJabc'):
+            text, _ = cd.compose('x', [co(1)], set(), NOW, agent=agent)
+            self.assertNotIn('buy에', text, agent)
+
+    def test_plain_reply_no_hint(self):
+        text, _ = cd.compose('네 알겠습니다.', [], set(), NOW, agent='nocha12')
+        self.assertEqual(text, '네 알겠습니다.')
+
+    def test_near_the_window_the_hint_gives_way_to_prose(self):
+        c = co(1)
+        head = f'checkout_jwt (task-1): {c.token}'
+        signed = '계란 20구 B등급 9,837크레딧, 11/29 16:33까지입니다.'
+        prose = '가' * (cd.VISIBLE - len(head) - 2 - len(signed) - 10) + signed    # fits without the hint, not with it
+        text, _ = cd.compose(prose, [c], set(), NOW, agent='nocha12')
+        self.assertIn(signed, text[:cd.VISIBLE])                # the signed price and until stay in view
+        self.assertIn(head, text[:cd.VISIBLE])
+        self.assertNotIn(HINT, text)
+        short, _ = cd.compose(signed, [c], set(), NOW, agent='nocha12')
+        self.assertIn(HINT, short[:cd.VISIBLE])
+        self.assertIn(signed, short[:cd.VISIBLE])
+
+    def test_long_reply_stays_under_the_cap(self):
+        text, _ = cd.compose(PROSE * 3, [co(1)], set(), NOW, agent='nocha12')
+        self.assertLessEqual(len(text), cd.REPLY_MAX)
+        self.assertIn(f'checkout_jwt (task-1): {co(1).token}', text[:cd.VISIBLE])
+
+    def test_grade_note_still_follows_and_reply_fits_window(self):
+        ev = {'unit': 'u-1867f653e4ad', 'claim': 'B', 'supplied_at': NOW - 3600, 'expires_at': NOW + 50 * 3600}
+        c = cd.Checkout('task-1', jwt(1), NOW - 10, cd.grade_note('task-1', ev, NOW))
+        text, _ = cd.compose('두부 1모 3,200원입니다.', [c], set(), NOW, agent='nocha12')
+        self.assertLess(text.index(HINT), text.index('두부 1모'))
+        self.assertLess(text.index('두부 1모'), text.index('등급 근거'))
+        self.assertLessEqual(len(text), cd.VISIBLE)
+
 
 class GradeNote(unittest.TestCase):
     EV = {'unit': 'u-1867f653e4ad', 'claim': 'B', 'supplied_at': NOW - 3600, 'expires_at': NOW + 50 * 3600}

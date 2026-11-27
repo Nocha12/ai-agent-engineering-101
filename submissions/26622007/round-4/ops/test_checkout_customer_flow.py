@@ -212,6 +212,41 @@ class CustomerFlow(unittest.TestCase):
         bad = tok[:200] + ('A' if tok[200] != 'A' else 'B') + tok[201:]
         self.assertIn('not signed', cu.buy({'agent': 'nocha12', 'checkout_jwt': bad}))
 
+    HINT = '결제는 buy에 agent: nocha12만 넣으면 됩니다. 토큰은 옮겨 적지 않아도 돼요'   # check-1510 §6-1
+
+    def test_checkout_and_reissue_replies_say_buy_with_agent_only(self):
+        """11/27 12:47-14:59: 7 refusals, 0/7 after a reissue. Both replies carry the line; data parts as before."""
+        async def go():
+            async with self.client() as c:
+                cu = Customer(c)
+                first = await cu.talk('nocha12', '배추김치 2kg 결제서 주세요')
+                t1 = ISSUED[-1]
+                bad = t1[:300] + ('A' if t1[300] != 'A' else 'B') + t1[301:]
+                refused = cu.buy({'agent': 'nocha12', 'checkout_jwt': bad})
+                again = await cu.talk('nocha12', f"buy said: {refused}. 결제서 다시 주세요")
+                t2 = ISSUED[-1]
+                return cu, first, again, refused, t1, t2, cu.buy({'agent': 'nocha12'})
+        cu, first, again, refused, t1, t2, paid = run(go())
+        self.assertIn('not signed', refused)
+        self.assertNotEqual(t1, t2)
+        for out, tok in ((first, t1), (again, t2)):
+            says = out['agent_says']
+            self.assertEqual(says.count(self.HINT), 1, says[-300:])
+            self.assertEqual(cd.tokens(says), {tok})                      # only the signed original, as before
+            self.assertNotIn('eyJ', says.replace(tok, ''))
+            self.assertLessEqual(len(says), 2000)
+            d, = out['data'][:1]
+            self.assertEqual(sorted(d), ['checkout_jwt', 'claim', 'item', 'order', 'price', 'unit'])   # data part unchanged
+            self.assertEqual(d['checkout_jwt'], tok)
+        self.assertEqual(paid, 'paid')
+        self.assertEqual(cu.paid[-1], t2)
+
+    def test_plain_reply_has_no_hint(self):
+        async def go():
+            async with self.client() as c:
+                return await Customer(c).talk('nocha12', '안녕하세요, 뭐 파세요?', new_conversation=True)
+        self.assertNotIn('buy에', run(go())['agent_says'])
+
     def test_plain_reply_after_checkout_does_not_pay_the_old_one(self):
         async def go():
             async with self.client() as c:
