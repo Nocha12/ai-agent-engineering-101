@@ -39,7 +39,8 @@ class Compose(unittest.TestCase):
         self.assertIn('1장만', msg)
         self.assertIn('checkout_cancel', msg)
         self.assertIn('input_required', msg)
-        self.assertIn("['task-2']", msg)                   # names the order(s) to drop
+        self.assertIn("['task-1']", msg)                   # keeps the latest (review 2 I1), names the one to drop
+        self.assertIn('결제서를 새로 만들지 말고', msg)      # review 2 I2: resend with the cancel list only
 
     def test_one_checkout_token_first_then_prose_then_note(self):
         c = co(1)
@@ -56,7 +57,7 @@ class Compose(unittest.TestCase):
     def test_three_raise_and_name_both_extra(self):
         with self.assertRaises(ValueError) as e:
             cd.compose('x', [co(1), co(2), co(3)], set(), NOW)
-        self.assertIn("['task-2', 'task-3']", str(e.exception))
+        self.assertIn("['task-1', 'task-2']", str(e.exception))
 
     def test_cancel_down_to_one_works(self):
         cs = [co(1), co(2), co(3)]
@@ -113,12 +114,16 @@ class GradeNote(unittest.TestCase):
         self.assertNotIn('null', note)
         self.assertLessEqual(len(note), 150)
         self.assertIn('B등급', note)
-        exp = cd.datetime.fromtimestamp(NOW + 50 * 3600, cd.KST).strftime('%m/%d %H:%M')
-        self.assertIn(f'소비기한 {exp}까지(약 2일 남음)', note)
+        self.assertIn('소비기한 01/17 19:00 KST까지(약 2일 2시간 남음)', note)   # NOW = 2027-01-15 17:00 KST, fixed text
 
     def test_hours_under_two_days(self):
         ev = dict(self.EV, expires_at=NOW + 5.5 * 3600)
         self.assertIn('(약 5시간 남음)', cd.grade_note('task-1', ev, NOW))
+        self.assertIn('(약 47시간 남음)', cd.grade_note('task-1', dict(self.EV, expires_at=NOW + 47.9 * 3600), NOW))
+        self.assertIn('(약 2일 남음)', cd.grade_note('task-1', dict(self.EV, expires_at=NOW + 48 * 3600), NOW))
+        self.assertIn('(약 2일 23시간 남음)', cd.grade_note('task-1', dict(self.EV, expires_at=NOW + 71.5 * 3600), NOW))
+        self.assertIn('(1시간 미만 남음)', cd.grade_note('task-1', dict(self.EV, expires_at=NOW + 0.5 * 3600), NOW))
+        self.assertIn('(1시간 미만 남음)', cd.grade_note('task-1', dict(self.EV, expires_at=NOW - 60), NOW))   # past: never negative
 
     def test_bad_evidence_no_note(self):
         for ev in (None, dict(self.EV, claim='D'), dict(self.EV, unit='x'), dict(self.EV, expires_at=NOW - 7200 - 3600 * 99)):

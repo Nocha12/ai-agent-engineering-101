@@ -49,8 +49,9 @@ def compose(text, issued, cancelled, now):
     lines = [f'checkout_jwt ({c.order}): {c.token}' for c in active.values()]
     orders = [c.order for c in active.values()]
     if len(lines) > PER_REPLY:                  # one checkout a reply (operator 11/27): the rest in the next message
-        raise ValueError(f'한 답장에는 결제서를 {PER_REPLY}장만 넣습니다(지금 {len(lines)}장). 손님이 먼저 원한 1장만 남기고 '
-                         f'나머지 order는 checkout_cancel 목록으로 빼세요(예: {orders[PER_REPLY:]}). 이 답장의 state는 '
+        raise ValueError(f'한 답장에는 결제서를 {PER_REPLY}장만 넣습니다(지금 {len(lines)}장). 결제서를 새로 만들지 말고 같은 reply에 '
+                         f'checkout_cancel 목록만 넣어 바로 다시 보내세요. 손님과 마지막으로 합의한 1장(같은 품목을 다시 냈으면 '
+                         f'가장 나중 것)만 남기고 나머지 order를 빼세요(예: {orders[:-PER_REPLY]}). 이 답장의 state는 '
                          f'input_required로 두고, 손님께 나머지는 다음 메시지를 주시면 이어서 결제서를 드린다고 쓰세요(같은 대화로 '
                          f'이어 와야 빼 둔 unit을 바로 다시 낼 수 있습니다)')
     head = lines[0]
@@ -79,11 +80,12 @@ def grade_note(order, ev, now):
         if not (isinstance(unit, str) and UNIT.fullmatch(unit) and claim in ('A', 'B', 'C')
                 and all(type(x) in (int, float) and 1e9 < x < 1e11 for x in (sa, ea)) and sa < ea):
             return ''
-        day = lambda t: datetime.fromtimestamp(t, KST).strftime('%m/%d %H:%M')
+        day = lambda t: datetime.fromtimestamp(t, KST).strftime('%m/%d %H:%M KST')
         sold, ends, hours = day(sa), day(ea), max(0, int((ea - now) // 3600))
     except Exception:                                # a note never stops the checkout itself
         return ''
-    left = f'약 {hours // 24}일' if hours >= 48 else f'약 {hours}시간'
+    d, h = divmod(hours, 24)
+    left = ('1시간 미만' if hours < 1 else f'약 {hours}시간' if hours < 48 else f'약 {d}일' + (f' {h}시간' if h else ''))
     # short and plain (operator 11/27): the customer reads only the first 2,000 characters; no 'null', no rules text
     return (f'등급 근거: 시장 규칙상 식품 등급은 남은 소비기한입니다. 이 결제서에 든 시장 서명 인증서에 입고 {sold}, '
             f'소비기한 {ends}까지({left} 남음)가 적혀 있고, 가게가 밝힌 등급은 {claim}등급입니다.')
