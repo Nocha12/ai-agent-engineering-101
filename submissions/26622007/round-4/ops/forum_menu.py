@@ -20,7 +20,9 @@ in the window), and while a restocked window's post is still to come: ANNOUNCE_W
 window's own names: waitlist, waited, regular), ANNOUNCE_GRACE otherwise (the menu then shows that stock itself). Only when our newest post on the forum is
 at least POST_GAP old. Items: soonest to expire first (EXPIRING hours), then the most units we hold, then market sales. The market applies its own forum rules. Turn the menu off without a
 restart by creating ops/forum_menu.off; posts and skips are logged to logs/forum-menu.jsonl (a skip once per reason
-change or 10 minutes). No wallet, no payment, no customer names.
+change or 10 minutes). No wallet, no payment, no customer names. The lines of each post that went up (SKU, grade,
+price, and for a clearance line its unit and expiry) are kept for UNITS_KEEP in logs/forum-menu-units.json, so
+check_item_inventory can mark the unit a customer read on the forum (11/27 05fcd1d5).
 """
 import json
 import math
@@ -57,6 +59,9 @@ WINDOW_SPAN = 900             # an entry this long before the window's last open
 SETTLE_TTL = 24 * 3600      # settles kept for the medians and the popularity order
 MIN_SETTLES = 3             # settles of one SKU and grade before its median counts
 VIEW = 160                  # a customer sees the first 160 characters of a shop post
+UNITS_FILE = 'forum-menu-units.json'   # logs/: the lines of our recent posts, read by check_item_inventory (11/27 05fcd1d5)
+UNITS_KEEP = 3 * 3600       # posts older than this are dropped from it
+UNITS_MAX = 40              # and at most this many are kept (one post per 5 minutes: about 3 hours)
 TAIL = ' — 말씀하시면 바로 결제서 드려요'
 FIXED_PRICE = ('생수', '샘물', '삼다수', '먹는물', '아이시스', '백산수', '에비앙', '워터', 'water', 'Water')
 FIXED_SKU = ('G00b8acf0',)      # 생수 2L: never requoted (operator: the water price stays as it is)
@@ -583,7 +588,8 @@ def clear_item(inv, sku, shown, now):
         except Exception:
             cl = None
         if cl and (best is None or (cl['hours_left'] < SHORT, cl['hours_left']) < (best[0] < SHORT, best[0])):
-            best = (cl['hours_left'], g, dict(cl, until=float(u['expires_at'])))
+            unit = u.get('unit') if isinstance(u.get('unit'), str) else None
+            best = (cl['hours_left'], g, dict(cl, until=float(u['expires_at']), unit=unit))
     return best
 
 
@@ -657,7 +663,7 @@ def apply_plan(qb, path, inv, plan, now):
     return out
 
 
-def build_text(qb, inv, quotes, settles, now, turn, name='노차네 구멍가게(nocha12)', failed=None):
+def build_text(qb, inv, quotes, settles, now, turn, name='노차네 구멍가게(nocha12)', failed=None, posted=None):
     """(text, [sku]) — the cheapest shown grade of each item we hold: what expires within EXPIRING hours first
     (soonest first), then the most units we hold, then the most-sold SKUs on the market; the first two stay, the rest
     rotate with turn so successive posts show different stock. None when nothing has a price. Clearance (떨이, 11/26
@@ -667,7 +673,10 @@ left (메인 11/27 03:5x) goes after all the others, in the same order among the
 Before all of that, the first LEAD_LONG lines (in that order) with LONG hours or more left, or no date, lead the post
 (11/27 06:40): the clearance lines come right after them. Those lead lines are first taken from lines not on clearance
 whose grade is in LEAD_GRADES with LEAD_AB hours or more left, or no date (11/27 12:40); only when there are too few does
-the LONG rule fill the rest. The header reads '떨이·기한 임박' when the post's first line is on clearance, else '지금 재고'."""
+the LONG rule fill the rest. The header reads '떨이·기한 임박' when the post's first line is on clearance, else '지금 재고'.
+posted (a list, optional; 11/27 05fcd1d5): one {'sku', 'grade', 'price', 'unit', 'until'} per line in the text, in text
+order. unit and until only for a clearance line (it names one unit's time and price); a grade line's price is that
+grade's shown price for every unit of it, so it names no unit (unit, until None). The text and chosen do not change."""
     items = []
     live = {}
     for sku in {u.get('sku') for u in inv.get('units') or [] if isinstance(u, dict) and u.get('sku')}:
@@ -686,7 +695,7 @@ the LONG rule fill the rest. The header reads '떨이·기한 임박' when the p
             left, g, cl = clr
             items.append(((-1, left), -st['count'], -settles.count(sku), sku,
                           f"{shown_name[sku]} {g}{cl['price']:,}(~{time.strftime('%H:%M', time.localtime(cl['until']))})",
-                          shown_name[sku], left, g))
+                          shown_name[sku], left, g, {'price': cl['price'], 'unit': cl.get('unit'), 'until': cl['until']}))
             continue
         if not shown:
             continue
@@ -694,7 +703,8 @@ the LONG rule fill the rest. The header reads '떨이·기한 임박' when the p
         left = soonest(inv, sku, g, now)
         urgent = left is not None and left <= EXPIRING
         items.append(((0, left) if urgent else (1, 0), -st['count'], -settles.count(sku), sku,
-                      f"{shown_name[sku]} {g}{shown[g]:,}", shown_name[sku], left, g))
+                      f"{shown_name[sku]} {g}{shown[g]:,}", shown_name[sku], left, g,
+                      {'price': shown[g], 'unit': None, 'until': None}))
     if not items:
         return None, []
     items.sort()
@@ -726,6 +736,8 @@ the LONG rule fill the rest. The header reads '떨이·기한 임박' when the p
         text += add
         chosen.append(it[3])
         seen.add(it[5])
+        if isinstance(posted, list):
+            posted.append(dict(it[8], sku=it[3], grade=it[7]))
     if not chosen:
         return None, []
     first = next(it for it in order if it[3] == chosen[0])   # 11/27 12:40: the header follows the first line (N3: what fits)
@@ -836,6 +848,7 @@ class Menu:
         self.not_before, self.backfilled, self.last_skip = 0.0, False, (None, 0.0)
         self.log = self.dir / 'logs' / 'forum-menu.jsonl'
         self.state = self.dir / 'logs' / 'forum-menu-state.json'
+        self.units = self.dir / 'logs' / UNITS_FILE
         self.retry_after = 0.0
         self.recent_disliked_post = 0.0
         try:
@@ -859,6 +872,31 @@ class Menu:
             os.replace(tmp, self.state)
         except OSError:
             pass
+
+    def save_units(self, ts, post, lines):
+        """Add one posted menu's lines to logs/forum-menu-units.json (UNITS_KEEP s and UNITS_MAX posts kept, newest
+        last): what check_item_inventory marks as the forum's unit (11/27 05fcd1d5: the post named one C unit, the
+        checkout went out on the other). Written through a temp file of our own; a failure never stops the menu."""
+        tmp = f'{self.units}.{os.getpid()}.tmp'
+        try:
+            try:
+                with open(self.units, encoding='utf-8') as f:
+                    old = json.load(f)
+            except (OSError, ValueError, RecursionError):
+                old = {}
+            posts = old.get('posts') if isinstance(old, dict) and isinstance(old.get('posts'), list) else []
+            posts = [p for p in posts if isinstance(p, dict) and isinstance(p.get('ts'), (int, float))
+                     and not isinstance(p.get('ts'), bool) and 0 <= ts - p['ts'] < UNITS_KEEP]
+            keep = [{k: ln.get(k) for k in ('sku', 'grade', 'price', 'unit', 'until')} for ln in lines if isinstance(ln, dict)]
+            posts = (posts + [{'ts': ts, 'post': post, 'lines': keep}])[-UNITS_MAX:]
+            with open(tmp, 'w', encoding='utf-8') as f:
+                json.dump({'posts': posts}, f, ensure_ascii=False, separators=(',', ':'))
+            os.replace(tmp, self.units)
+        except (OSError, TypeError, ValueError, RecursionError):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
     def base(self):
         b = getattr(self.market, 'base', None)
@@ -994,9 +1032,9 @@ class Menu:
         plan = requote_plan(self.qb, inv, quotes, self.settles, now)
         changed = apply_plan(self.qb, qpath, inv, plan, now) if plan else {}
         quotes = self.qb['quotes_load'](str(qpath))
-        failed = {}
+        failed, posted = {}, []
         text, chosen = build_text(self.qb, inv, quotes, self.settles, now, self.turn,
-                                  f'노차네 구멍가게({self.name()})', failed)
+                                  f'노차네 구멍가게({self.name()})', failed, posted)
         if failed:
             self._write({'ts': now, 'ok': None, 'display_fail': failed})   # 표시 규칙 위반: 적어 두고 글에는 그대로 올림
         if not text:
@@ -1017,6 +1055,7 @@ class Menu:
             self.not_before = max(self.not_before, now + 60)   # a refusal is not retried every tick
         if ok:
             self.turn += 1
+            self.save_units(received_at, (body.get('id') or body.get('post')) if isinstance(body, dict) else None, posted)
         row = {'ts': now, 'ok': ok, 'status': code, 'text': text, 'skus': chosen, 'requoted': changed,
                'settles_seen': len(self.settles.rows),
                'post': (body.get('id') or body.get('post')) if isinstance(body, dict) else None}

@@ -142,4 +142,22 @@ def test(run, kit):
     assert any('20구' in s['name'] for s in whole['skus']), whole['skus']
     bad = run({'_inventory': 'not a dict'}, kit)
     assert bad['ok'] is False and '재고 0이 아님' in bad['error'], bad
+    # 11/27 05fcd1d5: the forum post named u-b ('고등어 C6,845(~22:51)'), two C units were listed and the checkout went
+    # out on u-a; the posted unit is marked with the KST minute of the newest post that named it (1_800_000_000 = 17:00)
+    fish = {'units': [{'unit': 'u-a', 'sku': 'MK', 'grade': 'C', 'cost': 3000, 'name': '고등어 2미 800g', 'expires_at': now + 9000},
+                      {'unit': 'u-b', 'sku': 'MK', 'grade': 'C', 'cost': 3000, 'name': '고등어 2미 800g', 'expires_at': now + 37800}]}
+    forum = {'posts': [{'ts': now - 4000, 'post': 1, 'lines': [{'sku': 'MK', 'grade': 'C', 'price': 6900, 'unit': 'u-b', 'until': now + 37800}]},
+                       {'ts': now - 300, 'post': 2, 'lines': [{'sku': 'MK', 'grade': 'C', 'price': 6845, 'unit': 'u-b', 'until': now + 37800},
+                                                              {'sku': 'EGG', 'grade': 'B', 'price': 10000, 'unit': None, 'until': None}]}]}
+    f = run({'sku': 'MK', '_inventory': fish, '_now': now, '_forum': forum}, kit)
+    by = {i['unit']: i for i in f['items']}
+    assert by['u-b']['forum'] == '포럼 공지 단위(16:55 게시)' and 'forum' not in by['u-a'], f['items']
+    assert '표시된 공지 단위로 결제서' in f['note_forum'], f
+    assert [i['unit'] for i in f['items']] == [i['unit'] for i in run({'sku': 'MK', '_inventory': fish, '_now': now}, kit)['items']]
+    for stale in ({'posts': [dict(forum['posts'][0], ts=now - 3 * 3600)]}, {'posts': 'x'}, 'x', None,
+                  {'posts': [{'ts': True, 'lines': [{'unit': 'u-b'}]}, {'ts': now + 60, 'lines': [{'unit': 'u-b'}]}]}):
+        g = run({'sku': 'MK', '_inventory': fish, '_now': now, '_forum': stale}, kit)   # old, odd or none: no mark
+        assert g['ok'] and not any('forum' in i for i in g['items']) and 'note_forum' not in g, (stale, g)
+    w = run({'_inventory': fish, '_now': now, '_forum': forum}, kit)                    # whole shop: unchanged
+    assert 'note_forum' not in w and 'forum' not in json.dumps(w, ensure_ascii=False), w
     return 'ok'
