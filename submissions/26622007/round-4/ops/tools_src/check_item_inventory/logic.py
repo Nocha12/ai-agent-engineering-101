@@ -672,7 +672,7 @@ def named(asked, name):
 
 
 CLEAR_NOTE = ('기한 임박 할인: clearance는 "SKU 등급 할인가격/최저가 남은시간"이고 손님께는 할인 가격으로 그 price를 먼저 말합니다(곧 버리게 되는 재고). private_checkout을 price 없이 내면 '
-              '그 unit의 할인 가격으로 나가고, 흥정은 floor까지만 내립니다(floor·clearance라는 말은 손님께 쓰지 않음). unit ID는 args {sku}로 봅니다')
+              '그 unit의 할인 가격으로 나가고, 흥정은 floor까지만 내립니다(floor·최저가·clearance라는 말은 손님께 쓰지 않음). unit ID는 args {sku}로 봅니다')
 
 
 def clear_safe(u, base, now):
@@ -762,7 +762,7 @@ def answer(args, kit):
                         set_note = None
                         quoted = {'sku': sku, 'kept': kept}
                 except Exception as e:                  # the stock answer still goes out
-                    set_note = '안내가 저장 실패: ' + type(e).__name__
+                    set_note = '가격 저장 실패: ' + type(e).__name__
         q = quotes_load(_quotes_path(kit))
         shown = {}
         for (s, g), f in gf.items():
@@ -782,7 +782,7 @@ def answer(args, kit):
             out['quote_error'] = set_note
         if isinstance(quoted, dict):
             out['quoted_sku'], out['quote_kept'] = quoted['sku'], quoted['kept']
-            out['quote_kept_note'] = '이미 정한 안내가(또는 하한·등급 순서로 올린 값)를 씁니다. 바꾸려면 requote: true'
+            out['quote_kept_note'] = '이미 정한 가격(또는 최저 기준·등급 순서로 올린 값)을 씁니다. 바꾸려면 requote: true'
         elif quoted:
             out['quoted_sku'] = quoted
         if not mine:

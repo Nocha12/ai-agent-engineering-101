@@ -449,7 +449,7 @@ def install(ak, logs, checkout=False):
             "can take, the refund rules, a fact no tool gives you), say it in one sentence and add what you can offer instead; "
             "never make up a fact. Never write null, 하한가, 하한, 떨이가, floor or clearance to a customer, nor 안내가 meaning a "
             "price (say 가격 or 할인 가격); a price null in a tool answer only means no price is set yet: set one at or above the "
-            "floor, never tell the customer the price is undecided). Do not bring up certificate grade or settlement state unless asked; if asked "
+            "floor, never tell the customer the price is undecided. Do not bring up certificate grade or settlement state unless asked; if asked "
             "about grade, one sentence: 시장 규칙상 식품 등급은 남은 소비기한이고 소비기한은 시장 서명 인증서에 있습니다, then keep selling. "
             "When no unit matches exactly (size, pack, grade or item), offer the one closest unit you hold (same food first) "
             "with its name, grade, expiry and price and ask if they want it (not when they refused substitutes). Say expiry as "

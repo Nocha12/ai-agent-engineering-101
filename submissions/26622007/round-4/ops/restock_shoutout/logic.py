@@ -967,7 +967,7 @@ def _op(op, args, kit, s, now, w=None):
         if (sum(e.get('customer') == key for e in others) >= WAIT_PER_CUSTOMER
                 or (handle != key and (len(same) >= WAIT_PER_CONTACT or any(e.get('customer') != key for e in same)))):
             return {'ok': False, 'saved': False, 'error': 'waiting list cap',       # nobody is named over and over
-                    'say': '지금은 연락처를 더 적어 둘 수 없어요. 입고되면 다음에 들르실 때 가장 먼저 알려드릴게요.'}
+                    'say': '지금은 연락처를 더 적어 둘 수 없어요. 들어오면 다음에 들르실 때 먼저 알려 드릴게요.'}
         if handle != key:
             _forget_in_lost_deals(kit, key, handle)
         name = str(args.get('name') or sku)[:60]
@@ -975,7 +975,7 @@ def _op(op, args, kit, s, now, w=None):
             {'customer': key, 'sku': sku, 'name': name, 'contact': handle, 'ts': now, 'pending': None}]
         c['wants'].setdefault(sku, {'ts': now, 'name': name, 'qty': int(_num(args.get('qty'), 1)) or 1, 'price': None})
         return {'ok': True, 'saved': True, 'customer': key, 'sku': sku,
-                'say': f'네, 적어 두었어요. {_short(name)} 들어오면 가장 먼저 연락드릴게요. 남겨 주신 연락처는 입고 알림에만 써요.'}
+                'say': f'네, 적어 두었어요. {_short(name)} 들어오면 남겨 주신 포럼 이름으로 먼저 알려 드릴게요. 남겨 주신 이름은 입고 알림에만 써요.'}
 
     if op == 'bought':
         order = str(args.get('order') or '').strip()

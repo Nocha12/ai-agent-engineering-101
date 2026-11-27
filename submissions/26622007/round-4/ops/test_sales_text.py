@@ -91,8 +91,8 @@ class Replies(unittest.TestCase):
         self.assertTrue(m.ASK_CONTACT.startswith('지금은 이 물건이 없어요. 들어오면 먼저 알려 드릴게요.'))
         src = (HERE / 'restock_shoutout' / 'logic.py').read_text(encoding='utf-8')
         import re
-        says = re.findall(r"say='([^']*)'", src) + [m.ASK_CONTACT]
-        self.assertGreaterEqual(len(says), 3)
+        says = re.findall(r"(?:say=|'say': )f?'([^']*)'", src) + [m.ASK_CONTACT]
+        self.assertGreaterEqual(len(says), 6)
         for say in says:                                     # review s3 I1/M7: no restock promise, one voice
             for s in ('들여놓', '입고 때', '연락드릴게요', '재고가 없어요'):
                 self.assertNotIn(s, say)
@@ -102,8 +102,9 @@ class Replies(unittest.TestCase):
     def test_tool_notes_carry_no_banned_words(self):          # review s3 I3: tool text the model reads each call
         src = (HERE / 'tools_src' / 'check_item_inventory' / 'logic.py').read_text(encoding='utf-8')
         import re
-        notes = re.findall(r"CLEAR_NOTE = \('(.*?)'\)", src, re.S) + re.findall(r"'note(?:_price)?': '([^']*)'", src)
-        self.assertGreaterEqual(len(notes), 3)
+        notes = (re.findall(r"CLEAR_NOTE = \('(.*?)'\)", src, re.S) + re.findall(r"'note(?:_price)?': '([^']*)'", src)
+                 + re.findall(r"(?:set_note = |\['quote_kept_note'\] = )'([^']*)'", src))
+        self.assertGreaterEqual(len(notes), 5)
         for n in notes:
             for w in ('떨이가', '안내가', '하한가', 'null'):
                 self.assertNotIn(w, n)
