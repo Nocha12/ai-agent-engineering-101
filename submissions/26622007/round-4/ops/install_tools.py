@@ -54,7 +54,7 @@ TOOLS = {
          'identity': ['shop'], 'wallet': ['pay'], 'pay_limit': 5000000, 'timeout': 180}),
     'food_candidates': (
         '매입 후보 조회(읽기만). customer_asked_out_of_stock: 최근 24시간 손님이 찾았는데 재고 0이던 식품과 그에 맞는 카탈로그 SKU(buy_options, 시장 판매 많은 순). '
-        'candidates: 식품 카탈로그(식품 전체, 필수품 먼저; food_skus는 전체 식품 SKU 수). 공급 창이 열리면 customer_asked_out_of_stock의 SKU부터 buy_food_lot으로 삽니다. args 없음.',
+        'candidates: 식품 전체 food_skus개 가운데 앞부분(필수품 둘, 그 밖의 식품 하나씩; 목록에 없는 식품 SKU도 buy_food_lot으로 살 수 있음). 공급 창이 열리면 customer_asked_out_of_stock의 SKU부터 buy_food_lot으로 삽니다. args 없음.',
         {'network': [MARKET], 'identity': ['shop'], 'timeout': 20}),
     'write_shop_card': (
         '가게 카드를 정해진 이름·설명으로 작성하고 현재 재고의 모든 품목을 짧은 이름과 등급별 가격으로 표시합니다. '

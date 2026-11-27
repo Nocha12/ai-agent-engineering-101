@@ -566,10 +566,18 @@ def run(args, kit):
     for x in foods:
         text = str(x.get('name', '')) + ' ' + str(x.get('category', ''))
         p = x.get('list_price')
-        if not isinstance(p, (int, float)): continue        # no price: the market cannot quote it
+        if type(p) not in (int, float) or p <= 0: continue   # no price: the market cannot quote it (buy_food_lot refuses it too)
         out.append({'sku': x.get('sku'), 'name': x.get('name'), 'category': x.get('category'), 'list_price': p, 'shelf_hours': x.get('shelf_hours'), 'surge': str(x.get('sku')) in surge,
                     '_main': any(w in text for w in wanted) and p > 3000})
-    out.sort(key=lambda x: (x['surge'], not x['_main'], -x['list_price']))
+    # essentials as before (surge last, dearest first); every third row is another food, the market's best sellers first
+    sold = market_sold()
+    main = sorted((x for x in out if x['_main']), key=lambda x: (x['surge'], -x['list_price']))
+    rest = sorted((x for x in out if not x['_main']), key=lambda x: (x['surge'], -sold.get(x['sku'], 0), -x['list_price']))
+    mixed = []
+    while main or rest:
+        mixed += main[:2] + rest[:1]
+        main, rest = main[2:], rest[1:]
+    out = sorted(mixed, key=lambda x: x['surge'])           # stable: surge stays last
     n_food = len(out)
     for x in out:
         del x['_main']

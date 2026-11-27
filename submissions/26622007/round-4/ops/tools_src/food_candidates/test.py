@@ -44,6 +44,14 @@ def test(run, kit):
         CAT.append({'sku': 'G-tofu-cheap', 'kind': 'food', 'name': '국산콩 두부 300g', 'category': '식품>두부', 'list_price': 2500, 'shelf_hours': 120})
         assert 'G-tofu-cheap' in [x['sku'] for x in run({}, K())['candidates']]
         CAT.pop()
+        # with far more essentials than fit, other foods still show: every third row, market best sellers first
+        many = [{'sku': 'G-milk%d' % i, 'kind': 'food', 'name': '우유 1L %d' % i, 'category': '식품', 'list_price': 9000 + i} for i in range(200)]
+        CAT.extend(many)
+        g['market_sold'] = lambda path=None: {'G-flat': 9, 'G-ramen2': 5}
+        top = [x['sku'] for x in run({}, K())['candidates']]
+        assert top[:3] == ['G-egg', 'G-milk199', 'G-flat'] and 'G-mack' in top[:9], top[:9]
+        del CAT[-200:]
+        g['market_sold'] = lambda path=None: {'G-ramen2': 5}
         assert [x['surge'] for x in cands] == sorted(x['surge'] for x in cands), cands   # surge last
         asked = r['customer_asked_out_of_stock']
         assert isinstance(asked, list), asked
