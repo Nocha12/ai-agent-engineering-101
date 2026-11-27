@@ -1067,8 +1067,13 @@ def install(ak, logs, checkout=False):
             if not (isinstance(token, str) and SIGNED.fullmatch(token) and isinstance(order, str)
                     and ORDER.fullmatch(order) and type(at) is int):
                 return {'ok': False, 'error': 'invalid checkout metadata; do not automatically reissue'}
-            c = Checkout(order, token, at, grade_note(order, r.get('grade_evidence'), time.time()),
-                         *getattr(ev, 'checkout_held', ('', 0)))
+            previous_hold = getattr(ev, 'checkout_held', ('', 0))
+            substituted = r.get('substituted_hold')
+            if isinstance(substituted, dict):
+                old, until = substituted.get('unit'), substituted.get('until')
+                if isinstance(old, str) and HELD_UNIT.fullmatch(old) and held_kst(until):
+                    previous_hold = (old, until)
+            c = Checkout(order, token, at, grade_note(order, r.get('grade_evidence'), time.time()), *previous_hold)
             wallet_digest = urlsafe_b64encode(bytes.fromhex(c.digest)).decode().rstrip('=')
             if r.get('checkout_hash') != wallet_digest:
                 return {'ok': False, 'error': 'inconsistent checkout digest; do not automatically reissue'}

@@ -76,6 +76,8 @@ def test(run, kit):
         u2 = dict(unit, unit='u-t2', cert={'unit': 'u-t2', 'grade': 'B'})
         r2 = run(dict(a, order='o-t3', inquiry_task='t-other2', _inventory=dict(inv, units=[unit, u2])), kit)
         assert r2['ok'] and r2['payload']['unit'] == 'u-t2', r2                # held unit gives way to the same SKU/grade
+        assert r2['substituted_hold'] == {'unit': unit['unit'], 'until': held['held_until']}, r2
+        assert 'substituted_hold' not in r2['payload'] and r2['payload']['price'] == r['payload']['price'], r2
         u3 = dict(u2, unit='u-t3', grade='C', cert={'unit': 'u-t3', 'grade': 'C'}, cost=30000)
         u4 = dict(u2, unit='u-t4', cost=80000, cert={'unit': 'u-t4', 'grade': 'B'})       # same grade, floor above price
         u5 = dict(u2, unit='u-t5', sku='G9', cert={'unit': 'u-t5', 'grade': 'B'})         # other SKU: never offered

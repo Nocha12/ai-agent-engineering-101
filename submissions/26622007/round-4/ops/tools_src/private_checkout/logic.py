@@ -552,6 +552,7 @@ def create(args, kit):
         # 11/26 20:40 930158ae: a second unit of the same item 11 s later. Not refused (two 판 asked at once, a
         # checkout the customer never got, a unit switch all look the same here; review r1 I4/I5): issued, and the
         # answer says so, so the reply cancels one with checkout_cancel unless the customer asked for both
+    substituted_hold = None
     held = open_hold(kit, unit_id, order, now, holder, rows)
     if held and holder and held.get('holder') == holder:        # this inquiry has kept the unit for REISSUE_SPAN already
         return {'ok': False, 'code': 'reissue_wait', 'held_until': int(held['ts'] + HOLD),
@@ -569,6 +570,7 @@ def create(args, kit):
                              + ('alternatives의 단위를 그 하한가 이상으로 다시 제안할 수 있습니다' if alts
                                 else '같은 품목의 다른 재고는 없습니다. held_until 뒤 다시 확인합니다'),
                     'held_until': int(held['ts'] + HOLD), 'alternatives': alts, 'cheapest': alts[0] if alts else None}
+        substituted_hold = {'unit': unit_id, 'until': int(held['ts'] + HOLD)}
         u, unit_id = alt, alt.get('unit')
         cash = unit_cash(qs, u, now)                 # and so does the cash-out note
         try:                                         # the note follows the unit the checkout is for
@@ -591,6 +593,8 @@ def create(args, kit):
         return {'ok': False, 'error': '같은 결제서가 다른 문의에 나가 있습니다. 1초 뒤 다시 발급합니다'}
     ev = grade_evidence(u, unit_id, grade)
     evidence = {'grade_evidence': ev} if ev else {}
+    if substituted_hold is not None:
+        evidence['substituted_hold'] = substituted_hold   # reply metadata only, not a signed condition
     if not same:                                     # logged first: a failed create never sets the shown price (r2 M-6)
         _log(kit, {'event': 'issued', 'ts': int(now), 'order': order, 'unit': unit_id, 'sku': u.get('sku'), 'price': price,
               'grade': grade, 'warranty_hours': warranty, 'digest_hex': hx, 'holder': holder})
