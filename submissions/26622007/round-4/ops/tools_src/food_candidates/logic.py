@@ -1,10 +1,11 @@
 """food_candidates v2 (operator): the food catalog the shop restocks from, plus customer_asked_out_of_stock -
 foods customers asked for in the last LOOKBACK_H hours that we had none of (logs/lost_deals.jsonl, written by
 log_lost_deal and restock_shoutout), each matched to catalog food SKUs that buy_food_lot can buy.
-An ask whose first buy_options SKU (not 'near') we hold now in the size asked is not "stock 0": it goes to
-asked_but_held. A held 2nd / 3rd option may be another food, so that ask stays listed with held_maybe; a held SKU of
-another size / not a small pack when one was asked leaves it listed (that size is stock 0, notes 11/26) with
-held_not_fit (11/27: 흰우유 small-pack ask, we held the 3rd option 190ml x 18, bought 3 times, sold 0).
+Every buy_options SKU we hold now is shown on the ask, which always stays listed (a name match can be wrong, and a
+dropped ask is a buy not made: reviews 1-4): held = the first option, named as asked, in the size asked; held_maybe =
+a held option that may be another food (2nd / 3rd, near, name without the asked word); held_not_fit = a held SKU of
+another size / not a small pack when one was asked (that size is stock 0, notes 11/26). (11/27: 흰우유 small-pack ask
+stayed "stock 0" with no mark while we held the 3rd option 190ml x 18, bought 3 times, sold 0.)
 It only reads; it buys nothing and blocks nothing."""
 import json, math, re, time
 import httpx
@@ -271,7 +272,7 @@ def held_by_sku(inv, now):
     return out
 
 
-def asked_out_of_stock(lost, foods, held, now, sold=None, want_held=False):
+def asked_out_of_stock(lost, foods, held, now, sold=None):
     """Group recent out-of-stock asks by the item text (asks refusing substitutes apart) and attach the catalog food
     SKUs that match it best: matching letters minus letters glued on that the customer did not write ('생깻잎김치' for
     '생깻잎'); then a size the customer wrote; then fewer unmatched name words; [small amount asked: smaller known
@@ -467,31 +468,27 @@ def asked_out_of_stock(lost, foods, held, now, sold=None, want_held=False):
             seen[top] = e
         out.append(e)
     out.sort(key=lambda x: (-max(x['customers'], x.get('_both', 0)), -x['asks']))   # all who asked the item (r10 M2)
-    listed, held_out = [], []
+    listed = []
     for e in out:
         e.pop('_who', None)
         e.pop('_both', None)
         e['last_asked'] = time.strftime('%m-%d %H:%M', time.localtime(e.pop('_last')))
         fits, unfit = held_fit(e, by_sku, e.pop('_sizes', set()))
-        # only the first option, matched as the item (not 'near'), moves the ask out: a held 2nd / 3rd option may be
-        # another food (양념치킨 -> 닭볶음탕양념, 파 -> 양파: review 1 I1), so that ask stays listed, marked held_maybe
-        # the first option must also carry a word the customer wrote (양념치킨 is not '풀무원 저당소스 5종 (…양념치킨…)':
-        # review 2 I1), unless the customer asked that catalog SKU itself
+        # marks only, the ask stays listed whatever is held. held: the first option, not 'near', its name carrying the
+        # asked item (양념치킨 is not '풀무원 저당소스 5종 (…양념치킨…)') or the catalog SKU asked itself; any other held
+        # option may be another food (양념치킨 -> 닭볶음탕양념, 파 -> 양파): held_maybe
         first = (e.get('buy_options') or [{}])[0]
         iw, exact = e.pop('_iw', set()), e.pop('_exact', False)
         named = exact or _names_item(str((by_sku.get(first.get('sku')) or {}).get('name') or first.get('name') or ''), iw)
         moved = [h for h in fits if h['sku'] == first.get('sku') and not first.get('near') and named]
-        if moved:                                       # we hold what was asked: not stock 0 (sell it first)
+        if moved:                                       # we look to hold what was asked: sell it first
             e['held'] = moved
-            held_out.append(e)
-            continue
-        if fits:
-            e['held_maybe'] = fits
+        maybe = [h for h in fits if h not in moved]
+        if maybe:
+            e['held_maybe'] = maybe
         if unfit:                                       # we hold another size only: that size is still stock 0
             e['held_not_fit'] = unfit
         listed.append(e)
-    if want_held:
-        return listed[:MAX_GROUPS], held_out[:MAX_GROUPS]
     return listed[:MAX_GROUPS]
 
 
@@ -569,10 +566,8 @@ def run(args, kit):
         out.append({'sku': x.get('sku'), 'name': x.get('name'), 'category': x.get('category'), 'list_price': p, 'shelf_hours': x.get('shelf_hours'), 'surge': str(x.get('sku')) in surge})
     out.sort(key=lambda x: (x['surge'], -x['list_price']))
     inv = inv if isinstance(inv, dict) else {}
-    held_asks = []
     try:
-        asked, held_asks = asked_out_of_stock(read_lost(), foods, held_by_sku(inv, _clock()), _clock(), market_sold(),
-                                              want_held=True)
+        asked = asked_out_of_stock(read_lost(), foods, held_by_sku(inv, _clock()), _clock(), market_sold())
     except Exception as e:                              # a bad log line must not hide the catalog
         asked = {'error': type(e).__name__ + ': ' + str(e)[:120]}
     return fit({'balance': inv.get('balance'), 'restock': inv.get('restock'), 'surge_skus': sorted(surge),
@@ -586,10 +581,9 @@ def run(args, kit):
                      'held_not_fit: 그 SKU를 이미 갖고 있지만 손님이 찾은 규격이 아니다(not_small_pack: 소포장 아님, other_size: 다른 크기). '
                      '그 규격은 재고 0이니 같은 SKU 말고 buy_options에서 손님 규격에 가까운 다른 SKU를 고른다. '
                      'held_maybe: 갖고 있는 buy_options SKU가 손님이 찾은 식품인지 확실하지 않다(2·3번째, near, 이름에 손님 단어 없음). 맞으면 그 재고를 먼저 팔고, 아니면 위 기준대로 산다. '
-                     'asked_but_held: buy_options 1번째 SKU(held)를 손님 규격으로 지금 갖고 있어 재고 0이 아닌 문의. 그 재고를 먼저 판다. '
-                     'held가 손님이 찾은 식품이 아니면 buy_options에서 위 기준대로 산다. 매입 도구는 어느 경우에도 막히지 않는다.') % LOOKBACK_H,
+                     'held: 손님이 찾은 식품·규격으로 보이는 1번째 SKU를 지금 갖고 있다. 그 재고를 먼저 판다. '
+                     'held가 손님이 찾은 식품이 아니면 buy_options에서 위 기준대로 산다. 표시가 있어도 항목은 목록에 남고, 매입 도구는 어느 경우에도 막히지 않는다.') % LOOKBACK_H,
             'customer_asked_out_of_stock': asked,
-            'asked_but_held': held_asks,
             'candidates': out[:80]})
 
 
@@ -602,10 +596,6 @@ def fit(res, limit=FIT):
     while size() > limit and res.get('candidates'):
         res['candidates'] = res['candidates'][:len(res['candidates']) * 2 // 3]
         res['more_candidates'] = True
-    held = res.get('asked_but_held')
-    while size() > limit and isinstance(held, list) and held:   # already in stock: these go before the stock-0 asks
-        held.pop()
-        res['more_held'] = res.get('more_held', 0) + 1
     asked = res.get('customer_asked_out_of_stock')
     while size() > limit and isinstance(asked, list) and asked:
         asked.pop()

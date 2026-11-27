@@ -53,11 +53,14 @@ def test(run, kit):
         assert names['손질 고등어']['buy_options'][0]['sku'] == 'G-mack'
         flat_e = [x for x in asked if x['buy_options'][0]['sku'] == 'G-flat'][0]
         assert flat_e['asks'] == 2 and flat_e['customers'] == 1, flat_e        # blank customer not counted
-        # food we hold now, non-food, asks that were not about stock and asks older than LOOKBACK_H are left out
+        # non-food, asks that were not about stock and asks older than LOOKBACK_H are left out; food we hold now stays
+        # listed, marked held (it was dropped before 11/27: a wrong match then was a buy not made)
         flat = [o['sku'] for x in asked for o in x['buy_options']]
-        assert 'G-egg' not in flat and 'N-phone' not in flat, flat
+        assert 'N-phone' not in flat, flat
         assert not any('두부' in x['asked'] or '커피' in x['asked'] for x in asked)
-        assert all(x['buy_options'][0]['we_hold'] == 0 for x in asked)
+        egg = [x for x in asked if x['buy_options'][0]['sku'] == 'G-egg']
+        assert len(egg) == 1 and egg[0]['held'] == [{'sku': 'G-egg', 'pack': '20구', 'we_hold': 1}], egg
+        assert all(x['buy_options'][0]['we_hold'] == 0 for x in asked if x is not egg[0])
         assert r['inventory_ok'] is True
         # one SKU is listed once even when it is asked for in different words
         tops = [x['buy_options'][0]['sku'] for x in asked]
@@ -433,9 +436,9 @@ def _test_match_refuse_pack(g, K, now):
 
 def _test_held(g, K, now):
     """11/27: an ask stayed in customer_asked_out_of_stock ("재고 0") while we held its 3rd buy_options SKU (흰우유 ->
-    G22fcdb90, bought 3 times, sold 0). Only the first option held in the size asked moves the ask to asked_but_held;
-    a held 2nd / 3rd / near option keeps it listed with held_maybe (it may be another food, review 1 I1); another size
-    or a big pack for a small-pack ask keeps it listed with held_not_fit. Nothing is taken out of buy_options."""
+    G22fcdb90, bought 3 times, sold 0, no mark). Now every held option is marked on the ask and the ask always stays
+    listed (reviews 1-4: a dropped ask is a buy not made): held = the first option named and sized as asked;
+    held_maybe = may be another food; held_not_fit = another size / not a small pack. buy_options unchanged."""
     f = lambda sku, name: {'sku': sku, 'kind': 'food', 'name': name, 'category': '식품', 'list_price': 16980, 'shelf_hours': 96}
     MILK = [f('Ge0830546', '1.맛있는 우유 GT 흰우유 200mL x 24개'), f('G4c5ff4b9', '상하목장 유기농 우유 125ML 24팩'),
             f('G22fcdb90', '서울우유 한끼식사 190ml X 18개')]
@@ -460,19 +463,25 @@ def _test_held(g, K, now):
     def find(lst, sku):
         return [e for e in (lst or []) if any(o['sku'] == sku for o in e['buy_options'])]
 
+    def held_e(r, sku):                                  # the ask is listed and marked held by that SKU
+        return [e for e in find(r['customer_asked_out_of_stock'], sku) if any(h['sku'] == sku for h in e.get('held', []))]
+
+    def no_held(r):
+        return 'asked_but_held' not in r and not any(e.get('held') for e in r['customer_asked_out_of_stock'])
+
     MILK_ASK = row('769915ef', '흰우유 한 통 또는 소량 포장', '흰우유 한 통 또는 소량 포장 있나요? 18개입은 많을 것 같아서요')
     # 1) the 11/27 case first (a real regression test on the old code: it dropped nothing and marked nothing)
     r = ask([MILK_ASK], units(('G22fcdb90', 4, False)))
     e = find(r['customer_asked_out_of_stock'], 'G22fcdb90')
     assert len(e) == 1 and e[0].get('held_not_fit') == [{'sku': 'G22fcdb90', 'pack': '18개', 'we_hold': 4,
                                                          'why': 'not_small_pack'}], e
-    assert not r.get('asked_but_held'), r
+    assert no_held(r), r
     opts_held = [o['sku'] for o in e[0]['buy_options']]
     #    not held: listed, no marks, the same options
     r = ask([MILK_ASK], [])
     e = find(r['customer_asked_out_of_stock'], 'G22fcdb90')
     assert len(e) == 1 and e[0]['small_pack_asked'] and 'held_not_fit' not in e[0] and 'held_maybe' not in e[0], e
-    assert [o['sku'] for o in e[0]['buy_options']] == opts_held and r['asked_but_held'] == [], r
+    assert [o['sku'] for o in e[0]['buy_options']] == opts_held and no_held(r), r
     # 2) 양념치킨: a held 2nd / 3rd option may be another food (닭볶음탕양념 is a sauce): listed, held_maybe
     CH = row('c1', '양념치킨', '양념치킨 있나요')
     r = ask([CH], [])
@@ -482,26 +491,26 @@ def _test_held(g, K, now):
         r = ask([CH], units((sku, 4, False)))
         e = find(r['customer_asked_out_of_stock'], sku)
         assert len(e) == 1 and e[0]['held_maybe'] == [{'sku': sku, 'pack': e[0]['held_maybe'][0]['pack'], 'we_hold': 4}], (sku, r)
-        assert [o['sku'] for o in e[0]['buy_options']] == chk and r['asked_but_held'] == [], (sku, r)
+        assert [o['sku'] for o in e[0]['buy_options']] == chk and no_held(r), (sku, r)
     #    the first option held but another food (sauce; 양념치킨 only inside (..)): listed, held_maybe (review 2 I1)
     r = ask([CH], units(('Gc15c53f9', 2, False)))
     e = find(r['customer_asked_out_of_stock'], 'Gc15c53f9')
     assert len(e) == 1 and e[0]['held_maybe'] == [{'sku': 'Gc15c53f9', 'pack': '3개', 'we_hold': 2}], r
-    assert [o['sku'] for o in e[0]['buy_options']] == chk and not r['asked_but_held'], r
+    assert [o['sku'] for o in e[0]['buy_options']] == chk and no_held(r), r
     #    the first option held and named as asked: moved, options kept
     TOFU_ASK = row('t0', '두부', '두부 있나요')
     first_t = find(ask([TOFU_ASK], [])['customer_asked_out_of_stock'], 'G-tofu')[0]['buy_options']
     r = ask([TOFU_ASK], units((first_t[0]['sku'], 2, False)))
-    h = find(r['asked_but_held'], first_t[0]['sku'])
+    h = held_e(r, first_t[0]['sku'])
     assert len(h) == 1 and h[0]['held'][0]['we_hold'] == 2 and h[0]['asks'] == 1 and h[0]['last_asked'], r
     assert [o['sku'] for o in h[0]['buy_options']] == [o['sku'] for o in first_t], h
-    assert not find(r['customer_asked_out_of_stock'], first_t[0]['sku']), r
+    assert 'held_maybe' not in h[0] and 'held_not_fit' not in h[0], h
     #    spoiled units are not stock: listed
     r = ask([TOFU_ASK], units((first_t[0]['sku'], 4, True)))
-    assert find(r['customer_asked_out_of_stock'], first_t[0]['sku']) and r['asked_but_held'] == [], r
+    assert find(r['customer_asked_out_of_stock'], first_t[0]['sku']) and no_held(r), r
     #    an item we do not hold stays listed next to a held one
     r = ask([TOFU_ASK, MILK_ASK], units((first_t[0]['sku'], 1, False)))
-    assert find(r['customer_asked_out_of_stock'], 'G22fcdb90') and find(r['asked_but_held'], first_t[0]['sku']), r
+    assert find(r['customer_asked_out_of_stock'], 'G22fcdb90') and held_e(r, first_t[0]['sku']), r
     # 3) a 'near' first option held (파 -> 양파): listed with held_maybe
     ONION = [f('G-onion', '국내산 양파 1kg')]
     r = ask([row('p1', '파', '파 있나요')], [], ONION)
@@ -509,12 +518,12 @@ def _test_held(g, K, now):
     assert len(e) == 1 and e[0]['buy_options'][0].get('near'), r
     r = ask([row('p1', '파', '파 있나요')], units(('G-onion', 2, False)), ONION)
     e = find(r['customer_asked_out_of_stock'], 'G-onion')
-    assert len(e) == 1 and e[0]['held_maybe'] and not r['asked_but_held'], r
+    assert len(e) == 1 and e[0]['held_maybe'] and no_held(r), r
     # 4) small pack asked and the first option (300 g) held: moved
     r = ask([row('t1', '두부 소량', '두부 소량만 주세요')], [])
     assert find(r['customer_asked_out_of_stock'], 'G-tofu')[0]['buy_options'][0]['sku'] == 'G-tofu', r
     r = ask([row('t1', '두부 소량', '두부 소량만 주세요')], units(('G-tofu', 2, False)))
-    assert find(r['asked_but_held'], 'G-tofu') and not find(r['customer_asked_out_of_stock'], 'G-tofu'), r
+    assert held_e(r, 'G-tofu'), r
     # 5) a size written: '실큰두부 300g' asked, only the 500 g pack held -> other size: listed and marked
     SILK = [f('G-silk', '정식수입 사토노유키 실큰두부 300g 1팩'), f('G-silk5', '정식수입 사토노유키 실큰두부 500g')]
     S300 = row('t2', '실큰두부 300g', '실큰두부 300g 있나요')
@@ -522,21 +531,21 @@ def _test_held(g, K, now):
     assert [o['sku'] for o in find(r['customer_asked_out_of_stock'], 'G-silk')[0]['buy_options']] == ['G-silk', 'G-silk5'], r
     r = ask([S300], units(('G-silk5', 2, False)), SILK)
     e = find(r['customer_asked_out_of_stock'], 'G-silk5')
-    assert len(e) == 1 and not r['asked_but_held'], r
+    assert len(e) == 1 and no_held(r), r
     assert e[0]['held_not_fit'] == [{'sku': 'G-silk5', 'pack': '500g', 'we_hold': 2, 'why': 'other_size'}], e
     #    the size held as the first option: moved
     r = ask([S300], units(('G-silk', 1, False)), SILK)
-    assert find(r['asked_but_held'], 'G-silk') and not find(r['customer_asked_out_of_stock'], 'G-silk'), r
+    assert held_e(r, 'G-silk'), r
     #    '1팩' asked, only '300g×5팩' held as the first option: other size, listed (review 2 M1)
     YEON = [f('G-yeon', '[농협] 안동생명콩 국산콩 연두부 300g×5팩')]
     r = ask([row('y1', '연두부 300g 1팩', '연두부 300g 1팩 있나요')], units(('G-yeon', 2, False)), YEON)
     e = find(r['customer_asked_out_of_stock'], 'G-yeon')
-    assert len(e) == 1 and e[0]['held_not_fit'][0]['why'] == 'other_size' and not r['asked_but_held'], r
+    assert len(e) == 1 and e[0]['held_not_fit'][0]['why'] == 'other_size' and no_held(r), r
     #    how many is not a size ('2개' with no count on the name): the first option held -> moved (review 1 M3)
     T3 = row('t3', '실큰두부 2개', '실큰두부 2개 주세요')
     first3 = find(ask([T3], [], SILK)['customer_asked_out_of_stock'], 'G-silk')[0]['buy_options'][0]['sku']
     r = ask([T3], units((first3, 1, False)), SILK)
-    assert find(r['asked_but_held'], first3) and not find(r['customer_asked_out_of_stock'], first3), r
+    assert held_e(r, first3), r
     #    two asks of other sizes with the same first SKU merge into one entry: every size counts (300 g held, 500 g
     #    asked too -> listed, other_size)
     ONE = [f('G-silk', '정식수입 사토노유키 실큰두부 300g 1팩')]
@@ -545,9 +554,9 @@ def _test_held(g, K, now):
     assert len(merged) == 1 and merged[0]['asks'] == 2, merged
     r = ask(M, units(('G-silk', 1, False)), ONE)
     e = find(r['customer_asked_out_of_stock'], 'G-silk')
-    assert len(e) == 1 and e[0]['held_not_fit'][0]['why'] == 'other_size' and not r['asked_but_held'], r
+    assert len(e) == 1 and e[0]['held_not_fit'][0]['why'] == 'other_size' and no_held(r), r
     r = ask(M[:1], units(('G-silk', 1, False)), ONE)                  # the 300 g ask alone: moved
-    assert find(r['asked_but_held'], 'G-silk') and not find(r['customer_asked_out_of_stock'], 'G-silk'), r
+    assert held_e(r, 'G-silk'), r
     # 5b) review 3 I1: a brand / modifier / part of a name word is not the item: listed, held_maybe
     for ask_item, held_name in (('유기농 쌀', '유기농 현미 4kg'), ('서울우유 체다치즈', '서울우유 흰우유 1L'),
                                 ('국산콩 두부', '국산콩 두유 190ml 16팩'), ('매운 라면', '청양 매운 고추 500g'), ('우유', '우유식빵 400g')):
@@ -556,44 +565,36 @@ def _test_held(g, K, now):
         assert find(r['customer_asked_out_of_stock'], 'G-h'), (ask_item, r)
         r = ask([row('h1', ask_item, ask_item + ' 있나요')], units(('G-h', 1, False)), one)
         e = find(r['customer_asked_out_of_stock'], 'G-h')
-        assert len(e) == 1 and e[0]['held_maybe'] and not r['asked_but_held'], (ask_item, r)
+        assert len(e) == 1 and e[0]['held_maybe'] and no_held(r), (ask_item, r)
     #    the item word last in a name word, a one-letter staple too: moved (review 3 M1)
     #    (a one-letter staple whose name only ends with it is 'near' and stays held_maybe: 햅쌀 for 쌀)
     for ask_item, held_name in (('쌀', '2026년 백미 쌀 5kg'), ('파', '국내산 손질 파 1kg'), ('우유', '서울우유 흰우유 1L'),
                                 ('흰우유', '서울우유 흰우유 1L')):
         one = [f('G-h', held_name)]
         r = ask([row('h2', ask_item, ask_item + ' 있나요')], units(('G-h', 1, False)), one)
-        assert find(r['asked_but_held'], 'G-h') and not find(r['customer_asked_out_of_stock'], 'G-h'), (ask_item, r)
+        assert held_e(r, 'G-h'), (ask_item, r)
     #    '계란 10개' asked, '계란 30구' held: one count family, other size (review 3 M2)
     one = [f('G-egg', '무항생제 계란 30구')]
     r = ask([row('h3', '계란 10개', '계란 10개 있나요')], units(('G-egg', 1, False)), one)
     e = find(r['customer_asked_out_of_stock'], 'G-egg')
-    assert len(e) == 1 and e[0]['held_not_fit'][0]['why'] == 'other_size' and not r['asked_but_held'], r
+    assert len(e) == 1 and e[0]['held_not_fit'][0]['why'] == 'other_size' and no_held(r), r
     r = ask([row('h3', '계란 30개', '계란 30개 있나요')], units(('G-egg', 1, False)), one)
-    assert find(r['asked_but_held'], 'G-egg'), r
+    assert held_e(r, 'G-egg'), r
     #    a catalog SKU asked in other words ('생선' for G-flat): the SKU itself, moved (review 3 M3)
     r = ask([row('h4', '생선', '생선 있나요', sku='G-flat')], units(('G-flat', 1, False)))
-    assert find(r['asked_but_held'], 'G-flat') and not find(r['customer_asked_out_of_stock'], 'G-flat'), r
+    assert held_e(r, 'G-flat'), r
     # 6) a catalog SKU asked and held (the old first-option case): moved, was dropped before
     r = ask([row('e', '국내산 손질 두절 가자미 4미 1팩', '있나요', sku='G-flat')], units(('G-flat', 1, False)))
-    assert find(r['asked_but_held'], 'G-flat') and not find(r['customer_asked_out_of_stock'], 'G-flat'), r
+    assert held_e(r, 'G-flat'), r
     # 7) the amount by asks, inside the operator's 2~4 (buy_food_lot keeps its own 1~4)
     assert 'asks 1이면 2개, 2이면 3개, 3 이상이면 4개' in r['note'] and '매입 도구는 어느 경우에도 막히지 않는다' in r['note'], r['note']
-    # 7b) MAX_GROUPS on each list
+    # 7b) held asks stay listed: the most asked first, MAX_GROUPS as before, the same entries as with nothing held
     names = ['품목' + chr(0xAC00 + i * 600) + chr(0xAC00 + i * 7) for i in range(40)]
     cat = [f('G-q%d' % i, n + ' 1kg') for i, n in enumerate(names)]
     lost = [{'ts': now - 60, 'customer': 'y%d' % i, 'item': n, 'sku': 'G-q%d' % i, 'reason': '재고없음'} for i, n in enumerate(names)]
-    # (only the 2 x MAX_GROUPS most asked are matched, as before: a held one still takes a matching slot, as the old
-    # first-option drop did)
-    a2, h2 = g['asked_out_of_stock'](lost, cat, {'G-q%d' % i: 1 for i in range(10)}, now, {}, want_held=True)
-    assert len(a2) == g['MAX_GROUPS'] and len(h2) == 10, (len(a2), len(h2))
-    assert all(x['held'] for x in h2) and not any(x.get('held') for x in a2), (a2, h2)
-    a2, h2 = g['asked_out_of_stock'](lost, cat, {'G-q%d' % i: 1 for i in range(40)}, now, {}, want_held=True)
-    assert a2 == [] and len(h2) == g['MAX_GROUPS'], (len(a2), len(h2))
-    assert g['asked_out_of_stock'](lost, cat, {}, now, {}) == g['asked_out_of_stock'](lost, cat, {}, now, {}, want_held=True)[0]
-    # 8) the size cut: held asks go before the stock-0 asks
-    big = {'note': 'n', 'customer_asked_out_of_stock': [{'asked': ['쌀%d' % i], 'buy_options': [{'name': '가' * 200}]} for i in range(10)],
-           'asked_but_held': [{'asked': ['콩%d' % i], 'buy_options': [{'name': '나' * 200}]} for i in range(20)], 'candidates': []}
-    out = g['fit'](big)
-    assert len(g['json'].dumps(out, ensure_ascii=False)) <= 5900 and out['more_held'] > 0, out.keys()
-    assert len(out['customer_asked_out_of_stock']) == 10 and 'more_asked' not in out, out.keys()
+    a0 = g['asked_out_of_stock'](lost, cat, {}, now, {})
+    a2 = g['asked_out_of_stock'](lost, cat, {'G-q%d' % i: 1 for i in range(40)}, now, {})
+    assert len(a2) == g['MAX_GROUPS'] and all(x.get('held') for x in a2), len(a2)
+    assert [x['asked'] for x in a2] == [x['asked'] for x in a0], (a0, a2)
+    # 8) the result has no separate held list to cut
+    assert 'asked_but_held' not in r and 'more_held' not in r, list(r)
