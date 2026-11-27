@@ -147,7 +147,7 @@ class StaleSalesDataDoesNotStopAllowedBuys(unittest.TestCase):
 
     def food_candidates(self, sales_path):
         from runpy import run_path
-        g = run_path(str(HERE / 'tools_src/food_candidates/logic.py'))
+        g = run_path(str(HERE / 'tools_src/food_candidates/logic.py'))['run'].__globals__   # run_path returns a copy
         now = g['_clock']()
         cat = [{'sku': 'G-ramen', 'kind': 'food', 'name': '농심 신라면 120g 5개입', 'category': '식품>면>라면',
                 'list_price': 4500, 'shelf_hours': 400},
@@ -204,7 +204,7 @@ class StaleSalesDataDoesNotStopAllowedBuys(unittest.TestCase):
         cwd = os.getcwd()
         os.chdir(HERE.parent)                                    # buy_food_lot reads ops/price_ceiling.py from the round dir
         try:
-            g = run_path(str(HERE / 'tools_src/buy_food_lot/logic.py'))
+            g = run_path(str(HERE / 'tools_src/buy_food_lot/logic.py'))['break_even'].__globals__
             real_run_path = g['run_path']
             calls = []
 
@@ -215,7 +215,7 @@ class StaleSalesDataDoesNotStopAllowedBuys(unittest.TestCase):
             def run_path_stale(path, *a, **k):
                 mod = real_run_path(path, *a, **k)
                 if path.endswith('price_ceiling.py'):
-                    mod['_demand_module'] = stale_demand
+                    mod['quote'].__globals__['_demand_module'] = stale_demand
                 return mod
             g['run_path'] = run_path_stale
             pc = real_run_path(str(HERE / 'price_ceiling.py'))
