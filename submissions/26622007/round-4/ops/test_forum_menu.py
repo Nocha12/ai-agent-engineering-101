@@ -663,7 +663,7 @@ class Hook(unittest.TestCase):
         text = ast.literal_eval(fmt.value)               # the exact text added to ak.FORMAT
         self.assertIn('Checkout first', text)
         self.assertIn('create the checkout in this same reply at the shown price', text)
-        self.assertIn('Hold back only when the customer said not to issue yet', text)
+        self.assertIn('hold back only when the customer said not to issue yet', text)
 
     def test_thread_stops(self):
         with tempfile.TemporaryDirectory() as d:

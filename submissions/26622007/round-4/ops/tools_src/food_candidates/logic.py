@@ -490,7 +490,7 @@ def run(args, kit):
     return fit({'balance': inv.get('balance'), 'restock': inv.get('restock'), 'surge_skus': sorted(surge),
             'inventory_ok': isinstance(inv.get('units'), list),
             'note': ('customer_asked_out_of_stock: 최근 %dh 손님이 찾았는데 재고 0이었던 식품. 공급 창이 열리면 항목마다 '
-                     '첫 번째 buy_options SKU(손님이 쓴 이름과 가장 같은 것)를 buy_food_lot {sku, qty 2~4}로 먼저 산다. '
+                     'buy_options 1~3번째에서 손님이 쓴 것과 같은 식품(포장이 달라도 같은 식품, 쇼콜라≠콜라)을 골라 buy_food_lot {sku, qty 2~4}로 먼저 산다(셋 다 다르면 건너뜀). '
                      'small_pack_asked: true이면 pack/pack_size가 작은 것(크기를 아는 소포장)을 고른다. '
                      'buy_options가 빈 항목(substitutes_refused: 손님이 대체품 거부)은 사지 않는다. '
                      'near: true는 손님이 쓴 한 글자로 끝나는 다른 이름(양파 등)이니 이름을 보고 같은 것일 때만 산다.') % LOOKBACK_H,
