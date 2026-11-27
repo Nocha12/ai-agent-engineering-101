@@ -1053,7 +1053,9 @@ def install(ak, logs, checkout=False):
                 if type(payload.get('price')) is int and payload['price'] != q:
                     res['quote_note'] = (f'이 품목·등급 안내가는 {q:,}입니다. 이번 결제서는 합의한 {payload["price"]:,}로 냈고, '
                                          f'다음 안내는 {q:,}로 합니다')
-            res.update(issued_terms(payload, r.get('grade_evidence'), now))   # last: the notes above keep their place
+            # last: the notes above keep their place. The expiry only when the reply's data part carries the certificate
+            # line (grade_note checked it; review 1 M1), so the model is never told of a signed time the customer cannot see
+            res.update(issued_terms(payload, r.get('grade_evidence') if kept.note else None, now))
             return {'ok': True, 'result': res}
         out = call(self, name, args)
         if name == 'check_item_inventory':

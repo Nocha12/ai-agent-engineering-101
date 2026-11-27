@@ -102,8 +102,8 @@ class Tools(ak.Toolbox):
         dup = {'duplicate_of': holder} if str(args.get('order')).endswith('-2') else {}
         return {'ok': True, 'result': {'ok': True, 'order': args.get('order'), 'checkout_jwt': tok, **dup,
                                        'payload': {'iat': int(time.time()), 'price': 5000}, 'quote': 5000,
-                                       'grade_evidence': {'unit': 'u-f5a2635c268b', 'claim': 'A', 'supplied_at': int(time.time()) - 3600,
-                                                          'expires_at': int(time.time()) + 30 * 3600},
+                                       **({} if dup else {'grade_evidence': {'unit': 'u-f5a2635c268b', 'claim': 'A', 'supplied_at':
+                                           int(time.time()) - 3600, 'expires_at': int(time.time()) + 30 * 3600}}),
                                        'checkout_hash': base64.urlsafe_b64encode(dg).decode().rstrip('=')}}
 
 
@@ -181,6 +181,8 @@ def main():
         ask(mind, 'unit U6 두 번 task t-dup twice', 't-dup', o4)
         got = SEEN['t-dup']
         assert '"duplicate_of": "t-dup"' in got[1] and 'checkout_cancel' in got[1] and 't-dup-2' in got[1], got[1]
+        # review 1 M1: no certificate line in the data part (no grade_evidence) -> the price only, no signed expiry
+        assert '"price": 5000' in got[1] and '"until"' not in got[1] and '소비기한' not in got[1].split('reply_note')[-1][:60], got[1]
         print('parallel checkout ok', out['t-a'][1], '/', out['t-b'][1])
 
 

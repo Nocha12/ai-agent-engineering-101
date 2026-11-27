@@ -149,6 +149,10 @@ class Until(unittest.TestCase):
         ea = 1795771679                                              # 11/27 18:27:59 KST
         self.assertEqual(lg.until({'expires_at': ea}), '11/27 18:27 KST')
         self.assertEqual(lg.until({'expires_at': float(ea)}), '11/27 18:27 KST')
+        cert = {'unit': 'u-1', 'cert': {'unit': 'u-1', 'kind': 'food', 'grade': None, 'expires_at': ea}}
+        self.assertEqual(lg.until({'unit': 'u-1', 'expires_at': ea + 3600, 'cert': cert}), '11/27 18:27 KST')   # signed one first
+        other = {'cert': {'unit': 'u-9', 'expires_at': ea}}
+        self.assertEqual(lg.until({'unit': 'u-1', 'expires_at': ea + 3600, 'cert': other}), '11/27 19:27 KST')  # not this unit's
         for u in ({}, {'expires_at': 0}, {'expires_at': True}, {'expires_at': '1795771679'}):
             self.assertIsNone(lg.until(u))
         import checkout_delivery as cd                               # the same minute the signed data line shows
