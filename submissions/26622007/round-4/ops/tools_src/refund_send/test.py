@@ -34,6 +34,25 @@ def test(run, kit):
                                 'amount': 250000, 'value_credits': 250000}) + '\n')
         assert '송금 한도' in run({'order': 't-o5', '_rpc': {'eth_getTransactionByHash': big}}, kit)['error']
         assert not os.path.exists(FILES[2])                              # refused before any intent line
+        # owed (balance-diff-rca-1127, review r1 I2): stage 3 reads the ledger again before it pays
+        otx = '0x' + 'c' * 64
+        owed = {'kind': 'paid_unsettled', 'id': 'owed-' + otx, 'tx_hash': otx, 'amount': 9690.0, 'payer': payer,
+                'checkout_order': 't-o6', 'order': 'o-m6', 'counterparty': '손님', 'ts': now - 100}
+        with open(FILES[0], 'a') as f:
+            f.write(json.dumps({'stage': 1, 'order': 't-o6', 'ts': now, 'kind': 'owed', 'tx_hash': otx, 'amount': 9690,
+                                'payer': payer, 'checkout_order': 't-o6', 'market_order': 'o-m6'}) + '\n')
+            f.write(json.dumps({'stage': 2, 'order': 't-o6', 'ts': now, 'kind': 'owed', 'tx_hash': otx, 'to': payer,
+                                'amount': 9690, 'value_credits': 9690}) + '\n')
+        a = {'order': 't-o6', '_rpc': {'eth_getTransactionByHash': paid}}
+        r = run(dict(a, _payments=[owed]), kit)
+        assert r.get('would_send') == {'to': payer, 'amount': 9690}, r
+        assert '장부' in run(dict(a, _payments=[]), kit)['error']                                   # the owed line is gone
+        sold = {'kind': 'sale', 'id': 'sale-o-m6', 'tx_hash': otx}
+        assert '장부' in run(dict(a, _payments=[owed, sold]), kit)['error']                         # settled later
+        for line in ({'kind': 'refund', 'order': 'o-m6', 'ts': now}, {'kind': 'refund', 'order': None, 'orders_of_payer': ['t-o6']},
+                     {'kind': 'transfer_out', 'counterparty': '손님', 'ts': now}):
+            assert '장부' in run(dict(a, _payments=[owed, line]), kit)['error'], line                # paid back by hand
+        assert not os.path.exists(FILES[2])                              # refused before any intent line
         with open(FILES[2], 'w') as f:
             f.write(json.dumps({'purpose': 'refund', 'order': 't-o1', 'nonce': 3}) + '\n')
         assert '불확실' in run({'order': 't-o1', '_rpc': {'eth_getTransactionByHash': paid}}, kit)['error']

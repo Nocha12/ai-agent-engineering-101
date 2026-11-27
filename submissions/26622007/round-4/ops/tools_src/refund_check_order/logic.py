@@ -10,6 +10,7 @@ The amount is the shop's net receipt (REFUND_BASIS): what reached our wallet, se
 Stage 2 (refund_check_payer) reads the payer from the chain; stage 3 (refund_send) pays once.
 """
 import json
+import math
 import re
 import time
 import urllib.error
@@ -58,7 +59,8 @@ def refund_amount(amount, shop_fee):
 def already(kit, order, paid_tx=None):
     """A refund line (sent or only intended) for this order, or for the same payment under another order id."""
     for r in _lines(_p(kit, 'logs/refunds.jsonl')) + _lines(_p(kit, 'logs/sends.jsonl')):
-        if r.get('purpose') == 'refund' and (str(r.get('order')) == order or (paid_tx and r.get('paid_tx') == paid_tx)):
+        if r.get('purpose') == 'refund' and (str(r.get('order')) == order or
+                                             (paid_tx and str(r.get('paid_tx') or '').lower() == str(paid_tx).lower())):
             return r
     return None
 
@@ -105,6 +107,25 @@ def from_public(kit, args, order):
     return settle, broken
 
 
+def paid_back(pay, e, keys):
+    """A ledger outflow that may already be this refund (review r1 I1): a refund or transfer_out naming one of the
+    owed line's orders (order, said_order, orders_of_payer), or one to the same payer after the payment. A refund
+    sent by hand to a payer with two orders is written with order None, and one sent before the owed line existed as
+    transfer_out; neither has a paid_tx in refunds.jsonl. refund_send runs the same check again before it pays."""
+    who = {str(e.get(k) or '').lower() for k in ('payer', 'counterparty')} - {''}
+    t0 = e.get('ts') if type(e.get('ts')) in (int, float) else 0
+    for x in pay:
+        if x.get('kind') not in ('refund', 'transfer_out'):
+            continue
+        named = x.get('orders_of_payer') if isinstance(x.get('orders_of_payer'), list) else []
+        if str(x.get('order')) in keys or str(x.get('said_order')) in keys or keys & {str(o) for o in named}:
+            return x
+        ts = x.get('ts')
+        if str(x.get('counterparty') or '').lower() in who and (type(ts) not in (int, float) or ts >= t0):
+            return x
+    return None
+
+
 def owed_plan(kit, args, order, log):
     """balance-diff-rca-1127 (11/27 13,126): the buyer's kit paid the shop share, its market-fee transfer failed, and it
     never called /api/settle, so there is no settle and no unsettled record; only payment_ledger's owed-<tx> line.
@@ -131,12 +152,15 @@ def owed_plan(kit, args, order, log):
             continue
         if str(x.get('tx_hash') or '').lower() == tx or str(x.get('corrected_tx') or '').lower() == tx:
             return None, '이 결제는 장부에서 판매·지급으로 바뀌었습니다. 환불 대상이 아닙니다'
-        if x.get('kind') == 'refund' and (str(x.get('order')) in keys or str(x.get('said_order')) in keys):
-            return None, '이 결제는 이미 장부에 환불 기록이 있습니다(결제당 1회)'
+    if paid_back(pay, e, keys):
+        return None, '이 결제는 이미 장부에 환불(또는 그 손님에게 보낸 송금) 기록이 있습니다. 사람이 확인해야 합니다'
     sales = _lines('logs/sales.jsonl') if not kit.testing else args.get('_sales') or []
     if any(str(s.get('tx_hash') or '').lower() == tx or str(s.get('order')) in keys for s in sales) or \
             any(r.get('event') == 'settled' and str(r.get('order')) in keys for r in log):
         return None, '이 결제는 정산된 판매에 쓰였습니다. 미정산 입금 환불 대상이 아닙니다'
+    if any(r.get('event') == 'unsettled' and (str(r.get('order')) in keys or str(r.get('tx_hash') or '').lower() == tx)
+           for r in log):
+        return None, '이 결제는 정산 실패 기록이 있습니다. 결제서 주문 번호(' + (str(e.get('checkout_order')) or '?') + ')로 다시 확인합니다'
     for k in keys:
         if already(kit, k, tx):
             return None, '이 결제는 이미 환불 기록이 있습니다(결제당 1회)'
@@ -153,6 +177,8 @@ def owed_plan(kit, args, order, log):
     price, fee, amount = _num(c.get('price')), _num(c.get('shop_fee')), _num(e.get('amount'))
     if price is not None and fee is None:
         fee = int(price) // 100 + 210              # the market's shop fee, as for a settle without shop_fee
+    if any(v is not None and not math.isfinite(v) for v in (price, fee, amount)):
+        return None, '장부 미정산 입금 금액이나 결제서 금액이 숫자가 아닙니다'
     if price is None or amount is None or amount <= 0 or amount != int(amount) or int(amount) != price - fee:
         return None, '장부 미정산 입금 금액이 결제서 금액(가격 - 판매 수수료)과 다릅니다'
     payer = str(e.get('payer') or '').lower()

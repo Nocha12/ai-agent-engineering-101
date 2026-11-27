@@ -58,6 +58,24 @@ def test(run, kit):
         assert '결제서' in run({'order': 'ck-1', '_payments': [owed]}, kit)['error']                    # no checkout of ours
         assert not run(dict(base, order='ck-1', _payments=[owed, dict(owed, id='owed-0x' + 'd' * 64, tx_hash='0x' + 'd' * 64)]), kit)['ok']
         assert not run(dict(base, order='ck-1', _checkouts=[issued, dict(issued, order='ck-9')]), kit)['ok']   # one digest, two orders
+        # review r1 I1: a refund the ledger wrote with no single order, or as a transfer_out, to this payer after the payment
+        owed_t = dict(owed, ts=1000, counterparty='김상용-d1c2')
+        for line in ({'kind': 'refund', 'order': None, 'orders_of_payer': ['o-m1', 'o-z'], 'counterparty': 'x', 'ts': 900},
+                     {'kind': 'refund', 'order': None, 'counterparty': '김상용-d1c2', 'ts': 2000},
+                     {'kind': 'transfer_out', 'id': 'out-0x1', 'counterparty': payer, 'ts': 2000}):
+            assert '환불' in run(dict(base, order='ck-1', _payments=[owed_t, line]), kit)['error'], line
+        before = {'kind': 'transfer_out', 'id': 'out-0x1', 'counterparty': '김상용-d1c2', 'ts': 900}
+        assert run(dict(base, order='ck-1', _payments=[owed_t, before]), kit)['ok']        # sent before it paid us
+        # review r1 M2: an unsettled record for the same payment goes the unsettled way (by our checkout id)
+        assert '정산 실패' in run(dict(base, order='o-m1', _checkouts=[issued, {'event': 'unsettled', 'order': 'ck-1', 'tx_hash': otx,
+                                  'digest_hex': 'cd' * 32}]), kit)['error']
+        # review r1 M3: a non-finite amount is a refusal, not a crash
+        assert '금액' in run(dict(base, order='ck-1', _payments=[dict(owed, amount=float('nan'))]), kit)['error']
+        assert '금액' in run(dict(base, order='ck-1', _payments=[dict(owed, amount=float('inf'))]), kit)['error']
+        # review r1 M1: refunds.jsonl paid_tx compared without case
+        with open('logs/refunds.test.jsonl', 'w') as f:
+            f.write('{"purpose":"refund","order":"other","paid_tx":"%s"}\n' % otx.upper().replace('0X', '0x'))
+        assert '이미' in run(dict(base, order='ck-1'), kit)['error']
         with open('logs/refunds.test.jsonl', 'w') as f:
             f.write('{"purpose":"refund","order":"other","paid_tx":"%s"}\n' % otx)
         assert '이미' in run(dict(base, order='ck-1'), kit)['error']                                   # refunds.jsonl, same payment

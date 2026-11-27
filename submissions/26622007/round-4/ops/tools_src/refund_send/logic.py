@@ -51,6 +51,31 @@ def _write(kit, line):
             f.write(json.dumps(line, separators=(',', ':')) + '\n')
 
 
+def owed_changed(kit, args, p1):
+    """balance-diff-rca-1127, review r1 I2: for an owed plan, read logs/payments.jsonl again just before paying. Refuse
+    unless the owed-<tx> line is still the only line on that payment and no refund or transfer_out names its orders
+    or went to the same payer after the payment (a hand refund, or a sale the ledger wrote since stage 1)."""
+    pay = _lines('logs/payments.jsonl') if not kit.testing else args.get('_payments') or []
+    tx = str(p1.get('tx_hash') or '').lower()
+    on_tx = [e for e in pay if tx and tx in (str(e.get('tx_hash') or '').lower(), str(e.get('corrected_tx') or '').lower())]
+    if len(on_tx) != 1 or on_tx[0].get('kind') != 'paid_unsettled' or on_tx[0].get('held_order'):
+        return True
+    e = on_tx[0]
+    keys = {str(k) for k in (e.get('checkout_order'), e.get('order'), p1.get('checkout_order'), p1.get('market_order')) if k}
+    who = {str(e.get(k) or '').lower() for k in ('payer', 'counterparty')} - {''}
+    t0 = e.get('ts') if type(e.get('ts')) in (int, float) else 0
+    for x in pay:
+        if x.get('kind') not in ('refund', 'transfer_out'):
+            continue
+        named = x.get('orders_of_payer') if isinstance(x.get('orders_of_payer'), list) else []
+        if str(x.get('order')) in keys or str(x.get('said_order')) in keys or keys & {str(o) for o in named}:
+            return True
+        ts = x.get('ts')
+        if str(x.get('counterparty') or '').lower() in who and (type(ts) not in (int, float) or ts >= t0):
+            return True
+    return False
+
+
 def run(args, kit):
     order = str(args.get('order') or '').strip()
     now = time.time()
@@ -68,6 +93,8 @@ def run(args, kit):
     if p1.get('kind') != 'settled' and any(str(s.get('order')) == order or (p1.get('tx_hash') and s.get('tx_hash') == p1.get('tx_hash'))
                                           for s in _lines(_p(kit, 'logs/sales.jsonl'))):
         return {'ok': False, 'error': '1·2단계 뒤에 이 주문이 정산됐습니다(sales.jsonl). 미정산 환불은 하지 않습니다. 1단계부터 다시 합니다'}
+    if p1.get('kind') == 'owed' and owed_changed(kit, args, p1):
+        return {'ok': False, 'error': '1·2단계 뒤에 장부가 바뀌었습니다(미정산 입금 줄이 없거나 판매·환불·송금 기록이 생김). 환불하지 않고 1단계부터 다시 합니다'}
     amount, to = p2.get('amount'), str(p2.get('to') or '')
     if type(amount) is not int or amount <= 0:
         return {'ok': False, 'error': '환불 금액이 올바르지 않습니다'}
