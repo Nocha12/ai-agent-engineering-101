@@ -87,8 +87,9 @@ def attach_data(result, attached, cancelled=()):
     grade line never reached it, and a customer that copies an ~850-character token by hand can change it ("not
     signed by this shop's wallet"); the data part is read whole and buy uses it when the customer names no token.
     Each entry is {checkout_jwt, order} plus item, price, claim and unit read from the same signed payload, so a
-    customer with several can tell them apart. A checkout reply that attaches none (all cancelled or past their hold)
-    carries {checkouts: [], cancelled: [...]} instead, so the customer's last data no longer holds an old token.
+    customer with several can tell them apart. A reply that attaches none (all cancelled or past their hold, or any
+    other answer: agent_kit_records send_marked) carries {checkouts: [], cancelled: [...]} instead, so the customer's
+    last data no longer holds an old token.
     The same signed originals as in the text; nothing else changes. Returns the number of checkouts attached."""
     if not isinstance(result, dict):
         return 0

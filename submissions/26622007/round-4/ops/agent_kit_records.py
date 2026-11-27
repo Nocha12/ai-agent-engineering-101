@@ -524,13 +524,50 @@ def install(ak, logs, checkout=False):
                     return await self.app(scope, receive, send)
                 http = {}
                 previous = http_request.set(http)
-                start = None
+                start, planned = None, False
+
+                def json_body(event):
+                    return any(k.lower() == b'content-type' and v.split(b';')[0].strip().lower() == b'application/json'
+                               for k, v in event.get('headers') or ())
+
+                async def send_marked(header, event):
+                    # 11/27 sig-reject RCA: every other JSON answer that is a task with a status message carries a data
+                    # part without a token ({checkouts: [], cancelled: []}). The customer tool (house/customer.py talk)
+                    # keeps the last reply that had data and buy({agent}) pays the first checkout_jwt in it, so without
+                    # this an old checkout would stay payable after a plain reply. Errors, streams and other shapes pass.
+                    marked = None
+                    if event['type'] == 'http.response.body' and not event.get('more_body', False):
+                        try:
+                            response = json.loads(event['body'])
+                            envelope = response.get('result') if isinstance(response, dict) else None
+                            result = envelope.get('task', envelope) if isinstance(envelope, dict) else None
+                            if (isinstance(result, dict) and result.get('id') and isinstance(result.get('status'), dict)
+                                    and isinstance(result['status'].get('message'), dict)):
+                                attach_data(result, ())
+                                raw = json.dumps(response, ensure_ascii=False, separators=(',', ':')).encode()
+                                headers = [(k, v) for k, v in header['headers']
+                                           if k.lower() not in (b'content-length', b'etag')]
+                                headers.append((b'content-length', str(len(raw)).encode()))
+                                header = dict(header, headers=headers)
+                                event = dict(event, body=raw)
+                                marked = (result['id'], result['status']['message'].get('messageId'))
+                        except (TypeError, ValueError, KeyError, AttributeError):
+                            marked = None       # the SDK answer as it was
+                    await send(header)
+                    await send(event)
+                    if marked:
+                        write('checkout-sends.jsonl', {'kind': 'data_marker', 'task': marked[0], 'status_message_id': marked[1]})
 
                 async def send_response(event):
-                    nonlocal start
-                    if event['type'] == 'http.response.start' and http.get('answer') and event['status'] == 200:
+                    nonlocal start, planned
+                    if (event['type'] == 'http.response.start' and event['status'] == 200
+                            and (http.get('answer') or json_body(event))):
                         # The pinned SDK returns a single JSONResponse, not a stream.
-                        start = event
+                        start, planned = event, bool(http.get('answer'))
+                        return
+                    if start is not None and not planned:
+                        header, start = start, None
+                        await send_marked(header, event)
                         return
                     if start is not None:
                         header, start = start, None

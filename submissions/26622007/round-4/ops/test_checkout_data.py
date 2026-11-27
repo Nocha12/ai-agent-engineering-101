@@ -1,4 +1,4 @@
-"""11/27 06:40 check: every attached checkout also goes out whole as an A2A data part (customer text cut at 2,000)."""
+"""11/27 06:40 check / 10:1x sig-reject RCA: every attached checkout also goes out whole as an A2A data part."""
 import json
 import os
 import sys
@@ -34,16 +34,26 @@ class AttachData(unittest.TestCase):
         return {'id': 't', 'status': {'state': 'TASK_STATE_INPUT_REQUIRED',
                                       'message': {'messageId': 'm', 'parts': [{'text': text}]}}}
 
-    def test_two_checkouts_both_reach_the_customer_whole(self):
-        note = '등급 근거 ' + 'x' * 540
-        issued = [cd.Checkout('o1', T1, NOW, note), cd.Checkout('o2', T2, NOW, note)]
-        body, attached = cd.compose('두 가지 결제서입니다.', issued, set(), NOW + 1)
+    def test_checkout_reaches_the_customer_whole(self):
+        """Since 11/27 sales 2/3 a reply carries one checkout (compose raises on two); it goes out whole in data."""
+        note = '등급 근거 ' + 'x' * 100
+        issued = [cd.Checkout('o1', T1, NOW, note)]
+        body, attached = cd.compose('배추김치 결제서입니다.', issued, set(), NOW + 1)
         r = self.result(body)
-        self.assertEqual(cd.attach_data(r, attached), 2)
+        self.assertEqual(cd.attach_data(r, attached), 1)
         said, data = customer_view(json.loads(json.dumps(r)))
-        self.assertNotIn(T2, said)                       # the text cut hides the second token (the old loss) ...
-        self.assertEqual(data, [dict(F1, checkout_jwt=T1, order='o1'), dict(F2, checkout_jwt=T2, order='o2')])  # ... both
+        self.assertIn(T1, said)                                              # the text keeps it (dual path)
+        self.assertEqual(data, [dict(F1, checkout_jwt=T1, order='o1')])
         self.assertEqual(r['status']['message']['parts'][0]['text'], body)   # text unchanged
+        with self.assertRaises(ValueError):                                  # two a reply stays refused
+            cd.compose('두 가지', issued + [cd.Checkout('o2', T2, NOW, note)], set(), NOW + 1)
+
+    def test_plain_marker(self):
+        """agent_kit_records send_marked: any other answer gets a token-free marker that replaces last_data."""
+        r = self.result('안녕하세요')
+        self.assertEqual(cd.attach_data(r, ()), 0)
+        _, data = customer_view(r)
+        self.assertEqual(data, [{'checkouts': [], 'cancelled': []}])
 
     def test_existing_artifacts_kept(self):
         r = self.result('안녕하세요')
