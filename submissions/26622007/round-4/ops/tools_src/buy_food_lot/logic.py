@@ -10,8 +10,12 @@ logs/supply-pending.jsonl, written before the step it covers, latest row per quo
   unconfirmed  right after kit.pay returned (tx_hash), before the confirm; again after a failed confirm
   confirmed    the market handed the lot over (2xx; 409 'already paid for'; or after a 404 the lot is found in our
                inventory or the public ledger by unit ID / tx_hash)
-  failed       the transfer was reverted on chain (no money moved): not blocking
+  failed       the transfer was reverted on chain (no money moved): not blocking; or kit.pay gave a tx that is not
+               ours (foreign_tx) while our nonce stayed the intent's (latest = pending): nothing of ours went out
   resolved     written by the operator after checking the chain by hand
+The tx kit.pay gives is read on chain (11/28 02:42: the RPC gave another wallet's tx and the quote stayed open):
+from = the shop wallet, to = pay.to, value = wei. Not ours and our nonce moved or cannot be read: the row stays
+'paying' (foreign_tx noted, no tx_hash) - outcome uncertain, the operator checks. The chain cannot say: as before.
 When the wallet gave no tx (outcome unknown), {confirm: <quote>, tx_hash: <0x...>} confirms with the tx the operator
 found (agent-kit.log '[maroo] buy_food_lot sent ... tx/0x...'); the market itself checks that tx pays the quote.
 A quote in 'paying' or 'unconfirmed' blocks every new purchase until args {confirm: <quote>} confirms it (the market
@@ -77,10 +81,57 @@ def has_surge(obj, sku):
     return False
 
 
-def rpc(method, params):
-    r = httpx.post(RPC, json={'jsonrpc': '2.0', 'id': 1, 'method': method, 'params': params}, timeout=20); r.raise_for_status(); j = r.json()
+def rpc(method, params, timeout=20):
+    r = httpx.post(RPC, json={'jsonrpc': '2.0', 'id': 1, 'method': method, 'params': params}, timeout=timeout); r.raise_for_status(); j = r.json()
     if j.get('error') or 'result' not in j: raise RuntimeError('RPC failed')
     return j['result']
+
+
+FOREIGN_NOTE = 'rpc returned a foreign tx; no credits moved'
+
+
+def whose_tx(kit, txid, to, wei):
+    """'ours' (from the shop wallet to pay.to for wei), 'foreign' (another sender), 'other' (from us, not this
+    payment) or None when the chain cannot say (lookup failed twice or no such tx yet)."""
+    tx = None
+    for i in range(2):
+        try:
+            tx = rpc('eth_getTransactionByHash', [txid], 10)
+        except Exception:
+            tx = None
+        if isinstance(tx, dict) or i: break
+        _sleep(2)
+    if not isinstance(tx, dict) or not tx.get('from'): return None
+    if str(tx['from']).lower() != str(kit.address('shop')).lower(): return 'foreign'
+    try:
+        value = int(str(tx.get('value') or '0x0'), 16)
+    except ValueError:
+        return 'other'
+    return 'ours' if str(tx.get('to') or '').lower() == str(to).lower() and value == wei else 'other'
+
+
+def not_ours(kit, qid, txid, nonce, who):
+    """kit.pay gave a tx that is not this payment. Our nonce still the intent's (latest = pending): nothing of ours
+    went out, 'failed'. Else (moved, unreadable, or a tx of ours to someone else): the 'paying' row stays open."""
+    try:
+        now = [int(rpc('eth_getTransactionCount', [kit.address('shop'), t], 10), 16) for t in ('latest', 'pending')]
+    except Exception:
+        now = None
+    row = {'quote': qid, 'foreign_tx': txid, 'nonce': nonce, 'nonce_now': now}
+    if who == 'foreign' and now == [nonce, nonce]:
+        row.update(state='failed', note=FOREIGN_NOTE)
+        out = {'ok': False, 'quote': qid, 'foreign_tx': txid, 'error': 'the wallet RPC gave a tx that is not ours and our '
+               'nonce did not move: no credits moved. Nothing to confirm; ask for a new quote and buy again'}
+    else:
+        row.update(state='paying', note='rpc gave a tx that is not this payment; our nonce moved or is unreadable')
+        print('WARNING buy_food_lot: payment outcome uncertain for quote', qid, '(the wallet gave a tx that is not ours)')
+        out = {'ok': False, 'quote': qid, 'foreign_tx': txid, 'error': 'payment outcome uncertain: the wallet gave a tx '
+               'that is not this payment and our nonce moved or cannot be read; new purchases are blocked until checked'}
+    try:
+        append(pending_path(kit), row)
+    except Exception as e:                      # no row: the paying row stays open, which blocks (safe side)
+        print('WARNING buy_food_lot: could not write', pending_path(kit), type(e).__name__)
+    return out
 
 
 def _test_files(kit):
@@ -290,7 +341,8 @@ def run(args, kit):
         qid = str(quote['quote'])
         seen = latest(pending_path(kit)).get(qid)
         if seen:                                # the market can hand the same quote out again: never pay a quote twice
-            why = {'failed': 'its transfer was reverted; the market gives a new quote about 2 minutes after this one',
+            why = {'failed': ('no credits moved (the wallet gave a foreign tx)' if seen.get('foreign_tx') else
+                              'its transfer was reverted') + '; the market gives a new quote about 2 minutes after this one',
                    'confirmed': 'it is already ours', 'resolved': 'the operator closed it'}.get(seen.get('state'),
                                                                                           'call buy_food_lot {confirm: quote}')
             return {'ok': False, 'error': 'this quote was already paid or tried: ' + why, 'quote': qid}
@@ -305,6 +357,9 @@ def run(args, kit):
         except Exception as e:
             found = TX.findall(str(e))
             if found and 'failed on chain' in str(e):     # reverted: no credits moved, nothing to confirm
+                who = whose_tx(kit, found[0], pay['to'], wei)
+                if who in ('foreign', 'other'):
+                    return not_ours(kit, qid, found[0], nonce, who)
                 append(pending_path(kit), {'quote': qid, 'tx_hash': found[0], 'state': 'failed'})
                 return {'ok': False, 'error': 'the transfer was reverted on chain; no credits moved', 'tx_hash': found[0], 'quote': qid}
             if not found:                       # the paying row stays open: no new purchase until it is sorted out
@@ -313,6 +368,9 @@ def run(args, kit):
                         'detail': str(e)[:200], 'quote': qid}
             tx = found[0]
         txid = tx if isinstance(tx, str) else str(tx)
+        who = whose_tx(kit, txid, pay['to'], wei)
+        if who in ('foreign', 'other'):         # not our payment: never recorded as ours, never confirmed
+            return not_ours(kit, qid, txid, nonce, who)
         for path, row in ((pending_path(kit), {'quote': qid, 'tx_hash': txid, 'state': 'unconfirmed'}),
                           (sends_path(kit), {'purpose': 'supply', 'order': qid, 'to': pay['to'], 'amount': total, 'tx_hash': txid})):
             try:
