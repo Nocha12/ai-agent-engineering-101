@@ -497,7 +497,7 @@ def _test_held(g, K, now):
     e = find(r['customer_asked_out_of_stock'], 'Gc15c53f9')
     assert len(e) == 1 and e[0]['held_maybe'] == [{'sku': 'Gc15c53f9', 'pack': '3개', 'we_hold': 2}], r
     assert [o['sku'] for o in e[0]['buy_options']] == chk and no_held(r), r
-    #    the first option held and named as asked: moved, options kept
+    #    the first option held and named as asked: marked held, listed, options kept
     TOFU_ASK = row('t0', '두부', '두부 있나요')
     first_t = find(ask([TOFU_ASK], [])['customer_asked_out_of_stock'], 'G-tofu')[0]['buy_options']
     r = ask([TOFU_ASK], units((first_t[0]['sku'], 2, False)))
@@ -596,5 +596,20 @@ def _test_held(g, K, now):
     a2 = g['asked_out_of_stock'](lost, cat, {'G-q%d' % i: 1 for i in range(40)}, now, {})
     assert len(a2) == g['MAX_GROUPS'] and all(x.get('held') for x in a2), len(a2)
     assert [x['asked'] for x in a2] == [x['asked'] for x in a0], (a0, a2)
+    #    review 5 I1: 25 asks, the 5 most asked held -> the 15 shown are the 20 stock-0 asks' first 15 (as prod showed),
+    #    held ones after them; fit() cuts from the end, so held go first there too
+    lost25 = [dict(x, customer='z%d' % i) for i, x in enumerate(lost[:25])]
+    for i in range(5):                                   # more asks for the first five: they rank first
+        lost25 += [dict(lost25[i], customer='w%d-%d' % (i, k)) for k in range(3)]
+    a5 = g['asked_out_of_stock'](lost25, cat, {'G-q%d' % i: 1 for i in range(5)}, now, {})
+    shown = [x['buy_options'][0]['sku'] for x in a5]
+    assert shown == ['G-q%d' % i for i in range(5, 20)] and not any(x.get('held') for x in a5), shown
+    a5 = g['asked_out_of_stock'](lost25[:8] + lost25[25:], cat, {'G-q%d' % i: 1 for i in range(5)}, now, {})
+    shown = [(x['buy_options'][0]['sku'], bool(x.get('held'))) for x in a5]
+    assert shown == [('G-q%d' % i, False) for i in range(5, 8)] + [('G-q%d' % i, True) for i in range(5)], shown
+    res = g['fit']({'note': 'n', 'customer_asked_out_of_stock': [dict(x, buy_options=[dict(x['buy_options'][0], name='가' * 900)])
+                                                                for x in a5], 'candidates': []})
+    left = [(x['buy_options'][0]['sku'], bool(x.get('held'))) for x in res['customer_asked_out_of_stock']]
+    assert res['more_asked'] > 0 and left == shown[:len(left)] and all(not h for _, h in left[:3]), left
     # 8) the result has no separate held list to cut
     assert 'asked_but_held' not in r and 'more_held' not in r, list(r)

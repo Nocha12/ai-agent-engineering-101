@@ -480,15 +480,18 @@ def asked_out_of_stock(lost, foods, held, now, sold=None):
         first = (e.get('buy_options') or [{}])[0]
         iw, exact = e.pop('_iw', set()), e.pop('_exact', False)
         named = exact or _names_item(str((by_sku.get(first.get('sku')) or {}).get('name') or first.get('name') or ''), iw)
-        moved = [h for h in fits if h['sku'] == first.get('sku') and not first.get('near') and named]
-        if moved:                                       # we look to hold what was asked: sell it first
-            e['held'] = moved
-        maybe = [h for h in fits if h not in moved]
+        held_now = [h for h in fits if h['sku'] == first.get('sku') and not first.get('near') and named]
+        if held_now:                                    # we look to hold what was asked: sell it first
+            e['held'] = held_now
+        maybe = [h for h in fits if h not in held_now]
         if maybe:
             e['held_maybe'] = maybe
         if unfit:                                       # we hold another size only: that size is still stock 0
             e['held_not_fit'] = unfit
         listed.append(e)
+    # held asks go last (stable): the MAX_GROUPS cut and fit()'s cut from the end take them before any stock-0 ask, so
+    # no ask prod listed is pushed out by one we hold (review 5 I1); held_maybe / held_not_fit are stock 0, not moved
+    listed.sort(key=lambda x: bool(x.get('held')))
     return listed[:MAX_GROUPS]
 
 
