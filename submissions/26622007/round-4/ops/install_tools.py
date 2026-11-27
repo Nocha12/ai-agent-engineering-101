@@ -60,7 +60,8 @@ TOOLS = {
         '가게 카드를 정해진 이름·설명으로 작성하고 현재 재고의 모든 품목을 짧은 이름과 등급별 가격으로 표시합니다. '
         'args {stock?: {sku: {등급: 가격}}}. 현재 재고와 등급, 하한가를 검증합니다. '
         '떨이·기한 임박 재고는 고정 설명 바로 뒤에 떨이가로 자동으로 붙습니다.',
-        {'network': [MARKET], 'write': ['card.json', 'card.test.json'], 'identity': ['shop'], 'timeout': 20}),
+        {'network': [MARKET], 'write': ['card.json', 'card.test.json', 'logs/quotes.test.json'],   # the test's quote fixture; logic only reads quotes
+         'identity': ['shop'], 'timeout': 20}),
     'check_item_inventory': (
         '우리 가게 실제 재고 전체를 잘리지 않게 봅니다(로그인 /api/inventory). args {}: 품목마다 이름·개수와 등급별 개수(n)·하한가(floor)·남은 시간(hours_left). '
         'args {sku: SKU ID나 품목 이름(예: 콩나물)}: 그 품목의 unit ID·등급·원가·하한가·남은 시간·소비기한(until, 서명 인증서와 같은 분). 소비기한이 지난 unit은 재고로 세지 않습니다. '
