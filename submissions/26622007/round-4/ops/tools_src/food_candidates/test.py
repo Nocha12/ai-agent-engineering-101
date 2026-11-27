@@ -587,7 +587,8 @@ def _test_held(g, K, now):
     r = ask([row('e', '국내산 손질 두절 가자미 4미 1팩', '있나요', sku='G-flat')], units(('G-flat', 1, False)))
     assert held_e(r, 'G-flat'), r
     # 7) the amount by asks, inside the operator's 2~4 (buy_food_lot keeps its own 1~4)
-    assert 'asks 1이면 2개, 2이면 3개, 3 이상이면 4개' in r['note'] and '매입 도구는 어느 경우에도 막히지 않는다' in r['note'], r['note']
+    assert 'asks 1→2개, 2→3개, 3+→4개' in r['note'] and '표시는 매입을 막지 않는다' in r['note'], r['note']
+    assert '같은 SKU도 산다' in r['note'] and len(r['note']) <= 368 + 160, len(r['note'])   # prod 368: room for asks (review 6 I1)
     # 7b) held asks stay listed: the most asked first, MAX_GROUPS as before, the same entries as with nothing held
     names = ['품목' + chr(0xAC00 + i * 600) + chr(0xAC00 + i * 7) for i in range(40)]
     cat = [f('G-q%d' % i, n + ' 1kg') for i, n in enumerate(names)]
@@ -611,5 +612,14 @@ def _test_held(g, K, now):
                                                                 for x in a5], 'candidates': []})
     left = [(x['buy_options'][0]['sku'], bool(x.get('held'))) for x in res['customer_asked_out_of_stock']]
     assert res['more_asked'] > 0 and left == shown[:len(left)] and all(not h for _, h in left[:3]), left
+    #    held_not_fit / held_maybe are stock 0 of the size asked: they keep their rank (review 6 M2)
+    cat2 = [f('G-q%d' % i, n + ' 1kg') for i, n in enumerate(names)]
+    lost2 = [dict(x, item=x['item'] + ' 2kg', sku='') if i < 5 else x for i, x in enumerate(lost25)]
+    lost2 = [dict(x, sku='') if x['sku'] in ('G-q%d' % k for k in range(5)) else x for x in lost2]
+    lost2 = [dict(x, item=names[int(x['customer'][1])] + ' 2kg') if x['customer'].startswith('w') else x for x in lost2]
+    base = [x['buy_options'][0]['sku'] for x in g['asked_out_of_stock'](lost2, cat2, {}, now, {})]
+    a6 = g['asked_out_of_stock'](lost2, cat2, {'G-q%d' % i: 1 for i in range(5)}, now, {})
+    assert [x['buy_options'][0]['sku'] for x in a6] == base and base[:5] == ['G-q%d' % i for i in range(5)], (base, a6)
+    assert all(x['held_not_fit'][0]['why'] == 'other_size' for x in a6[:5]) and not any(x.get('held') for x in a6), a6
     # 8) the result has no separate held list to cut
     assert 'asked_but_held' not in r and 'more_held' not in r, list(r)

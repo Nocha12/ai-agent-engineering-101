@@ -580,12 +580,8 @@ def run(args, kit):
                      'small_pack_asked: true이면 pack/pack_size가 작은 것(크기를 아는 소포장)을 고른다. '
                      'buy_options가 빈 항목(substitutes_refused: 손님이 대체품 거부)은 사지 않는다. '
                      'near: true는 손님이 쓴 한 글자로 끝나는 다른 이름(양파 등)이니 이름을 보고 같은 것일 때만 산다. '
-                     '수량은 품목당 2~4개 안에서 asks로 정한다: asks 1이면 2개, 2이면 3개, 3 이상이면 4개. '
-                     'held_not_fit: 그 SKU를 이미 갖고 있지만 손님이 찾은 규격이 아니다(not_small_pack: 소포장 아님, other_size: 다른 크기). '
-                     '그 규격은 재고 0이니 같은 SKU 말고 buy_options에서 손님 규격에 가까운 다른 SKU를 고른다. '
-                     'held_maybe: 갖고 있는 buy_options SKU가 손님이 찾은 식품인지 확실하지 않다(2·3번째, near, 이름에 손님 단어 없음). 맞으면 그 재고를 먼저 팔고, 아니면 위 기준대로 산다. '
-                     'held: 손님이 찾은 식품·규격으로 보이는 1번째 SKU를 지금 갖고 있다. 그 재고를 먼저 판다. '
-                     'held가 손님이 찾은 식품이 아니면 buy_options에서 위 기준대로 산다. 표시가 있어도 항목은 목록에 남고, 매입 도구는 어느 경우에도 막히지 않는다.') % LOOKBACK_H,
+                     '수량 asks 1→2개, 2→3개, 3+→4개. held: 찾은 식품·규격 보유(먼저 판다), held_maybe: 다른 식품일 수 있는 보유, '
+                     'held_not_fit: 다른 규격 보유(그 규격은 재고 0, 맞는 SKU가 없으면 같은 SKU도 산다). 표시는 매입을 막지 않는다.') % LOOKBACK_H,
             'customer_asked_out_of_stock': asked,
             'candidates': out[:80]})
 
