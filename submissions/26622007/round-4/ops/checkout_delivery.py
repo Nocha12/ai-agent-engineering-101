@@ -51,7 +51,7 @@ def buy_hint(agent):
     return f'결제는 buy에 agent: {agent}만 넣으면 됩니다. 토큰은 옮겨 적지 않아도 돼요'
 
 
-def compose(text, issued, cancelled, now, agent=None):
+def compose(text, issued, cancelled, now, agent=None, item_names=None, continuation=False):
     """Keep prose, rebuild the order/token pair from trusted issuance metadata. The signed original opens the reply so
     it is inside the VISIBLE characters the customer reads (PER_REPLY: one a reply); then the buy line (buy_hint, only
     when it and the prose both still fit in VISIBLE: it never pushes the prose's signed price and until out of view),
@@ -76,7 +76,7 @@ def compose(text, issued, cancelled, now, agent=None):
     head = lines[0]
     if len(head) > VISIBLE:
         raise ValueError('결제서 줄이 손님 도구가 읽는 답장 앞 2,000자보다 깁니다. 이 결제서는 checkout_cancel로 빼고 손님께 사실대로 말하세요')
-    canonical = grade_free_reply(active.values(), cancelled, now)
+    canonical = grade_free_reply(active.values(), cancelled, now, item_names, continuation)
     if canonical is not None:
         body = canonical
     hint = buy_hint(agent)
@@ -102,16 +102,16 @@ def _payload(token):
 
 def _ungraded_food(payload):
     signed = payload.get('cert')
-    cert = signed.get('cert') if isinstance(signed, dict) else None
-    if (isinstance(cert, dict) and cert.get('kind') == 'food'
-            and isinstance(cert.get('unit'), str) and UNIT.fullmatch(cert['unit'])
-            and cert['unit'] == payload.get('unit') and cert.get('grade') in (None, '')):
-        return cert
-    return None
+    cert = (signed.get('cert') or signed.get('data') or signed) if isinstance(signed, dict) else None
+    if not isinstance(cert, dict) or cert.get('kind') != 'food':
+        return None
+    if cert.get('unit') != payload.get('unit'):
+        return {}  # food is known, but neither the grade nor the dates belong to this unit
+    return None if cert.get('grade') in ('A', 'B', 'C') else cert
 
 
-def grade_free_reply(issued, cancelled, now):
-    """Use only signed terms, not generated prose, when the food certificate does not state a grade."""
+def grade_free_reply(issued, cancelled, now, item_names=None, continuation=False):
+    """Use only issued terms and the catalog name if the certificate does not state a grade."""
     active = {c.digest: c for c in issued if c.order not in cancelled and 0 <= now - c.at < HOLD_SECONDS}
     if len(active) != 1:
         return None
@@ -119,16 +119,20 @@ def grade_free_reply(issued, cancelled, now):
     cert = _ungraded_food(payload)
     if cert is None:
         return None
-    terms = [f"재고 ID {cert['unit']}"]
+    unit, sku = payload.get('unit'), payload.get('item')
+    name = (item_names or {}).get(sku) if isinstance(sku, str) else None
+    terms = [name] if isinstance(name, str) and 0 < len(name) <= 120 and name.isprintable() else []
+    if isinstance(unit, str) and UNIT.fullmatch(unit):
+        terms.append(f"재고 ID {unit}")
     price = payload.get('price')
     if type(price) is int and 0 < price < 10 ** 9:
         terms.append(f'가격 {price:,}크레딧')
     end = cert.get('expires_at')
     if type(end) in (int, float) and 1e9 < end < 1e11 and end > now:
         terms.append(f"소비기한 {datetime.fromtimestamp(end, KST):%m/%d %H:%M KST}까지")
-    text = ' · '.join(terms) + '\n시장 인증서에는 등급이 적혀 있지 않아요.'
-    if cancelled:
-        text += '\n다른 품목도 원하시면 다음 메시지로 알려주세요.'
+    text = ' · '.join(terms) or '결제서를 발급했어요.'
+    if continuation or cancelled:
+        text += '\n이어서 결제서가 필요하면 이 대화에서 말씀해 주세요.'
     return text
 
 
@@ -136,7 +140,13 @@ def _fields(token):
     """Item, price, unit and (only when applicable) grade label next to the unchanged token."""
     pl = _payload(token)
     keys = ('item', 'price', 'unit') if _ungraded_food(pl) is not None else ('item', 'price', 'claim', 'unit')
-    return {k: pl[k] for k in keys if k in pl and isinstance(pl[k], (str, int))}
+    fields = {k: pl[k] for k in keys if k in pl and isinstance(pl[k], (str, int))}
+    cert = _ungraded_food(pl)
+    if cert is not None:
+        end = cert.get('expires_at')
+        if type(end) in (int, float) and 1e9 < end < 1e11:
+            fields['until'] = datetime.fromtimestamp(end, KST).strftime('%m/%d %H:%M KST')
+    return fields
 
 
 def attach_data(result, attached, cancelled=()):

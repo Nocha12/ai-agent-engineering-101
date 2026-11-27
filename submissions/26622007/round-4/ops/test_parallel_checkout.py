@@ -97,7 +97,7 @@ class Tools(ak.Toolbox):
             return {'ok': True, 'result': {'ok': False, 'code': 'unit_held', 'alternatives': [], 'held_until': int(time.time()) + 300}}
         self.held[u] = holder                               # ... then the issue is logged
         self.issued.append((u, args.get('order'), holder))
-        payload = {'iat': int(time.time()), 'price': 5000}
+        payload = {'iat': int(time.time()), 'price': 5000, 'order': args.get('order')}
         if holder == 't-null':
             unit = 'u-f5a2635c268b'
             payload.update(unit=unit, claim='A', cert={'cert': {'kind': 'food', 'unit': unit, 'grade': None,
@@ -201,8 +201,9 @@ def main():
         o6 = {}
         ask(mind, 'unit U8 주세요 task t-null', 't-null', o6)
         ok, body, _ = o6['t-null']
-        assert ok and '가격 5,000크레딧' in body and '시장 인증서에는 등급이 적혀 있지 않아요.' in body, body
+        assert ok and '가격 5,000크레딧' in body and '소비기한' in body, body
         assert 'A등급' not in body, body
+        assert 'grade_evidence' not in SEEN['t-null'][0] and '"until"' in SEEN['t-null'][0], SEEN['t-null']
         sent = [json.loads(line) for line in (root / 'logs' / 'messages.jsonl').read_text().splitlines()]
         assert any(r.get('task') == 't-null' and r.get('dir') == 'out' and r.get('text') == body for r in sent), body
         print('parallel checkout ok', out['t-a'][1], '/', out['t-b'][1])

@@ -436,7 +436,7 @@ def install(ak, logs, checkout=False):
         from a2a.server import request_handlers, tasks as a2a_tasks
         from a2a.helpers import get_message_text
         from a2a.types import Task
-        from checkout_delivery import Checkout, attach_data, clean_reply, compose, grade_free_reply, grade_note, tokens, JWT, SIGNED, ORDER, HOLD_SECONDS
+        from checkout_delivery import Checkout, attach_data, clean_reply, compose, grade_free_reply, grade_note, _ungraded_food, tokens, JWT, SIGNED, ORDER, HOLD_SECONDS
         http_request = ContextVar('checkout_http', default=None)
         inquiry = ContextVar('checkout_inquiry', default=None)
         a2a_event = ContextVar('checkout_a2a_event', default=None)
@@ -478,7 +478,7 @@ def install(ak, logs, checkout=False):
             "A reply state alone or a sentence about payment does not cancel issuance. "
             "When private_checkout answers grade_evidence: attached, the reply normally also carries a fixed grade-evidence "
             "line (food grade is the shelf life left, and the market-signed certificate states the supply and expiry time; a very "
-            "long reply drops the line). Point to that line when asked; do not claim the market verified the grade."
+            "long reply drops the line). Point to that line when asked; do not claim the market verified the grade. A food checkout with no certificate grade lists only the item, signed price and expiry. If the buyer requires an independently certified grade, explain it is unavailable and wait for agreement rather than sending a checkout."
             "\nCustomer replies (operator 11/27): say what you can do first. Leave out disclaimer lines nobody asked about "
             "(결제서는 발급하지 않겠습니다, 검증한다는 뜻은 아닙니다, 취소되지 않았으니 유의). When you must say no (a price below what you "
             "can take, the refund rules, a fact no tool gives you), say it in one sentence and add what you can offer instead; "
@@ -634,7 +634,8 @@ def install(ak, logs, checkout=False):
                                 if (result['id'] == task and message['messageId'] == status_id
                                         and part.get('text') == baseline):
                                     body, attached = compose(baseline, issued, cancelled, time.time(),
-                                                             agent=shop.get('name'))
+                                                             agent=shop.get('name'), item_names=NAMES,
+                                                             continuation=result['status'].get('state') in ('input_required', 'input-required'))
                                     part['text'] = body
                                     raw = json.dumps(response, ensure_ascii=False, separators=(',', ':')).encode()
                                     serialized = json.loads(raw)['result']
@@ -839,7 +840,8 @@ def install(ak, logs, checkout=False):
             except ValueError as e:
                 return f'error: {e}'
             ev.checkout_plan = (issued, cancelled)
-            canonical = grade_free_reply(issued, cancelled, time.time())
+            canonical = grade_free_reply(issued, cancelled, time.time(), NAMES,
+                                         args.get('state') in ('input_required', 'input-required'))
             if canonical is not None:
                 args = dict(args, text=canonical)
         if checkout and ev is not None and ev.kind == 'a2a':
@@ -1042,7 +1044,10 @@ def install(ak, logs, checkout=False):
             if not any(old.digest == c.digest for old in issued):
                 ev.checkout_issued = (*issued, c)
             kept = next((old for old in ev.checkout_issued if old.digest == c.digest), c)   # a reissue keeps the first
-            res = dict({'ok': True, 'order': order}, **({'grade_evidence': 'attached'} if kept.note else {}))
+            no_grade = _ungraded_food(payload)
+            res = {'ok': True, 'order': order}
+            if kept.note and no_grade is None:
+                res['grade_evidence'] = 'attached'
             dup = r.get('duplicate_of')
             if isinstance(dup, str) and re.fullmatch(r'[A-Za-z0-9-]{1,80}', dup) and dup != order:
                 res['duplicate_of'] = dup       # 대표님 11/27: same buyer, same item and grade, 30 s
@@ -1061,7 +1066,10 @@ def install(ak, logs, checkout=False):
                                          f'다음 안내는 {q:,}로 합니다')
             # last: the notes above keep their place. The expiry only when the reply's data part carries the certificate
             # line (grade_note checked it; review 1 M1), so the model is never told of a signed time the customer cannot see
-            res.update(issued_terms(payload, r.get('grade_evidence') if kept.note else None, now))
+            res.update(issued_terms(payload, no_grade if no_grade is not None else
+                                    (r.get('grade_evidence') if kept.note else None), now))
+            if no_grade is not None:
+                res['reply_note'] = (res.get('reply_note', '') + ' 이 식품 결제서 답장에는 등급을 쓰지 않습니다.').strip()
             return {'ok': True, 'result': res}
         out = call(self, name, args)
         if name == 'check_item_inventory':
