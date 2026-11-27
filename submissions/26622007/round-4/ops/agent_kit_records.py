@@ -912,9 +912,11 @@ def install(ak, logs, checkout=False):
                 res['duplicate_of'] = dup       # 대표님 11/27: same buyer, same item and grade, 30 s
                 here = dup in {c.order for c in ev.checkout_issued}
                 res['duplicate_note'] = (f'이 문의에 30초 안에 같은 상품·같은 등급 결제서({dup})를 이미 냈습니다. 한 답장에는 결제서 1장만 '
-                                         '들어갑니다(두 개를 원해도 둘째는 다음 메시지에). 손님이 두 개를 원한 게 '
-                                         + (f'아니면 답장에 checkout_cancel: ["{dup}"] 또는 ["{order}"]로 하나만 남기세요' if here else
-                                            f'아니면 {dup}는 앞 답장으로 이미 갔으니 이번 답장에 checkout_cancel: ["{order}"]를 넣으세요'))   # r2 M2
+                                         '들어갑니다. '
+                                         + (f'답장에 checkout_cancel: ["{dup}"]를 넣어 이번 것 하나만 남기세요(손님이 두 개를 원했으면 둘째는 '
+                                            '다음 메시지에 다시 냅니다)' if here else      # review 3 M3: one rule whether or not two were wanted
+                                            f'손님이 두 개를 원한 게 아니면 {dup}는 앞 답장으로 이미 갔으니 이번 답장에 '
+                                            f'checkout_cancel: ["{order}"]를 넣으세요'))   # r2 M2
             q = r.get('quote')
             if type(q) is int and 0 < q < 10 ** 9:      # the shown price for this SKU and grade (operator 11/26 12:40)
                 res['quote'] = q

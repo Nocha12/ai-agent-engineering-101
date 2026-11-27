@@ -59,6 +59,15 @@ class Compose(unittest.TestCase):
             cd.compose('x', [co(1), co(2), co(3)], set(), NOW)
         self.assertIn("['task-1', 'task-2']", str(e.exception))
 
+    def test_partial_cancel_example_is_the_whole_list(self):   # review 3 I1: checkout_cancel is replaced each reply
+        cs = [co(1), co(2), co(3)]
+        with self.assertRaises(ValueError) as e:
+            cd.compose('x', cs, {'task-1'}, NOW)
+        self.assertIn("['task-1', 'task-2']", str(e.exception))
+        self.assertIn('전체 목록', str(e.exception))
+        text, attached = cd.compose('x', cs, {'task-1', 'task-2'}, NOW)   # following the example converges at once
+        self.assertEqual([c.order for c in attached], ['task-3'])
+
     def test_cancel_down_to_one_works(self):
         cs = [co(1), co(2), co(3)]
         text, attached = cd.compose(PROSE, cs, {'task-2', 'task-3'}, NOW)
@@ -123,7 +132,7 @@ class GradeNote(unittest.TestCase):
         self.assertIn('(약 2일 남음)', cd.grade_note('task-1', dict(self.EV, expires_at=NOW + 48 * 3600), NOW))
         self.assertIn('(약 2일 23시간 남음)', cd.grade_note('task-1', dict(self.EV, expires_at=NOW + 71.5 * 3600), NOW))
         self.assertIn('(1시간 미만 남음)', cd.grade_note('task-1', dict(self.EV, expires_at=NOW + 0.5 * 3600), NOW))
-        self.assertIn('(1시간 미만 남음)', cd.grade_note('task-1', dict(self.EV, expires_at=NOW - 60), NOW))   # past: never negative
+        self.assertEqual('', cd.grade_note('task-1', dict(self.EV, expires_at=NOW - 60), NOW))   # past: no 'left' line (r3 M4)
 
     def test_bad_evidence_no_note(self):
         for ev in (None, dict(self.EV, claim='D'), dict(self.EV, unit='x'), dict(self.EV, expires_at=NOW - 7200 - 3600 * 99)):
