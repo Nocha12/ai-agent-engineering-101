@@ -31,9 +31,10 @@ ITEMS = 20                     # units listed for one item
 CLEAR_LIST = 12               # clearance lines in the whole-shop answer
 
 
-# --- shared quote block (same text in check_item_inventory, restock_shoutout, private_checkout; ops/test_quote_block.py)
+# --- shared quote block (same text in check_item_inventory, restock_shoutout, private_checkout, write_shop_card,
+#     refresh_full_card; ops/test_quote_block.py)
 QUOTES, QUOTE_TTL, QUOTE_RANK = 'logs/quotes.json', 24 * 3600, ('C', 'B', 'A')
-CASHOUT_BY, CASHOUT_MIN = 'cashout', 420
+CASHOUT_BY, CASHOUT_MIN, CASH_HOURS = 'cashout', 420, 48
 
 
 def quotes_load(path):
@@ -55,14 +56,23 @@ def quote_get(q, sku, grade, now):
 
 
 def quote_floor(q, sku, grade, now):
-    """Cash-out (현금화, 11/27): a fresh quote stored by 'cashout' (ops/forum_menu.py, a food grade with 48 h or less left
+    """Cash-out (현금화, 11/27): a fresh quote stored by 'cashout' (ops/forum_menu.py, a food grade with CASH_HOURS or less left
     whose market median is under the goal (3) floor) carries its own floor, the market median, never under CASHOUT_MIN
     (more than the sale fee: a unit that would be thrown away still brings money). None for any other quote."""
-    r = q.get(f'{sku}|{grade}')
+    r = q.get(f'{sku}|{grade}') if grade in QUOTE_RANK else None       # A, B or C only (review M2)
     if isinstance(r, dict) and r.get('by') == CASHOUT_BY and type(r.get('floor')) is int and r['floor'] >= CASHOUT_MIN \
             and quote_get(q, sku, grade, now) is not None:
         return r['floor']
     return None
+
+
+def unit_cash(q, u, now):
+    """The cash-out floor for one unit: its SKU and grade's quote_floor, only when that unit itself has CASH_HOURS or
+    less left. A longer-dated unit of the same grade keeps the goal (3) floor (review I1). None otherwise."""
+    e = u.get('expires_at') if isinstance(u, dict) else None
+    if isinstance(e, bool) or not isinstance(e, (int, float)) or not 0 < e - now <= CASH_HOURS * 3600:
+        return None
+    return quote_floor(q, u.get('sku'), u.get('grade'), now)
 
 
 def quote_prices(q, sku, floors, now):
@@ -801,9 +811,11 @@ def answer(args, kit):
         on_clear = False
         for it, u in zip(items, mine):
             it['price'] = shown.get((it['sku'], it['grade']))
-            cash = quote_floor(q, it['sku'], it['grade'], now)
-            if cash is not None and it['floor'] is not None:      # cash-out: the floor of its quote (11/27)
+            cash = unit_cash(q, u, now)
+            if cash is not None and it['floor'] is not None:      # cash-out: this unit, 48 h or less left (11/27)
                 it['floor'] = min(it['floor'], cash)
+            elif it['price'] is not None and it['floor'] is not None and it['price'] < it['floor']:
+                it['price'] = it['floor']               # a longer-dated unit of a cash-out grade: its own floor (review I1)
             cl = clear_safe(u, it['price'], now)
             if cl:
                 it['clearance'] = {'price': cl['price'], 'floor': cl['floor']}
@@ -840,8 +852,8 @@ def answer(args, kit):
             shown = quote_prices(q, s['sku'], {g: floor(v['cost']) for g, v in s['grades'].items()}, now)
             for g, v in s['grades'].items():
                 left = [h for h in (hours_left(u, now) for u in v['left']) if h is not None]
-                cash = quote_floor(q, s['sku'], g, now)
-                fl = floor(v['cost']) if cash is None else min(floor(v['cost']), cash)   # cash-out quote's floor (11/27)
+                cash = [c for c in (unit_cash(q, u, now) for u in v['left']) if c is not None]
+                fl = floor(v['cost']) if not cash else min(floor(v['cost']), min(cash))  # cash-out: 48 h units (11/27)
                 s['grades'][g] = {'n': v['n'], 'floor': fl, 'hours_left': min(left) if left else None}
                 if shown.get(g):                        # only when set: 60 nulls would push SKUs out of the answer
                     s['grades'][g]['price'] = shown[g]
@@ -852,7 +864,7 @@ def answer(args, kit):
         if clear:
             out['clearance'], out['note_clearance'] = clear, CLEAR_NOTE
         out.update({'skus': skus,
-               'note': 'grades: 등급별 n(개수)·floor(최저가, 손님께 말하지 않음)·price(손님께 부를 가격, 비어 있으면 {sku, quote}로 먼저 정함)·hours_left(가장 빨리 끝나는 소비기한까지 시간). unit ID는 args {sku}로 봅니다'})
+               'note': 'grades: 등급별 n(개수)·floor(최저가, 손님께 말하지 않음. 원가보다 낮으면 48시간 이하 unit만의 현금화 최저가)·price(손님께 부를 가격, 비어 있으면 {sku, quote}로 먼저 정함)·hours_left(가장 빨리 끝나는 소비기한까지 시간). unit ID는 args {sku}로 봅니다'})
         if len(json.dumps(out, ensure_ascii=False)) <= LIMIT:
             break
     while len(json.dumps(out, ensure_ascii=False)) > LIMIT and out['skus']:      # still too long: cut, and say so

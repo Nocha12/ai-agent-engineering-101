@@ -123,11 +123,61 @@ class CashOut(unittest.TestCase):
         plan = fm.requote_plan(self.QB, self.INV, {}, settles([(self.MILK, 'C', 8000)] * 5), NOW)   # 0.63 x 12,778
         self.assertEqual(plan[self.MILK]['C'], 12778)   # the old rule: max(floor, median)
 
+    def test_taken_back_when_gone(self):                 # review I2: sold, longer-dated only, median up, off
+        qb = self.QB
+        q = {f'{self.MILK}|C': {'price': 11787, 'ts': NOW - 10, 'by': 'cashout', 'floor': 11787}}
+        long_only = {'units': [dict(u, expires_at=NOW + 200 * 3600) if u['unit'] == 'm1' else u for u in self.INV['units']]}
+        plan = fm.requote_plan(qb, long_only, q, settles(self.S), NOW)
+        self.assertEqual(plan[self.MILK]['C'], {'price': 12778, 'revoke': True})
+        up = [(self.MILK, 'C', 13500)] * 5 + [(self.MILK, 'B', 11000)] * 3
+        self.assertEqual(fm.requote_plan(qb, self.INV, q, settles(up), NOW)[self.MILK]['C'], {'price': 13500, 'revoke': True})
+        self.assertEqual(fm.requote_plan(qb, self.INV, q, settles(self.S), NOW, on=False)[self.MILK]['C'],
+                         {'price': 12778, 'revoke': True})
+        self.assertEqual(fm.requote_plan(qb, self.INV, q, settles([]), NOW)[self.MILK]['C'], {'price': 12778, 'revoke': True})
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / 'quotes.json'
+            p.write_text(json.dumps(q))
+            out = fm.apply_plan(qb, p, long_only, plan, NOW)
+            self.assertEqual(out[self.MILK]['C'], 12778)
+            got = json.loads(p.read_text())[f'{self.MILK}|C']
+            self.assertEqual((got['price'], got['by']), (12778, 'forum_menu'))
+            self.assertIsNone(qb['quote_floor'](json.loads(p.read_text()), self.MILK, 'C', NOW))
+
+    def test_follows_median_both_ways(self):
+        qb = self.QB
+        q = {f'{self.MILK}|C': {'price': 11000, 'ts': NOW - 10, 'by': 'cashout', 'floor': 11000}}
+        plan = fm.requote_plan(qb, self.INV, q, settles(self.S), NOW)     # median 11,787 now: raised to it
+        self.assertEqual(plan[self.MILK]['C'], {'price': 11787, 'floor': 11787})
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / 'quotes.json'
+            p.write_text(json.dumps(q))
+            self.assertEqual(fm.apply_plan(qb, p, self.INV, plan, NOW)[self.MILK]['C'], 11787)
+            self.assertEqual(qb['quote_floor'](json.loads(p.read_text()), self.MILK, 'C', NOW), 11787)
+
+    def test_not_under_lower_grade(self):                # review M1: a B cash-out never under the C quote
+        qb = self.QB
+        inv = {'units': [unit('m1', self.MILK, '서울우유 멸균우유 190ml 24팩', 'C', 12235, exp=NOW + 29 * 3600),
+                         unit('m2', self.MILK, '서울우유 멸균우유 190ml 24팩', 'B', 12235, exp=NOW + 30 * 3600)]}
+        q = {f'{self.MILK}|C': {'price': 12000, 'ts': NOW - 10, 'by': 'cashout', 'floor': 12000}}
+        s = [(self.MILK, 'C', 12000)] * 5 + [(self.MILK, 'B', 11000)] * 5
+        plan = fm.requote_plan(qb, inv, q, settles(s), NOW)
+        self.assertEqual(plan[self.MILK]['B'], {'price': 12000, 'floor': 12000})
+
+    def test_off_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            off = Path(d) / 'cashout.off'
+            self.assertTrue(fm.cash_on(self.QB, str(off)))
+            off.write_text('')
+            self.assertFalse(fm.cash_on(self.QB, str(off)))
+
     def test_old_block_has_no_cash_out(self):
         qb = dict(self.QB)
         qb.pop('CASHOUT_MIN')                               # a stale forged block: nothing goes under the floor
         plan = fm.requote_plan(qb, self.INV, {}, settles(self.S), NOW)
         self.assertEqual(plan[self.MILK]['C'], 12778)
+        qb = dict(self.QB)
+        qb.pop('unit_cash')                                 # partly stale (review M5): no cash-out, no KeyError
+        self.assertEqual(fm.requote_plan(qb, self.INV, {}, settles(self.S), NOW)[self.MILK]['C'], 12778)
 
 
 class Requote(unittest.TestCase):

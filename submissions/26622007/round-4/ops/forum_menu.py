@@ -592,45 +592,60 @@ def fixed(name, sku=None):
     return sku in FIXED_SKU or any(w in str(name or '') for w in FIXED_PRICE)
 
 
-CASH_HOURS = 48        # cash-out (현금화, 11/27): a food grade whose soonest unit has this many hours or less left
-CASH_SHARE = 0.7       # and whose median is at least this share of the floor (a stray low median moves nothing)
+CASH_SHARE = 0.7       # cash-out (현금화, 11/27): the median has to be at least this share of the floor
+CASH_OFF = 'logs/cashout.off'    # this file in the round folder turns cash-out off: the next post takes it all back
 
 
-def soonest(inv, sku, grade, now):
-    """Hours left of the soonest dated food unit of this SKU and grade we hold, or None."""
-    left = [(float(u['expires_at']) - now) / 3600 for u in inv.get('units') or []
-            if isinstance(u, dict) and u.get('sku') == sku and str(u.get('grade') or '?') == grade
-            and u.get('kind') in (None, 'food') and isinstance(u.get('expires_at'), (int, float))
-            and not isinstance(u.get('expires_at'), bool) and float(u['expires_at']) > now]
-    return min(left) if left else None
+def cash_on(qb, off=None):
+    """The quote block has every cash-out name (a stale forged block has none; review M5) and the off file is absent."""
+    names = all(k in qb for k in ('CASHOUT_MIN', 'CASHOUT_BY', 'CASH_HOURS', 'quote_floor', 'unit_cash'))
+    return names and not (off and os.path.exists(off))
 
 
-def requote_plan(qb, inv, quotes, settles, now):
+def requote_plan(qb, inv, quotes, settles, now, on=True):
     """{sku: {grade: new price}} for the grades we hold whose quote is missing or above max(floor, 24 h median).
     Cash-out (11/27): when that grade's soonest unit has CASH_HOURS or less left and the 24 h median is under the
-    floor but at least CASH_SHARE of it, the entry is {'price': median, 'floor': median} instead (a cash-out quote,
-    below cost: a unit that expires is 0 credits), never under the quote block's CASHOUT_MIN and never for water."""
+    floor but at least CASH_SHARE of it, the entry is {'price': p, 'floor': p} with p the median (a cash-out quote,
+    below cost: a unit that expires is 0 credits), never under the quote block's CASHOUT_MIN or a lower grade's
+    quote (review M1), never for water. It is rewritten when the median moves either way, and taken back to the old
+    rule ({'price': max(floor, median), 'revoke': True}) once its condition is gone or cash-out is off (review I2).
+    Only the units with CASH_HOURS or less left sell at it (the quote block's unit_cash; review I1)."""
     plan, work = {}, dict(quotes)                # work: the quotes as they will be once the plan is written
-    cmin = qb.get('CASHOUT_MIN')
+    cmin = qb['CASHOUT_MIN'] if cash_on(qb) and on else None
+    rank = qb['QUOTE_RANK']
     for sku in sorted({u.get('sku') for u in inv.get('units') or [] if isinstance(u, dict) and u.get('sku')}):
         st = qb['stock'](inv, sku, now)
         if not st or fixed(st['name'], sku):
             continue
         for g in sorted(st['floors'], key=lambda g: qb['QUOTE_RANK'].index(g) if g in qb['QUOTE_RANK'] else -1):
             med = settles.median(sku, g)
-            if med is None:
-                continue
             have = qb['quote_get'](quotes, sku, g, now)
-            left = soonest(inv, sku, g, now)
             fl = int(st['floors'][g])
-            if cmin is not None and CASH_SHARE * fl <= med < fl and left is not None and left <= CASH_HOURS:
-                target = max(int(cmin), med)
-                if have is not None and have <= target and qb['quote_floor'](quotes, sku, g, now) is not None \
-                        and qb['quote_floor'](quotes, sku, g, now) <= target:
-                    continue                         # already a cash-out quote at or under the median
+            old = qb['quote_floor'](quotes, sku, g, now) if 'quote_floor' in qb else None
+            if med is None:
+                if old is not None:                  # a cash-out quote with no median behind it any more: taken back
+                    plan.setdefault(sku, {})[g] = {'price': fl, 'revoke': True}
+                    work[f'{sku}|{g}'] = {'price': qb['quote_fit'](work, sku, g, fl, fl, now), 'ts': now, 'by': 'forum_menu'}
+                continue
+            left = soonest(inv, sku, g, now)
+            lower = [qb['quote_get'](work, sku, x, now) for x in rank[:rank.index(g)]] if g in rank else []
+            target = None
+            if cmin is not None and g in rank and CASH_SHARE * fl <= med < fl and left is not None \
+                    and left <= qb['CASH_HOURS']:
+                target = max(int(cmin), med, *[p for p in lower if p])
+                if target >= fl:                     # a lower grade is already at the floor or over it: no cash-out
+                    target = None
+            if target is not None:
+                if old == target and have == qb['quote_fit'](work, sku, g, target, target, now):
+                    continue                         # already this cash-out quote
                 fit = qb['quote_fit'](work, sku, g, target, target, now)
                 plan.setdefault(sku, {})[g] = {'price': target, 'floor': target}
                 work[f'{sku}|{g}'] = {'price': fit, 'ts': now, 'by': qb['CASHOUT_BY'], 'floor': target}
+                continue
+            if old is not None:                      # its condition is gone (sold, longer-dated only, median up, off)
+                tgt = max(fl, med)
+                plan.setdefault(sku, {})[g] = {'price': tgt, 'revoke': True}
+                work[f'{sku}|{g}'] = {'price': qb['quote_fit'](work, sku, g, tgt, fl, now), 'ts': now, 'by': 'forum_menu'}
                 continue
             target = max(int(st['floors'][g]), med)
             if have is not None and have <= target:
@@ -665,11 +680,20 @@ def apply_plan(qb, path, inv, plan, now):
         for g in sorted(prices, key=lambda g: rank.index(g) if g in rank else -1):
             have = qb['quote_get'](q, sku, g, now)
             v = prices[g]
+            if isinstance(v, dict) and v.get('revoke'):   # take a cash-out quote back to the old rule (review I2)
+                if qb['quote_floor'](q, sku, g, now) is None:
+                    continue                       # a tool re-quoted it meanwhile, or it is gone: nothing to take back
+                p = qb['quote_fit'](q, sku, g, int(v['price']), int(st['floors'].get(g, 0)), now)
+                q[f'{sku}|{g}'] = {'price': p, 'ts': now, 'by': 'forum_menu'}
+                out.setdefault(sku, {})[g] = p
+                continue
             if isinstance(v, dict):                # cash-out entry (requote_plan): its own floor, under cost
                 cf = int(v['floor'])
                 p = qb['quote_fit'](q, sku, g, int(v['price']), cf, now)
                 old = qb['quote_floor'](q, sku, g, now)
-                if have is not None and p >= have and old is not None and old <= cf:
+                if have is not None and old is None and p >= have:
+                    continue                       # a tool's quote is already at the median or under it
+                if old == cf and have == p:
                     continue
                 q[f'{sku}|{g}'] = {'price': p, 'ts': now, 'by': qb['CASHOUT_BY'], 'floor': cf}
                 out.setdefault(sku, {})[g] = p
@@ -1029,7 +1053,7 @@ class Menu:
         self.refresh_settles(now)
         qpath = self.dir / 'logs' / 'quotes.json'
         quotes = self.qb['quotes_load'](str(qpath))
-        plan = requote_plan(self.qb, inv, quotes, self.settles, now)
+        plan = requote_plan(self.qb, inv, quotes, self.settles, now, cash_on(self.qb, str(self.dir / CASH_OFF)))
         changed = apply_plan(self.qb, qpath, inv, plan, now) if plan else {}
         quotes = self.qb['quotes_load'](str(qpath))
         failed = {}

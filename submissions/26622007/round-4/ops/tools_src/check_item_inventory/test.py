@@ -157,6 +157,9 @@ def test(run, kit):
     whole = run({'_inventory': cm, '_now': now}, kit)
     g = [s for s in whole['skus'] if s['sku'] == 'G0000cash'][0]['grades']
     assert g['C']['floor'] == 11790 and g['C']['price'] == 11790 and g['B']['floor'] == 12778, g
+    cl = dict(cm, units=cm['units'] + [dict(cm['units'][0], unit='c3', expires_at=now + 200 * 3600)])   # review I1
+    two = {i['unit']: i for i in run({'sku': 'G0000cash', '_inventory': cl, '_now': now}, kit)['items'] if 'unit' in i}
+    assert two['c1']['floor'] == 11790 and two['c3']['floor'] == 12778 and two['c3']['price'] == 12778, two
     old = run({'sku': 'G0000cash', '_inventory': cm, '_now': now + 25 * 3600}, kit)   # a day old: usual floor, no quote
     assert {i['grade']: i['floor'] for i in old['items']}.get('C') == 12778, old['items']
     os.remove(QF)
