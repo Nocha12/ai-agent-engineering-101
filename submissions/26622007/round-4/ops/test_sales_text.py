@@ -29,7 +29,9 @@ class NearExpiry(unittest.TestCase):
         self.assertIn('the date and hour it expires', text)
         self.assertIn('if the customer already asked for a checkout or named that unit', text)   # review 1 I2
         self.assertIn('when a unit with 12 hours or more left also fits, issue with that one as usual', text)   # I3
-        self.assertIn('A clearance unit is always created without price', text)               # I4
+        self.assertIn('A clearance unit is created without price', text)                      # I4
+        self.assertIn('unless a lower price down to clearance.floor was agreed: then pass that price', text)   # r2 I-1
+        self.assertIn('unless the customer named the near-expiry or clearance unit', text)   # r2 M-1
         self.assertIn('Otherwise hold back only when', text)                                   # M1
         # checkout-first for everything else stays
         self.assertIn('create the checkout in this same reply at the shown price', text)
@@ -42,7 +44,9 @@ class NearExpiry(unittest.TestCase):
         self.assertIn('clearance.floor까지만', line)              # prices and floors unchanged
         self.assertIn('생수 가격은 그대로다', line)
         self.assertIn('이미 결제서를 달라고 했거나 그 unit을 짚어 물었으면 이번 답에서', line)
-        self.assertIn('12시간 이상 남은 unit도 맞으면 그 unit으로 평소대로 낸다', line)
+        self.assertIn('12시간 이상 남은 unit도 맞으면 그 unit으로 평소대로 낸다(손님이 떨이 unit을 짚었으면 그 unit)', line)
+        self.assertIn('떨이 unit은 남은 시간과 상관없이 price 없이 내고, 흥정으로 clearance.floor 이상에서 합의한 값만', line)
+        self.assertIn("앞의 '만료 임박 재고 우선 판매' 메모보다 이 지시가 먼저다", line)       # r2 I-2 (notes 33)
 
     def test_asked_buy_reads_all_options(self):
         line = next(x for x in operator_lines() if x.startswith('[운영자 최신 지시 11/26] 손님이 찾았는데'))
