@@ -158,6 +158,15 @@ def test(run, kit):
                   {'posts': [{'ts': True, 'lines': [{'unit': 'u-b'}]}, {'ts': now + 60, 'lines': [{'unit': 'u-b'}]}]}):
         g = run({'sku': 'MK', '_inventory': fish, '_now': now, '_forum': stale}, kit)   # old, odd or none: no mark
         assert g['ok'] and not any('forum' in i for i in g['items']) and 'note_forum' not in g, (stale, g)
+    # review r1 I1: an older post named the short unit (before it dropped under 3 h); only the newest post's unit
+    moved = {'posts': [{'ts': now - 5400, 'lines': [{'sku': 'MK', 'grade': 'C', 'price': 4460, 'unit': 'u-a', 'until': now + 9000}]},
+                       {'ts': now - 1800, 'lines': [{'sku': 'MK', 'grade': 'C', 'price': 4300, 'unit': 'u-a', 'until': now + 9000}]}]
+             + forum['posts'][1:]}
+    m = {i['unit']: i.get('forum') for i in run({'sku': 'MK', '_inventory': fish, '_now': now, '_forum': moved}, kit)['items']}
+    assert m == {'u-a': None, 'u-b': '포럼 공지 단위(16:55 게시)'}, m
+    graded = {'posts': forum['posts'] + [{'ts': now - 60, 'lines': [{'sku': 'MK', 'grade': 'C', 'price': 7000, 'unit': None, 'until': None}]}]}
+    g = run({'sku': 'MK', '_inventory': fish, '_now': now, '_forum': graded}, kit)   # newest line names no unit
+    assert not any('forum' in i for i in g['items']) and 'note_forum' not in g, g
     w = run({'_inventory': fish, '_now': now, '_forum': forum}, kit)                    # whole shop: unchanged
     assert 'note_forum' not in w and 'forum' not in json.dumps(w, ensure_ascii=False), w
     return 'ok'

@@ -241,10 +241,11 @@ FORUM_NOTE = ('forum: 이 unit이 우리 포럼 메뉴 글에 올린 단위(게�
 
 
 def forum_units(kit, args, now):
-    """{unit: 'HH:MM'} of the units our forum menu posts named in the last FORUM_KEEP seconds (a clearance line names
-    one unit's time and price), with the KST minute of the newest post that named it; {} when none or unreadable
-    (11/27 05fcd1d5: the post read '고등어 C6,845(~22:51)', two C units were listed and the checkout went out on the
-    other one). Tests pass the file's content as args _forum."""
+    """{unit: 'HH:MM'}: per SKU, the unit named by the newest post (of the last FORUM_KEEP seconds) that shows that SKU,
+    with that post's KST minute; nothing for a SKU whose newest line is a grade line (no unit). Only the newest: the
+    menu moves to the longer unit once the short one drops under 3 h, so older posts may name another unit of the same
+    SKU and grade (review r1 I1). {} when none or unreadable (11/27 05fcd1d5: the post read '고등어 C6,845(~22:51)',
+    two C units were listed and the checkout went out on the other one). Tests pass the file's content as args _forum."""
     try:
         if kit.testing:
             data = args.get('_forum')
@@ -252,16 +253,18 @@ def forum_units(kit, args, now):
             with open(FORUM_UNITS, encoding='utf-8') as f:
                 data = json.load(f)
         posts = data.get('posts') if isinstance(data, dict) else None
-        out = {}
+        last = {}                                       # sku -> (ts, unit or None) of its newest posted line
         for p in posts if isinstance(posts, list) else []:
             ts = p.get('ts') if isinstance(p, dict) else None
             if not (isinstance(ts, (int, float)) and not isinstance(ts, bool) and 0 <= now - ts < FORUM_KEEP):
                 continue
             for ln in p.get('lines') if isinstance(p.get('lines'), list) else []:
-                u = ln.get('unit') if isinstance(ln, dict) else None
-                if isinstance(u, str) and u and (u not in out or out[u] < ts):
-                    out[u] = ts
-        return {u: time.strftime('%H:%M', time.gmtime(int(ts) + 9 * 3600)) for u, ts in out.items()}
+                sku = ln.get('sku') if isinstance(ln, dict) else None
+                if not isinstance(sku, str) or (sku in last and last[sku][0] >= ts):
+                    continue
+                u = ln.get('unit')
+                last[sku] = (ts, u if isinstance(u, str) and u else None)
+        return {u: time.strftime('%H:%M', time.gmtime(int(ts) + 9 * 3600)) for ts, u in last.values() if u}
     except Exception:                                   # the stock answer goes out without the mark
         return {}
 
@@ -853,6 +856,8 @@ def answer(args, kit):
         while len(json.dumps(out, ensure_ascii=False)) > LIMIT and out['items']:
             out['items'].pop()
             out['more'] = len(mine) - len(out['items'])
+            if 'note_forum' in out and not any('forum' in it for it in out['items']):
+                out.pop('note_forum')                   # the marked unit was cut: no note for it (review r1 M1)
         return out
     out, clear = {}, clear_lines(units, now, _quotes_path(kit))
     names_shown = shop_names(units)                     # what is on sale (r3 I5)
