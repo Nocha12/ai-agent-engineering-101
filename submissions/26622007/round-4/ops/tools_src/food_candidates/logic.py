@@ -1,6 +1,11 @@
 """food_candidates v2 (operator): the food catalog the shop restocks from, plus customer_asked_out_of_stock -
 foods customers asked for in the last LOOKBACK_H hours that we had none of (logs/lost_deals.jsonl, written by
 log_lost_deal and restock_shoutout), each matched to catalog food SKUs that buy_food_lot can buy.
+Every buy_options SKU we hold now is shown on the ask, which always stays listed (a name match can be wrong, and a
+dropped ask is a buy not made: reviews 1-4): held = the first option, named as asked, in the size asked; held_maybe =
+a held option that may be another food (2nd / 3rd, near, name without the asked word); held_not_fit = a held SKU of
+another size / not a small pack when one was asked (that size is stock 0, notes 11/26). (11/27: 흰우유 small-pack ask
+stayed "stock 0" with no mark while we held the 3rd option 190ml x 18, bought 3 times, sold 0.)
 It only reads; it buys nothing and blocks nothing."""
 import json, math, re, time
 import httpx
@@ -40,6 +45,9 @@ DISH = ('장아찌', '볶음', '김치', '무침', '조림', '찌개', '칼국�
 # name before one with the item ('보통 두부': 떡볶이(보통맛) after 연두부, 11/27 07:43), only among names with it ('중간
 # 계란': 중간 크기 계란 first, review I1). Order only, nothing is left out for it
 MOD = {'보통', '작은', '중간', '소형', '중형', '대형'}
+PIECES = ('개', '구', '입', '개입')    # counts of the same pieces when a held pack is compared with an ask
+SMALL_G = 1000                       # a small pack: the whole pack at most this many g / ml ...
+SMALL_N = 4                          # ... or at most this many pieces; an unknown size is not small (it stays listed)
 SMALL = re.compile(r'소량|소포장|작은|조금|혼자|(?<!\d)1\s?인|한\s?봉지|소용량|적당한\s?양')
 
 
@@ -427,8 +435,6 @@ def asked_out_of_stock(lost, foods, held, now, sold=None):
             else:
                 o = {k: v for k, v in o.items() if k != 'pack_size' and v not in (None, 0)}
             opts.append(o)
-        if opts and opts[0]['we_hold']:
-            continue                                    # we hold the best match now: sell it, nothing to fetch
         top = opts[0]['sku'] if opts else None          # the same first SKU: one entry, whoever refused or not (r9 I1);
         if opts and top in seen:                        # a refusing ask's first SKU already passed its filter
             e = seen[top]
@@ -441,13 +447,17 @@ def asked_out_of_stock(lost, foods, held, now, sold=None):
             e['asks'] += g['asks']
             e['_last'] = max(e['_last'], g['last'])
             e['_who'] |= g['customers']
+            e['_sizes'] |= g['sizes']
+            e['_iw'] |= _ask_words(g)
+            e['_exact'] = e['_exact'] and bool(g['sku'])
             e['customers'] = len(e['_who'])
             if g['small']:
                 e['small_pack_asked'] = True
             continue
         e = {'asked': g['items'][:3], 'asks': g['asks'], 'customers': len(g['customers']), '_who': set(g['customers']),
              '_both': len(both.get(g['key'], ())),
-             '_last': g['last'], 'buy_options': opts}
+             '_last': g['last'], '_sizes': set(g['sizes']), '_iw': _ask_words(g), '_exact': bool(g['sku']),
+             'buy_options': opts}
         if g['small']:
             e['small_pack_asked'] = True
         if g['refused']:
@@ -458,11 +468,87 @@ def asked_out_of_stock(lost, foods, held, now, sold=None):
             seen[top] = e
         out.append(e)
     out.sort(key=lambda x: (-max(x['customers'], x.get('_both', 0)), -x['asks']))   # all who asked the item (r10 M2)
+    listed = []
     for e in out:
         e.pop('_who', None)
         e.pop('_both', None)
         e['last_asked'] = time.strftime('%m-%d %H:%M', time.localtime(e.pop('_last')))
-    return out[:MAX_GROUPS]
+        fits, unfit = held_fit(e, by_sku, e.pop('_sizes', set()))
+        # marks only, the ask stays listed whatever is held. held: the first option, not 'near', its name carrying the
+        # asked item (양념치킨 is not '풀무원 저당소스 5종 (…양념치킨…)') or the catalog SKU asked itself; any other held
+        # option may be another food (양념치킨 -> 닭볶음탕양념, 파 -> 양파): held_maybe
+        first = (e.get('buy_options') or [{}])[0]
+        iw, exact = e.pop('_iw', set()), e.pop('_exact', False)
+        named = exact or _names_item(str((by_sku.get(first.get('sku')) or {}).get('name') or first.get('name') or ''), iw)
+        held_now = [h for h in fits if h['sku'] == first.get('sku') and not first.get('near') and named]
+        if held_now:                                    # we look to hold what was asked: sell it first
+            e['held'] = held_now
+        maybe = [h for h in fits if h not in held_now]
+        if maybe:
+            e['held_maybe'] = maybe
+        if unfit:                                       # we hold another size only: that size is still stock 0
+            e['held_not_fit'] = unfit
+        listed.append(e)
+    # held asks go last (stable): the MAX_GROUPS cut and fit()'s cut from the end take them before any stock-0 ask, so
+    # no ask prod listed is pushed out by one we hold (review 5 I1); held_maybe / held_not_fit are stock 0, not moved
+    listed.sort(key=lambda x: bool(x.get('held')))
+    return listed[:MAX_GROUPS]
+
+
+def _ask_words(g):
+    """The thing itself of each ask: its last word without size / amount words (보통, 소량): '유기농 쌀' 쌀, '서울우유
+    체다치즈' 체다치즈, '흰우유 한 통 또는 소량 포장' 흰우유 (review 3 I1: a brand or a modifier is not the item)."""
+    out = set()
+    for it in g['items']:
+        ws = [w for w in _item_words(it) if w not in MOD and not SMALL.search(w)]
+        if ws:
+            out.add(ws[-1])
+    return out
+
+
+def _names_item(name, heads):
+    """True when a name word (outside [..] / (..)) is the item or ends with it: Korean puts the thing last ('흰우유' for
+    우유, '햅쌀' for 쌀, '대파' for 파); '우유식빵', '두유', '현미', '청양 매운 고추' are not 우유 / 두부 / 쌀 / 라면."""
+    ws = re.findall(r'[가-힣]+|[A-Za-z]{2,}', _clean(re.sub(r'\[[^\]]*\]|\([^)]*\)', ' ', str(name)[:160])))
+    return any(w == h or w.endswith(h) for h in heads for w in ws)
+
+
+def small_pack(name):
+    """True only for a pack of known size that is small: at most SMALL_G g/ml in all, or SMALL_N pieces."""
+    kind, total = amount(name)
+    return bool(total) and ((kind == 0 and total <= SMALL_G) or (kind == 1 and total <= SMALL_N))
+
+
+def held_fit(e, by_sku, asked_sizes):
+    """(held options that are what was asked, held options of another size). By SKU (held = inventory units of that
+    SKU, live); a size the customer wrote must all be on the held name ('200g' is not '300g'); a small-pack ask
+    needs a small pack. Every buy_options SKU is looked at, not only the first (11/27 G22fcdb90 was the 3rd)."""
+    fits, unfit = [], []
+    for o in e.get('buy_options') or []:
+        n = o.get('we_hold') or 0
+        if not n:
+            continue
+        name = str((by_sku.get(o.get('sku')) or {}).get('name') or o.get('name') or '')
+        why = None
+        on_name = pack_of(name)[2] | {_norm(t[2], t[3]) for t in sizes(name) if t[3] not in _MULT}
+        # weights / volumes / pack kinds; a count ('2개', '1팩') only when the held name counts in that unit too:
+        # '우유 2개' fits '우유 1L', '두부 300g 1팩' does not fit '300g×5팩' (review 1 M3, review 2 M1)
+        # one count family: '계란 10개' and '30구' / '24개입' count the same things (review 3 M2)
+        fam = lambda k: (k[0], '개') if k[1] in PIECES else k
+        on_name = {fam(k) for k in on_name}
+        units = {u for _, u in on_name}
+        want = {fam(k) for k in asked_sizes if k[1] in ('g', 'ml') or k[1] in _KIND or fam(k)[1] in units}
+        if want and not want <= on_name:
+            why = 'other_size'
+        elif e.get('small_pack_asked') and not small_pack(name):
+            why = 'not_small_pack'
+        h = {'sku': o.get('sku'), 'pack': o.get('pack'), 'we_hold': n}
+        if why:
+            h['why'] = why
+            unfit.append(h)
+        else:
+            fits.append(h)
+    return fits, unfit
 
 
 def run(args, kit):
@@ -493,7 +579,9 @@ def run(args, kit):
                      'buy_options 1~3번째에서 손님이 쓴 것과 같은 식품(포장이 달라도 같은 식품, 쇼콜라≠콜라)을 골라 buy_food_lot {sku, qty 2~4}로 먼저 산다(셋 다 다르면 건너뜀). '
                      'small_pack_asked: true이면 pack/pack_size가 작은 것(크기를 아는 소포장)을 고른다. '
                      'buy_options가 빈 항목(substitutes_refused: 손님이 대체품 거부)은 사지 않는다. '
-                     'near: true는 손님이 쓴 한 글자로 끝나는 다른 이름(양파 등)이니 이름을 보고 같은 것일 때만 산다.') % LOOKBACK_H,
+                     'near: true는 손님이 쓴 한 글자로 끝나는 다른 이름(양파 등)이니 이름을 보고 같은 것일 때만 산다. '
+                     '수량 asks 1→2개, 2→3개, 3+→4개. held: 찾은 식품·규격 보유(먼저 판다, 다르면 산다), held_maybe: 다른 식품일 수 있는 보유(다르면 산다), '
+                     'held_not_fit: 다른 규격 보유(그 규격은 재고 0, 맞는 SKU가 없으면 같은 SKU도 산다). 표시는 매입을 막지 않는다.') % LOOKBACK_H,
             'customer_asked_out_of_stock': asked,
             'candidates': out[:80]})
 
