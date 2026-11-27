@@ -682,7 +682,15 @@ def norm(text):
     found nothing while 13 packs of '…생수 2Lx6병(1팩)' were in stock)."""
     t = re.sub(r'[×✕✖╳⨯＊*ｘ]', 'x', str(text or '').lower())
     t = re.sub(r'\s', '', t)
-    return re.sub(r'(\d(?:kg|ml|g|l|t)?|[가-힣])x(?=\d)', r'\1', t)     # 2Lx6, 400gx3, 라면x20; not MAX 2 (review I4)
+    t = re.sub(r'(\d(?:kg|ml|g|l|t)?|[가-힣])x(?=\d)', r'\1', t)     # 2Lx6, 400gx3, 라면x20; not MAX 2 (review I4)
+    for a, b in NAME_SAME:
+        t = t.replace(a, b)
+    return t
+
+
+# one food written two ways: the asked name and the shelf name read the same (11/27 aa298e19 15:04: '실크두부 300g' found
+# nothing while 실큰두부 300g x 11 was in stock). Only the whole word: 실크 alone (실크 스카프) stays as it is
+NAME_SAME = (('실크두부', '실큰두부'),)
 
 
 SIZE_WORD = re.compile(r'^\d+(?:\.\d+)?(?:kg|g|l|ml|구|개입|입|팩|개|병|봉|매|t)?$', re.I)
