@@ -56,6 +56,9 @@ def test(run,kit):
   assert out['written'] and 'C11,787' in out['stock'], out
   assert not run({'_inventory':inv,'_now':now,'stock':{'GM':{'C':11786}}},kit)['written']
   assert not run({'_inventory':inv,'_now':now,'stock':{'GM':{'B':11787}}},kit)['written']   # B: only a 200 h unit
+  inv20={'units':inv['units']+[dict(gm,unit='c2',grade='C',expires_at=now+20*3600)]}    # r2 I-N1: on clearance too
+  c20=run({'_inventory':inv20,'_now':now},kit)['clearance']
+  assert c20 and '11,787' in c20 and '12,778' not in c20, c20
  finally:
   for f in ('card.test.json','logs/quotes.test.json'):
    if os.path.exists(f): os.remove(f)

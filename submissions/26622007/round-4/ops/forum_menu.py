@@ -575,7 +575,7 @@ def clearance(u, base, now):
 # --- end shared clearance block
 
 
-def clear_item(inv, sku, shown, now):
+def clear_item(inv, sku, shown, now, qb=None, quotes=None):
     """(hours left, grade, clearance) of this SKU's soonest unit on clearance with at least SHORT hours left, else of
     its soonest unit on clearance; None when none is (shared block). Each unit keeps its own clearance price."""
     best = None
@@ -585,6 +585,8 @@ def clear_item(inv, sku, shown, now):
         g = str(u.get('grade') or '?')
         try:
             cl = clearance(u, shown.get(g), now)
+            if cl and qb and 'cash_clear' in qb and 'unit_cash' in qb:   # never over the cash-out price (r2 I-N1)
+                cl = qb['cash_clear'](cl, shown.get(g), qb['unit_cash'](quotes or {}, u, now))
         except Exception:
             cl = None
         if cl and (best is None or (cl['hours_left'] < SHORT, cl['hours_left']) < (best[0] < SHORT, best[0])):
@@ -752,7 +754,7 @@ grade's shown price for every unit of it, so it names no unit (unit, until None)
         if sku in bad and isinstance(failed, dict):
             failed[sku] = {'name': str(st.get('name') or '')[:80], 'shown': shown_name.get(sku), 'why': bad[sku]}
         shown = {g: p for g, p in qb['quote_prices'](quotes, sku, st['floors'], now).items() if p}
-        clr = None if fixed(st['name'], sku) else clear_item(inv, sku, shown, now)
+        clr = None if fixed(st['name'], sku) else clear_item(inv, sku, shown, now, qb, quotes)
         if clr:                                    # 떨이 11/26 19:05: before everything else, at its clearance price
             left, g, cl = clr
             items.append(((-1, left), -st['count'], -settles.count(sku), sku,

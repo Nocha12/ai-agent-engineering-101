@@ -107,7 +107,7 @@ def test(run, kit):
         with open('logs/quotes.test.json', 'w', encoding='utf-8') as f:
             json.dump(q, f)
         c = run({'op': 'restocked', 'sku': 'GM', 'prices': {'B': 13000}, '_inventory': gmi, '_now': t2 + 1}, kit)
-        assert c['ok'] and c['prices'] == {'B': 13000, 'C': 11787}, c
+        assert c['ok'] and c['prices'] == {'B': 13000, 'C': 12778}, c     # new stock: the C floor, not the 29 h price (r2 I-N2)
         return 'ok'
     finally:
         for f in ('shoutout.test.json', 'waitlist.test.json', 'logs/quotes.test.json'):
