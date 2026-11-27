@@ -559,15 +559,20 @@ def run(args, kit):
         rows = prices.get('surge', [])
         if isinstance(rows, list): surge = {str(x.get('sku')) for x in rows if isinstance(x, dict)}
     foods = [x for x in cat if isinstance(x, dict) and x.get('kind') == 'food'] if isinstance(cat, list) else []
+    # 11/27 (purchase-gate-audit D-4, 대표님 최소 기준 "식품만"): every food is a candidate. The six words only order
+    # the list (essentials first, as before); they and the old list price > 3,000 cut no longer leave anything out.
     wanted = ('생수', '우유', '두유', '쌀', '계란', '국수', '면', '과일')
     out = []
     for x in foods:
         text = str(x.get('name', '')) + ' ' + str(x.get('category', ''))
-        if not any(w in text for w in wanted): continue
         p = x.get('list_price')
-        if not isinstance(p, (int, float)) or p <= 3000: continue
-        out.append({'sku': x.get('sku'), 'name': x.get('name'), 'category': x.get('category'), 'list_price': p, 'shelf_hours': x.get('shelf_hours'), 'surge': str(x.get('sku')) in surge})
-    out.sort(key=lambda x: (x['surge'], -x['list_price']))
+        if not isinstance(p, (int, float)): continue        # no price: the market cannot quote it
+        out.append({'sku': x.get('sku'), 'name': x.get('name'), 'category': x.get('category'), 'list_price': p, 'shelf_hours': x.get('shelf_hours'), 'surge': str(x.get('sku')) in surge,
+                    '_main': any(w in text for w in wanted) and p > 3000})
+    out.sort(key=lambda x: (x['surge'], not x['_main'], -x['list_price']))
+    n_food = len(out)
+    for x in out:
+        del x['_main']
     inv = inv if isinstance(inv, dict) else {}
     try:
         asked = asked_out_of_stock(read_lost(), foods, held_by_sku(inv, _clock()), _clock(), market_sold())
@@ -583,7 +588,7 @@ def run(args, kit):
                      '수량 asks 1→2개, 2→3개, 3+→4개. held: 찾은 식품·규격 보유(먼저 판다, 다르면 산다), held_maybe: 다른 식품일 수 있는 보유(다르면 산다), '
                      'held_not_fit: 다른 규격 보유(그 규격은 재고 0, 맞는 SKU가 없으면 같은 SKU도 산다). 표시는 매입을 막지 않는다.') % LOOKBACK_H,
             'customer_asked_out_of_stock': asked,
-            'candidates': out[:80]})
+            'candidates': out[:80], 'food_skus': n_food})
 
 
 def fit(res, limit=FIT):

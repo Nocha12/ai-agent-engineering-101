@@ -37,7 +37,13 @@ def test(run, kit):
             def token(self, role): return 'offline'
         r = run({}, K())
         cands = r['candidates']
-        assert r['balance'] == 4600000 and all(x['list_price'] > 3000 for x in cands), cands
+        # 11/27 (purchase-gate-audit D-4): every food is a candidate, not only six words above 3,000; essentials first
+        skus = [x['sku'] for x in cands]
+        assert r['balance'] == 4600000 and {'G-mack', 'G-flat', 'G-egg', 'G-ramen'} <= set(skus) and 'N-phone' not in skus, cands
+        assert skus.index('G-egg') < skus.index('G-flat'), skus
+        CAT.append({'sku': 'G-tofu-cheap', 'kind': 'food', 'name': '국산콩 두부 300g', 'category': '식품>두부', 'list_price': 2500, 'shelf_hours': 120})
+        assert 'G-tofu-cheap' in [x['sku'] for x in run({}, K())['candidates']]
+        CAT.pop()
         assert [x['surge'] for x in cands] == sorted(x['surge'] for x in cands), cands   # surge last
         asked = r['customer_asked_out_of_stock']
         assert isinstance(asked, list), asked

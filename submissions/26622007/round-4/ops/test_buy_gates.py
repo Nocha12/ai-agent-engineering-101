@@ -115,5 +115,14 @@ class BuyFoodLotHasNoOwnPayCap(unittest.TestCase):
         self.assertIn('a unit expires within', self.logic())
 
 
+class FoodCandidatesAreAllFood(unittest.TestCase):
+    """D-4: candidates were only foods whose name/category had one of six words and list price > 3,000."""
+
+    def test_no_word_or_price_filter(self):
+        src = (HERE / 'tools_src/food_candidates/logic.py').read_text(encoding='utf-8')
+        self.assertNotIn('if not any(w in text for w in wanted): continue', src)
+        self.assertNotIn('p <= 3000', src)
+
+
 if __name__ == '__main__':
     unittest.main()
