@@ -192,6 +192,12 @@ def test(run, kit):
     byg = {i['grade']: i for i in one['items']}
     assert byg['C']['price'] == 11790 and byg['C']['floor'] == 11790, byg     # goal (3) floor would be 12,778
     assert byg['B']['price'] == 12778 and byg['B']['floor'] == 12778, byg     # floor key without by cashout: ignored
+    # rebase onto 77364a49: the forum unit mark (A-2) and the cash-out floor sit on the same item, neither drops the other
+    cf = run({'sku': 'G0000cash', '_inventory': cm, '_now': now, '_forum': {'posts': [{'ts': now - 300, 'lines': [
+        {'sku': 'G0000cash', 'grade': 'C', 'price': 11790, 'unit': 'c1', 'until': now + 29 * 3600}]}]}}, kit)
+    byc = {i['unit']: i for i in cf['items']}
+    assert byc['c1']['forum'] == '포럼 공지 단위(16:55 게시)' and byc['c1']['floor'] == 11790 == byc['c1']['price'], byc
+    assert 'forum' not in byc['c2'] and byc['c2']['floor'] == 12778 and '표시된 공지 단위로 결제서' in cf['note_forum'], cf
     whole = run({'_inventory': cm, '_now': now}, kit)
     g = [s for s in whole['skus'] if s['sku'] == 'G0000cash'][0]['grades']
     assert g['C']['floor'] == 11790 and g['C']['price'] == 11790 and g['B']['floor'] == 12778, g
