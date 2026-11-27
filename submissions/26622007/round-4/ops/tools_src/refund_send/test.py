@@ -53,6 +53,62 @@ def test(run, kit):
                      {'kind': 'transfer_out', 'counterparty': '손님', 'ts': now}):
             assert '장부' in run(dict(a, _payments=[owed, line]), kit)['error'], line                # paid back by hand
         assert not os.path.exists(FILES[2])                              # refused before any intent line
+        # review r3 (48b2d94a) C1: one refund per payment even for two calls at once. Another call holds the lock:
+        import fcntl
+        with open(FILES[1], 'a') as held:
+            fcntl.flock(held, fcntl.LOCK_EX)
+            r = run(dict(a, _payments=[owed], _lock_wait=0.3), kit)
+        assert '진행 중' in r.get('error', ''), r
+        # another call wrote its intent while this one read the chain: the refund line is read again under the lock
+        g, rpc0 = run.__globals__, run.__globals__['rpc']
+
+        def racing(kit_, args_, method, params):
+            if method == 'eth_getTransactionByHash':
+                with open(FILES[2], 'a') as f:
+                    f.write(json.dumps({'purpose': 'refund', 'order': 'o-m6', 'paid_tx': otx.upper(), 'nonce': 7}) + '\n')
+            return rpc0(kit_, args_, method, params)
+        g['rpc'] = racing
+        try:
+            r = run(dict(a, _payments=[owed]), kit)
+        finally:
+            g['rpc'] = rpc0
+        assert '불확실' in r.get('error', ''), r
+        os.remove(FILES[2])
+        # review r3 I: a refund line under the other order id (market order) or the tx in other case is the same payment
+        for line in ({'purpose': 'refund', 'order': 'o-m6', 'tx_hash': '0x9'},
+                     {'purpose': 'refund', 'order': 'x', 'paid_tx': '0x' + 'C' * 64, 'tx_hash': '0x9'}):
+            with open(FILES[1], 'w') as f:
+                f.write(json.dumps(line) + '\n')
+            assert '이미' in run(dict(a, _payments=[owed]), kit).get('error', ''), line
+        os.remove(FILES[1])
+        # review r3 C2: settled after stage 1, under the checkout order, the market order or the tx in other case
+        for kw in ({'_sales': [{'order': 'o-m6', 'tx_hash': '0x9'}]}, {'_sales': [{'order': 'x', 'tx_hash': '0x' + 'C' * 64}]},
+                   {'_checkouts': [{'event': 'settled', 'order': 't-o6'}]}, {'_checkouts': [{'event': 'settled', 'order': 'o-m6'}]},
+                   {'_checkouts': [{'event': 'settled', 'order': 'x', 'tx_hash': '0x' + 'C' * 64}]}):
+            assert '정산' in run(dict(a, _payments=[owed], **kw), kit).get('error', ''), kw
+        # ... and a sale written while this call read the chain (just before paying)
+        late = dict(a, _payments=[owed], _sales=[])
+
+        def selling(kit_, args_, method, params):
+            if method == 'eth_getTransactionByHash':
+                late['_sales'].append({'order': 'o-m6', 'tx_hash': otx})
+            return rpc0(kit_, args_, method, params)
+        g['rpc'] = selling
+        try:
+            r = run(late, kit)
+        finally:
+            g['rpc'] = rpc0
+        assert '정산' in r.get('error', ''), r
+        assert run(dict(a, _payments=[owed], _checkouts=[{'event': 'settled', 'order': 'other'}]), kit).get('would_send'), 'unrelated'
+        # unsettled: a settled event on the same payment (other case) refuses; none sends
+        with open(FILES[0], 'a') as f:
+            f.write(json.dumps({'stage': 1, 'order': 't-o7', 'ts': now, 'kind': 'unsettled', 'tx_hash': tx, 'amount': None}) + '\n')
+            f.write(json.dumps({'stage': 2, 'order': 't-o7', 'ts': now, 'kind': 'unsettled', 'tx_hash': tx, 'to': payer,
+                                'amount': 9690, 'value_credits': 9690}) + '\n')
+        u = {'order': 't-o7', '_rpc': {'eth_getTransactionByHash': paid}}
+        assert run(u, kit).get('would_send') == {'to': payer, 'amount': 9690}
+        assert '정산' in run(dict(u, _checkouts=[{'event': 'settled', 'order': 'y', 'tx_hash': tx.upper()}]), kit).get('error', '')
+        assert not os.path.exists(FILES[2])                              # refused before any intent line
         with open(FILES[2], 'w') as f:
             f.write(json.dumps({'purpose': 'refund', 'order': 't-o1', 'nonce': 3}) + '\n')
         assert '불확실' in run({'order': 't-o1', '_rpc': {'eth_getTransactionByHash': paid}}, kit)['error']

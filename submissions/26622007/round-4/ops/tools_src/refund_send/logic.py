@@ -7,7 +7,13 @@ Before paying it reads the payment transaction again and pays its sender only. T
 the stage-2 amount, never more than what reached our wallet (permission.pay_limit is a fixed ceiling on top).
 Writes an intent line (with the nonce) before kit.pay and the tx_hash line after, in logs/sends.jsonl and
 logs/refunds.jsonl.
+Review r3 (48b2d94a): the last checks and the intent line run under an exclusive lock on logs/refunds.jsonl, so two
+calls at once cannot both pay one payment: the second reads the first one's intent and refuses. Under that lock, just
+before paying, it reads the refund lines and (for an unsettled or owed plan) sales.jsonl and checkouts.jsonl's
+'settled' events again, matching every order id of the plan (the order asked, our checkout order, the market order)
+and the payment tx without case.
 """
+import fcntl
 import json
 import time
 import urllib.request
@@ -17,6 +23,7 @@ PLANS = 'logs/refund-plans.jsonl'
 FRESH = 1800
 PAY_CAP = 200000            # = permission.pay_limit in ops/install_tools.py; above it the kit refuses the transfer
 WEI = 10 ** 15
+LOCK_WAIT = 20              # seconds to wait for another refund_send holding the lock, then refuse (nothing sent)
 
 
 def _p(kit, path):
@@ -49,6 +56,68 @@ def _write(kit, line):
     for path in ('logs/sends.jsonl', 'logs/refunds.jsonl'):
         with open(_p(kit, path), 'a', encoding='utf-8') as f:
             f.write(json.dumps(line, separators=(',', ':')) + '\n')
+
+
+def _norm(v):
+    return str(v or '').strip().lower()
+
+
+def _keys(order, p1):
+    return {str(k) for k in (order, p1.get('checkout_order'), p1.get('market_order')) if k not in (None, '')}
+
+
+def refund_seen(kit, keys, tx):
+    """A refund line (sent or only intended) naming any order id of the plan, or the same payment tx in any case."""
+    for r in _lines(_p(kit, 'logs/refunds.jsonl')) + _lines(_p(kit, 'logs/sends.jsonl')):
+        if r.get('purpose') == 'refund' and (str(r.get('order')) in keys or (tx and _norm(r.get('paid_tx')) == tx)):
+            return r
+    return None
+
+
+def seen_error(r):
+    if r.get('tx_hash'):
+        return {'ok': False, 'error': '이 주문은 이미 환불했습니다(주문당 1회)', 'tx_hash': r['tx_hash']}
+    return {'ok': False, 'error': '이 주문의 환불 송금 결과가 불확실합니다. 다시 보내지 말고 체인에서 nonce와 영수증을 먼저 확인해야 합니다',
+            'intent': r}
+
+
+def settled_since(kit, args, keys, tx):
+    """A sale (sales.jsonl) or a 'settled' checkout event under any order id of the plan or on the payment tx."""
+    sales = _lines(_p(kit, 'logs/sales.jsonl')) + (list(args.get('_sales') or []) if kit.testing else [])
+    log = list(args.get('_checkouts') or []) if kit.testing else _lines('logs/checkouts.jsonl')
+
+    def hit(r):
+        return str(r.get('order')) in keys or bool(tx and _norm(r.get('tx_hash')) == tx)
+    return any(hit(s) for s in sales) or any(r.get('event') == 'settled' and hit(r) for r in log)
+
+
+def _lock(kit, args):
+    """Exclusive flock on refunds.jsonl (opened for append, content untouched); None if another call holds it."""
+    wait = args.get('_lock_wait', LOCK_WAIT) if kit.testing else LOCK_WAIT
+    f = open(_p(kit, 'logs/refunds.jsonl'), 'a', encoding='utf-8')
+    end = time.time() + wait
+    while True:
+        try:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return f
+        except BlockingIOError:
+            if time.time() >= end:
+                f.close()
+                return None
+            time.sleep(0.1)
+
+
+def recheck(kit, args, order, p1):
+    """The refusals that must hold at the moment of paying; None when the refund may go."""
+    tx, keys = _norm(p1.get('tx_hash')), _keys(order, p1)
+    seen = refund_seen(kit, keys, tx)
+    if seen:
+        return seen_error(seen)
+    if p1.get('kind') != 'settled' and settled_since(kit, args, keys, tx):
+        return {'ok': False, 'error': '1·2단계 뒤에 이 주문이 정산됐습니다(sales.jsonl·checkouts.jsonl). 미정산 환불은 하지 않습니다. 1단계부터 다시 합니다'}
+    if p1.get('kind') == 'owed' and owed_changed(kit, args, p1):
+        return {'ok': False, 'error': '1·2단계 뒤에 장부가 바뀌었습니다(미정산 입금 줄이 없거나 판매·환불·송금 기록이 생김). 환불하지 않고 1단계부터 다시 합니다'}
+    return None
 
 
 def owed_changed(kit, args, p1):
@@ -84,17 +153,9 @@ def run(args, kit):
     p2 = next((p for p in reversed(plans) if p.get('stage') == 2), None)
     if not p1 or not p2 or p2.get('ts', 0) < p1.get('ts', 0) or p1.get('tx_hash') != p2.get('tx_hash'):
         return {'ok': False, 'error': '30분 안의 1·2단계 확인이 없거나 서로 다릅니다. 1단계부터 다시 합니다'}
-    for r in _lines(_p(kit, 'logs/refunds.jsonl')) + _lines(_p(kit, 'logs/sends.jsonl')):
-        if r.get('purpose') == 'refund' and (str(r.get('order')) == order or r.get('paid_tx') == p1.get('tx_hash')):
-            if r.get('tx_hash'):
-                return {'ok': False, 'error': '이 주문은 이미 환불했습니다(주문당 1회)', 'tx_hash': r['tx_hash']}
-            return {'ok': False, 'error': '이 주문의 환불 송금 결과가 불확실합니다. 다시 보내지 말고 체인에서 nonce와 영수증을 먼저 확인해야 합니다',
-                    'intent': r}
-    if p1.get('kind') != 'settled' and any(str(s.get('order')) == order or (p1.get('tx_hash') and s.get('tx_hash') == p1.get('tx_hash'))
-                                          for s in _lines(_p(kit, 'logs/sales.jsonl'))):
-        return {'ok': False, 'error': '1·2단계 뒤에 이 주문이 정산됐습니다(sales.jsonl). 미정산 환불은 하지 않습니다. 1단계부터 다시 합니다'}
-    if p1.get('kind') == 'owed' and owed_changed(kit, args, p1):
-        return {'ok': False, 'error': '1·2단계 뒤에 장부가 바뀌었습니다(미정산 입금 줄이 없거나 판매·환불·송금 기록이 생김). 환불하지 않고 1단계부터 다시 합니다'}
+    early = recheck(kit, args, order, p1)
+    if early:
+        return early
     amount, to = p2.get('amount'), str(p2.get('to') or '')
     if type(amount) is not int or amount <= 0:
         return {'ok': False, 'error': '환불 금액이 올바르지 않습니다'}
@@ -108,13 +169,23 @@ def run(args, kit):
     if not isinstance(tx, dict) or str(tx.get('from') or '').lower() != to.lower() \
             or str(tx.get('to') or '').lower() != kit.address('shop').lower():
         return {'ok': False, 'error': '결제 트랜잭션을 다시 읽어 보니 2단계 결과와 다릅니다'}
-    if kit.testing:
-        return {'ok': False, 'error': 'testing mode: no refund sent', 'would_send': {'to': to, 'amount': amount}}
-    nonce = int(rpc(kit, args, 'eth_getTransactionCount', [kit.address('shop'), 'pending']), 16)
-    base = {'purpose': 'refund', 'order': order, 'paid_tx': p2['tx_hash'], 'to': to, 'amount': amount, 'kind': p1['kind'],
-            'basis': p1.get('basis')}
-    _write(kit, dict(base, ts=int(time.time()), nonce=nonce))
-    sent = kit.pay(to, amount * WEI, '0x', role='shop')
-    txid = sent if isinstance(sent, str) else str(sent)
-    _write(kit, dict(base, ts=int(time.time()), tx_hash=txid))
+    lock = _lock(kit, args)
+    if lock is None:
+        return {'ok': False, 'error': '다른 환불 송금이 진행 중입니다. 보내지 않았습니다. 잠시 뒤 같은 주문으로 다시 호출합니다'}
+    try:
+        late = recheck(kit, args, order, p1)        # read again under the lock, just before paying
+        if late:
+            return late
+        if kit.testing:
+            return {'ok': False, 'error': 'testing mode: no refund sent', 'would_send': {'to': to, 'amount': amount}}
+        nonce = int(rpc(kit, args, 'eth_getTransactionCount', [kit.address('shop'), 'pending']), 16)
+        base = {'purpose': 'refund', 'order': order, 'paid_tx': p2['tx_hash'], 'to': to, 'amount': amount, 'kind': p1['kind'],
+                'basis': p1.get('basis')}
+        _write(kit, dict(base, ts=int(time.time()), nonce=nonce))
+        sent = kit.pay(to, amount * WEI, '0x', role='shop')     # still under the lock: one refund transfer at a time
+        txid = sent if isinstance(sent, str) else str(sent)
+        _write(kit, dict(base, ts=int(time.time()), tx_hash=txid))
+    finally:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        lock.close()
     return {'ok': True, 'order': order, 'to': to, 'amount': amount, 'tx_hash': txid}
