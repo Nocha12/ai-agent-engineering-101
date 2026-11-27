@@ -1056,6 +1056,8 @@ def install(ak, logs, checkout=False):
             if not isinstance(r, dict) or r.get('ok') is not True:
                 held = held_result(r, wanted=args.get('unit') if isinstance(args, dict) else None)
                 if held is not None:
+                    if held.get('code') == 'unit_held':
+                        ev.checkout_held = (held.get('held_unit') or '', held.get('held_until') or 0)
                     return held
                 # Raw stdout, tracebacks, and tool-returned errors are not customer-facing text.
                 return {'ok': False, 'error': 'checkout tool did not confirm issuance; do not automatically reissue'}
@@ -1065,7 +1067,8 @@ def install(ak, logs, checkout=False):
             if not (isinstance(token, str) and SIGNED.fullmatch(token) and isinstance(order, str)
                     and ORDER.fullmatch(order) and type(at) is int):
                 return {'ok': False, 'error': 'invalid checkout metadata; do not automatically reissue'}
-            c = Checkout(order, token, at, grade_note(order, r.get('grade_evidence'), time.time()))
+            c = Checkout(order, token, at, grade_note(order, r.get('grade_evidence'), time.time()),
+                         *getattr(ev, 'checkout_held', ('', 0)))
             wallet_digest = urlsafe_b64encode(bytes.fromhex(c.digest)).decode().rstrip('=')
             if r.get('checkout_hash') != wallet_digest:
                 return {'ok': False, 'error': 'inconsistent checkout digest; do not automatically reissue'}

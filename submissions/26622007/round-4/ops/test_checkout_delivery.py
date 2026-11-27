@@ -36,7 +36,8 @@ class Compose(unittest.TestCase):
                 payload = {'item': 'food-test', 'unit': unit, 'price': price, 'claim': claim, 'cert': {wrapper: cert}}
                 encoded = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
                 token = f'eyJhbGciOiJFZERTQSJ9.{encoded}.c2ln'
-                c = cd.Checkout('task-1', token, NOW - 10, f'가게가 밝힌 등급은 {claim}등급입니다.')
+                c = cd.Checkout('task-1', token, NOW - 10, f'가게가 밝힌 등급은 {claim}등급입니다.',
+                                'u-aabbccddeeff', int(NOW + 120))
                 text, attached = cd.compose(f'{claim}등급, 가격 1크레딧입니다.', [c], set(), NOW, agent='nocha12',
                                             item_names={'food-test': '두부 1모'}, continuation=True)
                 self.assertIn(token, text[:cd.VISIBLE])
@@ -46,6 +47,7 @@ class Compose(unittest.TestCase):
                 self.assertIn('소비기한 01/15 18:00 KST까지', text)
                 self.assertIn('이 대화에서', text)
                 self.assertIn('두부 1모', text)
+                self.assertIn('u-aabbccddeeff의 예약은 01/15 17:02 KST까지', text)
                 self.assertNotIn(f'{claim}등급', text)
                 self.assertNotIn('가격 1크레딧', text)
                 result = {}

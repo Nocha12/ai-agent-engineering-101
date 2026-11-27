@@ -22,6 +22,9 @@ class Checkout:
     at: float
     note: str = ''          # grade_note() text, written just before this checkout's line
 
+    held_unit: str = ''
+    held_until: int = 0
+
     @property
     def digest(self):
         return sha256(self.token.encode('ascii')).hexdigest()
@@ -123,7 +126,8 @@ def grade_free_reply(issued, cancelled, now, item_names=None, continuation=False
     active = {c.digest: c for c in issued if c.order not in cancelled and 0 <= now - c.at < HOLD_SECONDS}
     if len(active) != 1:
         return None
-    payload = _payload(next(iter(active.values())).token)
+    checkout = next(iter(active.values()))
+    payload = _payload(checkout.token)
     cert = _ungraded_food(payload)
     if cert is None:
         return None
@@ -139,6 +143,10 @@ def grade_free_reply(issued, cancelled, now, item_names=None, continuation=False
     if type(end) in (int, float) and 1e9 < end < 1e11 and end > now:
         terms.append(f"소비기한 {datetime.fromtimestamp(end, KST):%m/%d %H:%M KST}까지")
     text = ' · '.join(terms) or '결제서를 발급했어요.'
+    if (isinstance(checkout.held_unit, str) and UNIT.fullmatch(checkout.held_unit) and checkout.held_unit != unit
+            and type(checkout.held_until) is int and now < checkout.held_until < 1e11):
+        text += (f"\n앞서 찾으신 재고 {checkout.held_unit}의 예약은 "
+                 f"{datetime.fromtimestamp(checkout.held_until, KST):%m/%d %H:%M KST}까지예요.")
     if continuation:
         text += '\n' + FOLLOWUP
     return text
