@@ -599,6 +599,7 @@ def fixed(name, sku=None):
 
 
 CASH_HOURS = 48        # cash-out (현금화, 11/27): a food grade whose soonest unit has this many hours or less left
+CASH_SHARE = 0.7       # and whose median is at least this share of the floor (a stray low median moves nothing)
 
 
 def soonest(inv, sku, grade, now):
@@ -613,8 +614,8 @@ def soonest(inv, sku, grade, now):
 def requote_plan(qb, inv, quotes, settles, now):
     """{sku: {grade: new price}} for the grades we hold whose quote is missing or above max(floor, 24 h median).
     Cash-out (11/27): when that grade's soonest unit has CASH_HOURS or less left and the 24 h median is under the
-    floor, the entry is {'price': median, 'floor': median} instead (a cash-out quote, below cost: a unit that expires
-    is 0 credits), never under the quote block's CASHOUT_MIN and never for water."""
+    floor but at least CASH_SHARE of it, the entry is {'price': median, 'floor': median} instead (a cash-out quote,
+    below cost: a unit that expires is 0 credits), never under the quote block's CASHOUT_MIN and never for water."""
     plan, work = {}, dict(quotes)                # work: the quotes as they will be once the plan is written
     cmin = qb.get('CASHOUT_MIN')
     for sku in sorted({u.get('sku') for u in inv.get('units') or [] if isinstance(u, dict) and u.get('sku')}):
@@ -627,7 +628,8 @@ def requote_plan(qb, inv, quotes, settles, now):
                 continue
             have = qb['quote_get'](quotes, sku, g, now)
             left = soonest(inv, sku, g, now)
-            if cmin is not None and med < int(st['floors'][g]) and left is not None and left <= CASH_HOURS:
+            fl = int(st['floors'][g])
+            if cmin is not None and CASH_SHARE * fl <= med < fl and left is not None and left <= CASH_HOURS:
                 target = max(int(cmin), med)
                 if have is not None and have <= target and qb['quote_floor'](quotes, sku, g, now) is not None \
                         and qb['quote_floor'](quotes, sku, g, now) <= target:
