@@ -200,8 +200,11 @@ HELD_NO_LONG = ('alternatives(같은 품목의 빈 단위, 싼 순 최대 6개)�
                 '아래 조회로 다른 단위가 있는지 확인한 뒤, 없으면 그렇다고 솔직히 알리고 원하면 C·임박 단위의 등급·기한·가격을 '
                 '안내합니다. ')
 HELD_LOOK = ('기한을 말하거나 longest보다 긴 단위를 찾을 때는 check_item_inventory {sku}의 until(인증서와 같은 분 단위 값)로 '
-             '확인합니다(alternatives는 싼 순 최대 6개라 더 긴 단위가 그 조회에만 있을 수 있고, until_kst는 시 단위 참고값). ')
-HELD_CLEAR = '떨이 단위(clearance true)는 clearance_price를 가격으로 말하고 price 없이 냅니다. '
+             '확인합니다(alternatives는 싼 순 최대 6개라 더 긴 단위가 그 조회에만 있을 수 있고, until_kst는 시 단위 참고값). '
+             '그 조회는 잡힌 단위도 보여 주니 held_unit은 다시 내밀지 않고, 조회에서만 찾은 단위로 낸 결제서가 다시 unit_held면 '
+             '그 단위도 잡혀 있는 것입니다. ')
+HELD_CLEAR = ('떨이 단위(clearance true)의 가격은 check_item_inventory {sku}가 그 unit에 보여 주는 clearance.price(price 없이 낼 '
+              '때 결제서에 찍히는 값)로 말하고 price 없이 냅니다. ')
 KST = timezone(timedelta(hours=9))
 
 
@@ -238,7 +241,7 @@ def _fit_view(v, limit):
     return v
 
 
-def held_result(r, now=None):
+def held_result(r, now=None, wanted=None):
     """private_checkout create answered code unit_held (or reissue_wait): pass only checked fields (no tool text) to
     the model so it can offer a free unit of the same item at that unit's floor or more. None for any other result."""
     if isinstance(r, dict) and r.get('code') == 'no_quote':
@@ -262,11 +265,8 @@ def held_result(r, now=None):
                 and (hours is None or (type(hours) in (int, float) and hours == hours and abs(hours) < 1e6))):
             cl = x.get('clearance')
             cp = cl.get('price') if isinstance(cl, dict) else None
-            alt = {'unit': unit, 'grade': grade, 'floor': floor, 'hours_left': hours,
-                   'until_kst': alt_until(hours, now), 'clearance': type(cp) is int}
-            if type(cp) is int and cp >= floor:
-                alt['clearance_price'] = cp
-            alts.append(alt)
+            alts.append({'unit': unit, 'grade': grade, 'floor': floor, 'hours_left': hours,
+                         'until_kst': alt_until(hours, now), 'clearance': type(cp) is int})
     until = r.get('held_until')
     # 메인 11/27 18:10 (7f2b4297, a57f3944, 33647847): a customer who leaves out C·임박 hears the longest-dated free unit
     # first, and when the unit they wanted is held, when that checkout ends. Order and floors unchanged (no new guard).
@@ -275,6 +275,7 @@ def held_result(r, now=None):
     longest = max(good, key=lambda x: (x['hours_left'] is None, x['hours_left'] or 0, x['grade'] == 'A')) if good else None
     return {'ok': False, 'code': 'unit_held', 'held_until': until if type(until) is int else None,
             'held_until_kst': held_kst(until), 'alternatives': alts, 'longest': longest,
+            'held_unit': wanted if isinstance(wanted, str) and HELD_UNIT.fullmatch(wanted) else None,
             'error': HELD_TEXT + (HELD_TIME.format(t=held_kst(until)) if held_kst(until) else '')
             + ((HELD_LONG if longest else HELD_NO_LONG) + HELD_LOOK if alts else '')
             + (HELD_CLEAR if any(x['clearance'] for x in alts) else '') + ('손님이 원하면 alternatives의 단위를 그 하한가(floor) 이상으로 다시 제안하고, 손님이 받아들이면 그 단위로 '
@@ -1047,7 +1048,7 @@ def install(ak, logs, checkout=False):
                 return {'ok': False, 'error': 'checkout tool could not finish; do not automatically reissue'}
             r = out.get('result') if isinstance(out, dict) and out.get('ok') is True else None
             if not isinstance(r, dict) or r.get('ok') is not True:
-                held = held_result(r)
+                held = held_result(r, wanted=args.get('unit') if isinstance(args, dict) else None)
                 if held is not None:
                     return held
                 # Raw stdout, tracebacks, and tool-returned errors are not customer-facing text.

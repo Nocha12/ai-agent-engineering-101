@@ -218,7 +218,7 @@ def held_longest():
     assert cl['longest']['unit'] == 'u-b2', cl
     assert cl['alternatives'][0]['clearance'] is True and cl['alternatives'][1]['clearance'] is False
     assert cl['alternatives'][0]['until_kst'] == '11/28 11시 KST'          # hour only, as with_until (r3 I1)
-    assert cl['alternatives'][0]['clearance_price'] == 2600 and 'clearance_price' not in cl['alternatives'][1]
+    assert all('clearance_price' not in x for x in cl['alternatives'])   # r5 I-2: the price is the look-up's
     # r3 I1: 39.96 h shows as 40.0 h; the hour is never later than the real expiry (11/29 09:07 -> 09시)
     assert rec.alt_until(40.0, now) == '11/29 09시 KST' and rec.alt_until(0.04, now) is None
     only_cl = rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': until, 'alternatives': [
@@ -236,7 +236,13 @@ def held_longest():
         for i in range(5)] + [{'unit': 'u-b9', 'grade': 'B', 'floor': 3000, 'hours_left': 20.0},
                               {'unit': 'u-a1', 'grade': 'A', 'floor': 4000, 'hours_left': 100.0}]}, now=now)
     assert past['longest']['unit'] == 'u-b9' and 'longest보다 긴 단위' in past['error']
-    assert '떨이 단위(clearance true)는 clearance_price' in past['error']
+    assert 'clearance.price(price 없이 낼 때 결제서에 찍히는 값)' in past['error']
+    # r5 I-1: the held unit is named so the look-up's copy of it is not offered again; odd ids are dropped
+    named = rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': until, 'alternatives': []}, wanted='u-a77')
+    assert named['held_unit'] == 'u-a77' and past['held_unit'] is None
+    assert rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': until, 'alternatives': []},
+                           wanted='RAW TEXT')['held_unit'] is None
+    assert 'held_unit은 다시 내밀지 않고' in past['error']
     plain = rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': until, 'alternatives': [
         {'unit': 'u-b1', 'grade': 'B', 'floor': 3000, 'hours_left': 40.0}]}, now=now)
     assert '떨이 단위' not in plain['error']
