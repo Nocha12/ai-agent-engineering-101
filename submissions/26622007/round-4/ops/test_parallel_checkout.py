@@ -204,8 +204,15 @@ def main():
         assert ok and '가격 5,000크레딧' in body and '소비기한' in body, body
         assert 'A등급' not in body, body
         assert 'grade_evidence' not in SEEN['t-null'][0] and '"until"' in SEEN['t-null'][0], SEEN['t-null']
-        sent = [json.loads(line) for line in (root / 'logs' / 'messages.jsonl').read_text().splitlines()]
-        assert any(r.get('task') == 't-null' and r.get('dir') == 'out' and r.get('text') == body for r in sent), body
+        # The SDK signals the waiter before the wrapper writes the outbound log.
+        log = root / 'logs' / 'messages.jsonl'
+        until = time.monotonic() + 2
+        while True:
+            sent = [json.loads(line) for line in log.read_text().splitlines()]
+            if any(r.get('task') == 't-null' and r.get('dir') == 'out' and r.get('text') == body for r in sent):
+                break
+            assert time.monotonic() < until, body
+            time.sleep(0.02)
         print('parallel checkout ok', out['t-a'][1], '/', out['t-b'][1])
 
 
