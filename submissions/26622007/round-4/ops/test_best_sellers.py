@@ -122,8 +122,8 @@ class Rank(unittest.TestCase):
         data = json.loads(bs.DATA_PATH.read_text(encoding='utf-8'))
         now = price_demand.market_as_of()
         for item in bs.rank({'top': 20}, data, now)['items']:
-            if item['sku'] in data['stock_unconfirmed']:
-                self.assertEqual(item['buy_qty'], 0)
+            if item['sku'] in data['stock_unconfirmed']:      # 11/27: a reference qty from own stock only
+                self.assertEqual(item['buy_qty_basis'], 'no_stock_data')
                 continue
             rate, count, _, competitors, own = price_demand.signals(item['sku'], now)
             self.assertEqual((item['per_hour'], item['tx_6h']), (round(rate, 2), count))
