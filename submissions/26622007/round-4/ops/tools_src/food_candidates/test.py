@@ -698,6 +698,8 @@ def _test_held(g, K, now):
     # 11/27 19:0x: refill fills the next COVER_H hours of our sales, not a whole day (tofu sold 22 / held 11 was told
     #    qty 4 twice in one window and 8 more were bought; windows open every ~20 min, C units expire in hours)
     assert rf['G-tofu']['cover'] == 2 and rf['G-silk']['cover'] == 1, rf
+    assert [g['cover'](n) for n in (0, 1, 4, 5, 22, 24, 100)] == [0, 1, 1, 2, 6, 6, 25]
+    assert '직접 빼지 않음' in r9['note'] and '다음 6시간' in r9['note'], r9['note']
     g['own_sold'] = lambda path=None, now=None: {'G-silk': 22, 'G-tofu': 9}
     g['fetch'] = lambda base, tk: (CAT, {'surge': []}, {'balance': 1, 'units': units(('G-silk', 11, False), ('G-tofu', 3, False))})
     rc = {x['sku']: x for x in g['run']({}, K())['refill']}

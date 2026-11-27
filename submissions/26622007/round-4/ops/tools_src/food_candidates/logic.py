@@ -297,6 +297,11 @@ def name_fit(name, pieces):
     return extra, other, tail
 
 
+def cover(n):
+    """our sales of the next COVER_H h from n sold in LOOKBACK_H h, rounded up (integers, no float)."""
+    return -(-n * COVER_H // LOOKBACK_H)
+
+
 def held_by_sku(inv, now):
     out = {}
     for u in (inv.get('units') or []) if isinstance(inv, dict) else []:
@@ -634,8 +639,7 @@ def run(args, kit):
     # refill (review M2): food SKUs of the catalog only; a SKU an asked item lists is marked asked (re-review I-2)
     in_asked = {o.get('sku') for e in (asked if isinstance(asked, list) else []) for o in (e.get('buy_options') or [])}
     refill = sorted(({'sku': k, 'name': str(names[k] or '')[:30], 'sold_24h': n, 'held': held.get(k, 0),
-                      'cover': math.ceil(n * COVER_H / LOOKBACK_H),
-                      'qty': max(0, min(4, math.ceil(n * COVER_H / LOOKBACK_H) - held.get(k, 0))), **({'asked': True} if k in in_asked else {})}
+                      'cover': cover(n), 'qty': max(0, min(4, cover(n) - held.get(k, 0))), **({'asked': True} if k in in_asked else {})}
                      for k, n in mine.items() if n > 0 and k in names),
                     key=lambda x: (-x['qty'], -x['sold_24h']))[:REFILL_MAX]
     return fit({'balance': inv.get('balance'), 'restock': inv.get('restock'), 'surge_skus': sorted(surge),
@@ -647,9 +651,9 @@ def run(args, kit):
                      'near: true는 손님이 쓴 한 글자로 끝나는 다른 이름(양파 등)이니 이름을 보고 같은 것일 때만 산다. '
                      '수량은 찾은 손님 수: customers 1명 1개, 2명 2개, 3명+ 3~4개(customers 0이면 1개). held: 찾은 식품·규격 보유(먼저 판다, 다르면 산다), held_maybe: 다른 식품일 수 있는 보유(다르면 산다), '
                      'held_not_fit: 다른 규격 보유(그 규격은 재고 0, 맞는 SKU가 없으면 같은 SKU도 산다). 표시는 매입을 막지 않는다. '
-                     'refill: 그 밖의 품목은 다음 6시간 팔릴 양(cover) − 보유(held) = qty만큼만 다시 채우고(하루치를 쌓지 않는다), qty 0이면 그 품목은 이번 창에 건너뛰고 가진 것을 먼저 판다(asked: true는 손님 항목으로 산 수를 qty에서 뺀다). '
+                     'refill: 그 밖의 품목은 qty(다음 %d시간 판매 cover − held, sold_24h로 직접 빼지 않음)만큼만 다시 채우고, qty 0이면 그 품목은 이번 창에 건너뛰고 가진 것을 먼저 판다(asked: true는 손님 항목으로 산 수를 qty에서 뺀다). '
                      'candidates는 카탈로그일 뿐 매입 근거가 아니다(우리 판매·손님 문의가 없는 품목은 1개만 시험). '
-                     '한 창 3품목·품목당 4개는 최대치이지 채울 목표가 아니다: 근거 있는 품목이 없으면 그 창은 건너뛴다.') % LOOKBACK_H,
+                     '한 창 3품목·품목당 4개는 최대치이지 채울 목표가 아니다: 근거 있는 품목이 없으면 그 창은 건너뛴다.') % (LOOKBACK_H, COVER_H),
             'customer_asked_out_of_stock': asked,
             'refill': refill,
             'candidates': out[:80], 'food_skus': n_food})

@@ -21,7 +21,7 @@ class GoalHasNoStockOrEndGate(unittest.TestCase):
 
     def test_no_stock_cap_sentences(self):
         g = goal()
-        # 11/27 17:30 (#13855): the per-SKU refill (sold 24 h - held of that SKU) is back as a judgment; a total-stock cap stays out
+        # 11/27 17:30 (#13855): the per-SKU refill (cover - held of that SKU; cover = 6 h of our 24 h sales since 19:1x) is back as a judgment; a total-stock cap stays out
         for s in ('재고만 쌓아 두거나', '유통기한 안에 팔 수 있는 양만 산다', '유통기한 안에 팔 수 있는 양까지', '재고 총개수가',
                   '총재고'):
             self.assertNotIn(s, g)
@@ -44,7 +44,7 @@ class GoalHasNoStockOrEndGate(unittest.TestCase):
     def test_buy_follows_demand(self):
         """11/27 17:30 대표님 #13855 '제대로 해 파산하겠다': 16:06~17:30 매입 203,438 vs 판매 15,516. The goal told the shop
         to ignore sales speed and stock and to fill 3 items a window; it bought for one ask 2~4 lots and market best
-        sellers it already held. Now: one unit per customer who asked, refill = our 24 h sales - held per SKU, the
+        sellers it already held. Now: one unit per customer who asked, refill = cover (our next 6 h of 24 h sales) - held per SKU, the
         3 x 4 is a ceiling, a window without demand is skipped. No amount cap, no total-stock cap, no end time."""
         g = goal()
         self.assertNotIn('판매 속도와 지금 가진 재고는 참고만 하고 매입을 멈추거나 줄이는 이유로 쓰지 않는다', g)
