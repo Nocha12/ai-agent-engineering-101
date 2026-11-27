@@ -2,7 +2,8 @@
 
 args {}            every SKU we hold: name, count, and per grade the count, the floor price and the hours left
 args {sku}         the units of one item: a SKU id, or words of its name ("콩나물"); a dated unit carries until
-                   (its expiry 'MM/DD HH:MM KST', the minute its signed certificate shows)
+                   (its expiry 'MM/DD HH:MM KST', the minute its signed certificate shows); a unit our forum menu
+                   named in the last 3 hours carries forum '포럼 공지 단위(HH:MM 게시)' (logs/forum-menu-units.json)
 The kit shows a tool result up to 6,000 characters. shop_snapshot returns the raw /api/inventory list (about 500
 characters a unit with its certificate), so past 10 units the rest was cut off and the agent answered "sold out" for
 stock we held (11/25 06:39: bean sprouts bought at 06:24). This reads the same signed-in /api/inventory and answers
@@ -232,6 +233,40 @@ def until(u):
     if not (isinstance(e, (int, float)) and not isinstance(e, bool) and 1e9 < e < 1e11):
         return None
     return time.strftime('%m/%d %H:%M KST', time.gmtime(int(e) + 9 * 3600))
+
+
+FORUM_UNITS, FORUM_KEEP = 'logs/forum-menu-units.json', 3 * 3600   # ops/forum_menu.py writes it after each post
+FORUM_NOTE = ('forum: 이 unit이 우리 포럼 메뉴 글에 올린 단위(게시 시각). 손님이 공지(포럼 글)를 짚으면 표시된 공지 단위로 결제서를 '
+              '냅니다(가격은 그 unit의 지금 price·clearance 그대로)')
+
+
+def forum_units(kit, args, now):
+    """{unit: 'HH:MM'}: per SKU, the unit named by the newest post (of the last FORUM_KEEP seconds) that shows that SKU,
+    with that post's KST minute; nothing for a SKU whose newest line is a grade line (no unit). Only the newest: the
+    menu moves to the longer unit once the short one drops under 3 h, so older posts may name another unit of the same
+    SKU and grade (review r1 I1). {} when none or unreadable (11/27 05fcd1d5: the post read '고등어 C6,845(~22:51)',
+    two C units were listed and the checkout went out on the other one). Tests pass the file's content as args _forum."""
+    try:
+        if kit.testing:
+            data = args.get('_forum')
+        else:
+            with open(FORUM_UNITS, encoding='utf-8') as f:
+                data = json.load(f)
+        posts = data.get('posts') if isinstance(data, dict) else None
+        last = {}                                       # sku -> (ts, unit or None) of its newest posted line
+        for p in posts if isinstance(posts, list) else []:
+            ts = p.get('ts') if isinstance(p, dict) else None
+            if not (isinstance(ts, (int, float)) and not isinstance(ts, bool) and 0 <= now - ts < FORUM_KEEP):
+                continue
+            for ln in p.get('lines') if isinstance(p.get('lines'), list) else []:
+                sku = ln.get('sku') if isinstance(ln, dict) else None
+                if not isinstance(sku, str) or (sku in last and last[sku][0] >= ts):
+                    continue
+                u = ln.get('unit')
+                last[sku] = (ts, u if isinstance(u, str) and u else None)
+        return {u: time.strftime('%H:%M', time.gmtime(int(ts) + 9 * 3600)) for ts, u in last.values() if u}
+    except Exception:                                   # the stock answer goes out without the mark
+        return {}
 
 
 def window(inv):
@@ -758,6 +793,10 @@ def answer(args, kit):
             t = until(u)
             if t:
                 it['until'] = t
+        posted = forum_units(kit, args, now) if items else {}
+        for it in items:
+            if it['unit'] in posted:
+                it['forum'] = f'포럼 공지 단위({posted[it["unit"]]} 게시)'
         gf = {}
         for u in mine:
             k = (u['sku'], str(u.get('grade') or '?')[:8])
@@ -797,6 +836,8 @@ def answer(args, kit):
                'note_price': 'price: 손님께 부를 이 품목·등급 가격. 비어 있으면 args {sku, quote:{등급:가격}}로 먼저 정함(손님께 미정이라고 말하지 않음)'}
         if on_clear:
             out['note_clearance'] = CLEAR_NOTE
+        if any('forum' in it for it in items):
+            out['note_forum'] = FORUM_NOTE
         if set_note:
             out['quote_error'] = set_note
         if isinstance(quoted, dict):
@@ -815,6 +856,8 @@ def answer(args, kit):
         while len(json.dumps(out, ensure_ascii=False)) > LIMIT and out['items']:
             out['items'].pop()
             out['more'] = len(mine) - len(out['items'])
+            if 'note_forum' in out and not any('forum' in it for it in out['items']):
+                out.pop('note_forum')                   # the marked unit was cut: no note for it (review r1 M1)
         return out
     out, clear = {}, clear_lines(units, now, _quotes_path(kit))
     names_shown = shop_names(units)                     # what is on sale (r3 I5)

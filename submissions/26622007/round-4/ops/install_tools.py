@@ -66,7 +66,8 @@ TOOLS = {
         'args {sku: SKU ID나 품목 이름(예: 콩나물)}: 그 품목의 unit ID·등급·원가·하한가·남은 시간·소비기한(until, 서명 인증서와 같은 분). 소비기한이 지난 unit은 재고로 세지 않습니다. '
         '조회가 실패하면 ok:false이고 재고 0이 아닙니다. price는 품목·등급 안내가(같은 단위는 이 값 하나로 안내, 높은 등급이 같거나 비쌈). '
         '안내가가 없으면 args {sku, quote: {등급: 가격}}로 정하고, 바꿀 때만 requote: true. '
-        '떨이·기한 임박 unit은 clearance {price, floor}(전체 조회는 맨 앞 clearance 목록): 그 price로 먼저 안내합니다.',
+        '떨이·기한 임박 unit은 clearance {price, floor}(전체 조회는 맨 앞 clearance 목록): 그 price로 먼저 안내합니다. '
+        '포럼 메뉴 글에 올린 unit에는 forum "포럼 공지 단위(HH:MM 게시)"가 붙습니다: 손님이 공지(포럼 글)를 짚으면 표시된 공지 단위로 결제서를 냅니다.',
         {'network': [MARKET], 'write': ['logs/quotes.json', 'logs/quotes.json.tmp', 'logs/quotes.test.json', 'logs/quotes.test.json.tmp'], 'identity': ['shop'], 'timeout': 20}),
     'refresh_full_card': (
         '현재 판매 가능한 재고 전체를 조회해 지정된 가게 카드에 품목별 등급과 하한 이상 가격을 기록합니다. args 없음. '

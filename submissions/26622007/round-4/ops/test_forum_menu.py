@@ -920,5 +920,79 @@ class Lead(unittest.TestCase):
         self.assertTrue(text.startswith('[노차네 구멍가게(nocha12) 지금 재고]'), text)
 
 
+class ForumUnits(unittest.TestCase):
+    """11/27 05fcd1d5: the post read '고등어 C6,845(~22:51)' (the 10.5 h unit), check_item_inventory listed both C units and
+    the checkout went out on the 2.5 h one. Each post that goes up now keeps its lines (clearance lines with their unit
+    and expiry) in logs/forum-menu-units.json for check_item_inventory to mark."""
+    CAT = {'category': '식품>해산물>신선생선', 'list_price': 11900}   # shelf 24 h
+    MACK = 'GMACK0001'
+
+    def inv(self):
+        name = '국산 고등어 2미 800g'
+        return {'units': [dict(unit('u-34f1', self.MACK, name, 'C', 3000, exp=NOW + 2.5 * 3600), **self.CAT),
+                          dict(unit('u-0222', self.MACK, name, 'C', 3000, exp=NOW + 10.5 * 3600), **self.CAT),
+                          unit('t1', TEA, '동서 둥굴레차 50T 60g', 'B', 1800, exp=NOW + 300 * 3600)],
+                'restock': INV['restock']}
+
+    Q = {f'{TEA}|B': {'price': 2900, 'ts': NOW, 'by': 'x'}}
+
+    def test_lines_name_the_posted_clearance_unit(self):
+        posted = []
+        text, skus = fm.build_text(QB, self.inv(), self.Q, settles(MARKET_SETTLES), NOW, 0, posted=posted)
+        self.assertEqual((text, skus), fm.build_text(QB, self.inv(), self.Q, settles(MARKET_SETTLES), NOW, 0))  # unchanged
+        self.assertEqual([p['sku'] for p in posted], skus)
+        by = {p['sku']: p for p in posted}
+        long_unit = self.inv()['units'][1]
+        cl = fm.clearance(long_unit, None, NOW)
+        self.assertEqual(by[self.MACK], {'sku': self.MACK, 'grade': 'C', 'price': cl['price'], 'unit': 'u-0222',
+                                         'until': NOW + 10.5 * 3600})   # the one the text shows, not the 2.5 h one
+        self.assertIn(f"C{cl['price']:,}(~{time.strftime('%H:%M', time.localtime(NOW + 10.5 * 3600))})", text)
+        self.assertEqual(by[TEA], {'sku': TEA, 'grade': 'B', 'price': 2900, 'unit': None, 'until': None})
+
+    def test_posted_menu_is_kept_and_old_posts_dropped(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            f = Path(d) / 'logs' / 'forum-menu-units.json'
+            f.write_text(json.dumps({'posts': [{'ts': NOW - fm.UNITS_KEEP - 1, 'post': 1, 'lines': []},
+                                               {'ts': NOW - 600, 'post': 2, 'lines': [{'unit': 'u-old'}]}, 'x']}))
+            m = FakeMenu(d, inv=self.inv())
+            r = m.once()
+            self.assertTrue(r['ok'], r)
+            posts = json.loads(f.read_text())['posts']
+            self.assertEqual([p['post'] for p in posts], [2, 7])            # the expired one and the odd row are gone
+            self.assertEqual(posts[-1]['ts'], m.now)
+            self.assertEqual([ln['sku'] for ln in posts[-1]['lines']], r['skus'])
+            self.assertIn({'sku': self.MACK, 'grade': 'C', 'price': fm.clearance(self.inv()['units'][1], None, NOW)['price'],
+                           'unit': 'u-0222', 'until': NOW + 10.5 * 3600}, posts[-1]['lines'])
+            self.assertEqual(list(Path(d, 'logs').glob('*.tmp')), [])
+
+    def test_kept_posts_are_capped(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            f = Path(d) / 'logs' / 'forum-menu-units.json'
+            f.write_text(json.dumps({'posts': [{'ts': NOW - 60 - i, 'post': 100 + i, 'lines': []} for i in range(60)]}))
+            self.assertTrue(FakeMenu(d, inv=self.inv()).once()['ok'])
+            posts = json.loads(f.read_text())['posts']
+            self.assertEqual(len(posts), fm.UNITS_MAX)
+            self.assertEqual(posts[-1]['post'], 7)
+
+    def test_refused_post_or_bad_file_never_breaks_the_menu(self):
+        with tempfile.TemporaryDirectory() as d:
+            shop(d)
+            f = Path(d) / 'logs' / 'forum-menu-units.json'
+            r = FakeMenu(d, inv=self.inv(), post_code=500).once()
+            self.assertFalse(r['ok'])
+            self.assertFalse(f.exists())                                     # nothing went up: nothing kept
+            f.write_text('{not json')
+            r = FakeMenu(d, inv=self.inv()).once()
+            self.assertTrue(r['ok'], r)
+            self.assertEqual([p['post'] for p in json.loads(f.read_text())['posts']], [7])
+            f.unlink()
+            f.mkdir()                                                        # unwritable: the post still goes on
+            r = FakeMenu(d, inv=self.inv()).once()
+            self.assertTrue(r['ok'], r)
+            self.assertEqual(list(Path(d, 'logs').glob('*.tmp')), [])
+
+
 if __name__ == '__main__':
     unittest.main()
