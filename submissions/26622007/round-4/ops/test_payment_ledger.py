@@ -381,6 +381,42 @@ class Ledger(unittest.TestCase):
         got = pl.alerts(self.d, lines, new, {"ok": True})
         self.assertEqual([a["kind"] for a in got], ["refund_over_amount"])
 
+    def test_refund_line_with_checkout_and_market_order_names_the_market_order(self):
+        """11/28 9,290·2,632: one checkout, two market orders from one wallet. refund_send writes order = checkout id and
+        market_order = the unpaid market order; the refund belongs to that market order (no unmatched/disagree alert)."""
+        kit_log(self.d, [])
+        self.write_agent("refunds.jsonl", [{"purpose": "refund", "order": "chk-a", "market_order": "o-3", "to": CUST,
+                                            "amount": 12000, "nonce": 9, "ts": 1},
+                                           {"purpose": "refund", "order": "chk-a", "market_order": "o-3", "tx_hash": REFUND}])
+        c = FakeChain(0)
+        c.sender[TX[3]] = c.sender[TX[5]] = CUST.lower()      # CUST paid o-1 and o-3
+        rec = pl.reconcile(self.d, "m", "nocha12", c, SHOP, 1e12)
+        r = [e for e in self.lines() if e["tx_hash"] == REFUND][0]
+        self.assertEqual((r["kind"], r["order"], r["said_order"]), ("refund", "o-3", None))
+        kinds = [a["kind"] for a in rec["alerts"]]
+        self.assertNotIn("refund_unmatched", kinds)
+        self.assertNotIn("refund_order_disagrees", kinds)
+        self.assertEqual(pl.agent_sends(self.d)[1], [])   # the intent is closed by its tx line
+
+    def test_second_refund_named_by_market_order_is_a_duplicate_alert(self):
+        kit_log(self.d, [])
+        self.write_agent("refunds.jsonl", [{"purpose": "refund", "order": "chk-a", "market_order": "o-3", "tx_hash": REFUND},
+                                           {"purpose": "refund", "order": "chk-a", "market_order": "o-3", "tx_hash": REFUND2}])
+        c = FakeChain(0)
+        c.sender[TX[3]] = c.sender[TX[5]] = CUST.lower()
+        rec = pl.reconcile(self.d, "m", "nocha12", c, SHOP, 1e12)
+        self.assertIn("dup-o-3-2", [a["id"] for a in rec["alerts"]])
+
+    def test_market_order_the_payer_did_not_pay_is_still_a_disagree_alert(self):
+        kit_log(self.d, [])
+        self.write_agent("refunds.jsonl", [{"purpose": "refund", "order": "chk-a", "market_order": "o-9", "tx_hash": REFUND}])
+        c = FakeChain(0)
+        c.sender[TX[3]] = CUST.lower()           # CUST paid o-1 only
+        rec = pl.reconcile(self.d, "m", "nocha12", c, SHOP, 1e12)
+        r = [e for e in self.lines() if e["tx_hash"] == REFUND][0]
+        self.assertEqual((r["order"], r["said_order"]), ("o-1", "o-9"))
+        self.assertIn("refund_order_disagrees", [a["kind"] for a in rec["alerts"]])
+
     def test_agent_order_that_the_payer_did_not_pay_is_an_alert(self):
         kit_log(self.d, [])
         self.write_agent("refunds.jsonl", [{"purpose": "refund", "order": "o-3", "tx_hash": REFUND}])

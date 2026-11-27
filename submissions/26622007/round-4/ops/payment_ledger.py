@@ -396,7 +396,9 @@ def agent_sends(d):
             purpose = str(r.get("purpose") or r.get("kind") or ("refund" if name == "refunds.jsonl" else "")).lower()
             key = (r.get("intent") or r.get("id") or order, purpose)
             if HEX_TX.match(tx):
-                txs[tx] = {"order": order, "purpose": purpose, "source": f"{name}:{n}"}
+                # refund_send writes order = our checkout id and market_order = the market's order it refunds (11/28:
+                # one checkout, two market orders from one wallet); both are kept so the refund can name its order
+                txs[tx] = {"order": order, "market_order": r.get("market_order"), "purpose": purpose, "source": f"{name}:{n}"}
                 intents = [i for i in intents if i["key"] != key]
             elif any(k in r for k in ("nonce", "amount", "amount_wei", "wei")):
                 # no time on the line: the file's time (goal (9) asks for ts; a later append makes this one look newer)
@@ -530,13 +532,14 @@ def events(rows, name, sends, chain, address, seen=(), seen_tx=None, hints=None,
         paid = orders_paid_by(t["to"])
         said_refund = "refund" in (hint.get("purpose") or "")
         refund = t["ok"] and bool(paid)              # only a transfer to a wallet that paid one of our sales
-        order = (hint.get("order") if hint.get("order") in paid else None) or (paid[0] if len(paid) == 1 else None)
-        disagrees = bool(hint.get("order")) and refund and hint.get("order") != order
+        said = [o for o in (hint.get("market_order"), hint.get("order")) if o]      # market order first, then checkout id
+        order = next((o for o in said if o in paid), None) or (paid[0] if len(paid) == 1 else None)
+        disagrees = bool(said) and refund and order not in said
         add({"ts": t.get("ts"), "time": iso(t["ts"]) if t.get("ts") else hhmmss, "round": None, "source": source,
              "kind": "refund" if refund else "transfer_out", "id": f"{'refund' if refund else 'out'}-{tx}",
              "counterparty": who.get(t["to"], t["to"]), "item": None, "order": order,
              "orders_of_payer": paid or None, "said_refund": said_refund or None,
-             "said_order": hint.get("order") if disagrees else None, "qty": None, "unit_price": None, "amount": value / CREDIT_WEI, "fee": 0,
+             "said_order": said[0] if disagrees else None, "qty": None, "unit_price": None, "amount": value / CREDIT_WEI, "fee": 0,
              "storage": 0, "forum_fees": 0, "delta_wei": -value, "gas_wei": t["gas_wei"], "tx_hash": tx, "ok": t["ok"]})
     return out
 
