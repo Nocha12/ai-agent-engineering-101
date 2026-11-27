@@ -28,7 +28,10 @@ PROSE = '두부 1모 C등급 3,200원입니다. 기한은 약 20시간 남았습
 
 
 class Compose(unittest.TestCase):
-    def test_unsigned_grade_is_not_shown_in_checkout_reply(self):
+    def test_ungraded_food_reply_states_signed_claim_and_keeps_prose(self):
+        # 11/27 22:22~00:10 (check-0010): replies without any grade drew 5/28 "등급 null·안내 없음" refusals (0 paid)
+        # against 6/118 while the reply still said the grade. The market certificate leaves food grade empty, so the
+        # reply says the grade the shop signed (claim) and why the certificate is empty, and keeps the shop's prose.
         for claim, price, g, wrapper in (('B', 9837, None, 'cert'), ('A', 9800, False, 'data'), ('B', 4441, '', 'cert')):
             with self.subTest(claim=claim, price=price):
                 unit = 'u-e1fa9c84e002'
@@ -38,7 +41,8 @@ class Compose(unittest.TestCase):
                 token = f'eyJhbGciOiJFZERTQSJ9.{encoded}.c2ln'
                 c = cd.Checkout('task-1', token, NOW - 10, f'가게가 밝힌 등급은 {claim}등급입니다.',
                                 'u-aabbccddeeff', int(NOW + 120))
-                text, attached = cd.compose(f'{claim}등급, 가격 1크레딧입니다.', [c], set(), NOW, agent='nocha12',
+                prose = '김치는 대복배추김치3kg 1개가 더 있어요.'
+                text, attached = cd.compose(prose, [c], set(), NOW, agent='nocha12',
                                             item_names={'food-test': '두부 1모'}, continuation=True)
                 self.assertIn(token, text[:cd.VISIBLE])
                 self.assertIn(HINT, text)
@@ -48,15 +52,44 @@ class Compose(unittest.TestCase):
                 self.assertIn('이 대화에서', text)
                 self.assertIn('두부 1모', text)
                 self.assertIn('u-aabbccddeeff의 예약은 01/15 17:02 KST까지', text)
-                self.assertNotIn(f'{claim}등급', text)
-                self.assertNotIn('가격 1크레딧', text)
+                self.assertIn(f'{claim}등급(가게 서명)', text[:cd.VISIBLE])
+                self.assertIn(cd.CERT_GRADE_LINE, text[:cd.VISIBLE])
+                self.assertIn(prose, text[:cd.VISIBLE])
+                self.assertLess(text.index(f'{price:,}크레딧'), text.index(prose))   # signed terms lead the prose
+                self.assertNotIn('가게가 밝힌 등급은', text)                          # the long grade note stays out
                 result = {}
                 cd.attach_data(result, attached)
                 fields = result['artifacts'][0]['parts'][0]['data']
-                self.assertNotIn('claim', fields)
+                self.assertEqual(claim, fields['claim'])
                 self.assertEqual(token, fields['checkout_jwt'])
                 self.assertEqual(price, fields['price'])
                 self.assertEqual('01/15 18:00 KST', fields['until'])
+
+    def test_ungraded_food_without_valid_claim_says_no_grade(self):
+        unit = 'u-e1fa9c84e002'
+        cert = {'kind': 'food', 'unit': unit, 'grade': None, 'expires_at': NOW + 3600}
+        for claim in (None, 'Z', 7):
+            with self.subTest(claim=claim):
+                payload = {'unit': unit, 'price': 4441, 'cert': {'cert': cert}}
+                if claim is not None:
+                    payload['claim'] = claim
+                encoded = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
+                c = cd.Checkout('task-1', f'eyJhbGciOiJFZERTQSJ9.{encoded}.c2ln', NOW - 10)
+                text, _ = cd.compose('', [c], set(), NOW)
+                self.assertNotIn('등급(가게 서명)', text)
+                self.assertNotIn(cd.CERT_GRADE_LINE, text)
+                self.assertIn('4,441크레딧', text)
+
+    def test_long_prose_never_drops_signed_terms_or_buy_line(self):
+        unit = 'u-e1fa9c84e002'
+        cert = {'kind': 'food', 'unit': unit, 'grade': None, 'expires_at': NOW + 3600}
+        payload = {'unit': unit, 'price': 4441, 'claim': 'B', 'cert': {'cert': cert}}
+        encoded = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
+        c = cd.Checkout('task-1', f'eyJhbGciOiJFZERTQSJ9.{encoded}.c2ln', NOW - 10)
+        text, _ = cd.compose(PROSE, [c], set(), NOW, agent='nocha12')
+        self.assertLessEqual(len(text), cd.REPLY_MAX)
+        for s in (HINT, 'B등급(가게 서명)', '4,441크레딧', '소비기한 01/15 18:00 KST까지', cd.CERT_GRADE_LINE):
+            self.assertIn(s, text[:cd.VISIBLE])
 
     def test_long_checkout_keeps_terms_in_customer_data(self):
         unit = 'u-e1fa9c84e002'
@@ -67,7 +100,7 @@ class Compose(unittest.TestCase):
         c = cd.Checkout('task-1', token, NOW - 10, 'B등급입니다.')
         reply, attached = cd.compose('B등급입니다.', [c], set(), NOW, agent='nocha12')
         self.assertIn(token, reply[:cd.VISIBLE])
-        self.assertNotIn('B등급', reply)
+        self.assertIn('B등급(가게 서명)', reply[:cd.VISIBLE])
         result = {}
         cd.attach_data(result, attached)
         data = result['artifacts'][0]['parts'][0]['data']

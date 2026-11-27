@@ -1122,7 +1122,7 @@ def install(ak, logs, checkout=False):
             res.update(issued_terms(payload, no_grade if no_grade is not None else
                                     (r.get('grade_evidence') if kept.note else None), now))
             if no_grade is not None:
-                res['reply_note'] = (res.get('reply_note', '') + ' 이 식품 결제서 답장에는 등급을 쓰지 않습니다.').strip()
+                res['reply_note'] = (res.get('reply_note', '') + ' 이 식품 결제서 답장 앞에 가게 서명 등급(claim) 줄이 자동으로 붙습니다. 답장 본문에는 그와 다른 등급을 쓰지 않습니다.').strip()
             return {'ok': True, 'result': res}
         out = call(self, name, args)
         if name == 'check_item_inventory':

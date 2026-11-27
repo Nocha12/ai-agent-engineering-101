@@ -81,10 +81,13 @@ def compose(text, issued, cancelled, now, agent=None, item_names=None, continuat
     if len(head) > VISIBLE:
         raise ValueError('결제서 줄이 손님 도구가 읽는 답장 앞 2,000자보다 깁니다. 이 결제서는 checkout_cancel로 빼고 손님께 사실대로 말하세요')
     canonical = grade_free_reply(active.values(), cancelled, now, item_names, continuation)
+    lead = body
     if canonical is not None:
-        body = canonical
+        # signed terms first, then the shop's own prose (check-0010: replacing the prose lost other items' offers)
+        lead = canonical
+        body = canonical + ('\n\n' + body if body else '')
     hint = buy_hint(agent)
-    if hint and len(head) + 2 + len(hint) + (2 + len(body) if body else 0) <= VISIBLE:
+    if hint and len(head) + 2 + len(hint) + (2 + len(lead) if lead else 0) <= VISIBLE:
         head += '\n\n' + hint
     notes = '\n'.join(c.note for c in active.values() if c.note) if canonical is None else ''
     rest = REPLY_MAX - len(head) - 2
@@ -119,6 +122,11 @@ def input_required(state):
 
 
 FOLLOWUP = '이어서 결제서가 필요하면 이 대화에서 말씀해 주세요.'
+# check-0010 (11/27 22:22~00:10): with no grade anywhere in the reply, 5/28 food checkouts drew "등급 null·안내 없음"
+# refusals (0 paid) against 6/118 while the reply still said the grade. Food certificates carry no grade by market design
+# (notes 21·27·51), so the reply names the grade the shop signed into the checkout (claim) and says why the cert is empty.
+CERT_GRADE_LINE = '시장 인증서는 식품의 grade 칸을 비워 둡니다(시장 규칙). 위 등급은 이 결제서에 가게가 서명한 값(claim)이에요.'
+GRADES = ('A', 'B', 'C')
 
 
 def grade_free_reply(issued, cancelled, now, item_names=None, continuation=False):
@@ -134,6 +142,9 @@ def grade_free_reply(issued, cancelled, now, item_names=None, continuation=False
     unit, sku = payload.get('unit'), payload.get('item')
     name = (item_names or {}).get(sku) if isinstance(sku, str) else None
     terms = [name] if isinstance(name, str) and 0 < len(name) <= 120 and name.isprintable() else []
+    claim = payload.get('claim')
+    if claim in GRADES:
+        terms.append(f'{claim}등급(가게 서명)')
     if isinstance(unit, str) and UNIT.fullmatch(unit):
         terms.append(f"재고 ID {unit}")
     price = payload.get('price')
@@ -143,6 +154,8 @@ def grade_free_reply(issued, cancelled, now, item_names=None, continuation=False
     if type(end) in (int, float) and 1e9 < end < 1e11 and end > now:
         terms.append(f"소비기한 {datetime.fromtimestamp(end, KST):%m/%d %H:%M KST}까지")
     text = ' · '.join(terms) or '결제서를 발급했어요.'
+    if claim in GRADES:
+        text += '\n' + CERT_GRADE_LINE
     if (isinstance(checkout.held_unit, str) and UNIT.fullmatch(checkout.held_unit) and checkout.held_unit != unit
             and type(checkout.held_until) is int and now < checkout.held_until < 1e11):
         text += (f"\n앞서 찾으신 재고 {checkout.held_unit}의 예약은 "
@@ -155,7 +168,7 @@ def grade_free_reply(issued, cancelled, now, item_names=None, continuation=False
 def _fields(token, now, continuation):
     """Item, price, unit and (only when applicable) grade label next to the unchanged token."""
     pl = _payload(token)
-    keys = ('item', 'price', 'unit') if _ungraded_food(pl) is not None else ('item', 'price', 'claim', 'unit')
+    keys = ('item', 'price', 'claim', 'unit')       # check-0010: the signed claim stays in the data part for food too
     fields = {k: pl[k] for k in keys if k in pl and isinstance(pl[k], (str, int))}
     cert = _ungraded_food(pl)
     if cert is not None:

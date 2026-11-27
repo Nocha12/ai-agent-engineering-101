@@ -202,11 +202,11 @@ class CustomerFlow(unittest.TestCase):
                 return await Customer(client).talk('nocha12', '배추김치 u-abcdefabcdef 결제서 주세요')
         out = run(go())
         self.assertIn(cd.FOLLOWUP, out['agent_says'])
-        self.assertNotIn('B등급', out['agent_says'])
+        self.assertIn('B등급(가게 서명)', out['agent_says'])
         data = out['data'][0]
         self.assertEqual(data['checkout_jwt'], ISSUED[-1])
         self.assertEqual(data['next_message'], cd.FOLLOWUP)
-        self.assertNotIn('claim', data)
+        self.assertEqual(data['claim'], 'B')
         self.assertIn('until', data)
 
     def test_checkout_paid_from_data_without_copying(self):
