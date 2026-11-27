@@ -200,10 +200,12 @@ def test(run, kit):
             assert not m2['ok'] and m2['floor'] == 11790, m2                    # not under the cash-out floor
             qd['GM|C'] = {'price': 11790, 'ts': T - 60, 'by': 'forum_menu', 'floor': 11790}
             json.dump(qd, open(FILES[3], 'w'))
+            m = dict(m, _inventory=dict(ki, units=[dict(um, unit='u-m3', cert={'unit': 'u-m3', 'grade': None})]), unit='u-m3')
             m3 = run(dict(m, order='o-m3', inquiry_task='t-m3', task='t-m3'), kit)
             assert m3['ok'] and m3['payload']['price'] == 12778 and 'cashout' not in m3, m3   # floor only from cashout
             qd['GM|C'] = {'price': 11790, 'ts': T - 25 * 3600, 'by': 'cashout', 'floor': 11790}
             json.dump(qd, open(FILES[3], 'w'))
+            m = dict(m, _inventory=dict(ki, units=[dict(um, unit='u-m4', cert={'unit': 'u-m4', 'grade': None})]), unit='u-m4')
             m4 = run(dict(m, order='o-m4', inquiry_task='t-m4', task='t-m4', price=11790), kit)
             assert not m4['ok'] and m4['floor'] == 12778, m4                    # a day old: the usual floor again
         finally:

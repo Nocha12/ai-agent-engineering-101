@@ -41,6 +41,7 @@ def settles(rows):
     return s
 
 
+INV_LONG = dict(INV, units=[dict(u, expires_at=NOW + 72 * 3600) if u['expires_at'] > NOW else u for u in INV['units']])
 MARKET_SETTLES = [(EGG, 'B', 7975)] * 3 + [(EGG, 'C', 5258)] * 3 + [(WATER, 'A', 1000)] * 3 + [(TEA, 'B', 2813)] * 4
 
 
@@ -118,6 +119,10 @@ class CashOut(unittest.TestCase):
         q2 = {f'{self.MILK}|C': {'price': 11787, 'ts': NOW - 10, 'by': 'forum_menu', 'floor': 11787}}
         self.assertEqual(qb['quote_prices'](q2, self.MILK, floors, NOW)['C'], 12778)   # floor key alone: ignored
 
+    def test_stray_low_median_moves_nothing(self):
+        plan = fm.requote_plan(self.QB, self.INV, {}, settles([(self.MILK, 'C', 8000)] * 5), NOW)   # 0.63 x 12,778
+        self.assertEqual(plan[self.MILK]['C'], 12778)   # the old rule: max(floor, median)
+
     def test_old_block_has_no_cash_out(self):
         qb = dict(self.QB)
         qb.pop('CASHOUT_MIN')                               # a stale forged block: nothing goes under the floor
@@ -129,11 +134,14 @@ class Requote(unittest.TestCase):
     def test_plan_follows_median_above_floor_and_skips_water(self):
         q = {f'{EGG}|B': {'price': 9675, 'ts': NOW - 10, 'by': 'x'}, f'{EGG}|C': {'price': 9675, 'ts': NOW - 10, 'by': 'x'},
              f'{WATER}|A': {'price': 4830, 'ts': NOW - 10, 'by': 'x'}}
-        plan = fm.requote_plan(QB, INV, q, settles(MARKET_SETTLES), NOW)
+        plan = fm.requote_plan(QB, INV_LONG, q, settles(MARKET_SETTLES), NOW)   # 72 h left: no cash-out (11/27)
         floor = QB['stock'](INV, EGG, NOW)['floors']
         self.assertEqual(plan[EGG]['B'], 7975)
         self.assertEqual(plan[EGG]['C'], max(floor['C'], 5258))
         self.assertGreaterEqual(plan[EGG]['C'], floor['C'])
+        if 'CASHOUT_MIN' in QB:                          # 24 h left, median 5,258 >= 0.7 x floor 6,845: cash-out
+            self.assertEqual(fm.requote_plan(QB, INV, q, settles(MARKET_SETTLES), NOW)[EGG]['C'],
+                             {'price': 5258, 'floor': 5258})
         self.assertNotIn(WATER, plan)                    # fixed price
         self.assertEqual(plan[TEA]['B'], max(QB['stock'](INV, TEA, NOW)['floors']['B'], 2813))
         self.assertNotIn(RICE, plan)                     # no settles: no median, nothing changes
@@ -316,7 +324,8 @@ class Once(unittest.TestCase):
             self.assertTrue(r['ok'], r)
             self.assertEqual(len(m.posts), 1)
             floor_c = QB['stock'](INV, EGG, NOW)['floors']['C']
-            self.assertIn(f'계란20구 C{max(floor_c, 5258):,}', m.posts[0])   # the cheapest shown grade
+            want_c = 5258 if 'CASHOUT_MIN' in QB else max(floor_c, 5258)   # 24 h left: the cash-out price (11/27)
+            self.assertIn(f'계란20구 C{want_c:,}', m.posts[0])   # the cheapest shown grade
             q = json.loads((Path(d) / 'logs' / 'quotes.json').read_text())
             self.assertEqual(q[f'{EGG}|B']['price'], 7975)
             self.assertEqual(q[f'{WATER}|A']['price'], 4830)       # water untouched
