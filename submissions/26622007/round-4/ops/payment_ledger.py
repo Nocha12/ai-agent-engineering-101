@@ -47,6 +47,9 @@ CREDIT_WEI = 10 ** 15                       # 1,000 credits = 1 tOKRW
 GENESIS = "0" * 64
 HEX_TX = re.compile(r"^0x[0-9a-fA-F]{64}$")
 INTENT_GRACE = 600                          # seconds an intent may wait for its tx hash before it is an alert
+SCAN_BLOCKS = 1500                          # blocks read per reconcile while the wallet holds more than the ledger
+SEALED_WAIT = 7200                          # seconds a payment waits on its buyer's unrecorded sealed sale (recover_sealed: 6 x 20 min)
+INFLOW_STATE = ".inflow-scan.json"          # logs/: where that scan resumes, and the payments it is still waiting on
 SENT = re.compile(r"^(\d\d:\d\d:\d\d) \[maroo\] (\S+) sent \S+ tOKRW from the shop wallet: \S*/tx/(0x[0-9a-fA-F]{64})")
 
 
@@ -83,6 +86,11 @@ class Chain:
                 "ts": int(block["timestamp"], 16) if block and block.get("timestamp") else None}
 
 
+    def receipt_ok(self, tx_hash):
+        """True / False by the receipt status of a mined tx, None while the node has no receipt for it."""
+        rc = self.call("eth_getTransactionReceipt", [tx_hash])
+        return None if not rc else rc.get("status") == "0x1"
+
     def block_at(self, ts):
         """The first block at or after ts (binary search over block timestamps)."""
         hi = int(self.call("eth_blockNumber", []), 16)
@@ -94,6 +102,53 @@ class Chain:
             else:
                 hi = m
         return lo
+
+    def batch(self, calls):
+        """Several JSON-RPC calls in one request, results in call order (an error result raises)."""
+        out = http_json(self.rpc, [{"jsonrpc": "2.0", "id": i, "method": m, "params": p} for i, (m, p) in enumerate(calls)], timeout=60)
+        if not isinstance(out, list):
+            raise RuntimeError(f"batch: {out}")
+        by = {r.get("id"): r for r in out}
+        res = []
+        for i in range(len(calls)):
+            r = by.get(i) or {}
+            if r.get("error") or "result" not in r:
+                raise RuntimeError(f"{calls[i][0]}: {r.get('error') or 'no result'}")
+            res.append(r["result"])
+        return res
+
+    def inflows(self, address, start, max_blocks, step=50, budget=300.0):
+        """Transfers to address in blocks start .. start+max_blocks-1 (not past the head, at most budget seconds):
+        ([(tx_hash, from, value_wei, input hex without 0x, ok, block time)], next block to read, head).
+        ok is None while the receipt is not readable yet (the caller waits). A block the node does not return yet
+        ends the step there, so the next call reads it again; an error after some blocks keeps what was read."""
+        me, out = address.lower(), []
+        head = int(self.call("eth_blockNumber", []), 16)
+        end = min(head, start + max_blocks - 1)
+        n, t0 = start, time.time()
+        while n <= end and time.time() - t0 < budget:
+            try:
+                blocks = self.batch([("eth_getBlockByNumber", [hex(b), True]) for b in range(n, min(end, n + step - 1) + 1)])
+                if None in blocks:
+                    blocks = blocks[:blocks.index(None)]
+                    stop = True
+                else:
+                    stop = False
+                mine = [(tx, int(b["timestamp"], 16)) for b in blocks for tx in b.get("transactions") or []
+                        if isinstance(tx, dict) and (tx.get("to") or "").lower() == me]
+                rcs = self.batch([("eth_getTransactionReceipt", [tx["hash"]]) for tx, _ in mine]) if mine else []
+            except Exception:
+                if n == start:
+                    raise
+                break
+            for (tx, ts), rc in zip(mine, rcs):
+                status = (rc or {}).get("status")
+                out.append((tx["hash"].lower(), (tx.get("from") or "").lower(), int(tx["value"], 16),
+                            (tx.get("input") or "")[2:].lower(), None if not rc else status == "0x1", ts))
+            n += len(blocks)
+            if stop:
+                break
+        return out, n, head
 
     def payments_to(self, address, t0, t1, limit=400):
         """[(tx_hash, from, value_wei, input hex without 0x, ok, block time)] sent to address in blocks with t0 <= time <= t1."""
@@ -384,8 +439,13 @@ def events(rows, name, sends, chain, address, seen=(), seen_tx=None, hints=None,
             if eid in seen:
                 continue
             c = int(dt.get("credits") or 0)
+            prior, delta, note = seen_tx.get(dt["tx_hash"].lower()), c * CREDIT_WEI, None
+            if prior is not None and prior.get("kind") == "transfer_in":
+                delta -= prior["delta_wei"]          # the inflow scan wrote the grant's transfer before the market row came
+                note = f"reclassifies {prior['id']}: the market recorded the grant later"
             add(dict(base, kind="grant", id=eid, counterparty="market", item=dt.get("why"), qty=None, unit_price=None,
-                     amount=c, fee=0, storage=0, forum_fees=0, delta_wei=c * CREDIT_WEI, gas_wei=0, tx_hash=dt["tx_hash"].lower()))
+                     amount=c, fee=0, storage=0, forum_fees=0, delta_wei=delta, gas_wei=0, tx_hash=dt["tx_hash"].lower(),
+                     note=note))
         elif k == "supply" and dt.get("shop") == name:
             tx = (dt.get("tx_hash") or "").lower() or None
             eid = f"supply-{tx or r['seq']}"
@@ -428,11 +488,17 @@ def events(rows, name, sends, chain, address, seen=(), seen_tx=None, hints=None,
                         pending.append({"order": dt.get("order") or r.get("hash") or r["seq"], "ts": r["ts"], "why": "unreadable"})
                     continue                         # not readable yet: the next sync writes it with its payer
                 payer = t["from"]
+            delta, note = (amount - fee) * CREDIT_WEI, None
+            prior = seen_tx.get(tx) if tx else None
+            if prior is not None and prior.get("kind") in ("paid_unsettled", "transfer_in"):
+                delta -= prior["delta_wei"]          # that line already put the payment on the balance
+                note = f"reclassifies {prior['id']}: the market settled the payment later"
+                payer = prior.get("payer") or payer
             add(dict(base, kind="sale", id=eid, counterparty=dt.get("buyer"),
                      item=f"{dt.get('sku') or dt.get('item')} {dt.get('name') or ''}".strip(), qty=1, unit_price=amount,
-                     amount=amount, fee=fee, storage=0, forum_fees=0, delta_wei=(amount - fee) * CREDIT_WEI, gas_wei=0,
+                     amount=amount, fee=fee, storage=0, forum_fees=0, delta_wei=delta, gas_wei=0,
                      tx_hash=tx, grade=dt.get("grade"), claim=dt.get("claim"), payer=payer, sealed=sealed or None,
-                     warranty_hours=dt.get("warranty_hours"), unit=dt.get("unit")))
+                     warranty_hours=dt.get("warranty_hours"), unit=dt.get("unit"), note=note))
         elif k == "broken" and (dt.get("shop") or "").rstrip("/") in urls:
             eid = f"broken-{dt.get('order') or r['seq']}"
             if eid in seen:
@@ -447,7 +513,9 @@ def events(rows, name, sends, chain, address, seen=(), seen_tx=None, hints=None,
     def orders_paid_by(addr):
         """Our sale orders paid from this wallet: the payer is kept on each sale line, so the chain is read once a sale."""
         found = {e["id"]: e for e in list(seen_tx.values()) + out}      # add() puts a new line in both
-        return sorted(i[5:] for i, e in found.items() if e.get("kind") == "sale" and e.get("payer") == addr)
+        return sorted({i[5:] if e.get("kind") == "sale" else str(e.get("order") or e.get("checkout_order")) for i, e in found.items()
+                       if e.get("payer") == addr and (e.get("kind") == "sale"
+                                                      or (e.get("kind") == "paid_unsettled" and (e.get("order") or e.get("checkout_order"))))})
 
     queue = [(hhmmss, f"kit:{tool}", tx) for hhmmss, tool, tx in sends]
     queue += [(None, h["source"], tx) for tx, h in hints.items() if tx not in {q[2] for q in queue}]
@@ -504,20 +572,168 @@ def sync(d, market, name, chain, address, pending=None):
     return new, balance
 
 
-def reconcile(d, market, name, chain, address, tolerance):
+def _last_ok_ts(d, fallback):
+    for r in reversed(read_lines(d / "logs" / "reconcile.jsonl")):
+        if r.get("ok"):
+            return float(r["ts"])
+    old = read_lines(d / "logs" / "payments.jsonl")
+    return float(old[-1]["ts"]) - 60 if old and isinstance(old[-1].get("ts"), (int, float)) else fallback
+
+
+def scan_inflows(d, market, name, chain, address, now, scan_blocks, from_ts):
+    """balance-diff-rca-1127: money that came into the wallet with no line in the ledger. While the wallet holds more
+    than the ledger, read the wallet's incoming transfers (a bounded step a run, resuming where the last run stopped)
+    and write each unaccounted one:
+    - paid_unsettled: a customer paid one of our checkouts (its data is the digest of a checkout we issued) and its
+      order expired with no settle at our shop. The money is ours to hold and owed back or to settle; nothing is sent.
+      (11/27 11:19 김상용-d1c2 paid 13,126 for checkout 7c30754a; its kit never called /api/settle.)
+    - transfer_in: a transfer with no checkout of ours, after INTENT_GRACE.
+    A payment whose order is still open, or that settled at our shop (the sale line counts it), waits.
+    Returns (new events without balances, [waiting (tx, why)])."""
+    if not hasattr(chain, "inflows"):
+        return [], []
+    path = d / "logs" / INFLOW_STATE
+    try:
+        st = json.loads(path.read_text())
+    except (OSError, ValueError):
+        st = {}
+    start = st.get("next")
+    if not isinstance(start, int):
+        start = chain.block_at(int(from_ts) - 120)
+    got, nxt, _ = chain.inflows(address, start, scan_blocks)
+    cand = {p[0]: list(p) for p in st.get("waiting") or []}
+    for p in got:
+        cand[p[0]] = list(p)                         # a fresh read wins over a stored one
+    for p in cand.values():
+        if p[4] is None and hasattr(chain, "receipt_ok"):
+            try:
+                p[4] = chain.receipt_ok(p[0])        # its block is behind the cursor: read the receipt again
+            except Exception:
+                pass
+    known = set()
+    for e in read_lines(d / "logs" / "payments.jsonl"):
+        for k in ("tx_hash", "corrected_tx"):
+            if e.get(k):
+                known.add(str(e[k]).lower())
+    have = agent_sales(d)
+    for _, r in jsonl(d / "logs" / "sales.jsonl"):
+        for k in ("tx_hash", "corrected_tx"):
+            if r.get(k):
+                known.add(str(r[k]).lower())
+    issued = {str(r["digest_hex"]).lower(): r for _, r in jsonl(d / "logs" / "checkouts.jsonl")
+              if r.get("event") == "issued" and r.get("digest_hex")}
+    rows = market_rows(market)
+    urls, who, orders = set(), {}, {}
+    for r in rows:
+        dt = r["data"]
+        if r["kind"] == "join":
+            if dt.get("pubkey") and dt.get("name"):
+                who[str(dt["pubkey"]).lower()] = dt["name"]           # the last name joined with a key, as events() does
+            if dt.get("name") == name and dt.get("role") == "shop" and dt.get("url"):
+                urls.add(dt["url"].rstrip("/"))
+    order_buyer, unrecorded = {}, {}
+    for r in rows:
+        dt = r["data"]
+        if r["kind"] == "order" and dt.get("buyer"):
+            orders.setdefault(dt["buyer"], []).append((r["ts"], dt.get("order"), dt.get("expires")))
+            order_buyer[dt.get("order")] = dt["buyer"]
+    for r in rows:
+        dt = r["data"]
+        if r["kind"] == "settle" and (dt.get("shop") or "").rstrip("/") in urls:
+            if dt.get("tx_hash"):
+                known.add(str(dt["tx_hash"]).lower())                # a settle that names its payment counts it
+            elif str(dt.get("order")) not in have:                   # a sealed sale with no record yet
+                b = dt.get("buyer") or order_buyer.get(dt.get("order"))
+                if b:
+                    unrecorded.setdefault(b, []).append((r["ts"], dt.get("order")))
+    out, waiting = [], []
+    for tx, p in sorted(cand.items(), key=lambda kv: kv[1][5] or 0):
+        tx, frm, wei, data, ok, ts = p[0], str(p[1]).lower(), int(p[2]), str(p[3] or "").lower(), p[4], p[5]
+        if tx in known or ok is False or wei <= 0:
+            continue                                 # counted by a line already (by its tx hash), failed, or nothing moved
+        if ok is None:
+            waiting.append((p, "receipt not readable yet"))
+            continue
+        c = issued.get(data)
+        buyer = who.get(frm)
+        base = {"ts": ts, "time": iso(ts), "round": None, "source": "chain:inflow", "qty": None, "unit_price": None,
+                "fee": 0, "storage": 0, "forum_fees": 0, "delta_wei": wei, "gas_wei": 0, "tx_hash": tx, "payer": frm,
+                "amount": wei / CREDIT_WEI}
+        if c is not None:
+            mine = sorted(o for o in orders.get(buyer, []) if o[0] <= ts + 5)
+            still_open = [o for o in mine if isinstance(o[2], (int, float)) and now <= o[2]]
+            held = [o for t, o in unrecorded.get(buyer, []) if t >= ts - 5]      # settled at or after this payment
+            if held and now - ts <= SEALED_WAIT:
+                waiting.append((p, f"{buyer} has a sealed sale at our shop ({held[-1]}) with no sale record yet"))
+                continue
+            if still_open:
+                waiting.append((p, f"order {still_open[-1][1]} still open"))
+                continue
+            if not mine and now - ts <= INTENT_GRACE:
+                waiting.append((p, "no order of the payer yet"))
+                continue
+            o = mine[-1] if mine else None
+            out.append(dict(base, kind="paid_unsettled", id=f"owed-{tx}", counterparty=buyer or frm, item=c.get("sku"),
+                            order=o[1] if o else None, checkout_order=c.get("order"), unit=c.get("unit"),
+                            note="a customer paid our checkout and no settle names this payment: owed back or to be "
+                                 "settled; this script sends nothing"
+                                 + (f" (waited {SEALED_WAIT // 60} min on the unrecorded sealed sale {held[-1]}: if that "
+                                    "sale gets this payment, it is reclassified)" if held else "")))
+        elif now - ts > INTENT_GRACE:
+            out.append(dict(base, kind="transfer_in", id=f"in-{tx}", counterparty=buyer or frm, item=None,
+                            order=None, note="money in with no checkout of ours"))
+        else:
+            waiting.append((p, "a transfer with no checkout of ours, inside the grace time"))
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        tmp.write_text(json.dumps({"next": nxt, "waiting": [w[0] for w in waiting]}))
+        os.replace(tmp, path)
+    except OSError:
+        pass
+    return out, [(w[0][0], w[1]) for w in waiting]
+
+
+def reconcile(d, market, name, chain, address, tolerance, now=None, scan_blocks=SCAN_BLOCKS):
+    now = now or time.time()
     pending = []
     new, ledger_wei = sync(d, market, name, chain, address, pending)
     wallet_wei = chain.balance_wei(address)
     diff = (wallet_wei - ledger_wei) / CREDIT_WEI
+    waiting = []
+    if diff > tolerance:
+        try:
+            found, waiting = scan_inflows(d, market, name, chain, address, now, scan_blocks, _last_ok_ts(d, now - 3600))
+        except TornTail:
+            raise
+        except Exception as e:                     # the scan only explains a gap: a failure leaves the plain mismatch
+            found, waiting = [], [("-", f"inflow scan failed: {type(e).__name__}: {str(e)[:120]}")]
+        more = []
+        for e in found:
+            ledger_wei += e["delta_wei"] - e["gas_wei"]
+            more.append(dict(e, delta=e["delta_wei"] / CREDIT_WEI, gas=e["gas_wei"] / CREDIT_WEI, balance_wei=ledger_wei,
+                             balance_after=ledger_wei / CREDIT_WEI))
+        append(d / "logs" / "payments.jsonl", more)
+        new = list(new) + more
+        diff = (wallet_wei - ledger_wei) / CREDIT_WEI
+    elif (d / "logs" / INFLOW_STATE).exists():   # matched: the next gap starts its scan from the last match
+        try:
+            st = json.loads((d / "logs" / INFLOW_STATE).read_text())
+            tmp = d / "logs" / (INFLOW_STATE + ".tmp")
+            tmp.write_text(json.dumps({"waiting": st.get("waiting") or []}))
+            os.replace(tmp, d / "logs" / INFLOW_STATE)
+        except (OSError, ValueError):
+            pass
     lines = read_lines(d / "logs" / "payments.jsonl")
-    rec = {"ts": round(time.time(), 3), "time": iso(time.time()), "wallet": address, "chain_credits": wallet_wei / CREDIT_WEI,
+    rec = {"ts": round(now, 3), "time": iso(now), "wallet": address, "chain_credits": wallet_wei / CREDIT_WEI,
            "ledger_credits": ledger_wei / CREDIT_WEI, "diff": diff, "ok": abs(diff) <= tolerance, "new_lines": len(new),
            "lines": len(lines), "payments_tail": lines[-1]["hash"] if lines else GENESIS,
            "note": None if abs(diff) <= tolerance else
            ("the wallet holds more than the ledger: a transfer in without a settlement (a customer paid but the sale did "
             "not settle yet, or a direct transfer)" if diff > 0 else
             "the wallet holds less than the ledger: a transfer out the kit did not log, or a supply/settle not on the market ledger yet")}
-    rec["alerts"] = alerts(d, lines, new, rec, pending=pending)
+    if rec["note"] and waiting:
+        rec["note"] += "; waiting: " + ", ".join(f"{tx} ({why})" for tx, why in waiting[:5])
+    rec["alerts"] = alerts(d, lines, new, rec, now=now, pending=pending)
     append(d / "logs" / "reconcile.jsonl", [rec])
     if rec["alerts"]:
         append(d / "logs" / "alerts.jsonl", [{"ts": rec["ts"], "time": rec["time"], **a} for a in rec["alerts"]])
@@ -545,6 +761,8 @@ def alerts(d, lines, new, rec, now=None, pending=()):
             sale_amount[e["id"][5:]] = e.get("amount")
         elif e.get("kind") == "sale_correction" and e.get("order"):
             sale_amount[str(e["order"])] = e.get("amount")
+        elif e.get("kind") == "paid_unsettled" and e.get("order"):
+            sale_amount.setdefault(str(e["order"]), e.get("amount"))
     for e in new:
         if e.get("kind") in ("supply", "transfer_out") and not (e.get("note") or "").startswith("reclassifies"):
             out.append({"kind": "money_out", "id": f"out-{e['id']}",   # not a refund: the operator checks the hold
@@ -571,6 +789,19 @@ def alerts(d, lines, new, rec, now=None, pending=()):
             out.append({"kind": "sealed_unrecorded", "id": f"sealed-{p['order']}",
                         "text": f"sealed sale {p['order']} has no line in logs/sales.jsonl after {int((now - p['ts']) // 60)} min: "
                                 "the ledger cannot count it (expect a balance gap until the agent's sale tool records it)"})
+    for e in new:
+        if e.get("kind") == "paid_unsettled":
+            out.append({"kind": "paid_unsettled", "id": f"owed-{e['tx_hash']}",
+                        "text": f"{e.get('counterparty')} paid {e['amount']:g} on chain ({e['tx_hash']}) for our checkout "
+                                f"{e.get('checkout_order')} ({e.get('item')}), order {e.get('order')}, and the market never "
+                                "settled it: no sale, the unit is still ours; settle it or refund it (an operator decides)"})
+        elif (e.get("note") or "").startswith("reclassifies owed-"):
+            out.append({"kind": "owed_settled_later", "id": f"settled-later-{e['id']}",
+                        "text": f"{e['id']} settled later with the payment {e.get('tx_hash')} that was written as owed: "
+                                "it is a sale now; do not refund it (check that no refund was sent)"})
+        elif e.get("kind") == "transfer_in":
+            out.append({"kind": "money_in_unknown", "id": f"in-{e['tx_hash']}",
+                        "text": f"{e['amount']:g} credits came in from {e.get('counterparty')} ({e['tx_hash']}) with no checkout of ours"})
     for e in new:
         if e.get("kind") == "broken":
             out.append({"kind": "broken", "id": e["id"], "text": f"a unit we sold broke: order {e['id'][7:]}, "

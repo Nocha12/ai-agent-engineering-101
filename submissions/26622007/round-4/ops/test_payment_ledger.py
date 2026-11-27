@@ -548,5 +548,281 @@ class SealedRecovery(unittest.TestCase):
             rows = [{"kind": "join", "ts": 1, "data": {"name": "b", "pubkey": "0xb"}}] + order
             self.assertEqual(pl.recover_sealed(d, rows, C(), "0xme", [{"order": "o-1", "ts": 1004}]), ["o-1"])
 
+
+class InflowGap(unittest.TestCase):
+    """balance-diff-rca-1127: money in with no ledger line."""
+    setUp, lines = Ledger.setUp, Ledger.lines
+    # --- 11/27 11:19 김상용-d1c2: paid our checkout (13,470 - 344 = 13,126) but the market fee transfer never went, so the
+    # buyer's kit never called /api/settle; the wallet held 13,126 more than the ledger with no tx named (balance-diff-rca-1127)
+
+    def _inflow_setup(self, pays, head=2000, orders=None, settles=()):
+        d = self.d
+        (d / "logs").mkdir(exist_ok=True)
+        kit_log(d, [])
+        (d / "logs" / "checkouts.jsonl").write_text(json.dumps({"event": "issued", "order": "7c30", "unit": "u-k", "sku": "KIM",
+            "price": 13470, "grade": "B", "warranty_hours": 0, "digest_hex": "6c" * 32, "ts": 1795509000}) + "\n")
+        self.rows = list(ROWS) + [row(20, "join", {"name": "kim-d1c2", "role": "buyer", "url": None, "pubkey": "0xKIM"})]
+        for o, ts, exp in (orders if orders is not None else [("o-kim", 1795509500, 1795510100)]):
+            self.rows.append({"seq": 21, "ts": ts, "kind": "order", "round": 4,
+                              "data": {"order": o, "buyer": "kim-d1c2", "expires": exp}, "prev": "", "hash": ""})
+        for o in settles:
+            self.rows.append({"seq": 22, "ts": 1795509560, "kind": "settle", "round": 4,
+                              "data": {"order": o, "shop": "https://b.trycloudflare.com", "sealed": "x"}, "prev": "", "hash": ""})
+        test = self
+
+        class C(FakeChain):
+            scans = []
+
+            def inflows(self, address, start, max_blocks):
+                C.scans.append((start, max_blocks))
+                got = [p for p in pays if start <= p[6] < start + max_blocks]
+                return [p[:6] for p in got], min(head + 1, start + max_blocks), head
+
+            def block_at(self, ts):
+                return 1000
+        return C
+
+    def test_customer_payment_the_market_never_settled_is_written_as_owed_and_the_balance_matches(self):
+        pay = ("0x" + "f2" * 32, "0xkim", 13126 * W, "6c" * 32, True, 1795509501, 1500)
+        C = self._inflow_setup([pay])
+        _, bal = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
+        rec = pl.reconcile(self.d, "m", "nocha12", C(bal + 13126 * W), SHOP, 1.0, now=1795512000)
+        self.assertTrue(rec["ok"], rec)
+        self.assertEqual(rec["diff"], 0)
+        e = self.lines()[-1]
+        self.assertEqual((e["kind"], e["order"], e["counterparty"], e["amount"], e["checkout_order"], e["tx_hash"]),
+                         ("paid_unsettled", "o-kim", "kim-d1c2", 13126, "7c30", "0x" + "f2" * 32))
+        kinds = {a["kind"]: a for a in rec["alerts"]}
+        self.assertIn("paid_unsettled", kinds)
+        self.assertIn("o-kim", kinds["paid_unsettled"]["text"])
+        self.assertIn("0x" + "f2" * 32, kinds["paid_unsettled"]["text"])
+        self.assertNotIn("reconcile_mismatch", kinds)
+        self.assertEqual(pl.verify(self.d / "logs" / "payments.jsonl"), [])
+        again = pl.reconcile(self.d, "m", "nocha12", C(bal + 13126 * W), SHOP, 1.0, now=1795512600)
+        self.assertTrue(again["ok"])
+        self.assertEqual(again["new_lines"], 0)
+        self.assertEqual([a for a in again["alerts"] if a["kind"] == "paid_unsettled"], [])
+
+    def test_no_scan_while_the_balance_matches(self):
+        C = self._inflow_setup([])
+        _, bal = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
+        C.scans = []
+        self.assertTrue(pl.reconcile(self.d, "m", "nocha12", C(bal), SHOP, 1.0, now=1795512000)["ok"])
+        self.assertEqual(C.scans, [])
+
+    def test_payment_whose_order_is_still_open_or_settled_waits_and_is_not_written(self):
+        pay = ("0x" + "f2" * 32, "0xkim", 13126 * W, "6c" * 32, True, 1795509501, 1500)
+        C = self._inflow_setup([pay], orders=[("o-kim", 1795509500, 1795510100)])
+        _, bal = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
+        rec = pl.reconcile(self.d, "m", "nocha12", C(bal + 13126 * W), SHOP, 1.0, now=1795509700)   # order still open
+        self.assertFalse(rec["ok"])
+        self.assertNotIn("paid_unsettled", [e["kind"] for e in self.lines()])
+        self.assertIn("0x" + "f2" * 32, rec["note"])                       # the gap names the waiting payment
+        rec = pl.reconcile(self.d, "m", "nocha12", C(bal + 13126 * W), SHOP, 1.0, now=1795512000)   # kept, then written
+        self.assertTrue(rec["ok"], rec)
+
+    def test_payment_of_a_buyer_with_an_unrecorded_sealed_sale_waits(self):
+        pay = ("0x" + "f2" * 32, "0xkim", 13126 * W, "6c" * 32, True, 1795509501, 1500)
+        C = self._inflow_setup([pay], settles=["o-kim"])
+        _, bal = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
+        rec = pl.reconcile(self.d, "m", "nocha12", C(bal + 13126 * W), SHOP, 1.0, now=1795512000)
+        self.assertNotIn("paid_unsettled", [e["kind"] for e in self.lines()])
+        self.assertFalse(rec["ok"])
+
+    def test_unrecorded_sealed_sale_wait_ends_after_sealed_wait_and_the_payment_is_owed(self):
+        # review2 I-A: the wait on an unrecorded sealed sale is bounded; after SEALED_WAIT the payment is written as owed
+        pay = ("0x" + "f2" * 32, "0xkim", 13126 * W, "6c" * 32, True, 1795509530, 1500)
+        C = self._inflow_setup([pay], orders=[("o-kim", 1795509500, 1795510100), ("o-other", 1795509520, 1795510120)],
+                               settles=["o-other"])
+        _, bal = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
+        rec = pl.reconcile(self.d, "m", "nocha12", C(bal + 13126 * W), SHOP, 1.0, now=1795509530 + 1800)
+        self.assertFalse(rec["ok"])                                         # inside the wait: still waiting
+        rec = pl.reconcile(self.d, "m", "nocha12", C(bal + 13126 * W), SHOP, 1.0, now=1795509530 + pl.SEALED_WAIT + 60)
+        self.assertTrue(rec["ok"], rec)
+        e = self.lines()[-1]
+        self.assertEqual((e["kind"], e["tx_hash"]), ("paid_unsettled", "0x" + "f2" * 32))
+        self.assertIn("o-other", e["note"])                                 # names the sealed sale it waited on
+
+    def test_unrecorded_sealed_sale_long_before_the_payment_does_not_hold_it(self):
+        # review2 I-A: only a sealed sale settled at or after the payment can be the one the payment paid
+        pay = ("0x" + "f2" * 32, "0xkim", 13126 * W, "6c" * 32, True, 1795509501, 1500)
+        C = self._inflow_setup([pay], orders=[("o-old", 1795000000, 1795000600), ("o-kim", 1795509500, 1795510100)])
+        self.rows.append({"seq": 23, "ts": 1795000100, "kind": "settle", "round": 4,
+                          "data": {"order": "o-old", "shop": "https://b.trycloudflare.com", "sealed": "x"}, "prev": "", "hash": ""})
+        _, bal = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
+        rec = pl.reconcile(self.d, "m", "nocha12", C(bal + 13126 * W), SHOP, 1.0, now=1795512000)
+        self.assertIn("owed-0x" + "f2" * 32, [e["id"] for e in self.lines()])
+
+    def test_receipt_unreadable_is_read_again_on_the_next_run(self):
+        # review2 I-B: an inflow saved with ok=None is re-read (receipt_ok) and classified once the node has the receipt
+        pay = ("0x" + "f2" * 32, "0xkim", 13126 * W, "6c" * 32, True, 1795509501, 1500)
+        Base = self._inflow_setup([])
+        readable = [False]
+
+        class C(Base):
+            def inflows(self, address, start, max_blocks):
+                got = [p for p in [pay] if start <= p[6] < start + max_blocks]
+                return [p[:4] + (None,) + p[5:6] for p in got], min(2001, start + max_blocks), 2000
+
+            def receipt_ok(self, tx):
+                return True if readable[0] else None
+        _, bal = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
+        rec = pl.reconcile(self.d, "m", "nocha12", C(bal + 13126 * W), SHOP, 1.0, now=1795512000)
+        self.assertFalse(rec["ok"])
+        readable[0] = True
+        rec = pl.reconcile(self.d, "m", "nocha12", C(bal + 13126 * W), SHOP, 1.0, now=1795512600)
+        self.assertTrue(rec["ok"], rec)
+        self.assertEqual(self.lines()[-1]["kind"], "paid_unsettled")
+
+    def test_chain_receipt_ok_reads_the_status(self):
+        c = pl.Chain("http://x")
+        answers = {"0xa": {"status": "0x1"}, "0xb": {"status": "0x0"}, "0xc": None}
+        c.call = lambda m, p: answers[p[0]]
+        self.assertEqual([c.receipt_ok(t) for t in ("0xa", "0xb", "0xc")], [True, False, None])
+
+    def test_direct_transfer_with_no_checkout_is_transfer_in_after_the_grace_time(self):
+        pay = ("0x" + "d1" * 32, "0xstranger", 500 * W, "", True, 1795509501, 1500)
+        C = self._inflow_setup([pay])
+        _, bal = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
+        self.assertFalse(pl.reconcile(self.d, "m", "nocha12", C(bal + 500 * W), SHOP, 1.0, now=1795509600)["ok"])
+        rec = pl.reconcile(self.d, "m", "nocha12", C(bal + 500 * W), SHOP, 1.0, now=1795512000)
+        self.assertTrue(rec["ok"], rec)
+        self.assertEqual(self.lines()[-1]["kind"], "transfer_in")
+        self.assertIn("money_in_unknown", [a["kind"] for a in rec["alerts"]])
+
+    def test_scan_resumes_from_its_cursor_in_bounded_steps(self):
+        pay = ("0x" + "f2" * 32, "0xkim", 13126 * W, "6c" * 32, True, 1795509501, 1950)
+        C = self._inflow_setup([pay], head=2000)
+        _, bal = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
+        C.scans = []
+        r1 = pl.reconcile(self.d, "m", "nocha12", C(bal + 13126 * W), SHOP, 1.0, now=1795512000, scan_blocks=600)
+        self.assertFalse(r1["ok"])
+        r2 = pl.reconcile(self.d, "m", "nocha12", C(bal + 13126 * W), SHOP, 1.0, now=1795512000, scan_blocks=600)
+        self.assertTrue(r2["ok"], r2)
+        self.assertEqual(C.scans, [(1000, 600), (1600, 600)])
+
+    def test_a_later_sale_with_the_same_payment_is_not_counted_twice(self):
+        pay = ("0x" + "f2" * 32, "0xkim", 13126 * W, "6c" * 32, True, 1795509501, 1500)
+        C = self._inflow_setup([pay])
+        _, bal = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
+        pl.reconcile(self.d, "m", "nocha12", C(bal + 13126 * W), SHOP, 1.0, now=1795512000)
+        self.rows.append({"seq": 30, "ts": 1795512100, "kind": "settle", "round": 4, "prev": "", "hash": "",
+                          "data": {"order": "o-kim", "shop": "https://b.trycloudflare.com", "amount": 13470, "shop_fee": 344,
+                                   "tx_hash": "0x" + "f2" * 32}})
+        new, bal2 = pl.sync(self.d, "m", "nocha12", C(0), SHOP)
+        self.assertEqual(bal2, bal + 13126 * W)
+        self.assertIn("reclassifies", new[-1].get("note") or "")
+
+    def test_refund_of_an_owed_payment_is_a_refund_of_that_order(self):
+        pay = ("0x" + "f2" * 32, "0xkim", 13126 * W, "6c" * 32, True, 1795509501, 1500)
+        C = self._inflow_setup([pay])
+        _, bal = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
+        pl.reconcile(self.d, "m", "nocha12", C(bal + 13126 * W), SHOP, 1.0, now=1795512000)
+        back = "0x" + "bb" * 32
+
+        class R(C):
+            def transfer(self, tx):
+                if tx == back:
+                    return {"from": SHOP.lower(), "to": "0xkim", "value_wei": 13126 * W, "gas_wei": 0, "ok": True, "ts": 1795513000}
+                return super().transfer(tx)
+        kit_log(self.d, [sent("refund_send", back)])
+        new, _ = pl.sync(self.d, "m", "nocha12", R(0), SHOP)
+        self.assertEqual((new[-1]["kind"], new[-1]["order"]), ("refund", "o-kim"))
+
+
+    def _sale_record(self, order, tx):
+        with open(self.d / "logs" / "sales.jsonl", "a") as f:
+            f.write(json.dumps({"order": order, "amount": 13470, "shop_fee": 344, "tx_hash": tx}) + "\n")
+
+    def test_review_c1_overlapping_orders_the_other_settled_with_its_own_payment(self):
+        """Review C1: A (paid here, never settled) and B (settled at our shop with another payment) overlap."""
+        pay = ("0x" + "f2" * 32, "0xkim", 13126 * W, "6c" * 32, True, 1795509501, 1500)
+        C = self._inflow_setup([pay], orders=[("o-a", 1795509500, 1795510100), ("o-b", 1795509501, 1795510101)],
+                               settles=["o-b"])
+        self._sale_record("o-b", "0x" + "99" * 32)
+        _, bal = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
+        rec = pl.reconcile(self.d, "m", "nocha12", C(bal + 13126 * W), SHOP, 1.0, now=1795512000)
+        self.assertTrue(rec["ok"], rec)
+        self.assertEqual(self.lines()[-1]["id"], "owed-0x" + "f2" * 32)
+
+    def test_review_c1_second_payment_for_one_checkout_is_owed_and_the_settled_one_is_not(self):
+        p1 = ("0x" + "f1" * 32, "0xkim", 13126 * W, "6c" * 32, True, 1795509501, 1500)
+        p2 = ("0x" + "f3" * 32, "0xkim", 13126 * W, "6c" * 32, True, 1795509530, 1530)
+        C = self._inflow_setup([p1, p2], settles=["o-kim"])
+        self._sale_record("o-kim", "0x" + "f3" * 32)
+        _, bal = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
+        rec = pl.reconcile(self.d, "m", "nocha12", C(bal + 13126 * W), SHOP, 1.0, now=1795512000)
+        self.assertTrue(rec["ok"], rec)
+        owed = [e for e in self.lines() if e["kind"] == "paid_unsettled"]
+        self.assertEqual([e["tx_hash"] for e in owed], ["0x" + "f1" * 32])
+
+    def test_a_settle_row_that_names_the_payment_counts_it(self):
+        pay = ("0x" + "f2" * 32, "0xkim", 13126 * W, "6c" * 32, True, 1795509501, 1500)
+        C = self._inflow_setup([pay])
+        self.rows.append({"seq": 23, "ts": 1795509560, "kind": "settle", "round": 4, "prev": "", "hash": "",
+                          "data": {"order": "o-kim", "shop": "https://b.trycloudflare.com", "amount": 13470,
+                                   "shop_fee": 344, "tx_hash": "0x" + "f2" * 32}})
+
+        class Hidden(C):                             # the sale's transfer is not readable yet: the sale waits
+            def transfer(self, tx):
+                return None if tx == "0x" + "f2" * 32 else super().transfer(tx)
+        _, bal = pl.sync(self.d, "m", "nocha12", Hidden(0), SHOP)
+        pl.reconcile(self.d, "m", "nocha12", Hidden(bal + 13126 * W), SHOP, 1.0, now=1795512000)
+        self.assertNotIn("paid_unsettled", [e["kind"] for e in self.lines()])
+
+    def test_owed_payment_settled_later_is_an_alert(self):
+        pay = ("0x" + "f2" * 32, "0xkim", 13126 * W, "6c" * 32, True, 1795509501, 1500)
+        C = self._inflow_setup([pay])
+        _, bal = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
+        pl.reconcile(self.d, "m", "nocha12", C(bal + 13126 * W), SHOP, 1.0, now=1795512000)
+        self.rows.append({"seq": 30, "ts": 1795512100, "kind": "settle", "round": 4, "prev": "", "hash": "",
+                          "data": {"order": "o-kim", "shop": "https://b.trycloudflare.com", "amount": 13470, "shop_fee": 344,
+                                   "tx_hash": "0x" + "f2" * 32}})
+        rec = pl.reconcile(self.d, "m", "nocha12", C(bal + 13126 * W), SHOP, 1.0, now=1795512200)
+        self.assertTrue(rec["ok"], rec)
+        self.assertIn("owed_settled_later", [a["kind"] for a in rec["alerts"]])
+
+    def test_grant_written_first_as_money_in_is_not_counted_twice(self):
+        C = self._inflow_setup([("0x" + "6a" * 32, "0xmarket", 1000 * W, "", True, 1795509501, 1500)])
+        _, bal = pl.sync(self.d, "m", "nocha12", FakeChain(0), SHOP)
+        self.assertTrue(pl.reconcile(self.d, "m", "nocha12", C(bal + 1000 * W), SHOP, 1.0, now=1795512000)["ok"])
+        self.rows.append(row(40, "grant", {"shop": "nocha12", "credits": 1000, "why": "late", "tx_hash": "0x" + "6a" * 32}))
+        new, bal2 = pl.sync(self.d, "m", "nocha12", C(0), SHOP)
+        self.assertEqual(bal2, bal + 1000 * W)
+
+
+class ChainInflows(unittest.TestCase):
+    """Chain.inflows against a fake RPC node (review I2/I4)."""
+
+    def node(self, blocks, receipts, head):
+        c = pl.Chain("x")
+        c.call = lambda m, p: hex(head)
+
+        def batch(calls):
+            if calls[0][0] == "eth_getBlockByNumber":
+                return [blocks.get(int(p[0], 16)) for _, p in calls]
+            return [receipts.get(p[0]) for _, p in calls]
+        c.batch = batch
+        return c
+
+    def blk(self, n, txs):
+        return {"timestamp": hex(1000 + n), "transactions": txs}
+
+    def test_reads_transfers_to_us_and_stops_at_a_block_the_node_does_not_have(self):
+        me = SHOP.lower()
+        t = lambda h, to: {"hash": h, "from": "0xKIM", "to": to, "value": hex(5 * W), "input": "0x" + "6c" * 32}
+        blocks = {10: self.blk(10, [t("0xA1", me), t("0xA2", "0xother")]), 11: self.blk(11, []), 13: self.blk(13, [t("0xA3", me)])}
+        c = self.node(blocks, {"0xA1": {"status": "0x1"}}, head=20)
+        got, nxt, head = c.inflows(SHOP, 10, 10, step=5)
+        self.assertEqual(nxt, 12)                    # block 12 missing: read it again next time
+        self.assertEqual(got, [("0xa1", "0xkim", 5 * W, "6c" * 32, True, 1010)])
+
+    def test_unreadable_receipt_is_none_not_failed(self):
+        me = SHOP.lower()
+        blocks = {1: self.blk(1, [{"hash": "0xB1", "from": "0xk", "to": me, "value": hex(W), "input": "0x"}])}
+        got, nxt, _ = self.node(blocks, {}, head=1).inflows(SHOP, 1, 10)
+        self.assertEqual((got[0][4], nxt), (None, 2))
+
+
 if __name__ == "__main__":
     unittest.main()
