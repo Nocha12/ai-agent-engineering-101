@@ -14,12 +14,21 @@ passes its last check while a settle of that payment is at the market. Under tha
 before paying, it reads the refund lines and (for an unsettled or owed plan) sales.jsonl and checkouts.jsonl's
 'settled' events again, matching every order id of the plan (the order asked, our checkout order, the market order)
 and the payment tx without case.
+Review r5 (W-20261124-2007): C1 a settle whose answer was lost leaves no local record, so for an unsettled or owed
+plan it also reads the market's sealed ledger again under the lock for every order id of the plan and pays only
+when each answers 404/403 or 200 without a settle row (anything else refuses, nothing sent); I1 the lock opens
+logs/refunds.jsonl without creating it, so settle (which cannot create it) always locks the same file: no file =
+refuse, a person creates the empty file once.
 """
 import fcntl
 import json
+import os
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
 
+MARKET = 'https://market.ourolabs.ai'
 RPC = 'https://rpc-testnet.maroo.io'
 PLANS = 'logs/refund-plans.jsonl'
 FRESH = 1800
@@ -94,10 +103,41 @@ def settled_since(kit, args, keys, tx):
     return any(hit(s) for s in sales) or any(r.get('event') == 'settled' and hit(r) for r in log)
 
 
+def sealed_settle_now(kit, args, keys):
+    """review r5 C1: True when the market's sealed ledger has a settle row under any order id of the plan, None when
+    any lookup is unreadable (refuse), False when none has one."""
+    for k in sorted(keys):
+        if kit.testing:
+            st, rows = (args.get('_sealed_now') or {}).get(k, (404, None))
+        else:
+            req = urllib.request.Request(MARKET + '/api/ledger/sealed?order=' + urllib.parse.quote(k),
+                                         headers={'authorization': 'Bearer ' + kit.token('shop')})
+            try:
+                with urllib.request.urlopen(req, timeout=8) as r:
+                    st, rows = r.status, json.loads(r.read().decode() or 'null')
+            except urllib.error.HTTPError as e:
+                st, rows = e.code, None
+            except (urllib.error.URLError, OSError, ValueError):
+                st, rows = 0, None
+        if st in (403, 404):
+            continue
+        if st != 200 or not isinstance(rows, (list, type(None))):
+            return None
+        if any(isinstance(r, dict) and r.get('kind') == 'settle' for r in rows or []):
+            return True
+    return False
+
+
 def _lock(kit, args):
-    """Exclusive flock on refunds.jsonl (opened for append, content untouched); None if another call holds it."""
+    """Exclusive flock on refunds.jsonl (opened for append, never created: settle locks the same file read-only and
+    cannot create it, review r5 I1); None if another call holds it, 'missing' when the file does not exist."""
     wait = args.get('_lock_wait', LOCK_WAIT) if kit.testing else LOCK_WAIT
-    f = open(_p(kit, 'logs/refunds.jsonl'), 'a', encoding='utf-8')
+    try:
+        f = os.fdopen(os.open(_p(kit, 'logs/refunds.jsonl'), os.O_WRONLY | os.O_APPEND), 'a', encoding='utf-8')
+    except FileNotFoundError:
+        return 'missing'
+    except OSError:
+        return None
     end = time.time() + wait
     while True:
         try:
@@ -176,12 +216,20 @@ def run(args, kit):
             or str(tx.get('to') or '').lower() != kit.address('shop').lower():
         return {'ok': False, 'error': '결제 트랜잭션을 다시 읽어 보니 2단계 결과와 다릅니다'}
     lock = _lock(kit, args)
+    if lock == 'missing':
+        return {'ok': False, 'error': 'logs/refunds.jsonl이 없습니다. 보내지 않았습니다. 사람이 빈 파일을 한 번 만든 뒤 다시 호출합니다'}
     if lock is None:
         return {'ok': False, 'error': '다른 환불 송금이 진행 중입니다. 보내지 않았습니다. 잠시 뒤 같은 주문으로 다시 호출합니다'}
     try:
         late = recheck(kit, args, order, p1)        # read again under the lock, just before paying
         if late:
             return late
+        if p1.get('kind') != 'settled':
+            sealed = sealed_settle_now(kit, args, _keys(order, p1))
+            if sealed is None:
+                return {'ok': False, 'error': '봉인 장부를 지금 다시 읽지 못했습니다. 보내지 않았습니다. 잠시 뒤 같은 주문으로 다시 호출합니다'}
+            if sealed:
+                return {'ok': False, 'error': '1·2단계 뒤에 시장 봉인 장부에 이 주문의 정산이 생겼습니다(응답을 잃은 settle). 미정산 환불은 하지 않습니다. settle을 다시 불러 판매를 기록합니다'}
         if kit.testing:
             return {'ok': False, 'error': 'testing mode: no refund sent', 'would_send': {'to': to, 'amount': amount}}
         nonce = int(rpc(kit, args, 'eth_getTransactionCount', [kit.address('shop'), 'pending']), 16)

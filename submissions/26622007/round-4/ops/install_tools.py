@@ -33,7 +33,7 @@ TOOLS = {
         {'network': [RPC], 'write': w('logs/refund-plans.jsonl'), 'timeout': 30}),
     'refund_send': (
         '환불 3단계(송금): 30분 안의 1·2단계 확인이 맞을 때만 그 주문 하나에 한 번, 확인된 금액만 원래 보낸 사람에게 보내고 기록합니다. args {order}.',
-        {'network': [RPC], 'write': w('logs/sends.jsonl', 'logs/refunds.jsonl') + ['logs/refund-plans.test.jsonl'],
+        {'network': [MARKET, RPC], 'write': w('logs/sends.jsonl', 'logs/refunds.jsonl') + ['logs/refund-plans.test.jsonl'],
          'identity': ['shop'], 'wallet': ['pay'],
          'pay_limit': 200000, 'timeout': 180}),
     'private_checkout': (

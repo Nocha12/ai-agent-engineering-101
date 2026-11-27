@@ -558,7 +558,7 @@ def refunds_hold(kit, args):
     'busy' when a refund keeps the lock past the wait; None when the file system has no flock (settle goes on)."""
     try:
         f = open(_p(kit, 'logs/refunds.jsonl'), encoding='utf-8')
-    except FileNotFoundError:
+    except OSError:                 # no file (refund_send refuses then, review r5 I1) or unreadable: settle goes on
         return None
     wait = args.get('_lock_wait', SETTLE_LOCK_WAIT) if kit.testing else SETTLE_LOCK_WAIT
     end = time.time() + wait

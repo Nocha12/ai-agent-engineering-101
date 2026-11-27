@@ -19,6 +19,10 @@ def test(run, kit):
             f.write(json.dumps({'stage': 1, 'order': 't-o1', 'ts': now, 'kind': 'settled', 'basis': 'net', 'tx_hash': tx, 'amount': 9690}) + '\n')
             f.write(json.dumps({'stage': 2, 'order': 't-o1', 'ts': now, 'kind': 'settled', 'tx_hash': tx, 'to': payer,
                                 'amount': 9690, 'value_credits': 9690}) + '\n')
+        # review r5 I1: the lock never creates refunds.jsonl (settle locks the same file and cannot create it)
+        r = run({'order': 't-o1', '_rpc': {'eth_getTransactionByHash': paid}}, kit)
+        assert 'refunds.jsonl이 없습니다' in r.get('error', '') and not os.path.exists(FILES[1]), r
+        open(FILES[1], 'w').close()
         r = run({'order': 't-o1', '_rpc': {'eth_getTransactionByHash': paid}}, kit)
         assert r.get('would_send') == {'to': payer, 'amount': 9690}, r     # test mode never pays
         moved = dict(paid, **{'from': '0x' + '3' * 40})
@@ -46,6 +50,16 @@ def test(run, kit):
         a = {'order': 't-o6', '_rpc': {'eth_getTransactionByHash': paid}}
         r = run(dict(a, _payments=[owed]), kit)
         assert r.get('would_send') == {'to': payer, 'amount': 9690}, r
+        # review r5 C1: a settle whose answer was lost: the sealed ledger under any order id of the plan is read again
+        for k in ('t-o6', 'o-m6'):
+            r = run(dict(a, _payments=[owed], _sealed_now={k: (200, [{'kind': 'settle', 'data': {}}])}), kit)
+            assert '봉인 장부에 이 주문의 정산' in r.get('error', ''), (k, r)
+        for bad in ((0, None), (500, None), (200, {'x': 1})):
+            r = run(dict(a, _payments=[owed], _sealed_now={'o-m6': bad}), kit)
+            assert '다시 읽지 못했습니다' in r.get('error', ''), (bad, r)
+        r = run(dict(a, _payments=[owed], _sealed_now={'t-o6': (403, None), 'o-m6': (200, [{'kind': 'broken'}])}), kit)
+        assert r.get('would_send') == {'to': payer, 'amount': 9690}, r
+        assert not os.path.exists(FILES[2])
         assert '장부' in run(dict(a, _payments=[]), kit)['error']                                   # the owed line is gone
         sold = {'kind': 'sale', 'id': 'sale-o-m6', 'tx_hash': otx}
         assert '장부' in run(dict(a, _payments=[owed, sold]), kit)['error']                         # settled later
@@ -101,14 +115,14 @@ def test(run, kit):
         with open(FILES[1], 'w') as f:
             f.write(json.dumps({'purpose': 'refund', 'order': 't-o8', 'tx_hash': '0x9'}) + '\n')
         assert '이미' in run({'order': 'o-m8', '_rpc': {'eth_getTransactionByHash': paid}}, kit).get('error', '')
-        os.remove(FILES[1])
+        open(FILES[1], 'w').close()
         # review r3 I: a refund line under the other order id (market order) or the tx in other case is the same payment
         for line in ({'purpose': 'refund', 'order': 'o-m6', 'tx_hash': '0x9'},
                      {'purpose': 'refund', 'order': 'x', 'paid_tx': '0x' + 'C' * 64, 'tx_hash': '0x9'}):
             with open(FILES[1], 'w') as f:
                 f.write(json.dumps(line) + '\n')
             assert '이미' in run(dict(a, _payments=[owed]), kit).get('error', ''), line
-        os.remove(FILES[1])
+        open(FILES[1], 'w').close()
         # review r3 C2: settled after stage 1, under the checkout order, the market order or the tx in other case
         for kw in ({'_sales': [{'order': 'o-m6', 'tx_hash': '0x9'}]}, {'_sales': [{'order': 'x', 'tx_hash': '0x' + 'C' * 64}]},
                    {'_checkouts': [{'event': 'settled', 'order': 't-o6'}]}, {'_checkouts': [{'event': 'settled', 'order': 'o-m6'}]},
