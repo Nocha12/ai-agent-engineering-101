@@ -53,8 +53,10 @@ WAIT_MAX = 500               # entries kept in waitlist.json
 SENT_TTL = 30 * 86400        # how long "this customer was told about this item from the list" is remembered
 WAIT_PER_CUSTOMER = 5        # items one customer may wait for with a contact
 WAIT_PER_CONTACT = 5         # entries one contact may stand in (and only for one customer, unless it is their own name)
-# --- shared quote block (same text in check_item_inventory, restock_shoutout, private_checkout; ops/test_quote_block.py)
+# --- shared quote block (same text in check_item_inventory, restock_shoutout, private_checkout, write_shop_card,
+#     refresh_full_card; ops/test_quote_block.py)
 QUOTES, QUOTE_TTL, QUOTE_RANK = 'logs/quotes.json', 24 * 3600, ('C', 'B', 'A')
+CASHOUT_BY, CASHOUT_MIN, CASH_HOURS = 'cashout', 420, 48
 
 
 def quotes_load(path):
@@ -75,13 +77,56 @@ def quote_get(q, sku, grade, now):
     return None
 
 
+def quote_floor(q, sku, grade, now):
+    """Cash-out (현금화, 11/27): a fresh quote stored by 'cashout' (ops/forum_menu.py, a food grade with CASH_HOURS or less left
+    whose market median is under the goal (3) floor) carries its own floor, the market median, never under CASHOUT_MIN
+    (more than the sale fee: a unit that would be thrown away still brings money). None for any other quote."""
+    r = q.get(f'{sku}|{grade}') if grade in QUOTE_RANK else None       # A, B or C only (review M2)
+    if isinstance(r, dict) and r.get('by') == CASHOUT_BY and type(r.get('floor')) is int and r['floor'] >= CASHOUT_MIN \
+            and quote_get(q, sku, grade, now) is not None:
+        return r['floor']
+    return None
+
+
+def cash_step(left):
+    """The share of the market median a cash-out unit sells at, by its own hours left (메인 11/27 15:2x): over 24 h
+    0.95, over 12 h 0.90, over 6 h 0.80, 3 h or more 0.60, under 3 h 0.45."""
+    for h, m in ((24, 0.95), (12, 0.90), (6, 0.80)):
+        if left > h:
+            return m
+    return 0.60 if left >= 3 else 0.45
+
+
+def unit_cash(q, u, now):
+    """The cash-out floor for one unit: its SKU and grade's quote_floor, only when that unit itself has CASH_HOURS or
+    less left. A longer-dated unit of the same grade keeps the goal (3) floor (review I1). None otherwise. When the
+    quote keeps the median it was set from (base), the floor is that median x cash_step of this unit's own hours left
+    (down to 10 credits, never under CASHOUT_MIN, never over the stored floor; review r4-price I-1)."""
+    e = u.get('expires_at') if isinstance(u, dict) else None
+    if isinstance(e, bool) or not isinstance(e, (int, float)) or not 0 < e - now <= CASH_HOURS * 3600:
+        return None
+    f = quote_floor(q, u.get('sku'), u.get('grade'), now)
+    b = (q.get(f"{u.get('sku')}|{u.get('grade')}") or {}).get('base') if f is not None else None
+    if type(b) is not int or b < f:
+        return f
+    return max(CASHOUT_MIN, min(f, int(b * cash_step((e - now) / 3600)) // 10 * 10))
+
+
+def cash_clear(cl, shown, cash):
+    """A unit both on clearance and on cash-out (cash, unit_cash) is never dearer than its cash-out shown price: the
+    clearance curve assumes a base at the goal (3) floor or over it (review r2 I-N1). cl as given otherwise."""
+    if not cl or cash is None or shown is None or cl['price'] <= shown:
+        return cl
+    return dict(cl, price=shown, floor=min(cl['floor'], cash), loss=True)
+
+
 def quote_prices(q, sku, floors, now):
-    """{grade: shown price or None} for the grades in floors: the stored quote raised to that grade's floor, and a
-    higher grade never below a lower one (C <= B <= A)."""
+    """{grade: shown price or None} for the grades in floors: the stored quote raised to that grade's floor (a cash-out
+    quote's own floor when lower), and a higher grade never below a lower one (C <= B <= A)."""
     out, low = {}, 0
     for g in sorted(floors, key=lambda g: QUOTE_RANK.index(g) if g in QUOTE_RANK else -1):
-        p = quote_get(q, sku, g, now)
-        out[g] = None if p is None else max(p, floors[g], low)
+        p, f = quote_get(q, sku, g, now), quote_floor(q, sku, g, now)
+        out[g] = None if p is None else max(p, floors[g] if f is None else min(floors[g], f), low)
         low = max(low, out[g] or 0)
     return out
 
@@ -1002,7 +1047,10 @@ def _op(op, args, kit, s, now, w=None):
             return {'ok': False, 'error': '재고에 이 SKU가 없어 입고 안내를 하지 않습니다'}
         prices = grade_prices(args)
         given = dict(prices)
-        shown = {g: v for g, v in quote_prices(quotes_load(_quotes_path(kit)), sku, st['floors'], now).items() if v}
+        # a restock is new, longer-dated stock: a cash-out grade (its price only for units with 48 h or less left) is
+        # announced and checked at its floor (review I3, r2 I-N2)
+        shown = {g: max(v, st['floors'][g]) for g, v in quote_prices(quotes_load(_quotes_path(kit)), sku, st['floors'],
+                                                                     now).items() if v}
         pa = int(_num(args.get('price')))
         if shown:                                       # a grade with a shown price keeps it; the rest take what was given
             merged = {g: shown.get(g) or prices.get(g) or pa for g in st['grades']}
@@ -1021,7 +1069,7 @@ def _op(op, args, kit, s, now, w=None):
         except Exception:
             stored = {}
         if set(st['grades']) <= set(stored):
-            prices = {g: stored[g] for g in st['grades']}
+            prices = {g: max(stored[g], st['floors'][g]) for g in st['grades']}   # a cash-out quote: at its floor (r2 I-N2)
             price = max(prices.values())
         quote_note = None
         asked_for = {g: given.get(g) or int(_num(args.get('price'))) for g in st['grades']}
@@ -1079,7 +1127,8 @@ def _op(op, args, kit, s, now, w=None):
         for n in c['notices']:
             st = stock(inv, n.get('sku'), now)
             if st:                                      # sold out since: say nothing rather than promise it
-                now_q = {g: v for g, v in quote_prices(quotes_load(_quotes_path(kit)), n.get('sku'), st['floors'], now).items() if v}
+                now_q = {g: max(v, st['floors'][g]) for g, v in quote_prices(quotes_load(_quotes_path(kit)), n.get('sku'),
+                                                                               st['floors'], now).items() if v}
                 np = now_q if set(st['grades']) <= set(now_q) else n.get('prices')   # today's shown price, if every grade has one
                 texts.append(notice_text(key, n.get('name') or n.get('sku'), st,
                                          max(int(_num(n.get('price'))), st['floor']), n.get('why', 'waited'), np,

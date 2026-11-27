@@ -19,6 +19,9 @@ Clearance (떨이, 대표님 11/26 19:05): a food unit whose time left is half o
 clearance (shared clearance block): create without price issues its clearance price, and the floor for it drops with
 the time left (below cost in the last quarter; never below 420, more than the sale fee). The answer carries clearance;
 a clearance price never becomes the shown price of its SKU and grade. Water is never on clearance.
+Cash-out (11/27): a cash-out quote (by 'cashout', see quote_floor) lowers the floor of the units of its SKU and grade
+with CASH_HOURS or less left (unit_cash) to the market median it was set at, under cost (goal (2) gives way for these,
+as for clearance). A longer-dated unit keeps its floor; asked under it, create names the short units (cashout_unit).
 Shown price (operator 11/26 12:40): one price per SKU and grade lives in logs/quotes.json (the shared quote block,
 also in check_item_inventory and restock_shoutout). create without price uses it; the first price a create uses
 for an SKU and grade becomes it when there is none; a different agreed price is still issued (no refusal) and the
@@ -46,8 +49,10 @@ MAX_WARRANTY = 72
 LOG = 'logs/checkouts.jsonl'
 
 
-# --- shared quote block (same text in check_item_inventory, restock_shoutout, private_checkout; ops/test_quote_block.py)
+# --- shared quote block (same text in check_item_inventory, restock_shoutout, private_checkout, write_shop_card,
+#     refresh_full_card; ops/test_quote_block.py)
 QUOTES, QUOTE_TTL, QUOTE_RANK = 'logs/quotes.json', 24 * 3600, ('C', 'B', 'A')
+CASHOUT_BY, CASHOUT_MIN, CASH_HOURS = 'cashout', 420, 48
 
 
 def quotes_load(path):
@@ -68,13 +73,56 @@ def quote_get(q, sku, grade, now):
     return None
 
 
+def quote_floor(q, sku, grade, now):
+    """Cash-out (현금화, 11/27): a fresh quote stored by 'cashout' (ops/forum_menu.py, a food grade with CASH_HOURS or less left
+    whose market median is under the goal (3) floor) carries its own floor, the market median, never under CASHOUT_MIN
+    (more than the sale fee: a unit that would be thrown away still brings money). None for any other quote."""
+    r = q.get(f'{sku}|{grade}') if grade in QUOTE_RANK else None       # A, B or C only (review M2)
+    if isinstance(r, dict) and r.get('by') == CASHOUT_BY and type(r.get('floor')) is int and r['floor'] >= CASHOUT_MIN \
+            and quote_get(q, sku, grade, now) is not None:
+        return r['floor']
+    return None
+
+
+def cash_step(left):
+    """The share of the market median a cash-out unit sells at, by its own hours left (메인 11/27 15:2x): over 24 h
+    0.95, over 12 h 0.90, over 6 h 0.80, 3 h or more 0.60, under 3 h 0.45."""
+    for h, m in ((24, 0.95), (12, 0.90), (6, 0.80)):
+        if left > h:
+            return m
+    return 0.60 if left >= 3 else 0.45
+
+
+def unit_cash(q, u, now):
+    """The cash-out floor for one unit: its SKU and grade's quote_floor, only when that unit itself has CASH_HOURS or
+    less left. A longer-dated unit of the same grade keeps the goal (3) floor (review I1). None otherwise. When the
+    quote keeps the median it was set from (base), the floor is that median x cash_step of this unit's own hours left
+    (down to 10 credits, never under CASHOUT_MIN, never over the stored floor; review r4-price I-1)."""
+    e = u.get('expires_at') if isinstance(u, dict) else None
+    if isinstance(e, bool) or not isinstance(e, (int, float)) or not 0 < e - now <= CASH_HOURS * 3600:
+        return None
+    f = quote_floor(q, u.get('sku'), u.get('grade'), now)
+    b = (q.get(f"{u.get('sku')}|{u.get('grade')}") or {}).get('base') if f is not None else None
+    if type(b) is not int or b < f:
+        return f
+    return max(CASHOUT_MIN, min(f, int(b * cash_step((e - now) / 3600)) // 10 * 10))
+
+
+def cash_clear(cl, shown, cash):
+    """A unit both on clearance and on cash-out (cash, unit_cash) is never dearer than its cash-out shown price: the
+    clearance curve assumes a base at the goal (3) floor or over it (review r2 I-N1). cl as given otherwise."""
+    if not cl or cash is None or shown is None or cl['price'] <= shown:
+        return cl
+    return dict(cl, price=shown, floor=min(cl['floor'], cash), loss=True)
+
+
 def quote_prices(q, sku, floors, now):
-    """{grade: shown price or None} for the grades in floors: the stored quote raised to that grade's floor, and a
-    higher grade never below a lower one (C <= B <= A)."""
+    """{grade: shown price or None} for the grades in floors: the stored quote raised to that grade's floor (a cash-out
+    quote's own floor when lower), and a higher grade never below a lower one (C <= B <= A)."""
     out, low = {}, 0
     for g in sorted(floors, key=lambda g: QUOTE_RANK.index(g) if g in QUOTE_RANK else -1):
-        p = quote_get(q, sku, g, now)
-        out[g] = None if p is None else max(p, floors[g], low)
+        p, f = quote_get(q, sku, g, now), quote_floor(q, sku, g, now)
+        out[g] = None if p is None else max(p, floors[g] if f is None else min(floors[g], f), low)
         low = max(low, out[g] or 0)
     return out
 
@@ -323,9 +371,12 @@ def floor_price(cost, endgame):
     return math.ceil(((0 if endgame else cost) + GAS + FEE) / 0.99)
 
 
-def unit_floor(x, endgame, now, base=None):
-    """The lowest price for this unit: the goal (3) floor (or the endgame floor), or its clearance floor when lower."""
+def unit_floor(x, endgame, now, base=None, cash=None):
+    """The lowest price for this unit: the goal (3) floor (or the endgame floor), or its clearance floor or its cash-out
+    floor (cash, unit_cash: only a unit with CASH_HOURS or less left) when lower."""
     low = floor_price(_cost(x.get('cost')), endgame)
+    if cash is not None:
+        low = min(low, cash)
     try:                                             # the clearance note is extra: a bad unit field never stops a checkout
         cl = clearance(x, base, now)
     except Exception:
@@ -377,7 +428,7 @@ def _hours_left(u, now):
 
 def free_alternatives(kit, inv, u, order, now, holder, endgame, rows):
     """Other units of the same SKU (any grade) in stock, not held by another inquiry, with their floors."""
-    out = []
+    out, qs = [], quotes_load(_quotes_path(kit))
     for x in inv.get('units') or []:
         if not isinstance(x, dict) or x.get('unit') == u.get('unit') or x.get('sku') != u.get('sku'):
             continue
@@ -386,7 +437,8 @@ def free_alternatives(kit, inv, u, order, now, holder, endgame, rows):
             continue
         if open_hold(kit, x.get('unit'), order, now, holder, rows):
             continue
-        alt = {'unit': x.get('unit'), 'grade': g, 'floor': unit_floor(x, endgame, now), 'hours_left': _hours_left(x, now)}
+        alt = {'unit': x.get('unit'), 'grade': g, 'floor': unit_floor(x, endgame, now, cash=unit_cash(qs, x, now)),
+               'hours_left': _hours_left(x, now)}
         try:
             cl = clearance(x, None, now)
         except Exception:
@@ -455,9 +507,11 @@ def create(args, kit):
             g = str(x.get('grade'))
             gfloors[g] = max(gfloors.get(g, 0), floor_price(_cost(x.get('cost')), False))
     gfloors.setdefault(grade, floor_price(_cost(u.get('cost')), False))
-    shown = quote_prices(quotes_load(_quotes_path(kit)), sku, gfloors, now).get(grade)
+    qs = quotes_load(_quotes_path(kit))
+    shown = quote_prices(qs, sku, gfloors, now).get(grade)
+    cash = unit_cash(qs, u, now)                     # cash-out (11/27): this unit's floor under cost, 48 h or less left
     try:
-        cl = clearance(u, shown, now)
+        cl = cash_clear(clearance(u, shown, now), shown, cash)
     except Exception:
         cl = None
     cl0 = cl                                         # the unit asked for was on clearance: no quote from it (re-review I1)
@@ -472,7 +526,17 @@ def create(args, kit):
     low = floor_price(float(u.get('cost') or 0), bool(args.get('endgame')))
     if cl:
         low = min(low, cl['floor'])
+    if cash is not None:
+        low = min(low, cash)
     if price < low:
+        short = [{'unit': x.get('unit'), 'hours_left': _hours_left(x, now), 'floor': unit_cash(qs, x, now)}
+                 for x in inv.get('units') or [] if isinstance(x, dict) and x.get('unit') != unit_id
+                 and x.get('sku') == sku and x.get('grade') == grade and unit_now(inv, x.get('unit'))
+                 and cert_grade(x.get('cert')) in (None, grade) and unit_cash(qs, x, now) is not None
+                 and unit_cash(qs, x, now) <= price][:4]
+        if short:                                    # the cash-out price is for the units about to expire (review I1)
+            return {'ok': False, 'code': 'cashout_unit', 'floor': low, 'cashout_units': short,
+                    'error': '이 가격은 기한이 48시간 이하인 단위에만 됩니다. cashout_units의 단위로 다시 내거나, 이 단위는 floor 이상으로 냅니다'}
         return {'ok': False, 'error': '가격이 하한보다 낮습니다', 'floor': low}
     holder, rows = (str(holder) if holder else None), _lines(_p(kit, LOG))
     dup = None
@@ -496,7 +560,7 @@ def create(args, kit):
         alt = next((x for x in inv.get('units') or [] if isinstance(x, dict) and x.get('unit') != unit_id
                     and unit_now(inv, x.get('unit')) and x.get('sku') == u.get('sku') and x.get('grade') == grade
                     and (cert_grade(x.get('cert')) in (None, grade))
-                    and price >= unit_floor(x, bool(args.get('endgame')), now, shown)
+                    and price >= unit_floor(x, bool(args.get('endgame')), now, shown, unit_cash(qs, x, now))
                     and not open_hold(kit, x.get('unit'), order, now, holder, rows)), None)
         if not alt:
             alts = free_alternatives(kit, inv, u, order, now, holder, bool(args.get('endgame')), rows)
@@ -506,8 +570,9 @@ def create(args, kit):
                                 else '같은 품목의 다른 재고는 없습니다. held_until 뒤 다시 확인합니다'),
                     'held_until': int(held['ts'] + HOLD), 'alternatives': alts, 'cheapest': alts[0] if alts else None}
         u, unit_id = alt, alt.get('unit')
+        cash = unit_cash(qs, u, now)                 # and so does the cash-out note
         try:                                         # the note follows the unit the checkout is for
-            cl = clearance(u, shown, now)
+            cl = cash_clear(clearance(u, shown, now), shown, cash)
         except Exception:
             cl = None
         if auto_clear:                               # that unit's clearance price, or the shown price when it has none
@@ -529,6 +594,8 @@ def create(args, kit):
     if not same:                                     # logged first: a failed create never sets the shown price (r2 M-6)
         _log(kit, {'event': 'issued', 'ts': int(now), 'order': order, 'unit': unit_id, 'sku': u.get('sku'), 'price': price,
               'grade': grade, 'warranty_hours': warranty, 'digest_hex': hx, 'holder': holder})
+    if cash is not None and not cl and price < floor_price(_cost(u.get('cost')), False):   # under cost only (M4)
+        evidence['cashout'] = {'floor': cash, 'note': '기한 안에 팔리도록 시세에 맞춘 가격입니다(원가보다 낮을 수 있음)'}
     if cl:
         evidence['clearance'] = dict(cl, note=f"떨이·기한 임박({cl['hours_left']}시간 남음): {price:,}크레딧. 기한이 지나면 버리게 되어 값을 낮췄습니다")
     if shown is None and not args.get('endgame') and not cl and not cl0 and not auto_clear:

@@ -4,8 +4,10 @@ import json, math, os, re, time, urllib.request
 BASE='https://market.ourolabs.ai'
 NAME='노차네 구멍가게'
 DESC='동네 구멍가게입니다. 생수·우유·쌀·계란·면·과일 같은 먹을거리를 조금씩 들여 두고, 사장님이 손님 안부를 기억합니다. 유통기한·등급·가격은 정직하게 말씀드립니다.'
-# --- shared quote block (same text in check_item_inventory, restock_shoutout, private_checkout; ops/test_quote_block.py)
+# --- shared quote block (same text in check_item_inventory, restock_shoutout, private_checkout, write_shop_card,
+#     refresh_full_card; ops/test_quote_block.py)
 QUOTES, QUOTE_TTL, QUOTE_RANK = 'logs/quotes.json', 24 * 3600, ('C', 'B', 'A')
+CASHOUT_BY, CASHOUT_MIN, CASH_HOURS = 'cashout', 420, 48
 
 
 def quotes_load(path):
@@ -26,13 +28,56 @@ def quote_get(q, sku, grade, now):
     return None
 
 
+def quote_floor(q, sku, grade, now):
+    """Cash-out (현금화, 11/27): a fresh quote stored by 'cashout' (ops/forum_menu.py, a food grade with CASH_HOURS or less left
+    whose market median is under the goal (3) floor) carries its own floor, the market median, never under CASHOUT_MIN
+    (more than the sale fee: a unit that would be thrown away still brings money). None for any other quote."""
+    r = q.get(f'{sku}|{grade}') if grade in QUOTE_RANK else None       # A, B or C only (review M2)
+    if isinstance(r, dict) and r.get('by') == CASHOUT_BY and type(r.get('floor')) is int and r['floor'] >= CASHOUT_MIN \
+            and quote_get(q, sku, grade, now) is not None:
+        return r['floor']
+    return None
+
+
+def cash_step(left):
+    """The share of the market median a cash-out unit sells at, by its own hours left (메인 11/27 15:2x): over 24 h
+    0.95, over 12 h 0.90, over 6 h 0.80, 3 h or more 0.60, under 3 h 0.45."""
+    for h, m in ((24, 0.95), (12, 0.90), (6, 0.80)):
+        if left > h:
+            return m
+    return 0.60 if left >= 3 else 0.45
+
+
+def unit_cash(q, u, now):
+    """The cash-out floor for one unit: its SKU and grade's quote_floor, only when that unit itself has CASH_HOURS or
+    less left. A longer-dated unit of the same grade keeps the goal (3) floor (review I1). None otherwise. When the
+    quote keeps the median it was set from (base), the floor is that median x cash_step of this unit's own hours left
+    (down to 10 credits, never under CASHOUT_MIN, never over the stored floor; review r4-price I-1)."""
+    e = u.get('expires_at') if isinstance(u, dict) else None
+    if isinstance(e, bool) or not isinstance(e, (int, float)) or not 0 < e - now <= CASH_HOURS * 3600:
+        return None
+    f = quote_floor(q, u.get('sku'), u.get('grade'), now)
+    b = (q.get(f"{u.get('sku')}|{u.get('grade')}") or {}).get('base') if f is not None else None
+    if type(b) is not int or b < f:
+        return f
+    return max(CASHOUT_MIN, min(f, int(b * cash_step((e - now) / 3600)) // 10 * 10))
+
+
+def cash_clear(cl, shown, cash):
+    """A unit both on clearance and on cash-out (cash, unit_cash) is never dearer than its cash-out shown price: the
+    clearance curve assumes a base at the goal (3) floor or over it (review r2 I-N1). cl as given otherwise."""
+    if not cl or cash is None or shown is None or cl['price'] <= shown:
+        return cl
+    return dict(cl, price=shown, floor=min(cl['floor'], cash), loss=True)
+
+
 def quote_prices(q, sku, floors, now):
-    """{grade: shown price or None} for the grades in floors: the stored quote raised to that grade's floor, and a
-    higher grade never below a lower one (C <= B <= A)."""
+    """{grade: shown price or None} for the grades in floors: the stored quote raised to that grade's floor (a cash-out
+    quote's own floor when lower), and a higher grade never below a lower one (C <= B <= A)."""
     out, low = {}, 0
     for g in sorted(floors, key=lambda g: QUOTE_RANK.index(g) if g in QUOTE_RANK else -1):
-        p = quote_get(q, sku, g, now)
-        out[g] = None if p is None else max(p, floors[g], low)
+        p, f = quote_get(q, sku, g, now), quote_floor(q, sku, g, now)
+        out[g] = None if p is None else max(p, floors[g] if f is None else min(floors[g], f), low)
         low = max(low, out[g] or 0)
     return out
 
@@ -563,7 +608,7 @@ def clear_card(units, now, qpath, limit=300):
                 continue
             k = (u['sku'], str(u.get('grade') or '?')[:1])
             base = quote_prices(q, k[0], {g: f for (s, g), f in gf.items() if s == k[0]}, now).get(k[1])
-            cl = clearance(u, base, now)
+            cl = cash_clear(clearance(u, base, now), base, unit_cash(q, u, now))   # review r2 I-N1
             if cl and (k not in best or cl['hours_left'] < best[k][0]['hours_left']):
                 best[k] = (cl, u)
         text, shown = '', shop_names(units, now)      # what is on sale (r3 I5)

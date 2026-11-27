@@ -185,6 +185,40 @@ def test(run, kit):
             assert wn.get('code') == 'no_quote', wn                              # water: never on clearance
             fr = run(dict(k, unit='u-k3', order='o-k5', inquiry_task='t-k5', task='t-k5', price=3000), kit)
             assert not fr['ok'] and fr['floor'] == 5470, fr                      # 40 h of 48 left: the usual floor
+            # cash-out (11/27): a quote stored by 'cashout' carries its own floor under cost; nothing else does
+            um = dict(uk, unit='u-m1', sku='GM', name='우유 24팩', category='식품>계란/유제품>우유/두유', cost=12235,
+                      grade='C', expires_at=T + 29 * 3600, cert={'unit': 'u-m1', 'grade': None})
+            im = dict(ki, units=[um])
+            qd = json.load(open(FILES[3])) if os.path.exists(FILES[3]) else {}
+            qd['GM|C'] = {'price': 11790, 'ts': T - 60, 'by': 'cashout', 'floor': 11790}
+            json.dump(qd, open(FILES[3], 'w'))
+            m = dict(k, _inventory=im, unit='u-m1', claim='C')
+            m1 = run(dict(m, order='o-m1', inquiry_task='t-m1', task='t-m1'), kit)
+            assert m1['ok'] and m1['payload']['price'] == 11790, m1             # under the goal (3) floor 12,778
+            assert m1['cashout']['floor'] == 11790 and 'clearance' not in m1 and 'quote_note' not in m1, m1
+            m2 = run(dict(m, order='o-m2', inquiry_task='t-m2', task='t-m2', price=11000), kit)
+            assert not m2['ok'] and m2['floor'] == 11790, m2                    # not under the cash-out floor
+            ul = dict(um, unit='u-m5', expires_at=T + 200 * 3600, cert={'unit': 'u-m5', 'grade': None})
+            ml = dict(m, _inventory=dict(ki, units=[um, ul]), unit='u-m5')     # review I1: a 200 h unit of the same grade
+            m5 = run(dict(ml, order='o-m5', inquiry_task='t-m5', task='t-m5'), kit)
+            assert not m5['ok'] and m5['code'] == 'cashout_unit' and m5['floor'] == 12778, m5
+            assert [x['unit'] for x in m5['cashout_units']] == ['u-m1'] and m5['cashout_units'][0]['floor'] == 11790, m5
+            m6 = run(dict(ml, order='o-m6', inquiry_task='t-m6', task='t-m6', price=12778), kit)
+            assert m6['ok'] and m6['payload']['unit'] == 'u-m5' and 'cashout' not in m6, m6   # at its own floor: issued
+            u7 = dict(um, unit='u-m7', expires_at=T + 20 * 3600, cert={'unit': 'u-m7', 'grade': None})
+            m7 = run(dict(m, _inventory=dict(ki, units=[u7]), unit='u-m7', order='o-m7', inquiry_task='t-m7', task='t-m7'), kit)
+            assert m7['ok'] and m7['payload']['price'] <= 11790, m7            # r2 I-N1: clearance never over cash-out
+            assert 'clearance' not in m7 or m7['clearance']['price'] <= 11790, m7
+            qd['GM|C'] = {'price': 11790, 'ts': T - 60, 'by': 'forum_menu', 'floor': 11790}
+            json.dump(qd, open(FILES[3], 'w'))
+            m = dict(m, _inventory=dict(ki, units=[dict(um, unit='u-m3', cert={'unit': 'u-m3', 'grade': None})]), unit='u-m3')
+            m3 = run(dict(m, order='o-m3', inquiry_task='t-m3', task='t-m3'), kit)
+            assert m3['ok'] and m3['payload']['price'] == 12778 and 'cashout' not in m3, m3   # floor only from cashout
+            qd['GM|C'] = {'price': 11790, 'ts': T - 25 * 3600, 'by': 'cashout', 'floor': 11790}
+            json.dump(qd, open(FILES[3], 'w'))
+            m = dict(m, _inventory=dict(ki, units=[dict(um, unit='u-m4', cert={'unit': 'u-m4', 'grade': None})]), unit='u-m4')
+            m4 = run(dict(m, order='o-m4', inquiry_task='t-m4', task='t-m4', price=11790), kit)
+            assert not m4['ok'] and m4['floor'] == 12778, m4                    # a day old: the usual floor again
         finally:
             run.__globals__['time'] = clock
         mand = {'mandate': {'tx_hash': '0x' + 'a' * 64}}

@@ -180,4 +180,31 @@ def test(run, kit):
     assert not any('forum' in i for i in g['items']) and 'note_forum' not in g, g
     w = run({'_inventory': fish, '_now': now, '_forum': forum}, kit)                    # whole shop: unchanged
     assert 'note_forum' not in w and 'forum' not in json.dumps(w, ensure_ascii=False), w
+    # cash-out (11/27): a quote stored by 'cashout' shows its price and its own floor, under cost; other quotes do not
+    cm = {'units': [{'unit': 'c1', 'sku': 'G0000cash', 'grade': 'C', 'cost': 12235, 'name': '우유 190ml 24팩', 'kind': 'food',
+                     'expires_at': now + 29 * 3600},
+                    {'unit': 'c2', 'sku': 'G0000cash', 'grade': 'B', 'cost': 12235, 'name': '우유 190ml 24팩', 'kind': 'food',
+                     'expires_at': now + 60 * 3600}]}
+    with open(QF, 'w') as f:
+        json.dump({'G0000cash|C': {'price': 11790, 'ts': now - 60, 'by': 'cashout', 'floor': 11790},
+                   'G0000cash|B': {'price': 11790, 'ts': now - 60, 'by': 'forum_menu', 'floor': 100}}, f)
+    one = run({'sku': 'G0000cash', '_inventory': cm, '_now': now}, kit)
+    byg = {i['grade']: i for i in one['items']}
+    assert byg['C']['price'] == 11790 and byg['C']['floor'] == 11790, byg     # goal (3) floor would be 12,778
+    assert byg['B']['price'] == 12778 and byg['B']['floor'] == 12778, byg     # floor key without by cashout: ignored
+    # rebase onto 77364a49: the forum unit mark (A-2) and the cash-out floor sit on the same item, neither drops the other
+    cf = run({'sku': 'G0000cash', '_inventory': cm, '_now': now, '_forum': {'posts': [{'ts': now - 300, 'lines': [
+        {'sku': 'G0000cash', 'grade': 'C', 'price': 11790, 'unit': 'c1', 'until': now + 29 * 3600}]}]}}, kit)
+    byc = {i['unit']: i for i in cf['items']}
+    assert byc['c1']['forum'] == '포럼 공지 단위(16:55 게시)' and byc['c1']['floor'] == 11790 == byc['c1']['price'], byc
+    assert 'forum' not in byc['c2'] and byc['c2']['floor'] == 12778 and '표시된 공지 단위로 결제서' in cf['note_forum'], cf
+    whole = run({'_inventory': cm, '_now': now}, kit)
+    g = [s for s in whole['skus'] if s['sku'] == 'G0000cash'][0]['grades']
+    assert g['C']['floor'] == 11790 and g['C']['price'] == 11790 and g['B']['floor'] == 12778, g
+    cl = dict(cm, units=cm['units'] + [dict(cm['units'][0], unit='c3', expires_at=now + 200 * 3600)])   # review I1
+    two = {i['unit']: i for i in run({'sku': 'G0000cash', '_inventory': cl, '_now': now}, kit)['items'] if 'unit' in i}
+    assert two['c1']['floor'] == 11790 and two['c3']['floor'] == 12778 and two['c3']['price'] == 12778, two
+    old = run({'sku': 'G0000cash', '_inventory': cm, '_now': now + 25 * 3600}, kit)   # a day old: usual floor, no quote
+    assert {i['grade']: i['floor'] for i in old['items']}.get('C') == 12778, old['items']
+    os.remove(QF)
     return 'ok'

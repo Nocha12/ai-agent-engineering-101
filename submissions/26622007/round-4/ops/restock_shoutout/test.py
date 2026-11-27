@@ -95,6 +95,19 @@ def test(run, kit):
         dear = dict(cup, units=cup['units'] + [dict(coffee, unit='u14', cost=8000, grade='C')])   # a dearer C unit came in
         up = run({'op': 'restocked', 'sku': 'COFFEE', '_inventory': dear, '_now': t1 + 30}, kit)
         assert up['ok'] and up['prices'] == {'A': 9000, 'C': 8500}, up            # stored C raised to today's floor (r1 I5)
+        # cash-out (11/27): a cash-out C quote under the C floor (12,778) does not block a B restock (review I3)
+        t2 = t1 + 40
+        gm = {'unit': 'u20', 'sku': 'GM', 'name': '서울우유 멸균우유 190ml 24팩', 'kind': 'food', 'cost': 12235, 'grade': 'C',
+              'expires_at': t2 + 29 * 3600}
+        gmi = {'units': [gm, dict(gm, unit='u21', grade='B', expires_at=t2 + 200 * 3600)], 'restock': cup['restock']}
+        import json
+        with open('logs/quotes.test.json', encoding='utf-8') as f:
+            q = json.load(f)
+        q['GM|C'] = {'price': 11787, 'ts': t2, 'by': 'cashout', 'floor': 11787}
+        with open('logs/quotes.test.json', 'w', encoding='utf-8') as f:
+            json.dump(q, f)
+        c = run({'op': 'restocked', 'sku': 'GM', 'prices': {'B': 13000}, '_inventory': gmi, '_now': t2 + 1}, kit)
+        assert c['ok'] and c['prices'] == {'B': 13000, 'C': 12778}, c     # new stock: the C floor, not the 29 h price (r2 I-N2)
         return 'ok'
     finally:
         for f in ('shoutout.test.json', 'waitlist.test.json', 'logs/quotes.test.json'):
