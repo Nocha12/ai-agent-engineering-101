@@ -588,7 +588,19 @@ def _test_held(g, K, now):
     assert held_e(r, 'G-flat'), r
     # 7) the amount by asks, inside the operator's 2~4 (buy_food_lot keeps its own 1~4)
     assert 'asks 1→2개, 2→3개, 3+→4개' in r['note'] and '표시는 매입을 막지 않는다' in r['note'], r['note']
-    assert '같은 SKU도 산다' in r['note'] and len(r['note']) <= 368 + 160, len(r['note'])   # prod 368: room for asks (review 6 I1)
+    assert '같은 SKU도 산다' in r['note'] and len(r['note']) <= 368 + 175, len(r['note'])   # prod 368: room for asks (review 6 I1)
+    #    every mark says to buy when the held one is not what was asked; '사지 않' only for refused substitutes (review 7)
+    nt = r['note']
+    for mark, tail in (('held:', '다르면 산다'), ('held_maybe:', '다르면 산다'), ('held_not_fit:', '같은 SKU도 산다')):
+        k = nt.index(mark)
+        assert tail in nt[k:nt.index(')', k) + 1], (mark, nt[k:k + 80])
+    assert nt.count('사지 않') == 1 and '대체품 거부)은 사지 않는다' in nt and '사지 마' not in nt, nt
+    #    held_maybe asks keep their rank: a held 2nd option ahead of a stock-0 ask asked less (review 7 M2)
+    CH2 = [dict(CH, customer='c%d' % k) for k in range(3)]
+    r = ask(CH2 + [MILK_ASK], units(('Gafd47283', 1, False)))
+    order = [x['asked'][0] for x in r['customer_asked_out_of_stock']]
+    assert order.index('양념치킨') < order.index(MILK_ASK['item']), order
+    assert find(r['customer_asked_out_of_stock'], 'Gafd47283')[0]['held_maybe'], r
     # 7b) held asks stay listed: the most asked first, MAX_GROUPS as before, the same entries as with nothing held
     names = ['품목' + chr(0xAC00 + i * 600) + chr(0xAC00 + i * 7) for i in range(40)]
     cat = [f('G-q%d' % i, n + ' 1kg') for i, n in enumerate(names)]
