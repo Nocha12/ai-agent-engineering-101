@@ -202,7 +202,7 @@ def held_longest():
                   {'unit': 'u-b1', 'grade': 'B', 'floor': 3000, 'hours_left': 40.0}])
     assert cb['longest']['unit'] == 'u-b1', cb
     conly = longest([{'unit': 'u-c1', 'grade': 'C', 'floor': 2000, 'hours_left': 6.0}])   # 33647847
-    assert conly['longest'] is None and 'C·임박을 뺀 다른 단위는 없습니다' in conly['error'], conly
+    assert conly['longest'] is None and 'C·임박을 뺀 단위가 없습니다' in conly['error'], conly
     assert [x['unit'] for x in conly['alternatives']] == ['u-c1']                    # still offered when asked
     short = longest([{'unit': 'u-b1', 'grade': 'B', 'floor': 3000, 'hours_left': 11.9}])
     assert short['longest'] is None
@@ -217,16 +217,25 @@ def held_longest():
         {'unit': 'u-b2', 'grade': 'B', 'floor': 3000, 'hours_left': 14.0}]}, now=now)
     assert cl['longest']['unit'] == 'u-b2', cl
     assert cl['alternatives'][0]['clearance'] is True and cl['alternatives'][1]['clearance'] is False
-    assert cl['alternatives'][0]['until_kst'] == '11/28 11:10 KST'
+    assert cl['alternatives'][0]['until_kst'] == '11/28 11시 KST'          # hour only, as with_until (r3 I1)
+    assert cl['alternatives'][0]['clearance_price'] == 2600 and 'clearance_price' not in cl['alternatives'][1]
+    # r3 I1: 39.96 h shows as 40.0 h; the hour is never later than the real expiry (11/29 09:07 -> 09시)
+    assert rec.alt_until(40.0, now) == '11/29 09시 KST' and rec.alt_until(0.04, now) is None
     only_cl = rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': until, 'alternatives': [
         {'unit': 'u-b1', 'grade': 'B', 'floor': 2500, 'hours_left': 18.0, 'clearance': {'price': 2600}}]}, now=now)
     assert only_cl['longest'] is None and '떨이 단위(clearance true)' in only_cl['error']
+    assert 'check_item_inventory {sku}로 다른 단위가 있는지 확인' in only_cl['error']   # r3 I2: the 6 are the cheapest
+    six = rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': until, 'alternatives': [
+        {'unit': f'u-c{i}', 'grade': 'C', 'floor': 2000 + i, 'hours_left': 5.0} for i in range(6)] + [
+        {'unit': 'u-a1', 'grade': 'A', 'floor': 4000, 'hours_left': 100.0}]}, now=now)
+    assert len(six['alternatives']) == 6 and six['longest'] is None          # the A unit past the 6th is not listed:
+    assert 'check_item_inventory {sku}로 다른 단위가 있는지 확인' in six['error']   # the model looks before saying none
     # r2 M3: an expired or odd hours_left has no until_kst; alternatives keep their order for every customer
     odd = rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': until, 'alternatives': [
         {'unit': 'u-c1', 'grade': 'C', 'floor': 2000, 'hours_left': -1.0},
         {'unit': 'u-b1', 'grade': 'B', 'floor': 3000, 'hours_left': 40.0}]}, now=now)
     assert odd['alternatives'][0]['until_kst'] is None and [x['unit'] for x in odd['alternatives']] == ['u-c1', 'u-b1']
-    assert odd['alternatives'][1]['until_kst'] == '11/29 09:10 KST'
+    assert odd['alternatives'][1]['until_kst'] == '11/29 09시 KST'
     none = rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': until, 'alternatives': []})
     assert none['longest'] is None and none['held_until_kst'] == '11/27 17:30 KST' and 'longest' not in none['error']
     bad = rec.held_result({'ok': False, 'code': 'unit_held', 'held_until': 'x', 'alternatives': []})
