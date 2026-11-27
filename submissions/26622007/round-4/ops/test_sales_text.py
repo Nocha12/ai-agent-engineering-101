@@ -65,5 +65,58 @@ class NearExpiry(unittest.TestCase):
         self.assertIn('셋 다 다르면 건너뜀', src)
 
 
+class Replies(unittest.TestCase):
+    def test_format_reply_rules(self):
+        text = kit_format()
+        for s in ('say what you can do, not what you will not do', 'never write null, 하한가, 하한, 떨이가, 안내가',
+                  'offer the one closest unit you hold', "a date and hour from the tool's until",
+                  'once a conversation and only when it is the same item', '계란 20구 is 20 eggs',
+                  'not when they refused substitutes'):
+            self.assertIn(s, text)
+
+    def test_goal_greeting_only_same_item(self):
+        import json
+        g = json.loads((HERE.parent / 'agent.json').read_text(encoding='utf-8'))['goal']
+        self.assertNotIn('첫마디에 반드시 지난 구매나 지난번 찾던 물건', g)
+        self.assertIn('이번에 찾는 물건과 같은 품목일 때만', g)
+        self.assertIn('가장 가까운 1개를 이름·등급·기한·가격으로 함께 권한다', g)
+
+    def test_ask_contact_text(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('rs_logic', HERE / 'restock_shoutout' / 'logic.py')
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        self.assertTrue(m.ASK_CONTACT.startswith('지금은 이 물건이 없어요. 다음 입고 때 들여놓을게요.'))
+        self.assertIn('포럼에서 쓰시는 이름', m.ASK_CONTACT)        # a market contact, as op contact accepts
+        self.assertNotIn('연락처(', m.ASK_CONTACT)
+
+
+class Until(unittest.TestCase):
+    NOW = 1795740000.0                                   # 2026-11-27 09:40 KST
+
+    def test_items_get_date(self):
+        import agent_kit_records as rec
+        out = {'ok': True, 'result': {'ok': True, 'sku': '쌀', 'count': 2, 'items': [
+            {'unit': 'u-1', 'hours_left': 41.5}, {'unit': 'u-2', 'hours_left': 0.2}, {'unit': 'u-3'}]}}
+        rec.with_until(out, self.NOW)
+        r = out['result']
+        self.assertEqual(r['now'], '11/27 09:40')
+        self.assertEqual(r['items'][0]['until'], '11/29 03:10')
+        self.assertEqual(r['items'][1]['until'], '11/27 09:52')
+        self.assertNotIn('until', r['items'][2])
+
+    def test_whole_shop_and_odd_shapes_untouched(self):
+        import copy
+        import agent_kit_records as rec
+        shop = {'ok': True, 'result': {'ok': True, 'skus': [{'sku': 'G1', 'grades': {'C': {'hours_left': 1}}}]}}
+        for out in (shop, {'ok': False, 'error': 'x'}, None, 'text', {'ok': True, 'result': {'items': [1, None]}}):
+            before = copy.deepcopy(out)
+            got = rec.with_until(out, self.NOW)
+            if isinstance(before, dict) and isinstance(before.get('result'), dict) and 'items' in before['result']:
+                self.assertEqual(got['result']['items'], [1, None])
+            else:
+                self.assertEqual(got, before)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -532,7 +532,7 @@ NOT_A_NAME = ('admin', 'everyone', 'owner', 'operator', 'system', 'moderator', '
               'official', 'support', 'notice', 'coupon', 'event', 'sale')    # Latin handles that read like an order
 NOT_A_HANDLE = ('all', 'here', 'mod', 'bot', 'shop', 'null', 'none', 'true', 'false')
 TOKEN = re.compile(r'[가-힣]+|[a-z]+|[0-9]+')
-ASK_CONTACT = '지금은 재고가 없어요. 연락처(포럼에서 쓰시는 이름 같은 마켓 안 연락 수단) 남겨 주시면 입고될 때 연락드리겠습니다.'
+ASK_CONTACT = '지금은 이 물건이 없어요. 다음 입고 때 들여놓을게요. 포럼에서 쓰시는 이름을 알려 주시면 들어오는 대로 먼저 알려 드릴게요.'
 RISKY = ('할인', '무료', '공짜', '환불', '승인', '지시', '운영자', '사장', '관리자', '반값', '세일', '쿠폰', '이벤트', '공지',
          '특가', '무상', '입고', '재고', '가게')
 

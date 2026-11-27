@@ -18,7 +18,7 @@ def test(run, kit):
     try:
         assert run({'op': 'want', 'customer': 'a person in your app', 'sku': 'MILK', '_inventory': empty}, kit)['anonymous']
         r = run({'op': 'want', 'customer': jin, 'sku': 'MILK', 'qty': 2, 'price': 15000, '_inventory': empty, '_now': t0}, kit)
-        assert r['ok'] and r['ask_contact'] and '연락처' in r['say'] and '입고될 때 연락드리겠습니다' in r['say'], r
+        assert r['ok'] and r['ask_contact'] and '포럼에서 쓰시는 이름' in r['say'] and '들어오는 대로 먼저 알려 드릴게요' in r['say'] and '연락처(' not in r['say'], r
         bad = run({'op': 'contact', 'customer': jin, 'sku': 'MILK', 'contact': '010-1234-5678', '_inventory': empty, '_now': t0}, kit)
         assert not bad['ok'] and not bad['saved'] and '010' not in str(bad), bad      # out-of-market contact: not stored, not echoed
         r = run({'op': 'contact', 'customer': jin, 'sku': 'MILK', 'contact': '@우유사랑-1a2b', '_inventory': empty, '_now': t0}, kit)

@@ -25,6 +25,7 @@ import json
 import queue
 from contextvars import ContextVar
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from base64 import urlsafe_b64encode
 import re
 import sys
@@ -368,6 +369,27 @@ def pinned_notes(text, tail):
     return PIN_HEAD + '\n'.join(lines) + '\n\n' + tail if lines else tail
 
 
+def with_until(out, now):
+    """check_item_inventory answer + the expiry date of each listed unit ('until', MM/DD HH:MM KST) and the time it was
+    read ('now'), so the model says a date instead of hours (operator 11/27). Only per-item units, so the whole-shop
+    answer the kit cuts at 5,000 characters does not grow; any odd shape is passed on untouched."""
+    try:
+        res = out.get('result') if isinstance(out, dict) and out.get('ok') else None
+        items = res.get('items') if isinstance(res, dict) else None
+        if not isinstance(items, list):
+            return out
+        kst = timezone(timedelta(hours=9))
+        day = lambda h: datetime.fromtimestamp(now + h * 3600, kst).strftime('%m/%d %H:%M')
+        for i in items:
+            h = i.get('hours_left') if isinstance(i, dict) else None
+            if type(h) in (int, float) and 0 <= h < 24 * 400:
+                i['until'] = day(h)
+        res['now'] = day(0)
+    except Exception:
+        pass
+    return out
+
+
 def install(ak, logs, checkout=False):
     """Wrap ak.Mind.deliver/reply and ak.Toolbox.call; lift ak.mk.LOG_MAX. Returns the names that were wrapped."""
     logs.mkdir(parents=True, exist_ok=True)
@@ -421,6 +443,17 @@ def install(ak, logs, checkout=False):
             "When private_checkout answers grade_evidence: attached, the reply normally also carries a fixed grade-evidence "
             "line (food grade is the shelf life left, and the market-signed certificate states the supply and expiry time; a very "
             "long reply drops the line). Point to that line when asked; do not claim the market verified the grade."
+            "\nCustomer replies (operator 11/27): say what you can do, not what you will not do. Do not write refusal or "
+            "disclaimer sentences (결제서는 발급하지 않겠습니다, 확인할 수 없습니다, 검증한다는 뜻은 아닙니다, 취소되지 않았으니 유의) unless "
+            "the customer asked exactly that; never write null, 하한가, 하한, 떨이가, 안내가, floor or clearance to a customer "
+            "(say 가격 or 할인 가격; a price null in a tool answer only means no quote is set yet: quote one at or above the floor, "
+            "never say the price is undecided). Do not bring up certificate grade or settlement state unless asked; if asked "
+            "about grade, one sentence: 시장 규칙상 식품 등급은 남은 소비기한이고 소비기한은 시장 서명 인증서에 있습니다, then keep selling. "
+            "When no unit matches exactly (size, pack, grade or item), offer the one closest unit you hold (same food first) "
+            "with its name, grade, expiry and price and ask if they want it (not when they refused substitutes). Say expiry as "
+            "a date and hour from the tool's until (e.g. 11/29 03시까지, 약 2일), not as hours alone. Only greet with an earlier "
+            "visit (지난번 …) once a conversation and only when it is the same item they ask for now; read the pack size from "
+            "the item name (계란 20구 is 20 eggs)."
         )
 
         BaseUpdater = a2a_tasks.TaskUpdater
@@ -925,6 +958,8 @@ def install(ak, logs, checkout=False):
                                          f'다음 안내는 {q:,}로 합니다')
             return {'ok': True, 'result': res}
         out = call(self, name, args)
+        if name == 'check_item_inventory':
+            out = with_until(out, time.time())
         try:                                    # before the kit logs this step (step_log and log come after the call)
             new = contacts.add(args, out, tuple(getattr(self, 'tools', None) or ())) if name == 'restock_shoutout' else None
             for f in (SCRUBBED if new else ()):
