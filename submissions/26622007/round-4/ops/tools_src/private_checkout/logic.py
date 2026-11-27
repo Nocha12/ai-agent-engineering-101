@@ -607,6 +607,12 @@ def _n(v):
     return str(v or '').strip().lower()
 
 
+def closes(r):
+    """A market answer to a settle POST: settled, or a 400 (unsettled/refused, post=True) that does not say settled before."""
+    return r.get('event') == 'settled' or (r.get('event') in ('unsettled', 'refused') and r.get('post') is True
+                                                and not r.get('settled_before'))
+
+
 def sent_open(kit, order, tx_hash):
     """review r6/r7 I1: a settle_sent row of this order and payment with no later answer from the market for the same
     order and payment (settled, or a POST 400 unsettled row carrying post=True). Shared with refund_send.settle_open."""
@@ -616,7 +622,7 @@ def sent_open(kit, order, tx_hash):
             continue
         if r.get('event') == 'settle_sent':
             open_ = True
-        elif r.get('event') == 'settled' or (r.get('event') == 'unsettled' and r.get('post') is True):
+        elif closes(r):
             open_ = False
     return open_
 
@@ -665,8 +671,9 @@ def settle_held(args, kit, order, jwt, cm, pm, hx, issued, tx_hash):
                   shop_fee=(body or {}).get('shop_fee')))
         return {'ok': False, 'error': '결제는 체인에 왔지만 시장이 정산을 거절했습니다. 환불은 refund_check_order부터 합니다',
                 'checks': checks, 'refund': True}
-    if code == 400:
-        _log(kit, dict(base, event='refused'))
+    if code == 400:                 # post=True: the market answered this POST (review r8); settled_before: it says settled
+        _log(kit, dict(base, event='refused', post=True,
+                       settled_before=isinstance(checks, dict) and checks.get('not_settled_before') is False))
     return {'ok': False, 'status': code, 'response': body,
             'note': '503이나 응답 없음이면 같은 결제로 잠시 뒤 다시 settle합니다(새 결제를 요구하지 않습니다)'}
 

@@ -71,7 +71,10 @@ def test(run, kit):
             r = run(dict(a, _payments=[owed], _checkouts=[sent, dict(same, event='unsettled', post=True)]), kit)
             assert r.get('would_send') == {'to': payer, 'amount': 9690}, r              # the market answered 400 later
             # review r7 I1: no market answer for the same order AND tx: unit_gone/refused rows, another order or tx
+            r = run(dict(a, _payments=[owed], _checkouts=[sent, dict(same, event='refused', post=True, settled_before=False)]), kit)
+            assert r.get('would_send') == {'to': payer, 'amount': 9690}, r              # a POST 400 refused (review r8)
             for close in (dict(same, event='unsettled', reason='unit_gone'), dict(same, event='refused'),
+                          dict(same, event='refused', post=True, settled_before=True),
                           dict(same, event='unsettled', post=True, order='other'),
                           dict(same, event='unsettled', post=True, tx_hash='0x' + '9' * 64)):
                 r = run(dict(a, _payments=[owed], _checkouts=[sent, close]), kit)

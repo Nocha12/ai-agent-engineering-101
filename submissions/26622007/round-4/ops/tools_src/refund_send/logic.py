@@ -169,8 +169,9 @@ def settle_open(kit, args, keys, tx):
         o, t = str(r.get('order')), _norm(r.get('tx_hash'))
         if r.get('event') == 'settle_sent' and (o in keys or (tx and t == tx)):
             pending.add((o, t))
-        elif r.get('event') == 'settled' or (r.get('event') == 'unsettled' and r.get('post') is True):
-            pending.discard((o, t))
+        elif r.get('event') == 'settled' or (r.get('event') in ('unsettled', 'refused') and r.get('post') is True
+                                                    and not r.get('settled_before')):
+            pending.discard((o, t))     # same rule as private_checkout.closes
     return bool(pending)
 
 
