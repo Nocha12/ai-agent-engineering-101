@@ -446,13 +446,16 @@ def asked_out_of_stock(lost, foods, held, now, sold=None, want_held=False):
             e['_last'] = max(e['_last'], g['last'])
             e['_who'] |= g['customers']
             e['_sizes'] |= g['sizes']
+            e['_iw'] |= _ask_words(g)
+            e['_exact'] = e['_exact'] and bool(g['sku'])
             e['customers'] = len(e['_who'])
             if g['small']:
                 e['small_pack_asked'] = True
             continue
         e = {'asked': g['items'][:3], 'asks': g['asks'], 'customers': len(g['customers']), '_who': set(g['customers']),
              '_both': len(both.get(g['key'], ())),
-             '_last': g['last'], '_sizes': set(g['sizes']), 'buy_options': opts}
+             '_last': g['last'], '_sizes': set(g['sizes']), '_iw': _ask_words(g), '_exact': bool(g['sku']),
+             'buy_options': opts}
         if g['small']:
             e['small_pack_asked'] = True
         if g['refused']:
@@ -471,8 +474,12 @@ def asked_out_of_stock(lost, foods, held, now, sold=None, want_held=False):
         fits, unfit = held_fit(e, by_sku, e.pop('_sizes', set()))
         # only the first option, matched as the item (not 'near'), moves the ask out: a held 2nd / 3rd option may be
         # another food (양념치킨 -> 닭볶음탕양념, 파 -> 양파: review 1 I1), so that ask stays listed, marked held_maybe
+        # the first option must also carry a word the customer wrote (양념치킨 is not '풀무원 저당소스 5종 (…양념치킨…)':
+        # review 2 I1), unless the customer asked that catalog SKU itself
         first = (e.get('buy_options') or [{}])[0]
-        moved = [h for h in fits if h['sku'] == first.get('sku') and not first.get('near')]
+        iw, exact = e.pop('_iw', set()), e.pop('_exact', False)
+        named = exact or _names_item(str((by_sku.get(first.get('sku')) or {}).get('name') or first.get('name') or ''), iw)
+        moved = [h for h in fits if h['sku'] == first.get('sku') and not first.get('near') and named]
         if moved:                                       # we hold what was asked: not stock 0 (sell it first)
             e['held'] = moved
             held_out.append(e)
@@ -485,6 +492,17 @@ def asked_out_of_stock(lost, foods, held, now, sold=None, want_held=False):
     if want_held:
         return listed[:MAX_GROUPS], held_out[:MAX_GROUPS]
     return listed[:MAX_GROUPS]
+
+
+def _ask_words(g):
+    """The customer's own item words (2+ letters, no size words such as 보통 / 소량): what the held name must carry."""
+    return {w for it in g['items'] for w in _item_words(it) if len(w) > 1 and w not in MOD and not SMALL.search(w)}
+
+
+def _names_item(name, words):
+    """True when a word the customer wrote is in the name outside [..] / (..) ('흰우유' in 'GT 흰우유 200mL')."""
+    joined = ''.join(_words(name))
+    return any(w in joined for w in words)
 
 
 def small_pack(name):
@@ -505,8 +523,10 @@ def held_fit(e, by_sku, asked_sizes):
         name = str((by_sku.get(o.get('sku')) or {}).get('name') or o.get('name') or '')
         why = None
         on_name = pack_of(name)[2] | {_norm(t[2], t[3]) for t in sizes(name) if t[3] not in _MULT}
-        # weights / volumes / pack kinds only: how many ('우유 2개', '1팩') is not a size (review 1 M3)
-        want = {k for k in asked_sizes if k[1] in ('g', 'ml') or k[1] in _KIND}
+        # weights / volumes / pack kinds; a count ('2개', '1팩') only when the held name counts in that unit too:
+        # '우유 2개' fits '우유 1L', '두부 300g 1팩' does not fit '300g×5팩' (review 1 M3, review 2 M1)
+        units = {u for _, u in on_name}
+        want = {k for k in asked_sizes if k[1] in ('g', 'ml') or k[1] in _KIND or k[1] in units}
         if want and not want <= on_name:
             why = 'other_size'
         elif e.get('small_pack_asked') and not small_pack(name):
@@ -554,7 +574,7 @@ def run(args, kit):
                      '수량은 품목당 2~4개 안에서 asks로 정한다: asks 1이면 2개, 2이면 3개, 3 이상이면 4개. '
                      'held_not_fit: 그 SKU를 이미 갖고 있지만 손님이 찾은 규격이 아니다(not_small_pack: 소포장 아님, other_size: 다른 크기). '
                      '그 규격은 재고 0이니 같은 SKU 말고 buy_options에서 손님 규격에 가까운 다른 SKU를 고른다. '
-                     'held_maybe: buy_options 2·3번째 SKU를 갖고 있다. 손님이 찾은 식품이 맞으면 그 재고를 먼저 팔고, 아니면 위 기준대로 산다. '
+                     'held_maybe: 갖고 있는 buy_options SKU가 손님이 찾은 식품인지 확실하지 않다(2·3번째, near, 이름에 손님 단어 없음). 맞으면 그 재고를 먼저 팔고, 아니면 위 기준대로 산다. '
                      'asked_but_held: buy_options 1번째 SKU(held)를 손님 규격으로 지금 갖고 있어 재고 0이 아닌 문의. 그 재고를 먼저 판다. '
                      'held가 손님이 찾은 식품이 아니면 buy_options에서 위 기준대로 산다. 매입 도구는 어느 경우에도 막히지 않는다.') % LOOKBACK_H,
             'customer_asked_out_of_stock': asked,
