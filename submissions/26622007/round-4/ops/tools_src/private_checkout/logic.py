@@ -608,23 +608,29 @@ def _n(v):
 
 
 def closes(r):
-    """A market answer to a settle POST: settled, or a 400 (unsettled/refused, post=True) that does not say settled before."""
+    """A market answer to a settle POST: settled, or a 400 (unsettled/refused, post=True) that does not say settled before
+    (settled_before is also set when the 400 has no checks or says the tx was used before, review r9 M1)."""
     return r.get('event') == 'settled' or (r.get('event') in ('unsettled', 'refused') and r.get('post') is True
                                                 and not r.get('settled_before'))
 
 
+SENT_OPEN = 1800             # review r9: a settle_sent without a market answer counts as open for 30 min, then the sealed
+                             # ledger (read again by settle and, under the lock, by refund_send) decides alone
+
+
 def sent_open(kit, order, tx_hash):
-    """review r6/r7 I1: a settle_sent row of this order and payment with no later answer from the market for the same
-    order and payment (settled, or a POST 400 unsettled row carrying post=True). Shared with refund_send.settle_open."""
-    open_ = False
+    """review r6-r9 I1: a settle_sent row of this order and payment from the last SENT_OPEN seconds with no later
+    closes() row for the same order and payment. Same rule as refund_send.settle_open."""
+    open_ = None
     for r in _lines(_p(kit, LOG)):
         if str(r.get('order')) != str(order) or _n(r.get('tx_hash')) != _n(tx_hash):
             continue
         if r.get('event') == 'settle_sent':
-            open_ = True
+            open_ = r
         elif closes(r):
-            open_ = False
-    return open_
+            open_ = None
+    ts = open_.get('ts') if open_ else None
+    return bool(open_) and (type(ts) not in (int, float) or ts > time.time() - SENT_OPEN)
 
 
 def settle_held(args, kit, order, jwt, cm, pm, hx, issued, tx_hash):
@@ -643,9 +649,9 @@ def settle_held(args, kit, order, jwt, cm, pm, hx, issued, tx_hash):
     if not unit_now(inventory(kit, args), issued.get('unit')):
         if sent_open(kit, order, tx_hash):
             # review r7 I1: an earlier POST of this order and payment has no answer and the unit is gone: the market may
-            # still be settling it, so no unit_gone row: ask again until the sealed ledger shows it (unit still held =
-            # the POST below is sent again as before)
-            return {'ok': False, 'error': '이 결제의 앞선 정산 요청 결과가 아직 없습니다. 기록하지 않았습니다. 몇 분 뒤 같은 인자로 다시 호출합니다',
+            # still be settling it, so no unit_gone row for up to SENT_OPEN (30 min): ask again; after that the sealed
+            # ledger above decides (unit still held = the POST below is sent again as before)
+            return {'ok': False, 'error': '이 결제의 앞선 정산 요청 결과가 아직 없습니다. 기록하지 않았습니다. 몇 분 뒤 같은 인자로 다시 호출합니다(최대 30분)',
                     'retry': True}
         paid = paid_us(kit, args, tx_hash, hx) if tx_hash else False
         if paid is None:
@@ -673,7 +679,8 @@ def settle_held(args, kit, order, jwt, cm, pm, hx, issued, tx_hash):
                 'checks': checks, 'refund': True}
     if code == 400:                 # post=True: the market answered this POST (review r8); settled_before: it says settled
         _log(kit, dict(base, event='refused', post=True,
-                       settled_before=isinstance(checks, dict) and checks.get('not_settled_before') is False))
+                       settled_before=not isinstance(checks, dict) or checks.get('not_settled_before') is False
+                       or checks.get('transaction_not_used_before') is False))
     return {'ok': False, 'status': code, 'response': body,
             'note': '503이나 응답 없음이면 같은 결제로 잠시 뒤 다시 settle합니다(새 결제를 요구하지 않습니다)'}
 

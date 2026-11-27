@@ -252,6 +252,14 @@ def test(run, kit):
         assert held.get('status') == 0, held
         with open(FILES[0]) as f:
             assert sum(1 for l in f if '"settle_sent"' in l) == 2
+        # review r9 I1: after SENT_OPEN the lost answer no longer blocks: the unit_gone way (refund) as before
+        g1 = run.__globals__['SENT_OPEN']
+        run.__globals__['SENT_OPEN'] = -5
+        try:
+            late = run(s, kit)
+        finally:
+            run.__globals__['SENT_OPEN'] = g1
+        assert late.get('refund') is True, late
         return 'ok'
     finally:
         for f in FILES:

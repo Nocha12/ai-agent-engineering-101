@@ -79,6 +79,8 @@ def test(run, kit):
                           dict(same, event='unsettled', post=True, tx_hash='0x' + '9' * 64)):
                 r = run(dict(a, _payments=[owed], _checkouts=[sent, close]), kit)
                 assert '확정되지 않았습니다' in r.get('error', ''), (close, r)
+        old = {'event': 'settle_sent', 'order': 't-o6', 'ts': now - 1900}                     # review r9: open for 30 min
+        assert run(dict(a, _payments=[owed], _checkouts=[old]), kit).get('would_send'), 'old settle_sent'
         later = [{'event': 'unsettled', 'order': 't-o6', 'post': True}, {'event': 'settle_sent', 'order': 't-o6'}]  # a new try
         assert '확정되지 않았습니다' in run(dict(a, _payments=[owed], _checkouts=later), kit).get('error', '')
         assert '장부' in run(dict(a, _payments=[]), kit)['error']                                   # the owed line is gone

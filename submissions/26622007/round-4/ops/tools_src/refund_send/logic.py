@@ -157,22 +157,27 @@ def _strict(path):
     return out
 
 
+SENT_OPEN = 1800            # = private_checkout.SENT_OPEN: a settle_sent without an answer is open for 30 min
+
+
 def settle_open(kit, args, keys, tx):
-    """review r6/r7 I1: a private_checkout 'settle_sent' row on any order id of the plan or the payment tx with no later
-    answer from the market for the same order AND the same tx (settled, or a POST 400 unsettled row with post=True);
-    a unit_gone or other refused row never closes it. True also when checkouts.jsonl cannot be read."""
+    """review r6-r9 I1: a private_checkout 'settle_sent' row from the last SENT_OPEN seconds on any order id of the plan
+    or the payment tx with no later closing row for the same order AND tx (settled, or a POST 400 unsettled/refused
+    with post=True that does not say settled before: the rule of private_checkout.closes). After that the sealed
+    ledger re-read under the lock decides. True also when checkouts.jsonl cannot be read."""
     log = list(args.get('_checkouts') or []) if kit.testing else _strict('logs/checkouts.jsonl')
     if log is None:
         return True
-    pending = set()
+    pending = {}
     for r in log:
         o, t = str(r.get('order')), _norm(r.get('tx_hash'))
         if r.get('event') == 'settle_sent' and (o in keys or (tx and t == tx)):
-            pending.add((o, t))
+            pending[(o, t)] = r
         elif r.get('event') == 'settled' or (r.get('event') in ('unsettled', 'refused') and r.get('post') is True
                                                     and not r.get('settled_before')):
-            pending.discard((o, t))     # same rule as private_checkout.closes
-    return bool(pending)
+            pending.pop((o, t), None)
+    now = time.time()
+    return any(type(r.get('ts')) not in (int, float) or r['ts'] > now - SENT_OPEN for r in pending.values())
 
 
 def _lock(kit, args):
