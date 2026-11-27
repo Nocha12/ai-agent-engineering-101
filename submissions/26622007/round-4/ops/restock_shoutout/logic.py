@@ -97,6 +97,14 @@ def unit_cash(q, u, now):
     return quote_floor(q, u.get('sku'), u.get('grade'), now)
 
 
+def cash_clear(cl, shown, cash):
+    """A unit both on clearance and on cash-out (cash, unit_cash) is never dearer than its cash-out shown price: the
+    clearance curve assumes a base at the goal (3) floor or over it (review r2 I-N1). cl as given otherwise."""
+    if not cl or cash is None or shown is None or cl['price'] <= shown:
+        return cl
+    return dict(cl, price=shown, floor=min(cl['floor'], cash), loss=True)
+
+
 def quote_prices(q, sku, floors, now):
     """{grade: shown price or None} for the grades in floors: the stored quote raised to that grade's floor (a cash-out
     quote's own floor when lower), and a higher grade never below a lower one (C <= B <= A)."""
@@ -1024,9 +1032,10 @@ def _op(op, args, kit, s, now, w=None):
             return {'ok': False, 'error': '재고에 이 SKU가 없어 입고 안내를 하지 않습니다'}
         prices = grade_prices(args)
         given = dict(prices)
-        qs = quotes_load(_quotes_path(kit))
-        shown = {g: v for g, v in quote_prices(qs, sku, st['floors'], now).items() if v}
-        eff = {g: min(f, quote_floor(qs, sku, g, now) or f) for g, f in st['floors'].items()}   # cash-out grades (I3)
+        # a restock is new, longer-dated stock: a cash-out grade (its price only for units with 48 h or less left) is
+        # announced and checked at its floor (review I3, r2 I-N2)
+        shown = {g: max(v, st['floors'][g]) for g, v in quote_prices(quotes_load(_quotes_path(kit)), sku, st['floors'],
+                                                                     now).items() if v}
         pa = int(_num(args.get('price')))
         if shown:                                       # a grade with a shown price keeps it; the rest take what was given
             merged = {g: shown.get(g) or prices.get(g) or pa for g in st['grades']}
@@ -1034,9 +1043,9 @@ def _op(op, args, kit, s, now, w=None):
                 prices = merged
         price = pa or (max(prices.values()) if prices else 0)
         if prices and set(st['grades']) <= set(prices):  # every grade is shown at its own price: each clears its own floor
-            low = any(v < eff.get(g, st['floor']) for g, v in prices.items())   # a grade not in stock: as before
+            low = any(v < st['floors'].get(g, st['floor']) for g, v in prices.items())   # a grade not in stock: as before
         else:                                           # one '개당' price is shown for every grade: the highest floor
-            low = price < max(eff.values()) or any(v < max(eff.values()) for v in prices.values())
+            low = price < st['floor'] or any(v < st['floor'] for v in prices.values())
         if low:
             return {'ok': False, 'error': '가격이 하한보다 낮습니다', 'floor': st['floor'], 'floors': st['floors']}
         try:                                            # one shown price per grade: stored ones stay, new ones are kept
@@ -1045,7 +1054,7 @@ def _op(op, args, kit, s, now, w=None):
         except Exception:
             stored = {}
         if set(st['grades']) <= set(stored):
-            prices = {g: stored[g] for g in st['grades']}
+            prices = {g: max(stored[g], st['floors'][g]) for g in st['grades']}   # a cash-out quote: at its floor (r2 I-N2)
             price = max(prices.values())
         quote_note = None
         asked_for = {g: given.get(g) or int(_num(args.get('price'))) for g in st['grades']}
@@ -1103,7 +1112,8 @@ def _op(op, args, kit, s, now, w=None):
         for n in c['notices']:
             st = stock(inv, n.get('sku'), now)
             if st:                                      # sold out since: say nothing rather than promise it
-                now_q = {g: v for g, v in quote_prices(quotes_load(_quotes_path(kit)), n.get('sku'), st['floors'], now).items() if v}
+                now_q = {g: max(v, st['floors'][g]) for g, v in quote_prices(quotes_load(_quotes_path(kit)), n.get('sku'),
+                                                                               st['floors'], now).items() if v}
                 np = now_q if set(st['grades']) <= set(now_q) else n.get('prices')   # today's shown price, if every grade has one
                 texts.append(notice_text(key, n.get('name') or n.get('sku'), st,
                                          max(int(_num(n.get('price'))), st['floor']), n.get('why', 'waited'), np,

@@ -205,6 +205,10 @@ def test(run, kit):
             assert [x['unit'] for x in m5['cashout_units']] == ['u-m1'] and m5['cashout_units'][0]['floor'] == 11790, m5
             m6 = run(dict(ml, order='o-m6', inquiry_task='t-m6', task='t-m6', price=12778), kit)
             assert m6['ok'] and m6['payload']['unit'] == 'u-m5' and 'cashout' not in m6, m6   # at its own floor: issued
+            u7 = dict(um, unit='u-m7', expires_at=T + 20 * 3600, cert={'unit': 'u-m7', 'grade': None})
+            m7 = run(dict(m, _inventory=dict(ki, units=[u7]), unit='u-m7', order='o-m7', inquiry_task='t-m7', task='t-m7'), kit)
+            assert m7['ok'] and m7['payload']['price'] <= 11790, m7            # r2 I-N1: clearance never over cash-out
+            assert 'clearance' not in m7 or m7['clearance']['price'] <= 11790, m7
             qd['GM|C'] = {'price': 11790, 'ts': T - 60, 'by': 'forum_menu', 'floor': 11790}
             json.dump(qd, open(FILES[3], 'w'))
             m = dict(m, _inventory=dict(ki, units=[dict(um, unit='u-m3', cert={'unit': 'u-m3', 'grade': None})]), unit='u-m3')

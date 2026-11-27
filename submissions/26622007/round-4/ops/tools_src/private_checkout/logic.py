@@ -92,6 +92,14 @@ def unit_cash(q, u, now):
     return quote_floor(q, u.get('sku'), u.get('grade'), now)
 
 
+def cash_clear(cl, shown, cash):
+    """A unit both on clearance and on cash-out (cash, unit_cash) is never dearer than its cash-out shown price: the
+    clearance curve assumes a base at the goal (3) floor or over it (review r2 I-N1). cl as given otherwise."""
+    if not cl or cash is None or shown is None or cl['price'] <= shown:
+        return cl
+    return dict(cl, price=shown, floor=min(cl['floor'], cash), loss=True)
+
+
 def quote_prices(q, sku, floors, now):
     """{grade: shown price or None} for the grades in floors: the stored quote raised to that grade's floor (a cash-out
     quote's own floor when lower), and a higher grade never below a lower one (C <= B <= A)."""
@@ -487,7 +495,7 @@ def create(args, kit):
     shown = quote_prices(qs, sku, gfloors, now).get(grade)
     cash = unit_cash(qs, u, now)                     # cash-out (11/27): this unit's floor under cost, 48 h or less left
     try:
-        cl = clearance(u, shown, now)
+        cl = cash_clear(clearance(u, shown, now), shown, cash)
     except Exception:
         cl = None
     cl0 = cl                                         # the unit asked for was on clearance: no quote from it (re-review I1)
@@ -548,7 +556,7 @@ def create(args, kit):
         u, unit_id = alt, alt.get('unit')
         cash = unit_cash(qs, u, now)                 # and so does the cash-out note
         try:                                         # the note follows the unit the checkout is for
-            cl = clearance(u, shown, now)
+            cl = cash_clear(clearance(u, shown, now), shown, cash)
         except Exception:
             cl = None
         if auto_clear:                               # that unit's clearance price, or the shown price when it has none

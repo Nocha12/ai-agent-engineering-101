@@ -48,6 +48,14 @@ def unit_cash(q, u, now):
     return quote_floor(q, u.get('sku'), u.get('grade'), now)
 
 
+def cash_clear(cl, shown, cash):
+    """A unit both on clearance and on cash-out (cash, unit_cash) is never dearer than its cash-out shown price: the
+    clearance curve assumes a base at the goal (3) floor or over it (review r2 I-N1). cl as given otherwise."""
+    if not cl or cash is None or shown is None or cl['price'] <= shown:
+        return cl
+    return dict(cl, price=shown, floor=min(cl['floor'], cash), loss=True)
+
+
 def quote_prices(q, sku, floors, now):
     """{grade: shown price or None} for the grades in floors: the stored quote raised to that grade's floor (a cash-out
     quote's own floor when lower), and a higher grade never below a lower one (C <= B <= A)."""
@@ -585,7 +593,7 @@ def clear_card(units, now, qpath, limit=300):
                 continue
             k = (u['sku'], str(u.get('grade') or '?')[:1])
             base = quote_prices(q, k[0], {g: f for (s, g), f in gf.items() if s == k[0]}, now).get(k[1])
-            cl = clearance(u, base, now)
+            cl = cash_clear(clearance(u, base, now), base, unit_cash(q, u, now))   # review r2 I-N1
             if cl and (k not in best or cl['hours_left'] < best[k][0]['hours_left']):
                 best[k] = (cl, u)
         text, shown = '', shop_names(units, now)      # what is on sale (r3 I5)

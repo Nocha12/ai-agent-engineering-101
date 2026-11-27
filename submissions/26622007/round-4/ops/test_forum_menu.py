@@ -163,6 +163,17 @@ class CashOut(unittest.TestCase):
         plan = fm.requote_plan(qb, inv, q, settles(s), NOW)
         self.assertEqual(plan[self.MILK]['B'], {'price': 12000, 'floor': 12000})
 
+    def test_clearance_not_over_cash_price(self):         # review r2 I-N1
+        qb = self.QB
+        inv = {'units': [unit('m7', self.MILK, '서울우유 멸균우유 190ml 24팩', 'C', 12235, exp=NOW + 20 * 3600)]}
+        q = {f'{self.MILK}|C': {'price': 11787, 'ts': NOW - 10, 'by': 'cashout', 'floor': 11787}}
+        shown = {g: p for g, p in qb['quote_prices'](q, self.MILK, qb['stock'](inv, self.MILK, NOW)['floors'], NOW).items() if p}
+        plain = fm.clear_item(inv, self.MILK, shown, NOW)
+        got = fm.clear_item(inv, self.MILK, shown, NOW, qb, q)
+        self.assertIsNotNone(got)
+        self.assertLessEqual(got[2]['price'], 11787)
+        self.assertGreater(plain[2]['price'], 11787)         # without the guard the curve gives the cost floor
+
     def test_off_file(self):
         with tempfile.TemporaryDirectory() as d:
             off = Path(d) / 'cashout.off'
