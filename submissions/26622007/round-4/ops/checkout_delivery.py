@@ -5,6 +5,7 @@ from hashlib import sha256
 import base64
 import json
 import re
+import time
 
 HOLD_SECONDS = 300   # Same as the existing private_checkout unit reservation.
 DEADLINE = 600
@@ -51,7 +52,7 @@ def buy_hint(agent):
     return f'결제는 buy에 agent: {agent}만 넣으면 됩니다. 토큰은 옮겨 적지 않아도 돼요'
 
 
-def compose(text, issued, cancelled, now, agent=None):
+def compose(text, issued, cancelled, now, agent=None, item_names=None, continuation=False):
     """Keep prose, rebuild the order/token pair from trusted issuance metadata. The signed original opens the reply so
     it is inside the VISIBLE characters the customer reads (PER_REPLY: one a reply); then the buy line (buy_hint, only
     when it and the prose both still fit in VISIBLE: it never pushes the prose's signed price and until out of view),
@@ -76,10 +77,13 @@ def compose(text, issued, cancelled, now, agent=None):
     head = lines[0]
     if len(head) > VISIBLE:
         raise ValueError('결제서 줄이 손님 도구가 읽는 답장 앞 2,000자보다 깁니다. 이 결제서는 checkout_cancel로 빼고 손님께 사실대로 말하세요')
+    canonical = grade_free_reply(active.values(), cancelled, now, item_names, continuation)
+    if canonical is not None:
+        body = canonical
     hint = buy_hint(agent)
     if hint and len(head) + 2 + len(hint) + (2 + len(body) if body else 0) <= VISIBLE:
         head += '\n\n' + hint
-    notes = '\n'.join(c.note for c in active.values() if c.note)
+    notes = '\n'.join(c.note for c in active.values() if c.note) if canonical is None else ''
     rest = REPLY_MAX - len(head) - 2
     if notes and len(body) + 2 + len(notes) <= rest:   # grade notes give way to prose, prose to the originals
         tail = (body + '\n\n' if body else '') + notes
@@ -88,29 +92,89 @@ def compose(text, issued, cancelled, now, agent=None):
     return head + ('\n\n' + tail if tail else ''), tuple(active.values())
 
 
-def _fields(token):
-    """item, price, grade claim and unit from the token's own signed payload ({} when it does not read)."""
+def _payload(token):
     try:
         body = token.split('.')[1]
-        pl = json.loads(base64.urlsafe_b64decode(body + '=' * (-len(body) % 4)))
-        return {k: pl[k] for k in ('item', 'price', 'claim', 'unit') if k in pl and isinstance(pl[k], (str, int))}
-    except Exception:
+        payload = json.loads(base64.urlsafe_b64decode(body + '=' * (-len(body) % 4)))
+        return payload if isinstance(payload, dict) else {}
+    except (ValueError, IndexError):
         return {}
 
 
-def attach_data(result, attached, cancelled=()):
+def _ungraded_food(payload):
+    signed = payload.get('cert')
+    cert = (signed.get('cert') or signed.get('data') or signed) if isinstance(signed, dict) else None
+    if not isinstance(cert, dict) or cert.get('kind') != 'food':
+        return None
+    if cert.get('unit') != payload.get('unit'):
+        return {}  # food is known, but neither the grade nor the dates belong to this unit
+    return None if cert.get('grade') in ('A', 'B', 'C') else cert
+
+
+def input_required(state):
+    return isinstance(state, str) and state.lower().replace('-', '_').removeprefix('task_state_') == 'input_required'
+
+
+FOLLOWUP = '이어서 결제서가 필요하면 이 대화에서 말씀해 주세요.'
+
+
+def grade_free_reply(issued, cancelled, now, item_names=None, continuation=False):
+    """Use only issued terms and the catalog name if the certificate does not state a grade."""
+    active = {c.digest: c for c in issued if c.order not in cancelled and 0 <= now - c.at < HOLD_SECONDS}
+    if len(active) != 1:
+        return None
+    payload = _payload(next(iter(active.values())).token)
+    cert = _ungraded_food(payload)
+    if cert is None:
+        return None
+    unit, sku = payload.get('unit'), payload.get('item')
+    name = (item_names or {}).get(sku) if isinstance(sku, str) else None
+    terms = [name] if isinstance(name, str) and 0 < len(name) <= 120 and name.isprintable() else []
+    if isinstance(unit, str) and UNIT.fullmatch(unit):
+        terms.append(f"재고 ID {unit}")
+    price = payload.get('price')
+    if type(price) is int and 0 < price < 10 ** 9:
+        terms.append(f'가격 {price:,}크레딧')
+    end = cert.get('expires_at')
+    if type(end) in (int, float) and 1e9 < end < 1e11 and end > now:
+        terms.append(f"소비기한 {datetime.fromtimestamp(end, KST):%m/%d %H:%M KST}까지")
+    text = ' · '.join(terms) or '결제서를 발급했어요.'
+    if continuation or cancelled:
+        text += '\n' + FOLLOWUP
+    return text
+
+
+def _fields(token, now, continuation):
+    """Item, price, unit and (only when applicable) grade label next to the unchanged token."""
+    pl = _payload(token)
+    keys = ('item', 'price', 'unit') if _ungraded_food(pl) is not None else ('item', 'price', 'claim', 'unit')
+    fields = {k: pl[k] for k in keys if k in pl and isinstance(pl[k], (str, int))}
+    cert = _ungraded_food(pl)
+    if cert is not None:
+        end = cert.get('expires_at')
+        if type(end) in (int, float) and 1e9 < end < 1e11 and end > now:
+            fields['until'] = datetime.fromtimestamp(end, KST).strftime('%m/%d %H:%M KST')
+        if continuation:
+            fields['next_message'] = FOLLOWUP
+    return fields
+
+
+def attach_data(result, attached, cancelled=(), now=None):
     """Also put each attached checkout in the task's artifacts as an A2A data part (11/27 06:40 check): the market's
     customer tool reads only the first 2,000 characters of a reply's text, so a second checkout after the first one's
     grade line never reached it, and a customer that copies an ~850-character token by hand can change it ("not
     signed by this shop's wallet"); the data part is read whole and buy uses it when the customer names no token.
-    Each entry is {checkout_jwt, order} plus item, price, claim and unit read from the same signed payload, so a
+    Each entry is {checkout_jwt, order} plus item, price and unit (and claim if the certificate is not ungraded food) from the same signed payload, so a
     customer with several can tell them apart. A reply that attaches none (all cancelled or past their hold, or any
     other answer: agent_kit_records send_marked) carries {checkouts: [], cancelled: [...]} instead, so the customer's
     last data no longer holds an old token.
     The same signed originals as in the text; nothing else changes. Returns the number of checkouts attached."""
     if not isinstance(result, dict):
         return 0
-    data = [dict(_fields(c.token), checkout_jwt=c.token, order=c.order) for c in attached]
+    now = time.time() if now is None else now
+    status = result.get('status')
+    continuation = bool(cancelled) or (isinstance(status, dict) and input_required(status.get('state')))
+    data = [dict(_fields(c.token, now, continuation), checkout_jwt=c.token, order=c.order) for c in attached]
     parts = [{'data': d} for d in data] or [{'data': {'checkouts': [], 'cancelled': sorted(str(o) for o in cancelled)}}]
     if result.get('kind') == 'task':                 # the v0.3 binding names each part's kind
         for p in parts:

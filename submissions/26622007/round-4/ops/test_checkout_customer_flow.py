@@ -122,7 +122,8 @@ def complete(self, messages, max_tokens=4000, timeout=180):
     elif '결제서' in text:
         unit = (re.findall(r'u-[0-9a-f]{12}', text) or ['u-c654df1133b3'])[0]
         plan = [('private_checkout', {'op': 'create', 'unit': unit, 'reply_to': mid}),
-                ('reply', {'to': mid, 'text': '배추김치 2kg B 결제서예요.'})]
+                ('reply', {'to': mid, 'text': '배추김치 2kg B등급 결제서예요.' if unit == 'u-abcdefabcdef'
+                           else '배추김치 2kg B 결제서예요.', 'state': 'input_required'})]
     else:
         plan = [('reply', {'to': mid, 'text': '네, 또 필요하시면 말씀해 주세요.'})]
     if done < len(plan):
@@ -150,11 +151,14 @@ class Tools(ak.Toolbox):
             return {'ok': True, 'result': {'ok': True}}
         pl = {'id': 'checkout', 'item': 'G1', 'price': 8534, 'claim': 'B', 'unit': args['unit'], 'order': args.get('order'),
               'task': args.get('inquiry_task'), 'iat': int(time.time()), 'n': len(ISSUED), 'cert': {'pad': 'x' * 450}}
+        if args['unit'] == 'u-abcdefabcdef':
+            pl['cert'] = {'cert': {'kind': 'food', 'unit': args['unit'], 'grade': None,
+                                  'expires_at': pl['iat'] + 3600}}
         tok = sign(pl)
         ISSUED.append(tok)
         dg = hashlib.sha256(tok.encode()).digest()
         return {'ok': True, 'result': {'ok': True, 'order': args.get('order'), 'checkout_jwt': tok,
-                                       'payload': {'iat': pl['iat'], 'price': 8534}, 'quote': 8534,
+                                       'payload': pl, 'quote': 8534,
                                        'checkout_hash': b64url(dg)}}
 
 
@@ -191,6 +195,19 @@ def run(coro):
 class CustomerFlow(unittest.TestCase):
     def client(self):
         return httpx.AsyncClient(transport=httpx.ASGITransport(app=APP), base_url='http://shop.test')
+
+    def test_food_without_signed_grade_keeps_a2a_continuation(self):
+        async def go():
+            async with self.client() as client:
+                return await Customer(client).talk('nocha12', '배추김치 u-abcdefabcdef 결제서 주세요')
+        out = run(go())
+        self.assertIn(cd.FOLLOWUP, out['agent_says'])
+        self.assertNotIn('B등급', out['agent_says'])
+        data = out['data'][0]
+        self.assertEqual(data['checkout_jwt'], ISSUED[-1])
+        self.assertEqual(data['next_message'], cd.FOLLOWUP)
+        self.assertNotIn('claim', data)
+        self.assertIn('until', data)
 
     def test_checkout_paid_from_data_without_copying(self):
         async def go():

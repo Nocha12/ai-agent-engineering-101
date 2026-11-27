@@ -1,6 +1,8 @@
 """Tests for ops/checkout_delivery.compose: every signed checkout must sit inside the first VISIBLE characters,
 because the customer tool reads only agent_says = said[:2000] (Q00/agent-market house/customer.py).
 Run: python3 -I ops/test_checkout_delivery.py  (from the round-4 folder)"""
+import base64
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -26,6 +28,49 @@ PROSE = '두부 1모 C등급 3,200원입니다. 기한은 약 20시간 남았습
 
 
 class Compose(unittest.TestCase):
+    def test_unsigned_grade_is_not_shown_in_checkout_reply(self):
+        for claim, price, g, wrapper in (('B', 9837, None, 'cert'), ('A', 9800, False, 'data'), ('B', 4441, '', 'cert')):
+            with self.subTest(claim=claim, price=price):
+                unit = 'u-e1fa9c84e002'
+                cert = {'kind': 'food', 'unit': unit, 'grade': g, 'expires_at': NOW + 3600}
+                payload = {'item': 'food-test', 'unit': unit, 'price': price, 'claim': claim, 'cert': {wrapper: cert}}
+                encoded = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
+                token = f'eyJhbGciOiJFZERTQSJ9.{encoded}.c2ln'
+                c = cd.Checkout('task-1', token, NOW - 10, f'가게가 밝힌 등급은 {claim}등급입니다.')
+                text, attached = cd.compose(f'{claim}등급, 가격 1크레딧입니다.', [c], set(), NOW, agent='nocha12',
+                                            item_names={'food-test': '두부 1모'}, continuation=True)
+                self.assertIn(token, text[:cd.VISIBLE])
+                self.assertIn(HINT, text)
+                self.assertIn(unit, text)
+                self.assertIn(f'{price:,}크레딧', text)
+                self.assertIn('소비기한 01/15 18:00 KST까지', text)
+                self.assertIn('이 대화에서', text)
+                self.assertIn('두부 1모', text)
+                self.assertNotIn(f'{claim}등급', text)
+                self.assertNotIn('가격 1크레딧', text)
+                result = {}
+                cd.attach_data(result, attached)
+                fields = result['artifacts'][0]['parts'][0]['data']
+                self.assertNotIn('claim', fields)
+                self.assertEqual(token, fields['checkout_jwt'])
+                self.assertEqual(price, fields['price'])
+                self.assertEqual('01/15 18:00 KST', fields['until'])
+
+    def test_long_checkout_keeps_terms_in_customer_data(self):
+        unit = 'u-e1fa9c84e002'
+        cert = {'kind': 'food', 'unit': unit, 'expires_at': NOW + 3600, 'grade': None}
+        payload = {'unit': unit, 'price': 4441, 'claim': 'B', 'cert': {'cert': cert, 'signature': 'x' * 1200}}
+        encoded = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
+        token = f'eyJhbGciOiJFZERTQSJ9.{encoded}.c2ln'
+        c = cd.Checkout('task-1', token, NOW - 10, 'B등급입니다.')
+        reply, attached = cd.compose('B등급입니다.', [c], set(), NOW, agent='nocha12')
+        self.assertIn(token, reply[:cd.VISIBLE])
+        self.assertNotIn('B등급', reply)
+        result = {}
+        cd.attach_data(result, attached)
+        data = result['artifacts'][0]['parts'][0]['data']
+        self.assertEqual((data['price'], data['until'], data['checkout_jwt']), (4441, '01/15 18:00 KST', token))
+
     def check_visible(self, text, cs):
         seen = cd.tokens(text[:cd.VISIBLE])
         for c in cs:
