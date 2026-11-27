@@ -76,10 +76,13 @@ def compose(text, issued, cancelled, now, agent=None):
     head = lines[0]
     if len(head) > VISIBLE:
         raise ValueError('결제서 줄이 손님 도구가 읽는 답장 앞 2,000자보다 깁니다. 이 결제서는 checkout_cancel로 빼고 손님께 사실대로 말하세요')
+    canonical = grade_free_reply(active.values(), cancelled, now)
+    if canonical is not None:
+        body = canonical
     hint = buy_hint(agent)
     if hint and len(head) + 2 + len(hint) + (2 + len(body) if body else 0) <= VISIBLE:
         head += '\n\n' + hint
-    notes = '\n'.join(c.note for c in active.values() if c.note)
+    notes = '\n'.join(c.note for c in active.values() if c.note) if canonical is None else ''
     rest = REPLY_MAX - len(head) - 2
     if notes and len(body) + 2 + len(notes) <= rest:   # grade notes give way to prose, prose to the originals
         tail = (body + '\n\n' if body else '') + notes
@@ -88,14 +91,52 @@ def compose(text, issued, cancelled, now, agent=None):
     return head + ('\n\n' + tail if tail else ''), tuple(active.values())
 
 
-def _fields(token):
-    """item, price, grade claim and unit from the token's own signed payload ({} when it does not read)."""
+def _payload(token):
     try:
         body = token.split('.')[1]
-        pl = json.loads(base64.urlsafe_b64decode(body + '=' * (-len(body) % 4)))
-        return {k: pl[k] for k in ('item', 'price', 'claim', 'unit') if k in pl and isinstance(pl[k], (str, int))}
-    except Exception:
+        payload = json.loads(base64.urlsafe_b64decode(body + '=' * (-len(body) % 4)))
+        return payload if isinstance(payload, dict) else {}
+    except (ValueError, IndexError):
         return {}
+
+
+def _ungraded_food(payload):
+    signed = payload.get('cert')
+    cert = signed.get('cert') if isinstance(signed, dict) else None
+    if (isinstance(cert, dict) and cert.get('kind') == 'food'
+            and isinstance(cert.get('unit'), str) and UNIT.fullmatch(cert['unit'])
+            and cert['unit'] == payload.get('unit') and cert.get('grade') in (None, '')):
+        return cert
+    return None
+
+
+def grade_free_reply(issued, cancelled, now):
+    """Use only signed terms, not generated prose, when the food certificate does not state a grade."""
+    active = {c.digest: c for c in issued if c.order not in cancelled and 0 <= now - c.at < HOLD_SECONDS}
+    if len(active) != 1:
+        return None
+    payload = _payload(next(iter(active.values())).token)
+    cert = _ungraded_food(payload)
+    if cert is None:
+        return None
+    terms = [f"재고 ID {cert['unit']}"]
+    price = payload.get('price')
+    if type(price) is int and 0 < price < 10 ** 9:
+        terms.append(f'가격 {price:,}크레딧')
+    end = cert.get('expires_at')
+    if type(end) in (int, float) and 1e9 < end < 1e11 and end > now:
+        terms.append(f"소비기한 {datetime.fromtimestamp(end, KST):%m/%d %H:%M KST}까지")
+    text = ' · '.join(terms) + '\n시장 인증서에는 등급이 적혀 있지 않아요.'
+    if cancelled:
+        text += '\n다른 품목도 원하시면 다음 메시지로 알려주세요.'
+    return text
+
+
+def _fields(token):
+    """Item, price, unit and (only when applicable) grade label next to the unchanged token."""
+    pl = _payload(token)
+    keys = ('item', 'price', 'unit') if _ungraded_food(pl) is not None else ('item', 'price', 'claim', 'unit')
+    return {k: pl[k] for k in keys if k in pl and isinstance(pl[k], (str, int))}
 
 
 def attach_data(result, attached, cancelled=()):
@@ -103,7 +144,7 @@ def attach_data(result, attached, cancelled=()):
     customer tool reads only the first 2,000 characters of a reply's text, so a second checkout after the first one's
     grade line never reached it, and a customer that copies an ~850-character token by hand can change it ("not
     signed by this shop's wallet"); the data part is read whole and buy uses it when the customer names no token.
-    Each entry is {checkout_jwt, order} plus item, price, claim and unit read from the same signed payload, so a
+    Each entry is {checkout_jwt, order} plus item, price and unit (and claim if the certificate is not ungraded food) from the same signed payload, so a
     customer with several can tell them apart. A reply that attaches none (all cancelled or past their hold, or any
     other answer: agent_kit_records send_marked) carries {checkouts: [], cancelled: [...]} instead, so the customer's
     last data no longer holds an old token.

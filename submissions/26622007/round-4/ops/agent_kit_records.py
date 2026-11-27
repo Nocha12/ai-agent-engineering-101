@@ -436,7 +436,7 @@ def install(ak, logs, checkout=False):
         from a2a.server import request_handlers, tasks as a2a_tasks
         from a2a.helpers import get_message_text
         from a2a.types import Task
-        from checkout_delivery import Checkout, attach_data, clean_reply, compose, grade_note, tokens, JWT, SIGNED, ORDER, HOLD_SECONDS
+        from checkout_delivery import Checkout, attach_data, clean_reply, compose, grade_free_reply, grade_note, tokens, JWT, SIGNED, ORDER, HOLD_SECONDS
         http_request = ContextVar('checkout_http', default=None)
         inquiry = ContextVar('checkout_inquiry', default=None)
         a2a_event = ContextVar('checkout_a2a_event', default=None)
@@ -839,6 +839,9 @@ def install(ak, logs, checkout=False):
             except ValueError as e:
                 return f'error: {e}'
             ev.checkout_plan = (issued, cancelled)
+            canonical = grade_free_reply(issued, cancelled, time.time())
+            if canonical is not None:
+                args = dict(args, text=canonical)
         if checkout and ev is not None and ev.kind == 'a2a':
             body = str(args.get('text') or '')
             effective = dict(args, text=clean_reply(body) if issued else without_checkout(body),
