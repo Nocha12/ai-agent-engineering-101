@@ -140,9 +140,9 @@ class FoodCandidatesAreAllFood(unittest.TestCase):
 
 
 class StaleSalesDataDoesNotStopAllowedBuys(unittest.TestCase):
-    """감독 11/27 16:00 ax-purchase-guard-recurrence: with old or missing sales data, a buy the owner's list allows (food,
-    break-even, 4 a SKU) must still be offered and must still pass buy_food_lot. Old data may only leave refill empty;
-    it never removes an asked item, changes its qty, or makes buy_food_lot refuse."""
+    """감독 11/27 16:00 ax-purchase-guard-recurrence: with old or missing sales data, a buy the owner's list allows
+    (customer-asked food) must still be offered, and buy_food_lot's break-even ceiling must stay. Old data may only
+    leave refill empty; it never removes an asked item or changes its qty."""
     H = 3600
 
     def food_candidates(self, sales_path):
@@ -167,13 +167,13 @@ class StaleSalesDataDoesNotStopAllowedBuys(unittest.TestCase):
             def token(self, role): return 'offline'
         return g['run']({}, K()), now
 
-    def check_asked_still_offered(self, r):
+    def check_asked_still_offered(self, r, refill=()):
         asked = r['customer_asked_out_of_stock']
         self.assertIsInstance(asked, list, asked)
         ramen = [e for e in asked if 'G-ramen' in [o.get('sku') for o in e.get('buy_options') or []]]
         self.assertEqual(len(ramen), 1, asked)
         self.assertEqual(ramen[0].get('customers'), 2, ramen[0])                    # 2 customers -> 2, as with fresh data
-        self.assertEqual(r['refill'], [])                                        # nothing to refill from: not a stop
+        self.assertEqual([x['sku'] for x in r['refill']], list(refill))          # only fresh rows count; old ones are no stop
         self.assertIn('표시는 매입을 막지 않는다', r['note'])
         self.assertTrue({'G-ramen', 'G-egg'} <= {x['sku'] for x in r['candidates']}, r['candidates'])
         for s in ('stale', '판매 자료', '오래', '갱신 전'):
@@ -189,6 +189,12 @@ class StaleSalesDataDoesNotStopAllowedBuys(unittest.TestCase):
                     f.write(json.dumps({'ts': now - 30 * self.H - i, 'sku': 'G-egg', 'unit': 'old%d' % i}) + '\n')
             r, _ = self.food_candidates(path)
             self.check_asked_still_offered(r)
+            with open(path, 'a', encoding='utf-8') as f:            # control: the file is the one read; a fresh sale counts
+                for i in range(4):
+                    f.write(json.dumps({'ts': now - self.H - i, 'sku': 'G-egg', 'unit': 'new%d' % i}) + '\n')
+            r, _ = self.food_candidates(path)
+            self.check_asked_still_offered(r, refill=['G-egg'])
+            self.assertEqual(r['refill'][0]['sold_24h'], 4, r['refill'])
         finally:
             os.unlink(path)
 
@@ -206,7 +212,7 @@ class StaleSalesDataDoesNotStopAllowedBuys(unittest.TestCase):
         try:
             g = run_path(str(HERE / 'tools_src/buy_food_lot/logic.py'))['break_even'].__globals__
             real_run_path = g['run_path']
-            calls = []
+            calls, loaded = [], []
 
             def stale_demand():
                 calls.append(1)
@@ -215,12 +221,13 @@ class StaleSalesDataDoesNotStopAllowedBuys(unittest.TestCase):
             def run_path_stale(path, *a, **k):
                 mod = real_run_path(path, *a, **k)
                 if path.endswith('price_ceiling.py'):
+                    loaded.append(path)
                     mod['quote'].__globals__['_demand_module'] = stale_demand
                 return mod
             g['run_path'] = run_path_stale
             pc = real_run_path(str(HERE / 'price_ceiling.py'))
-            sku, item = next((s, v) for s, v in sorted(pc['DATA']['items'].items())
-                             if v[1] == 'food' and v[5] and v[3] and v[3] > 48)
+            sku, item = max(((s, v) for s, v in pc['DATA']['items'].items()
+                             if v[1] == 'food' and v[5] and v[3] and v[3] > 48), key=lambda sv: (sv[1][5], sv[0]))
             now = time.time()
             goods = int(item[5] * 0.3) * 2                       # 2 units at 30% of the median paid price
             quote = {'goods': goods, 'storage': 0, 'forum_fees': 0,
@@ -228,6 +235,7 @@ class StaleSalesDataDoesNotStopAllowedBuys(unittest.TestCase):
             ceiling, source = g['break_even'](sku, 2, quote, item[2], now)
             self.assertEqual(source, 'price_ceiling')
             self.assertGreater(ceiling, goods)
+            self.assertTrue(loaded)                              # break_even went through the patched loader
             self.assertEqual(calls, [])                          # the demand cache was never consulted
         finally:
             os.chdir(cwd)
