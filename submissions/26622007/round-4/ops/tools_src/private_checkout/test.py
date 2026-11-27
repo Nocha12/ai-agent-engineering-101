@@ -242,6 +242,11 @@ def test(run, kit):
         with open(FILES[0]) as f:
             last = json.loads([l for l in f if l.strip()][-1])
         assert last.get('event') == 'settle_sent' and last.get('order') == 'o-t1' and last.get('tx_hash') == '0x' + 'a' * 64, last
+        # review r7 I1: a retry while that POST has no answer and the unit is gone writes no unit_gone row
+        n0 = sum(1 for _ in open(FILES[0]))
+        again = run(s, kit)
+        assert again.get('retry') is True and '앞선 정산 요청' in again.get('error', ''), again
+        assert sum(1 for _ in open(FILES[0])) == n0
         return 'ok'
     finally:
         for f in FILES:

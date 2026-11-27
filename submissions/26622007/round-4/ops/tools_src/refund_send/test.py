@@ -67,10 +67,16 @@ def test(run, kit):
                      {'event': 'settle_sent', 'order': 'x', 'tx_hash': otx.upper()}):
             r = run(dict(a, _payments=[owed], _checkouts=[sent]), kit)
             assert '확정되지 않았습니다' in r.get('error', ''), (sent, r)
-            for out in ('unsettled', 'refused'):                                            # the outcome came later
-                r = run(dict(a, _payments=[owed], _checkouts=[sent, {'event': out, 'order': sent['order'], 'tx_hash': sent['tx_hash']}]), kit)
-                assert r.get('would_send') == {'to': payer, 'amount': 9690}, (out, r)
-        later = [{'event': 'unsettled', 'order': 't-o6'}, {'event': 'settle_sent', 'order': 't-o6'}]  # a new try after it
+            same = {'order': sent['order'], 'tx_hash': sent['tx_hash']}
+            r = run(dict(a, _payments=[owed], _checkouts=[sent, dict(same, event='unsettled', post=True)]), kit)
+            assert r.get('would_send') == {'to': payer, 'amount': 9690}, r              # the market answered 400 later
+            # review r7 I1: no market answer for the same order AND tx: unit_gone/refused rows, another order or tx
+            for close in (dict(same, event='unsettled', reason='unit_gone'), dict(same, event='refused'),
+                          dict(same, event='unsettled', post=True, order='other'),
+                          dict(same, event='unsettled', post=True, tx_hash='0x' + '9' * 64)):
+                r = run(dict(a, _payments=[owed], _checkouts=[sent, close]), kit)
+                assert '확정되지 않았습니다' in r.get('error', ''), (close, r)
+        later = [{'event': 'unsettled', 'order': 't-o6', 'post': True}, {'event': 'settle_sent', 'order': 't-o6'}]  # a new try
         assert '확정되지 않았습니다' in run(dict(a, _payments=[owed], _checkouts=later), kit).get('error', '')
         assert '장부' in run(dict(a, _payments=[]), kit)['error']                                   # the owed line is gone
         sold = {'kind': 'sale', 'id': 'sale-o-m6', 'tx_hash': otx}

@@ -603,6 +603,24 @@ def settle(args, kit):
             hold.close()
 
 
+def _n(v):
+    return str(v or '').strip().lower()
+
+
+def sent_open(kit, order, tx_hash):
+    """review r6/r7 I1: a settle_sent row of this order and payment with no later answer from the market for the same
+    order and payment (settled, or a POST 400 unsettled row carrying post=True). Shared with refund_send.settle_open."""
+    open_ = False
+    for r in _lines(_p(kit, LOG)):
+        if str(r.get('order')) != str(order) or _n(r.get('tx_hash')) != _n(tx_hash):
+            continue
+        if r.get('event') == 'settle_sent':
+            open_ = True
+        elif r.get('event') == 'settled' or (r.get('event') == 'unsettled' and r.get('post') is True):
+            open_ = False
+    return open_
+
+
 def settle_held(args, kit, order, jwt, cm, pm, hx, issued, tx_hash):
     """settle after the refunds lock is held (refunds_hold): the refund check, the market calls, the record."""
     for r in _lines(_p(kit, 'logs/refunds.jsonl')) + _lines(_p(kit, 'logs/sends.jsonl')):
@@ -616,6 +634,11 @@ def settle_held(args, kit, order, jwt, cm, pm, hx, issued, tx_hash):
         if not any(str(s.get('order')) == order for s in _lines(_p(kit, 'logs/sales.jsonl'))):
             _record_sale(kit, done, done.get('seq'), base)
         return {'ok': True, 'settled': True, 'note': '이미 정산된 주문입니다', 'sale': {k: done.get(k) for k in ('order', 'amount', 'tx_hash')}}
+    if sent_open(kit, order, tx_hash):
+        # review r7 I1: an earlier POST of this order and payment has no answer yet; the market may still settle it
+        # (then the unit is gone from our stock), so no unit_gone row here: ask again until the sealed ledger shows it
+        return {'ok': False, 'error': '이 결제의 앞선 정산 요청 결과가 아직 없습니다. 기록하지 않았습니다. 몇 분 뒤 같은 인자로 다시 호출합니다',
+                'retry': True}
     if not unit_now(inventory(kit, args), issued.get('unit')):
         paid = paid_us(kit, args, tx_hash, hx) if tx_hash else False
         if paid is None:
@@ -637,7 +660,7 @@ def settle_held(args, kit, order, jwt, cm, pm, hx, issued, tx_hash):
     checks = (body or {}).get('checks') if isinstance(body, dict) else None
     if code == 400 and isinstance(checks, dict) and checks.get('paid_on_chain') is True \
             and checks.get('transaction_not_used_before') is not False and checks.get('not_settled_before') is not False:
-        _log(kit, dict(base, event='unsettled', reason=[k for k, v in checks.items() if v is False][:8],
+        _log(kit, dict(base, event='unsettled', post=True, reason=[k for k, v in checks.items() if v is False][:8],
                   shop_fee=(body or {}).get('shop_fee')))
         return {'ok': False, 'error': '결제는 체인에 왔지만 시장이 정산을 거절했습니다. 환불은 refund_check_order부터 합니다',
                 'checks': checks, 'refund': True}
